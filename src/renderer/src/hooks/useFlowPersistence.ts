@@ -92,15 +92,9 @@ export const useFlowPersistence = () => {
 
   const confirmIfUnsaved = async (): Promise<boolean> => {
     const { isUnsaved } = useStore.getState()
-
     if (!isUnsaved) return true
 
-    try {
-      return await window.nssimulator.confirmDiscard()
-    } catch (error) {
-      console.error('Error during confirmDiscard:', error)
-      return false
-    }
+    return window.confirm('You have unsaved changes. Discard changes and continue?')
   }
 
   const handleOpenWithCheckIfSaved = useCallback(async () => {

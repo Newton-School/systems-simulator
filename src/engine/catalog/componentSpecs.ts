@@ -1,4 +1,4 @@
-import type { ComponentNode, ComponentType } from '../core/types'
+import type { ComponentCategory, ComponentNode, ComponentType } from '../core/types'
 import type {
   CanvasNodeDataV2,
   ComponentSpec,
@@ -8,12 +8,12 @@ import type {
   StructuralRole
 } from './nodeSpecTypes'
 
-const CATEGORY_MIN_SERVICE_MS = {
+const CATEGORY_MIN_SERVICE_MS: Partial<Record<ComponentCategory, number>> = {
   'storage-and-data': 3,
   'external-and-integration': 50,
   'security-and-identity': 0.5,
   'dns-and-certs': 0.2
-} as const
+}
 
 const TYPE_MEAN_SERVICE_MS: Partial<Record<ComponentType, number>> = {
   'in-memory-cache': 0.1,
