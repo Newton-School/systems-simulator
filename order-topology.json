@@ -1,0 +1,822 @@
+{
+  "id": "order-processing-v1",
+  "name": "Order Processing Platform",
+  "version": "1.0.0",
+  "global": {
+    "simulationDuration": 120000,
+    "warmupDuration": 10000,
+    "seed": "order-platform-2025",
+    "timeResolution": "microsecond",
+    "defaultTimeout": 5000,
+    "traceSampleRate": 0.05
+  },
+  "nodes": [
+    {
+      "id": "api-gw",
+      "type": "api-gateway",
+      "category": "network-and-edge",
+      "label": "API Gateway",
+      "position": {
+        "x": 400,
+        "y": 50
+      },
+      "queue": {
+        "workers": 200,
+        "capacity": 20000,
+        "discipline": "fifo"
+      },
+      "processing": {
+        "distribution": {
+          "type": "constant",
+          "value": 1
+        },
+        "timeout": 30000
+      },
+      "slo": {
+        "latencyP99": 10,
+        "availabilityTarget": 0.999,
+        "errorBudget": 0.001
+      }
+    },
+    {
+      "id": "lb",
+      "type": "load-balancer",
+      "category": "network-and-edge",
+      "label": "Order LB",
+      "position": {
+        "x": 400,
+        "y": 200
+      },
+      "queue": {
+        "workers": 500,
+        "capacity": 50000,
+        "discipline": "fifo"
+      },
+      "processing": {
+        "distribution": {
+          "type": "constant",
+          "value": 0.5
+        },
+        "timeout": 30000
+      }
+    },
+    {
+      "id": "auth-svc",
+      "type": "auth-service",
+      "category": "compute",
+      "label": "Auth Service",
+      "position": {
+        "x": 400,
+        "y": 125
+      },
+      "resources": {
+        "cpu": 4,
+        "memory": 2048,
+        "replicas": 2
+      },
+      "queue": {
+        "workers": 40,
+        "capacity": 800,
+        "discipline": "fifo"
+      },
+      "processing": {
+        "distribution": {
+          "type": "mixture",
+          "components": [
+            {
+              "weight": 0.85,
+              "distribution": {
+                "type": "log-normal",
+                "mu": 1.6,
+                "sigma": 0.2
+              }
+            },
+            {
+              "weight": 0.15,
+              "distribution": {
+                "type": "log-normal",
+                "mu": 3,
+                "sigma": 0.3
+              }
+            }
+          ]
+        },
+        "timeout": 1000
+      },
+      "slo": {
+        "latencyP99": 50,
+        "availabilityTarget": 0.999,
+        "errorBudget": 0.001
+      },
+      "resilience": {
+        "retry": {
+          "maxAttempts": 2,
+          "baseDelay": 20,
+          "maxDelay": 100,
+          "multiplier": 2,
+          "jitter": true
+        }
+      }
+    },
+    {
+      "id": "order-svc-1",
+      "type": "microservice",
+      "category": "compute",
+      "label": "Order Service (A)",
+      "position": {
+        "x": 250,
+        "y": 300
+      },
+      "resources": {
+        "cpu": 8,
+        "memory": 4096,
+        "replicas": 1
+      },
+      "queue": {
+        "workers": 20,
+        "capacity": 400,
+        "discipline": "fifo"
+      },
+      "processing": {
+        "distribution": {
+          "type": "log-normal",
+          "mu": 2.5,
+          "sigma": 0.4
+        },
+        "timeout": 3000
+      },
+      "slo": {
+        "latencyP99": 100,
+        "availabilityTarget": 0.995,
+        "errorBudget": 0.005
+      }
+    },
+    {
+      "id": "order-svc-2",
+      "type": "microservice",
+      "category": "compute",
+      "label": "Order Service (B)",
+      "position": {
+        "x": 550,
+        "y": 300
+      },
+      "resources": {
+        "cpu": 8,
+        "memory": 4096,
+        "replicas": 1
+      },
+      "queue": {
+        "workers": 20,
+        "capacity": 400,
+        "discipline": "fifo"
+      },
+      "processing": {
+        "distribution": {
+          "type": "log-normal",
+          "mu": 2.5,
+          "sigma": 0.4
+        },
+        "timeout": 3000
+      },
+      "slo": {
+        "latencyP99": 100,
+        "availabilityTarget": 0.995,
+        "errorBudget": 0.005
+      }
+    },
+    {
+      "id": "inventory-svc",
+      "type": "microservice",
+      "category": "compute",
+      "label": "Inventory Service",
+      "position": {
+        "x": 400,
+        "y": 400
+      },
+      "resources": {
+        "cpu": 4,
+        "memory": 2048,
+        "replicas": 2
+      },
+      "queue": {
+        "workers": 30,
+        "capacity": 600,
+        "discipline": "fifo"
+      },
+      "processing": {
+        "distribution": {
+          "type": "mixture",
+          "components": [
+            {
+              "weight": 0.9,
+              "distribution": {
+                "type": "log-normal",
+                "mu": 2,
+                "sigma": 0.35
+              }
+            },
+            {
+              "weight": 0.1,
+              "distribution": {
+                "type": "log-normal",
+                "mu": 3.5,
+                "sigma": 0.4
+              }
+            }
+          ]
+        },
+        "timeout": 2000
+      }
+    },
+    {
+      "id": "redis",
+      "type": "in-memory-cache",
+      "category": "storage-and-data",
+      "label": "Redis Cache",
+      "position": {
+        "x": 400,
+        "y": 480
+      },
+      "queue": {
+        "workers": 1000,
+        "capacity": 100000,
+        "discipline": "fifo"
+      },
+      "processing": {
+        "distribution": {
+          "type": "exponential",
+          "lambda": 2
+        },
+        "timeout": 500
+      }
+    },
+    {
+      "id": "payment-svc-v1",
+      "type": "microservice",
+      "category": "compute",
+      "label": "Payment Service (stable)",
+      "position": {
+        "x": 250,
+        "y": 580
+      },
+      "resources": {
+        "cpu": 8,
+        "memory": 8192,
+        "replicas": 3
+      },
+      "queue": {
+        "workers": 24,
+        "capacity": 300,
+        "discipline": "priority"
+      },
+      "processing": {
+        "distribution": {
+          "type": "log-normal",
+          "mu": 3.2,
+          "sigma": 0.5
+        },
+        "timeout": 4000
+      },
+      "slo": {
+        "latencyP99": 200,
+        "availabilityTarget": 0.999,
+        "errorBudget": 0.001
+      },
+      "resilience": {
+        "circuitBreaker": {
+          "failureThreshold": 0.3,
+          "failureCount": 10,
+          "recoveryTimeout": 15000,
+          "halfOpenRequests": 3
+        },
+        "retry": {
+          "maxAttempts": 2,
+          "baseDelay": 50,
+          "maxDelay": 500,
+          "multiplier": 2,
+          "jitter": true
+        }
+      }
+    },
+    {
+      "id": "payment-svc-v2",
+      "type": "microservice",
+      "category": "compute",
+      "label": "Payment Service (canary)",
+      "position": {
+        "x": 550,
+        "y": 580
+      },
+      "resources": {
+        "cpu": 8,
+        "memory": 8192,
+        "replicas": 1
+      },
+      "queue": {
+        "workers": 8,
+        "capacity": 100,
+        "discipline": "priority"
+      },
+      "processing": {
+        "distribution": {
+          "type": "log-normal",
+          "mu": 2.9,
+          "sigma": 0.45
+        },
+        "timeout": 4000
+      },
+      "slo": {
+        "latencyP99": 150,
+        "availabilityTarget": 0.999,
+        "errorBudget": 0.001
+      },
+      "resilience": {
+        "circuitBreaker": {
+          "failureThreshold": 0.3,
+          "failureCount": 10,
+          "recoveryTimeout": 15000,
+          "halfOpenRequests": 3
+        },
+        "retry": {
+          "maxAttempts": 2,
+          "baseDelay": 50,
+          "maxDelay": 500,
+          "multiplier": 2,
+          "jitter": true
+        }
+      }
+    },
+    {
+      "id": "orders-db",
+      "type": "relational-db",
+      "category": "storage-and-data",
+      "label": "Orders DB (PostgreSQL)",
+      "position": {
+        "x": 400,
+        "y": 680
+      },
+      "resources": {
+        "cpu": 16,
+        "memory": 32768,
+        "replicas": 1
+      },
+      "queue": {
+        "workers": 50,
+        "capacity": 2000,
+        "discipline": "fifo"
+      },
+      "processing": {
+        "distribution": {
+          "type": "mixture",
+          "components": [
+            {
+              "weight": 0.92,
+              "distribution": {
+                "type": "log-normal",
+                "mu": 2,
+                "sigma": 0.3
+              }
+            },
+            {
+              "weight": 0.08,
+              "distribution": {
+                "type": "log-normal",
+                "mu": 4,
+                "sigma": 0.4
+              }
+            }
+          ]
+        },
+        "timeout": 5000
+      },
+      "slo": {
+        "latencyP99": 100,
+        "availabilityTarget": 0.9999,
+        "errorBudget": 0.0001
+      }
+    },
+    {
+      "id": "event-bus",
+      "type": "event-bus",
+      "category": "messaging-and-streaming",
+      "label": "Order Event Bus",
+      "position": {
+        "x": 400,
+        "y": 760
+      },
+      "queue": {
+        "workers": 200,
+        "capacity": 50000,
+        "discipline": "fifo"
+      },
+      "processing": {
+        "distribution": {
+          "type": "constant",
+          "value": 2
+        },
+        "timeout": 2000
+      }
+    },
+    {
+      "id": "email-svc",
+      "type": "microservice",
+      "category": "compute",
+      "label": "Email Notification",
+      "position": {
+        "x": 150,
+        "y": 880
+      },
+      "queue": {
+        "workers": 10,
+        "capacity": 1000,
+        "discipline": "fifo"
+      },
+      "processing": {
+        "distribution": {
+          "type": "log-normal",
+          "mu": 3.5,
+          "sigma": 0.8
+        },
+        "timeout": 10000
+      }
+    },
+    {
+      "id": "warehouse-svc",
+      "type": "microservice",
+      "category": "compute",
+      "label": "Warehouse Fulfillment",
+      "position": {
+        "x": 400,
+        "y": 880
+      },
+      "queue": {
+        "workers": 15,
+        "capacity": 500,
+        "discipline": "fifo"
+      },
+      "processing": {
+        "distribution": {
+          "type": "log-normal",
+          "mu": 3,
+          "sigma": 0.5
+        },
+        "timeout": 8000
+      }
+    },
+    {
+      "id": "analytics-svc",
+      "type": "microservice",
+      "category": "compute",
+      "label": "Analytics Ingest",
+      "position": {
+        "x": 650,
+        "y": 880
+      },
+      "queue": {
+        "workers": 100,
+        "capacity": 10000,
+        "discipline": "fifo"
+      },
+      "processing": {
+        "distribution": {
+          "type": "log-normal",
+          "mu": 1.8,
+          "sigma": 0.3
+        },
+        "timeout": 3000
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "e-apigw-auth",
+      "source": "api-gw",
+      "target": "auth-svc",
+      "label": "authenticate",
+      "mode": "synchronous",
+      "protocol": "https",
+      "latency": {
+        "distribution": {
+          "type": "constant",
+          "value": 1
+        },
+        "pathType": "same-dc"
+      },
+      "bandwidth": 10000,
+      "maxConcurrentRequests": 10000,
+      "packetLossRate": 0,
+      "errorRate": 0
+    },
+    {
+      "id": "e-auth-lb",
+      "source": "auth-svc",
+      "target": "lb",
+      "label": "route",
+      "mode": "synchronous",
+      "protocol": "grpc",
+      "latency": {
+        "distribution": {
+          "type": "constant",
+          "value": 1
+        },
+        "pathType": "same-dc"
+      },
+      "bandwidth": 10000,
+      "maxConcurrentRequests": 10000,
+      "packetLossRate": 0,
+      "errorRate": 0
+    },
+    {
+      "id": "e-lb-order1",
+      "source": "lb",
+      "target": "order-svc-1",
+      "label": "replica-a",
+      "mode": "synchronous",
+      "protocol": "grpc",
+      "latency": {
+        "distribution": {
+          "type": "constant",
+          "value": 1
+        },
+        "pathType": "same-dc"
+      },
+      "bandwidth": 10000,
+      "maxConcurrentRequests": 5000,
+      "packetLossRate": 0,
+      "errorRate": 0
+    },
+    {
+      "id": "e-lb-order2",
+      "source": "lb",
+      "target": "order-svc-2",
+      "label": "replica-b",
+      "mode": "synchronous",
+      "protocol": "grpc",
+      "latency": {
+        "distribution": {
+          "type": "constant",
+          "value": 1
+        },
+        "pathType": "same-dc"
+      },
+      "bandwidth": 10000,
+      "maxConcurrentRequests": 5000,
+      "packetLossRate": 0,
+      "errorRate": 0
+    },
+    {
+      "id": "e-order1-inventory",
+      "source": "order-svc-1",
+      "target": "inventory-svc",
+      "mode": "synchronous",
+      "protocol": "grpc",
+      "latency": {
+        "distribution": {
+          "type": "constant",
+          "value": 1
+        },
+        "pathType": "same-dc"
+      },
+      "bandwidth": 10000,
+      "maxConcurrentRequests": 5000,
+      "packetLossRate": 0,
+      "errorRate": 0
+    },
+    {
+      "id": "e-order2-inventory",
+      "source": "order-svc-2",
+      "target": "inventory-svc",
+      "mode": "synchronous",
+      "protocol": "grpc",
+      "latency": {
+        "distribution": {
+          "type": "constant",
+          "value": 1
+        },
+        "pathType": "same-dc"
+      },
+      "bandwidth": 10000,
+      "maxConcurrentRequests": 5000,
+      "packetLossRate": 0,
+      "errorRate": 0
+    },
+    {
+      "id": "e-inventory-redis",
+      "source": "inventory-svc",
+      "target": "redis",
+      "mode": "synchronous",
+      "protocol": "tcp",
+      "latency": {
+        "distribution": {
+          "type": "constant",
+          "value": 0.5
+        },
+        "pathType": "same-rack"
+      },
+      "bandwidth": 10000,
+      "maxConcurrentRequests": 50000,
+      "packetLossRate": 0,
+      "errorRate": 0
+    },
+    {
+      "id": "e-redis-payment-v1",
+      "source": "redis",
+      "target": "payment-svc-v1",
+      "label": "stable (90%)",
+      "mode": "synchronous",
+      "protocol": "grpc",
+      "weight": 9,
+      "latency": {
+        "distribution": {
+          "type": "constant",
+          "value": 2
+        },
+        "pathType": "same-dc"
+      },
+      "bandwidth": 10000,
+      "maxConcurrentRequests": 2000,
+      "packetLossRate": 0,
+      "errorRate": 0
+    },
+    {
+      "id": "e-redis-payment-v2",
+      "source": "redis",
+      "target": "payment-svc-v2",
+      "label": "canary (10%)",
+      "mode": "synchronous",
+      "protocol": "grpc",
+      "weight": 1,
+      "latency": {
+        "distribution": {
+          "type": "constant",
+          "value": 2
+        },
+        "pathType": "same-dc"
+      },
+      "bandwidth": 10000,
+      "maxConcurrentRequests": 500,
+      "packetLossRate": 0,
+      "errorRate": 0
+    },
+    {
+      "id": "e-payment-v1-db",
+      "source": "payment-svc-v1",
+      "target": "orders-db",
+      "label": "persist",
+      "mode": "synchronous",
+      "protocol": "tcp",
+      "latency": {
+        "distribution": {
+          "type": "constant",
+          "value": 1
+        },
+        "pathType": "same-dc"
+      },
+      "bandwidth": 10000,
+      "maxConcurrentRequests": 1000,
+      "packetLossRate": 0,
+      "errorRate": 0
+    },
+    {
+      "id": "e-payment-v2-db",
+      "source": "payment-svc-v2",
+      "target": "orders-db",
+      "label": "persist",
+      "mode": "synchronous",
+      "protocol": "tcp",
+      "latency": {
+        "distribution": {
+          "type": "constant",
+          "value": 1
+        },
+        "pathType": "same-dc"
+      },
+      "bandwidth": 10000,
+      "maxConcurrentRequests": 1000,
+      "packetLossRate": 0,
+      "errorRate": 0
+    },
+    {
+      "id": "e-payment-v1-events",
+      "source": "payment-svc-v1",
+      "target": "event-bus",
+      "label": "order.created",
+      "mode": "asynchronous",
+      "protocol": "kafka",
+      "latency": {
+        "distribution": {
+          "type": "constant",
+          "value": 3
+        },
+        "pathType": "same-dc"
+      },
+      "bandwidth": 10000,
+      "maxConcurrentRequests": 10000,
+      "packetLossRate": 0,
+      "errorRate": 0
+    },
+    {
+      "id": "e-payment-v2-events",
+      "source": "payment-svc-v2",
+      "target": "event-bus",
+      "label": "order.created",
+      "mode": "asynchronous",
+      "protocol": "kafka",
+      "latency": {
+        "distribution": {
+          "type": "constant",
+          "value": 3
+        },
+        "pathType": "same-dc"
+      },
+      "bandwidth": 10000,
+      "maxConcurrentRequests": 10000,
+      "packetLossRate": 0,
+      "errorRate": 0
+    },
+    {
+      "id": "e-events-email",
+      "source": "event-bus",
+      "target": "email-svc",
+      "label": "notify.customer",
+      "mode": "asynchronous",
+      "protocol": "amqp",
+      "latency": {
+        "distribution": {
+          "type": "constant",
+          "value": 2
+        },
+        "pathType": "same-dc"
+      },
+      "bandwidth": 1000,
+      "maxConcurrentRequests": 500,
+      "packetLossRate": 0,
+      "errorRate": 0
+    },
+    {
+      "id": "e-events-warehouse",
+      "source": "event-bus",
+      "target": "warehouse-svc",
+      "label": "fulfillment.start",
+      "mode": "asynchronous",
+      "protocol": "amqp",
+      "latency": {
+        "distribution": {
+          "type": "constant",
+          "value": 2
+        },
+        "pathType": "same-dc"
+      },
+      "bandwidth": 1000,
+      "maxConcurrentRequests": 500,
+      "packetLossRate": 0,
+      "errorRate": 0
+    },
+    {
+      "id": "e-events-analytics",
+      "source": "event-bus",
+      "target": "analytics-svc",
+      "label": "event.ingest",
+      "mode": "asynchronous",
+      "protocol": "kafka",
+      "latency": {
+        "distribution": {
+          "type": "constant",
+          "value": 1
+        },
+        "pathType": "same-dc"
+      },
+      "bandwidth": 10000,
+      "maxConcurrentRequests": 5000,
+      "packetLossRate": 0,
+      "errorRate": 0
+    }
+  ],
+  "workload": {
+    "sourceNodeId": "api-gw",
+    "pattern": "bursty",
+    "baseRps": 100,
+    "bursty": {
+      "burstRps": 400,
+      "burstDuration": 15000,
+      "normalDuration": 40000
+    },
+    "requestDistribution": [
+      {
+        "type": "POST",
+        "weight": 0.6,
+        "sizeBytes": 2048
+      },
+      {
+        "type": "GET",
+        "weight": 0.3,
+        "sizeBytes": 256
+      },
+      {
+        "type": "DELETE",
+        "weight": 0.1,
+        "sizeBytes": 128
+      }
+    ]
+  }
+}

@@ -2,7 +2,7 @@
 
 > Draw a distributed system. Press Run. Watch it break — before you ship it.
 
-A desktop application for simulating, stress-testing, and analysing high-level system designs using **Discrete Event Simulation (DES)**. Built on Electron + React, powered by a G/G/c/K queueing engine under the hood.
+A browser-hosted application for simulating, stress-testing, and analysing high-level system designs using **Discrete Event Simulation (DES)**. Built on React, Vite, and a G/G/c/K queueing engine under the hood.
 
 ---
 
@@ -76,8 +76,8 @@ flowchart TD
         B3["Draw edge → onConnect() → addEdge()"]
         B4["Select node → PropertiesPanel reads store"]
         B5["Edit config → updateNodeData() → store"]
-        B6["Save → JSON.stringify(nodes + edges) → FileService → IPC → fs.writeFile"]
-        B7["Open → fs.readFile → IPC → FileService → setNodes() & setEdges()"]
+        B6["Save → JSON.stringify(nodes + edges) → FileService → browser file API or download"]
+        B7["Open → File picker → FileService → setNodes() & setEdges()"]
         B1 --> B2 --> B3 --> B4 --> B5
         B5 --> B6
     end
@@ -90,8 +90,8 @@ flowchart TD
 3. Connect nodes → `addEdge()` updates store.
 4. Select a node → `PropertiesPanel` reads state.
 5. Edit config → `updateNodeData()` updates state.
-6. Save → serialized JSON → FileService → IPC → filesystem.
-7. Open → file read → state restored.
+6. Save → serialized JSON → FileService → browser file API or download fallback.
+7. Open → file picker → state restored.
 
 ---
 
@@ -165,8 +165,8 @@ flowchart LR
 
 | Layer             | Technology                                           |
 | ----------------- | ---------------------------------------------------- |
-| Desktop shell     | Electron 38                                          |
-| Build system      | electron-vite + Vite 7                               |
+| App shell         | Browser-hosted SPA                                   |
+| Build system      | Vite 7                                               |
 | UI framework      | React 19 + TypeScript 5                              |
 | Styling           | Tailwind CSS 3                                       |
 | Canvas            | React Flow 11                                        |
@@ -362,7 +362,7 @@ Fields that are not wired to runtime behavior are hidden from the default inspec
 | Node types (Compute, Service, VPC)             | Done    |
 | Atomic design system (atoms → organisms)       | Done    |
 | Zustand topology store                         | Done    |
-| File save / load via Electron IPC              | Done    |
+| File save / load via browser file APIs         | Done    |
 | Simulation engine (DES loop)                   | Planned |
 | Inspector panel                                | Planned |
 | Scenario bar (workload + faults + controls)    | Planned |

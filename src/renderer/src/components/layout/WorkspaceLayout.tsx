@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Panel, PanelGroup, ImperativePanelHandle } from 'react-resizable-panels'
 
 // Store
@@ -6,6 +6,7 @@ import useStore from '@renderer/store/useStore'
 
 // Hooks
 import { useFlowPersistence } from '@renderer/hooks/useFlowPersistence'
+import { useConfirmDialog } from '@renderer/hooks/useConfirmDialog'
 import { useSimulation } from '@renderer/hooks/useSimulation'
 import { useTopologySerializer } from '@renderer/hooks/useTopologySerializer'
 import { validateTopology } from '../../../../engine/validation/validator'
@@ -60,8 +61,6 @@ export const WorkspaceLayout = () => {
     else rightPanelRef.current?.collapse()
   }, [isRightOpen])
 
-  const { handleSave, handleOpen } = useFlowPersistence()
-
   const fileName = useStore((s) => s.fileName)
   const isUnsaved = useStore((s) => s.isUnsaved)
   const nodes = useStore((s) => s.nodes)
@@ -69,8 +68,35 @@ export const WorkspaceLayout = () => {
   const updateScenario = useStore((s) => s.updateScenario)
   const setSimulationMetrics = useStore((s) => s.setSimulationMetrics)
   const clearSimulationMetrics = useStore((s) => s.clearSimulationMetrics)
+  const { confirm, dialog } = useConfirmDialog()
+  const confirmDiscardChanges = useCallback(
+    () =>
+      confirm({
+        title: 'Discard unsaved changes?',
+        description: 'Open another scenario and lose the edits in the current workspace?',
+        confirmLabel: 'Discard and Open',
+        cancelLabel: 'Keep Editing'
+      }),
+    [confirm]
+  )
+
+  const { handleSave, handleOpen } = useFlowPersistence(confirmDiscardChanges)
 
   const selectedNodeId = nodes.find((n) => n.selected)?.id
+
+  useEffect(() => {
+    if (!isUnsaved) {
+      return
+    }
+
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault()
+      event.returnValue = ''
+    }
+
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+  }, [isUnsaved])
 
   useEffect(() => {
     if (selectedNodeId) {
@@ -261,6 +287,8 @@ export const WorkspaceLayout = () => {
           </Panel>
         </PanelGroup>
       </div>
+
+      {dialog}
     </div>
   )
 }

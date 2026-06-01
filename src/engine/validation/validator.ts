@@ -474,7 +474,7 @@ export const validateTopology = (input: unknown): ValidationResult => {
     return { valid: false, errors, warnings }
   }
 
-  const topology = parseResult.data as TopologyJSON
+  const topology = parseResult.data as unknown as TopologyJSON
 
   //Cross-Reference Validations
   const nodeIds = new Set<string>()

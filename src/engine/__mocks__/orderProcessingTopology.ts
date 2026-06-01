@@ -6,16 +6,16 @@ import { TopologyJSON } from '../core/types'
  * Architecture overview:
  *
  *   [api-gw] → [auth-svc] → [lb] ─ round-robin ─┬─ [order-svc-1] ─┐
- *                                                 └─ [order-svc-2] ─┤
- *                                                                    ↓
+ *                                               └─ [order-svc-2] ─┤
+ *                                                                 ↓
  *                                                            [inventory-svc]
- *                                                                    ↓
+ *                                                                 ↓
  *                                                               [redis]
  *                                                 ┌── weight 0.9 ──↙ ↘── weight 0.1 ──┐
  *                                          [payment-svc-v1]              [payment-svc-v2]
  *                                           ↓ sync  ↓ async              ↓ sync  ↓ async
  *                                        [orders-db] [event-bus]      [orders-db] [event-bus]
- *                                                         ↓ async fan-out
+ *                                                        ↓ async fan-out
  *                                           ┌────────────┼────────────┐
  *                                      [email-svc] [warehouse-svc] [analytics-svc]
  *
