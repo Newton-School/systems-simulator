@@ -2,18 +2,21 @@ import { resolve } from 'node:path'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
 
+const rendererRoot = resolve(__dirname, 'src/renderer')
+const sourceRoot = resolve(__dirname, 'src')
+
 export default defineConfig({
-  root: resolve(__dirname, 'src/renderer'),
+  root: rendererRoot,
   base: './',
   plugins: [react({})],
   resolve: {
     alias: {
-      '@renderer': resolve(__dirname, 'src/renderer/src')
+      '@renderer': resolve(rendererRoot, 'src')
     }
   },
   server: {
     fs: {
-      allow: [resolve(__dirname)]
+      allow: [sourceRoot]
     }
   },
   build: {

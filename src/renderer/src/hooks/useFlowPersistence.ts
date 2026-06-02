@@ -109,7 +109,7 @@ export const useFlowPersistence = (confirmDiscardChanges: () => Promise<boolean>
     handleLoadFileData
   )
 
-  const confirmIfUnsaved = async (): Promise<boolean> => {
+  const confirmIfUnsaved = useCallback(async (): Promise<boolean> => {
     const { isUnsaved } = useStore.getState()
 
     if (!isUnsaved) return true
@@ -120,14 +120,14 @@ export const useFlowPersistence = (confirmDiscardChanges: () => Promise<boolean>
       console.error('Error during confirmDiscard:', error)
       return false
     }
-  }
+  }, [confirmDiscardChanges])
 
   const handleOpenWithCheckIfSaved = useCallback(async () => {
     const ok = await confirmIfUnsaved()
     if (!ok) return
 
-    handleOpen()
-  }, [handleOpen])
+    await handleOpen()
+  }, [confirmIfUnsaved, handleOpen])
 
   const handleSaveWrapper = useCallback(async () => {
     const savedFile = await innerSave(normalizeSuggestedFileName(useStore.getState().fileName))
