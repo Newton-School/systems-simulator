@@ -1,10 +1,12 @@
 import { useEffect, useId, useMemo, useState } from 'react'
+import type { KeyboardEvent } from 'react'
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react'
 import type { SimulationOutput } from '../../../../engine/analysis/output'
 import type { DebugEvent } from '../../../../engine/core/event-stream'
 import { projectToDebugEvent } from '../../../../engine/core/event-stream'
 import type { SimulationStatus } from '../../hooks/useSimulation'
-import type { ScenarioRunContext } from '@renderer/types/ui'
+import useStore from '../../store/useStore'
+import type { EdgeSimulationData, ScenarioRunContext } from '@renderer/types/ui'
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
@@ -16,6 +18,19 @@ interface ResultsTrayProps {
   error: string | null
   runContext: ScenarioRunContext | null
   onClose?: () => void
+}
+
+interface EventEdgeDisplayInfo {
+  label?: string
+  source?: string
+  target?: string
+  protocol?: string
+  mode?: string
+}
+
+interface EventGraphLookup {
+  nodeLabelById: Map<string, string>
+  edgeById: Map<string, EventEdgeDisplayInfo>
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -113,7 +128,54 @@ function eventStatusClass(status: DebugEvent['status']): string {
   }
 }
 
-function eventMatchesQuery(event: DebugEvent, query: string): boolean {
+function includesTerm(value: string | undefined, term: string): boolean {
+  return value?.toLowerCase().includes(term) ?? false
+}
+
+function labelForNode(nodeId: string | undefined, lookup: EventGraphLookup): string | undefined {
+  return nodeId ? lookup.nodeLabelById.get(nodeId) : undefined
+}
+
+function nodeDisplayName(event: DebugEvent, lookup: EventGraphLookup): string {
+  return labelForNode(event.nodeId, lookup) ?? event.nodeId ?? '—'
+}
+
+function routeDisplayName(event: DebugEvent, lookup: EventGraphLookup): string {
+  const edge = event.edgeId ? lookup.edgeById.get(event.edgeId) : undefined
+  const sourceId = event.sourceNodeId ?? edge?.source
+  const targetId = event.targetNodeId ?? edge?.target
+  const source = labelForNode(sourceId, lookup) ?? sourceId
+  const target = labelForNode(targetId, lookup) ?? targetId
+
+  return source || target ? `${source ?? '—'} → ${target ?? '—'}` : '—'
+}
+
+function edgeDisplay(
+  event: DebugEvent,
+  lookup: EventGraphLookup
+): { primary: string; secondary?: string; title?: string } {
+  const edge = event.edgeId ? lookup.edgeById.get(event.edgeId) : undefined
+  const route = routeDisplayName(event, lookup)
+  const hasRoute = route !== '—'
+  const protocolMode = [edge?.protocol, edge?.mode].filter(Boolean).join(' / ')
+  const primary = edge?.label ?? (hasRoute ? route : event.edgeId) ?? '—'
+  const secondaryParts: string[] = []
+
+  if (edge?.label && hasRoute) {
+    secondaryParts.push(route)
+  }
+  if (protocolMode) {
+    secondaryParts.push(protocolMode)
+  }
+
+  return {
+    primary,
+    secondary: secondaryParts.length > 0 ? secondaryParts.join(' • ') : undefined,
+    title: [event.edgeId, edge?.label, route, protocolMode].filter(Boolean).join(' | ')
+  }
+}
+
+function eventMatchesQuery(event: DebugEvent, query: string, lookup: EventGraphLookup): boolean {
   const normalized = query.trim()
   if (normalized.length === 0) {
     return true
@@ -121,14 +183,20 @@ function eventMatchesQuery(event: DebugEvent, query: string): boolean {
 
   return normalized
     .split(/\s+OR\s+/i)
-    .some((group) => group.split(/\s+AND\s+/i).every((term) => eventMatchesTerm(event, term)))
+    .some((group) =>
+      group.split(/\s+AND\s+/i).every((term) => eventMatchesTerm(event, term, lookup))
+    )
 }
 
-function eventMatchesTerm(event: DebugEvent, rawTerm: string): boolean {
+function eventMatchesTerm(event: DebugEvent, rawTerm: string, lookup: EventGraphLookup): boolean {
   const term = rawTerm.trim()
   if (term.length === 0) {
     return true
   }
+
+  const edge = event.edgeId ? lookup.edgeById.get(event.edgeId) : undefined
+  const sourceId = event.sourceNodeId ?? edge?.source
+  const targetId = event.targetNodeId ?? edge?.target
 
   const [field, ...rest] = term.split(':')
   const value = rest.join(':').toLowerCase()
@@ -138,11 +206,27 @@ function eventMatchesTerm(event: DebugEvent, rawTerm: string): boolean {
 
   switch (field.toLowerCase()) {
     case 'request':
-      return event.requestId?.toLowerCase().includes(value) ?? false
+      return includesTerm(event.requestId, value)
     case 'node':
-      return event.nodeId?.toLowerCase().includes(value) ?? false
+      return (
+        includesTerm(event.nodeId, value) ||
+        includesTerm(labelForNode(event.nodeId, lookup), value) ||
+        includesTerm(sourceId, value) ||
+        includesTerm(labelForNode(sourceId, lookup), value) ||
+        includesTerm(targetId, value) ||
+        includesTerm(labelForNode(targetId, lookup), value)
+      )
     case 'edge':
-      return event.edgeId?.toLowerCase().includes(value) ?? false
+      return (
+        includesTerm(event.edgeId, value) ||
+        includesTerm(edge?.label, value) ||
+        includesTerm(edge?.protocol, value) ||
+        includesTerm(edge?.mode, value) ||
+        includesTerm(sourceId, value) ||
+        includesTerm(labelForNode(sourceId, lookup), value) ||
+        includesTerm(targetId, value) ||
+        includesTerm(labelForNode(targetId, lookup), value)
+      )
     case 'status':
       return event.status.toLowerCase() === value
     case 'type':
@@ -724,7 +808,13 @@ function PerNodeTable({ output }: { output: SimulationOutput }) {
 
 // ─── Replay Preview ──────────────────────────────────────────────────────────
 
-function ReplayPreview({ output }: { output: SimulationOutput }) {
+function ReplayPreview({
+  output,
+  graphLookup
+}: {
+  output: SimulationOutput
+  graphLookup: EventGraphLookup
+}) {
   const [sequence, setSequence] = useState(0)
   const maxSequence = Math.max(0, output.eventStream.length - 1)
 
@@ -738,6 +828,8 @@ function ReplayPreview({ output }: { output: SimulationOutput }) {
   if (!debugEvent) {
     return null
   }
+
+  const currentEdge = edgeDisplay(debugEvent, graphLookup)
 
   const buttonClass =
     'h-7 w-7 inline-flex items-center justify-center rounded border border-nss-border text-nss-muted hover:text-nss-text hover:bg-nss-surface transition-colors disabled:opacity-40 disabled:hover:bg-transparent'
@@ -806,16 +898,9 @@ function ReplayPreview({ output }: { output: SimulationOutput }) {
           <StatCard label="Type" value={debugEvent.type} />
           <StatCard label="Status" value={debugEvent.status} />
           <StatCard label="Request" value={debugEvent.requestId ?? '—'} />
-          <StatCard label="Node" value={debugEvent.nodeId ?? '—'} />
-          <StatCard label="Edge" value={debugEvent.edgeId ?? '—'} />
-          <StatCard
-            label="Route"
-            value={
-              debugEvent.sourceNodeId || debugEvent.targetNodeId
-                ? `${debugEvent.sourceNodeId ?? '—'} → ${debugEvent.targetNodeId ?? '—'}`
-                : '—'
-            }
-          />
+          <StatCard label="Node" value={nodeDisplayName(debugEvent, graphLookup)} />
+          <StatCard label="Edge" value={currentEdge.primary} />
+          <StatCard label="Route" value={routeDisplayName(debugEvent, graphLookup)} />
         </div>
 
         {(debugEvent.reasonCode || debugEvent.nodeSnapshot) && (
@@ -834,18 +919,26 @@ function ReplayPreview({ output }: { output: SimulationOutput }) {
   )
 }
 
-function EventLog({ output }: { output: SimulationOutput }) {
+function EventLog({
+  output,
+  graphLookup
+}: {
+  output: SimulationOutput
+  graphLookup: EventGraphLookup
+}) {
   const [isOpen, setIsOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [page, setPage] = useState(0)
+  const [activeSequence, setActiveSequence] = useState<number | null>(null)
+  const selectGraphElements = useStore((state) => state.selectGraphElements)
   const eventCount = output.eventStream.length
   const debugEvents = useMemo(
     () => (isOpen ? output.eventStream.map((event) => projectToDebugEvent(event)) : []),
     [isOpen, output.eventStream]
   )
   const visibleEvents = useMemo(
-    () => debugEvents.filter((event) => eventMatchesQuery(event, query)),
-    [debugEvents, query]
+    () => debugEvents.filter((event) => eventMatchesQuery(event, query, graphLookup)),
+    [debugEvents, query, graphLookup]
   )
   const summary = useMemo(
     () =>
@@ -868,6 +961,27 @@ function EventLog({ output }: { output: SimulationOutput }) {
   useEffect(() => {
     setPage(0)
   }, [query, eventCount])
+
+  function selectEventTarget(event: DebugEvent): void {
+    if (!event.nodeId && !event.edgeId) {
+      return
+    }
+
+    setActiveSequence(event.sequence)
+    selectGraphElements({ nodeId: event.nodeId, edgeId: event.edgeId })
+  }
+
+  function handleRowKeyDown(
+    keyboardEvent: KeyboardEvent<HTMLTableRowElement>,
+    event: DebugEvent
+  ): void {
+    if (keyboardEvent.key !== 'Enter' && keyboardEvent.key !== ' ') {
+      return
+    }
+
+    keyboardEvent.preventDefault()
+    selectEventTarget(event)
+  }
 
   if (eventCount === 0) {
     return null
@@ -929,32 +1043,64 @@ function EventLog({ output }: { output: SimulationOutput }) {
                     <th className="text-left py-1.5 px-2">Type</th>
                     <th className="text-left py-1.5 px-2">Request</th>
                     <th className="text-left py-1.5 px-2">Node</th>
-                    <th className="text-left py-1.5 px-2">Edge</th>
+                    <th className="text-left py-1.5 px-2">Edge / Route</th>
                     <th className="text-left py-1.5 px-2">Status</th>
                     <th className="text-left py-1.5 px-2">Reason</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((event) => (
-                    <tr key={event.sequence} className="border-b border-nss-border hover:bg-nss-bg">
-                      <td className="text-right py-1 px-2 text-nss-muted">{event.sequence}</td>
-                      <td className="text-right py-1 px-2 text-nss-muted">
-                        {fmtEventTime(event.timestampMs)}
-                      </td>
-                      <td className="py-1 px-2 text-nss-text whitespace-nowrap">{event.type}</td>
-                      <td className="py-1 px-2 text-nss-muted">{event.requestId ?? '—'}</td>
-                      <td className="py-1 px-2 text-nss-muted">{event.nodeId ?? '—'}</td>
-                      <td className="py-1 px-2 text-nss-muted">{event.edgeId ?? '—'}</td>
-                      <td className="py-1 px-2">
-                        <span
-                          className={`px-1.5 py-0.5 rounded border ${eventStatusClass(event.status)}`}
-                        >
-                          {event.status}
-                        </span>
-                      </td>
-                      <td className="py-1 px-2 text-nss-muted">{event.reasonCode ?? '—'}</td>
-                    </tr>
-                  ))}
+                  {rows.map((event) => {
+                    const edge = edgeDisplay(event, graphLookup)
+                    const isActive = activeSequence === event.sequence
+                    const isSelectable = Boolean(event.nodeId || event.edgeId)
+                    return (
+                      <tr
+                        key={event.sequence}
+                        tabIndex={isSelectable ? 0 : undefined}
+                        aria-selected={isActive}
+                        onClick={() => selectEventTarget(event)}
+                        onKeyDown={(keyboardEvent) => handleRowKeyDown(keyboardEvent, event)}
+                        className={`border-b border-nss-border outline-none ${
+                          isSelectable ? 'cursor-pointer hover:bg-nss-bg focus:bg-nss-bg' : ''
+                        } ${
+                          isActive ? 'bg-nss-primary/10 ring-1 ring-inset ring-nss-primary/30' : ''
+                        }`}
+                      >
+                        <td className="text-right py-1 px-2 text-nss-muted">{event.sequence}</td>
+                        <td className="text-right py-1 px-2 text-nss-muted">
+                          {fmtEventTime(event.timestampMs)}
+                        </td>
+                        <td className="py-1 px-2 text-nss-text whitespace-nowrap">{event.type}</td>
+                        <td className="py-1 px-2 text-nss-muted">{event.requestId ?? '—'}</td>
+                        <td className="py-1 px-2 text-nss-muted max-w-32" title={event.nodeId}>
+                          <div className="truncate text-nss-text">
+                            {nodeDisplayName(event, graphLookup)}
+                          </div>
+                          {labelForNode(event.nodeId, graphLookup) && event.nodeId && (
+                            <div className="truncate text-[10px] text-nss-muted">
+                              {event.nodeId}
+                            </div>
+                          )}
+                        </td>
+                        <td className="py-1 px-2 text-nss-muted max-w-48" title={edge.title}>
+                          <div className="truncate text-nss-text">{edge.primary}</div>
+                          {edge.secondary && (
+                            <div className="truncate text-[10px] text-nss-muted">
+                              {edge.secondary}
+                            </div>
+                          )}
+                        </td>
+                        <td className="py-1 px-2">
+                          <span
+                            className={`px-1.5 py-0.5 rounded border ${eventStatusClass(event.status)}`}
+                          >
+                            {event.status}
+                          </span>
+                        </td>
+                        <td className="py-1 px-2 text-nss-muted">{event.reasonCode ?? '—'}</td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>
@@ -1024,6 +1170,33 @@ export function ResultsTray({
   runContext,
   onClose
 }: ResultsTrayProps) {
+  const nodes = useStore((state) => state.nodes)
+  const edges = useStore((state) => state.edges)
+  const graphLookup = useMemo<EventGraphLookup>(() => {
+    const nodeLabelById = new Map<string, string>()
+    const edgeById = new Map<string, EventEdgeDisplayInfo>()
+
+    for (const node of nodes) {
+      const label = (node.data as { label?: unknown } | undefined)?.label
+      if (typeof label === 'string' && label.length > 0) {
+        nodeLabelById.set(node.id, label)
+      }
+    }
+
+    for (const edge of edges) {
+      const data = edge.data as Partial<EdgeSimulationData> | undefined
+      edgeById.set(edge.id, {
+        label: typeof edge.label === 'string' && edge.label.length > 0 ? edge.label : undefined,
+        source: edge.source,
+        target: edge.target,
+        protocol: data?.protocol,
+        mode: data?.mode
+      })
+    }
+
+    return { nodeLabelById, edgeById }
+  }, [nodes, edges])
+
   if (status === 'idle') return null
 
   return (
@@ -1067,8 +1240,8 @@ export function ResultsTray({
           <SummaryPanel output={results} />
           <SimulationHealth output={results} />
           <PerNodeTable output={results} />
-          <ReplayPreview output={results} />
-          <EventLog output={results} />
+          <ReplayPreview output={results} graphLookup={graphLookup} />
+          <EventLog output={results} graphLookup={graphLookup} />
 
           {/* Footer — debug info */}
           <div className="text-[10px] text-nss-muted pb-2 flex flex-wrap gap-x-3 gap-y-1">
