@@ -33,6 +33,8 @@ interface EventGraphLookup {
   edgeById: Map<string, EventEdgeDisplayInfo>
 }
 
+type ResultsTab = 'overview' | 'bottlenecks' | 'nodes' | 'traffic'
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function fmtMs(ms: number): string {
@@ -78,6 +80,12 @@ function clampSequence(sequence: number, maxSequence: number): number {
 const SECTION_TITLE = 'text-[11px] font-semibold text-nss-muted uppercase tracking-wider'
 const SURFACE_CARD = 'bg-nss-surface border border-nss-border rounded-md'
 const EVENT_LOG_PAGE_SIZE = 50
+const RESULTS_TABS: Array<{ id: ResultsTab; label: string }> = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'bottlenecks', label: 'Bottlenecks' },
+  { id: 'nodes', label: 'Nodes' },
+  { id: 'traffic', label: 'Traffic' }
+]
 
 const E2E_PERCENTILE_TOOLTIPS: Record<'p50' | 'p90' | 'p95' | 'p99' | 'max', string> = {
   p50: 'Median end-to-end latency. Half of requests were faster than this, half slower.',
@@ -926,7 +934,7 @@ function EventLog({
   output: SimulationOutput
   graphLookup: EventGraphLookup
 }) {
-  const [isOpen, setIsOpen] = useState(false)
+  const [isOpen, setIsOpen] = useState(true)
   const [query, setQuery] = useState('')
   const [page, setPage] = useState(0)
   const [activeSequence, setActiveSequence] = useState<number | null>(null)
@@ -1159,6 +1167,33 @@ function StatusBadge({ status }: { status: SimulationStatus }) {
   return <span className={`text-xs font-medium ${cls}`}>{label}</span>
 }
 
+function TabButton({
+  tab,
+  activeTab,
+  onSelect
+}: {
+  tab: (typeof RESULTS_TABS)[number]
+  activeTab: ResultsTab
+  onSelect: (tab: ResultsTab) => void
+}) {
+  const isActive = activeTab === tab.id
+
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(tab.id)}
+      className={`h-8 px-3 rounded-md border text-xs font-semibold whitespace-nowrap transition-colors ${
+        isActive
+          ? 'bg-nss-primary text-white border-nss-primary'
+          : 'bg-nss-surface text-nss-muted border-nss-border hover:text-nss-text hover:bg-nss-bg'
+      }`}
+      aria-pressed={isActive}
+    >
+      {tab.label}
+    </button>
+  )
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export function ResultsTray({
@@ -1170,6 +1205,7 @@ export function ResultsTray({
   runContext,
   onClose
 }: ResultsTrayProps) {
+  const [activeTab, setActiveTab] = useState<ResultsTab>('overview')
   const nodes = useStore((state) => state.nodes)
   const edges = useStore((state) => state.edges)
   const graphLookup = useMemo<EventGraphLookup>(() => {
@@ -1196,6 +1232,12 @@ export function ResultsTray({
 
     return { nodeLabelById, edgeById }
   }, [nodes, edges])
+
+  useEffect(() => {
+    if (results) {
+      setActiveTab('overview')
+    }
+  }, [results])
 
   if (status === 'idle') return null
 
@@ -1235,22 +1277,43 @@ export function ResultsTray({
 
       {/* Results */}
       {results && (
-        <div className="flex-1 overflow-y-auto px-4 py-3 space-y-5">
-          {runContext && <RunContextPanel runContext={runContext} />}
-          <SummaryPanel output={results} />
-          <SimulationHealth output={results} />
-          <PerNodeTable output={results} />
-          <ReplayPreview output={results} graphLookup={graphLookup} />
-          <EventLog output={results} graphLookup={graphLookup} />
-
-          {/* Footer — debug info */}
-          <div className="text-[10px] text-nss-muted pb-2 flex flex-wrap gap-x-3 gap-y-1">
-            <span>Seed: {results.seed}</span>
-            <span>Reproducible: {results.reproducible ? 'yes' : 'no'}</span>
-            <span>{eventsProcessed.toLocaleString()} events processed</span>
-            <span>{results.eventStream.length.toLocaleString()} replay events</span>
+        <>
+          <div className="shrink-0 px-4 py-2 border-b border-nss-border overflow-x-auto">
+            <div className="flex items-center gap-2 min-w-max">
+              {RESULTS_TABS.map((tab) => (
+                <TabButton key={tab.id} tab={tab} activeTab={activeTab} onSelect={setActiveTab} />
+              ))}
+            </div>
           </div>
-        </div>
+
+          <div className="flex-1 overflow-y-auto px-4 py-3 space-y-5">
+            {activeTab === 'overview' && (
+              <>
+                {runContext && <RunContextPanel runContext={runContext} />}
+                <SummaryPanel output={results} />
+              </>
+            )}
+
+            {activeTab === 'bottlenecks' && <SimulationHealth output={results} />}
+
+            {activeTab === 'nodes' && <PerNodeTable output={results} />}
+
+            {activeTab === 'traffic' && (
+              <>
+                <ReplayPreview output={results} graphLookup={graphLookup} />
+                <EventLog output={results} graphLookup={graphLookup} />
+              </>
+            )}
+
+            {/* Footer — debug info */}
+            <div className="text-[10px] text-nss-muted pb-2 flex flex-wrap gap-x-3 gap-y-1">
+              <span>Seed: {results.seed}</span>
+              <span>Reproducible: {results.reproducible ? 'yes' : 'no'}</span>
+              <span>{eventsProcessed.toLocaleString()} events processed</span>
+              <span>{results.eventStream.length.toLocaleString()} replay events</span>
+            </div>
+          </div>
+        </>
       )}
     </div>
   )
