@@ -243,7 +243,7 @@ export const WorkspaceLayout = () => {
           <Panel order={2} minSize={30} id="center-panel">
             <PanelGroup direction="vertical" autoSaveId="main-layout-vertical">
               {/* Canvas */}
-              <Panel defaultSize={showResults ? 65 : 100} minSize={20} order={1}>
+              <Panel defaultSize={showResults ? 65 : 100} minSize={10} order={1}>
                 <FlowCanvas />
               </Panel>
 
@@ -251,7 +251,7 @@ export const WorkspaceLayout = () => {
               {showResults && sim.status !== 'idle' && (
                 <>
                   <ResizeHandle id="resize-results" />
-                  <Panel defaultSize={35} minSize={15} maxSize={60} order={2}>
+                  <Panel defaultSize={35} minSize={15} maxSize={90} order={2}>
                     <ResultsTray
                       status={sim.status}
                       progress={sim.progress}
