@@ -23,7 +23,7 @@
     "build:electron:linux": "electron-vite build && electron-builder --linux",
     "preview": "vite preview",
     "start:electron": "electron-vite preview",
-    "postinstall": "electron-builder install-app-deps",
+    "postinstall": "node scripts/postinstall.mjs",
     "test": "vitest run --root .",
     "test:perf": "RUN_PERF_TESTS=true vitest run --root .",
     "simulate": "tsx src/cli/index.ts"

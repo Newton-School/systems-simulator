@@ -1,12 +1,14 @@
 import type { IFileService } from './FileService.types'
 
+const extractFileName = (filePath: string): string => filePath.split(/[\\/]/).pop() || filePath
+
 export const ElectronFileService: IFileService = {
   save: async (content, suggestedName) => {
     try {
       void suggestedName
       const result = await window.nssimulator.saveScenario(content)
       if (typeof result === 'string') {
-        return { name: result.split('/').pop() || result }
+        return { name: extractFileName(result) }
       }
       return null
     } catch (error) {
@@ -26,7 +28,7 @@ export const ElectronFileService: IFileService = {
 
       return {
         content: result.data,
-        name: result.path?.split('/').pop() || 'scenario.json'
+        name: result.path ? extractFileName(result.path) : 'scenario.json'
       }
     } catch (error) {
       console.error('[FileService] Load failed:', error)

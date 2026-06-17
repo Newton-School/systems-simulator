@@ -121,7 +121,7 @@ export const useFlowPersistence = (confirmDiscardChanges: () => Promise<boolean>
     try {
       return await confirmDiscardChanges()
     } catch (error) {
-      console.error('Error during confirmDiscard:', error)
+      console.error('Error while confirming discard changes:', error)
       return false
     }
   }, [confirmDiscardChanges])
