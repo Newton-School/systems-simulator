@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import type { RequestSpan } from '../core/events'
 import type { GlobalConfig } from '../core/types'
-import { createEmptyEventCounts, type CanonicalEventRecord } from '../core/event-stream'
+import {
+  createEmptyEventCounts,
+  type CanonicalEventRecord,
+  type DebugEvent,
+  type RequestLifecycle
+} from '../core/event-stream'
 import type { CompletedRequest } from '../metrics'
 import { MetricsCollector } from '../metrics'
 import { RequestTracer } from '../tracer'
@@ -96,6 +101,63 @@ describe('generateSimulationOutput', () => {
     const output = generateSimulationOutput(metrics, tracer, [], null, [], config, 0)
     expect(output.simulationDuration).toBe(60_000)
     expect(output.warmupDuration).toBe(5_000)
+    expect(output.eventLog).toBeNull()
+    expect(output.debuggedLifecycle).toBeNull()
+  })
+
+  it('passes through debug output payload when provided', () => {
+    const metrics = new MetricsCollector({ warmupDuration: 0 })
+    const tracer = new RequestTracer({ sampleRate: 0 })
+
+    const config: GlobalConfig = {
+      simulationDuration: 1_000,
+      seed: 'debug-seed',
+      warmupDuration: 0,
+      timeResolution: 'microsecond',
+      defaultTimeout: 1_000
+    }
+
+    const eventLog: DebugEvent[] = [
+      {
+        sequence: 0,
+        timestampUs: '0',
+        timestampMs: 0,
+        type: 'request-generated',
+        nodeId: 'source',
+        requestId: 'req-1',
+        status: 'info',
+        message: 'request req-1 generated at source',
+        priority: 1,
+        payload: {}
+      }
+    ]
+    const lifecycle: RequestLifecycle = {
+      requestId: 'req-1',
+      status: 'success',
+      events: eventLog,
+      path: ['source'],
+      startedAtMs: 0,
+      completedAtMs: 0
+    }
+
+    const output = generateSimulationOutput(
+      metrics,
+      tracer,
+      [],
+      null,
+      [],
+      config,
+      0,
+      [],
+      createEmptyEventCounts(),
+      {
+        eventLog,
+        debuggedLifecycle: lifecycle
+      }
+    )
+
+    expect(output.eventLog).toEqual(eventLog)
+    expect(output.debuggedLifecycle).toEqual(lifecycle)
   })
 
   it('stores canonical event stream and event counts on the output', () => {

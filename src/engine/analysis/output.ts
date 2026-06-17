@@ -1,5 +1,10 @@
 import { GlobalConfig } from '../core/types'
-import type { CanonicalEventRecord, EventCountsByType } from '../core/event-stream'
+import type {
+  CanonicalEventRecord,
+  DebugEvent,
+  EventCountsByType,
+  RequestLifecycle
+} from '../core/event-stream'
 import { createEmptyEventCounts } from '../core/event-stream'
 import { MetricsCollector, PerNodeMetrics, SimulationSummary } from '../metrics'
 import { RequestTrace, RequestTracer } from '../tracer'
@@ -123,6 +128,10 @@ export interface SimulationOutput {
   simulationDuration: number
   /** Warmup period in ms (excluded from metrics). */
   warmupDuration: number
+  /** Full or filtered debug event stream captured during the run. */
+  eventLog: DebugEvent[] | null
+  /** Lifecycle assembled for a focused debug request, when one was selected. */
+  debuggedLifecycle: RequestLifecycle | null
 }
 
 export function generateSimulationOutput(
@@ -134,7 +143,11 @@ export function generateSimulationOutput(
   config: GlobalConfig,
   eventsProcessed: number,
   eventStream: CanonicalEventRecord[] = [],
-  eventCountsByType: EventCountsByType = createEmptyEventCounts()
+  eventCountsByType: EventCountsByType = createEmptyEventCounts(),
+  debugData?: {
+    eventLog?: DebugEvent[] | null
+    debuggedLifecycle?: RequestLifecycle | null
+  }
 ): SimulationOutput {
   const summary = metrics.generateSummary(config.simulationDuration)
   const perNode = Object.fromEntries(
@@ -162,7 +175,9 @@ export function generateSimulationOutput(
     eventStream: [...eventStream],
     eventCountsByType: { ...eventCountsByType },
     simulationDuration: config.simulationDuration,
-    warmupDuration: config.warmupDuration
+    warmupDuration: config.warmupDuration,
+    eventLog: debugData?.eventLog ?? null,
+    debuggedLifecycle: debugData?.debuggedLifecycle ?? null
   }
 }
 

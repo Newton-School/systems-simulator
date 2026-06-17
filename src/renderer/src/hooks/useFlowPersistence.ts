@@ -12,11 +12,15 @@ import { normalizeScenarioState } from '@renderer/types/ui'
 const DEFAULT_FILE_NAME = 'scenario.json'
 
 const normalizeSuggestedFileName = (fileName: string | null): string => {
-  if (!fileName || fileName.trim().length === 0 || fileName === 'Untitled') {
+  const trimmedFileName = fileName?.trim()
+
+  if (!trimmedFileName || trimmedFileName === 'Untitled') {
     return DEFAULT_FILE_NAME
   }
 
-  return fileName.toLowerCase().endsWith('.json') ? fileName : `${fileName}.json`
+  return trimmedFileName.toLowerCase().endsWith('.json')
+    ? trimmedFileName
+    : `${trimmedFileName}.json`
 }
 
 const useKeyboardShortcuts = (onSave: () => void, onOpen: () => void) => {
@@ -117,7 +121,7 @@ export const useFlowPersistence = (confirmDiscardChanges: () => Promise<boolean>
     try {
       return await confirmDiscardChanges()
     } catch (error) {
-      console.error('Error during confirmDiscard:', error)
+      console.error('Error while confirming discard changes:', error)
       return false
     }
   }, [confirmDiscardChanges])

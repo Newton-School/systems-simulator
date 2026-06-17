@@ -1,11 +1,7 @@
-import { dirname, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { resolve } from 'path'
+import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
 import react from '@vitejs/plugin-react'
-import { defineConfig, type PluginOption } from 'vite'
-
-const projectRoot = dirname(fileURLToPath(import.meta.url))
-const rendererRoot = resolve(projectRoot, 'src/renderer')
-const sourceRoot = resolve(projectRoot, 'src')
+import type { PluginOption } from 'vite'
 
 const createRendererCsp = (isDevelopment: boolean): string => {
   const connectSrc = ["'self'"]
@@ -46,21 +42,19 @@ const rendererCspPlugin = (): PluginOption => ({
 })
 
 export default defineConfig({
-  root: rendererRoot,
-  base: './',
-  plugins: [react({}), rendererCspPlugin()],
-  resolve: {
-    alias: {
-      '@renderer': resolve(rendererRoot, 'src')
-    }
+  main: {
+    plugins: [externalizeDepsPlugin({})]
   },
-  server: {
-    fs: {
-      allow: [sourceRoot]
-    }
+  preload: {
+    plugins: [externalizeDepsPlugin({})]
   },
-  build: {
-    outDir: resolve(projectRoot, 'dist'),
-    emptyOutDir: true
+  renderer: {
+    root: resolve('src/renderer'),
+    resolve: {
+      alias: {
+        '@renderer': resolve('src/renderer/src')
+      }
+    },
+    plugins: [react({}), rendererCspPlugin()]
   }
 })

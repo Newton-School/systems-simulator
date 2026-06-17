@@ -52,6 +52,10 @@ export class RequestTracer {
     this.ensureTraceState(requestId)
   }
 
+  unforceTrace(requestId: string): void {
+    this.forcedRequestIds.delete(requestId)
+  }
+
   recordSpan(requestId: string, span: RequestSpan): void {
     if (!this.shouldTrace(requestId)) {
       return

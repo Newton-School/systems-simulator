@@ -1,4 +1,5 @@
 import { generateSimulationOutput, SimulationOutput, TimeSeriesSnapshot } from './analysis/output'
+import { replayEventStream } from './analysis/replay'
 import {
   AdmissionDecision,
   AdmissionDecisionStatus,
@@ -8,6 +9,7 @@ import {
   EventCountsByType,
   EventStreamRecorder,
   NodeSnapshot,
+  RequestLifecycle,
   TerminalRequestStatus,
   eventInputFromSimulationEvent
 } from './core/event-stream'
@@ -36,7 +38,7 @@ export class SimulationEngine {
 
   private readonly eventQueue = new MinHeap<SimulationEvent>()
   private readonly eventRecorder = new EventStreamRecorder({
-    onRecord: (_record, debugEvent) => this.onDebugEvent?.(debugEvent)
+    onRecord: (_record, debugEvent) => this.handleRecordedDebugEvent(debugEvent)
   })
   private readonly distributions: Distributions
   private readonly routing: RoutingTable
@@ -61,6 +63,9 @@ export class SimulationEngine {
   private running = false
   private paused = false
   private readonly timeSeries: TimeSeriesSnapshot[] = []
+  private debugTarget: 'all' | string | null = null
+  private forcedTraceRequestId: string | null = null
+  private readonly debugEvents: DebugEvent[] = []
 
   constructor(private readonly topology: TopologyJSON) {
     const rng = createRandom(topology.global.seed)
@@ -113,9 +118,37 @@ export class SimulationEngine {
     }
   }
 
+  enableDebug(target: 'all' | string = 'all', options: { forceTrace?: boolean } = {}): void {
+    if (this.forcedTraceRequestId) {
+      this.tracer.unforceTrace(this.forcedTraceRequestId)
+      this.forcedTraceRequestId = null
+    }
+
+    this.debugTarget = target
+    this.debugEvents.length = 0
+
+    if (target !== 'all' && options.forceTrace) {
+      this.tracer.forceTrace(target)
+      this.forcedTraceRequestId = target
+    }
+  }
+
+  disableDebug(): void {
+    if (this.forcedTraceRequestId) {
+      this.tracer.unforceTrace(this.forcedTraceRequestId)
+      this.forcedTraceRequestId = null
+    }
+
+    this.debugTarget = null
+    this.debugEvents.length = 0
+  }
+
   run(): SimulationOutput {
     this.running = true
     this.paused = false
+    if (this.debugTarget) {
+      this.debugEvents.length = 0
+    }
 
     this.processEvents()
     return this.generateResults()
@@ -325,6 +358,8 @@ export class SimulationEngine {
     }
 
     const request = this.workload.generateNext(this.clock)
+    event.requestId = request.id
+    event.data.request = request
     this.requestById.set(request.id, request)
     this.terminalStatusByRequestId.delete(request.id)
     this.tracer.setRequestCreatedAt(request.id, request.createdAt)
@@ -667,6 +702,17 @@ export class SimulationEngine {
     return undefined
   }
 
+  private handleRecordedDebugEvent(debugEvent: DebugEvent): void {
+    if (
+      this.debugTarget &&
+      (this.debugTarget === 'all' || debugEvent.requestId === this.debugTarget)
+    ) {
+      this.debugEvents.push(debugEvent)
+    }
+
+    this.onDebugEvent?.(debugEvent)
+  }
+
   private shouldEmitSnapshot(timestamp: bigint): boolean {
     return this.lastSnapshotAt < 0n || timestamp - this.lastSnapshotAt >= this.snapshotIntervalUs
   }
@@ -727,6 +773,14 @@ export class SimulationEngine {
   }
 
   private generateResults(): SimulationOutput {
+    const eventStream = this.getEventStream()
+    const eventCountsByType = this.getEventCountsByType()
+    const eventLog = this.debugTarget ? [...this.debugEvents] : null
+    const debuggedLifecycle =
+      this.debugTarget && this.debugTarget !== 'all'
+        ? this.buildDebuggedLifecycle(this.debugTarget, eventStream)
+        : null
+
     return generateSimulationOutput(
       this.metrics,
       this.tracer,
@@ -735,9 +789,21 @@ export class SimulationEngine {
       [],
       this.topology.global,
       this.eventsProcessed,
-      this.getEventStream(),
-      this.getEventCountsByType()
+      eventStream,
+      eventCountsByType,
+      {
+        eventLog,
+        debuggedLifecycle
+      }
     )
+  }
+
+  private buildDebuggedLifecycle(
+    requestId: string,
+    eventStream: CanonicalEventRecord[]
+  ): RequestLifecycle | null {
+    return replayEventStream(eventStream.filter((event) => event.requestId === requestId))
+      .lifecycleByRequestId[requestId] ?? null
   }
 
   private withNodeDefaults(node: ComponentNode): ComponentNode {
@@ -908,7 +974,13 @@ export class SimulationEngine {
     }
 
     this.eventQueue.insert(
-      createEvent('request-arrival', targetNodeId, request.id, { request }, arrivalTime)
+      createEvent(
+        'request-arrival',
+        targetNodeId,
+        request.id,
+        { request, edge, sourceNodeId: edge.source },
+        arrivalTime
+      )
     )
   }
 }

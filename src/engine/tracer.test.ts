@@ -38,12 +38,13 @@ describe('RequestTracer', () => {
     expect(tracer.getTraces()).toEqual([])
   })
 
-  it('forceTrace records requests regardless of sampling rate', () => {
+  it('can force tracing for a specific request regardless of sample rate', () => {
     const tracer = new RequestTracer({ sampleRate: 0 })
 
     tracer.forceTrace('req-forced')
     tracer.setRequestCreatedAt('req-forced', 0n)
-    tracer.recordSpan('req-forced', makeSpan('node-a', 0n, 0n, 1_000n))
+    tracer.recordSpan('req-forced', makeSpan('node-a', 0n, 1_000n, 2_000n))
+    tracer.markStatus('req-forced', 'success')
 
     const traces = tracer.getTraces()
     expect(traces).toHaveLength(1)

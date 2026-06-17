@@ -2,7 +2,7 @@
 
 > Draw a distributed system. Press Run. Watch it break — before you ship it.
 
-A browser-hosted application for simulating, stress-testing, and analysing high-level system designs using **Discrete Event Simulation (DES)**. Built on React, Vite, and a G/G/c/K queueing engine under the hood.
+A React + Vite application for simulating, stress-testing, and analysing high-level system designs using **Discrete Event Simulation (DES)**. It runs both as a browser SPA and inside an Electron desktop shell, powered by a G/G/c/K queueing engine under the hood.
 
 ---
 
@@ -76,8 +76,8 @@ flowchart TD
         B3["Draw edge → onConnect() → addEdge()"]
         B4["Select node → PropertiesPanel reads store"]
         B5["Edit config → updateNodeData() → store"]
-        B6["Save → JSON.stringify(nodes + edges) → FileService → browser file API or download"]
-        B7["Open → File picker → FileService → setNodes() & setEdges()"]
+        B6["Save → JSON.stringify(nodes + edges) → FileService → browser API or Electron dialog"]
+        B7["Open → file picker or Electron dialog → FileService → setNodes() & setEdges()"]
         B1 --> B2 --> B3 --> B4 --> B5
         B5 --> B6
     end
@@ -90,8 +90,8 @@ flowchart TD
 3. Connect nodes → `addEdge()` updates store.
 4. Select a node → `PropertiesPanel` reads state.
 5. Edit config → `updateNodeData()` updates state.
-6. Save → serialized JSON → FileService → browser file API or download fallback.
-7. Open → file picker → state restored.
+6. Save → serialized JSON → FileService → browser file API or Electron dialog.
+7. Open → browser file picker or Electron dialog → state restored.
 
 ---
 
@@ -165,8 +165,8 @@ flowchart LR
 
 | Layer             | Technology                                           |
 | ----------------- | ---------------------------------------------------- |
-| App shell         | Browser-hosted SPA                                   |
-| Build system      | Vite 7                                               |
+| App shell         | Browser SPA + Electron desktop shell                 |
+| Build system      | Vite 7 + electron-vite 4                             |
 | UI framework      | React 19 + TypeScript 5                              |
 | Styling           | Tailwind CSS 3                                       |
 | Canvas            | React Flow 11                                        |
@@ -362,7 +362,7 @@ Fields that are not wired to runtime behavior are hidden from the default inspec
 | Node types (Compute, Service, VPC)             | Done    |
 | Atomic design system (atoms → organisms)       | Done    |
 | Zustand topology store                         | Done    |
-| File save / load via browser file APIs         | Done    |
+| File save / load via browser APIs and Electron dialogs | Done    |
 | Simulation engine (DES loop)                   | Planned |
 | Inspector panel                                | Planned |
 | Scenario bar (workload + faults + controls)    | Planned |

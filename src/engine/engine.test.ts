@@ -248,6 +248,75 @@ describe('SimulationEngine', () => {
     expect(output.traces[0].spans[0].nodeId).toBe('worker')
   })
 
+  it('captures a canonical debug event log when debug mode is enabled', () => {
+    const topology = makeTopology({
+      global: { simulationDuration: 20, defaultTimeout: 1_000, traceSampleRate: 1 },
+      nodes: [makeNode('source'), makeNode('worker')],
+      edges: [makeEdge('source-to-worker', 'source', 'worker')],
+      workload: {
+        sourceNodeId: 'source',
+        pattern: 'constant',
+        baseRps: 1,
+        requestDistribution: [{ type: 'GET', weight: 1, sizeBytes: 100 }]
+      }
+    })
+
+    const engine = new SimulationEngine(topology)
+    engine.enableDebug('all')
+
+    const output = engine.run()
+    expect(output.eventLog).not.toBeNull()
+    expect(output.eventLog?.map((event) => event.type)).toEqual([
+      'request-generated',
+      'request-forwarded',
+      'request-arrived',
+      'processing-started',
+      'processing-completed',
+      'request-completed'
+    ])
+    expect(output.eventLog?.map((event) => event.sequence)).toEqual([0, 1, 2, 3, 4, 5])
+    expect(output.eventLog?.[0].requestId).toBe('req-000001')
+    expect(output.eventLog?.[1].edgeId).toBe('source-to-worker')
+    expect(output.eventLog?.[3].nodeSnapshot?.activeWorkers).toBe(1)
+    expect(output.debuggedLifecycle).toBeNull()
+  })
+
+  it('assembles a focused request lifecycle when debugging a specific request', () => {
+    const topology = makeTopology({
+      global: { simulationDuration: 20, defaultTimeout: 1_000, traceSampleRate: 0 },
+      nodes: [makeNode('source'), makeNode('worker')],
+      edges: [makeEdge('source-to-worker', 'source', 'worker')],
+      workload: {
+        sourceNodeId: 'source',
+        pattern: 'constant',
+        baseRps: 1,
+        requestDistribution: [{ type: 'GET', weight: 1, sizeBytes: 100 }]
+      }
+    })
+
+    const engine = new SimulationEngine(topology)
+    engine.enableDebug('req-000001', { forceTrace: true })
+
+    const output = engine.run()
+    expect(output.eventLog?.every((event) => event.requestId === 'req-000001')).toBe(true)
+    expect(output.debuggedLifecycle).not.toBeNull()
+    expect(output.debuggedLifecycle?.requestId).toBe('req-000001')
+    expect(output.debuggedLifecycle?.status).toBe('success')
+    expect(output.debuggedLifecycle?.path).toEqual(['worker'])
+    expect(output.debuggedLifecycle?.events.map((event) => event.type)).toEqual([
+      'request-generated',
+      'request-arrived',
+      'processing-started',
+      'processing-completed',
+      'request-completed',
+      'request-forwarded'
+    ])
+    expect(output.debuggedLifecycle?.startedAtMs).toBeGreaterThanOrEqual(0)
+    expect(output.debuggedLifecycle?.completedAtMs).toBeGreaterThanOrEqual(
+      output.debuggedLifecycle?.startedAtMs ?? 0
+    )
+  })
+
   it('schedules packet-loss timeout at request deadline, not immediately', () => {
     const topology = makeTopology({
       global: { simulationDuration: 100, defaultTimeout: 1_000, traceSampleRate: 1 },
