@@ -11,5 +11,5 @@
     "skipLibCheck": true,
     "noEmit": true
   },
-  "include": ["vite.config.mts", "src/cli/**/*.ts"]
+  "include": ["vite.config.mts", "electron.vite.config.ts", "src/cli/**/*.ts", "src/main/**/*.ts", "src/preload/**/*.ts"]
 }

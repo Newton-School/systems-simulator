@@ -245,7 +245,7 @@ export const GlobalConfigSchema = z.object({
 const ResilienceConfigSchema = z.object({
   circuitBreaker: z
     .object({
-      failureThreshold: z.number(),
+      failureThreshold: z.number().min(0).max(1),
       failureCount: z.number().int().positive(),
       recoveryTimeout: z.number().nonnegative(),
       halfOpenRequests: z.number().int().positive()
