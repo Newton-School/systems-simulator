@@ -74,12 +74,6 @@ export function useSimulation(): SimulationState & SimulationControls {
           setState((s) => ({ ...s, snapshot: msg.payload.snapshot }))
           break
 
-        case 'event-batch':
-          break
-
-        case 'admission-decision':
-          break
-
         case 'complete':
           setState((s) => ({
             ...s,

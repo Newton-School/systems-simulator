@@ -122,7 +122,7 @@ describe('EventStreamRecorder', () => {
     })
   })
 
-  it('notifies subscribers with canonical and debug records', () => {
+  it('notifies subscribers with canonical records', () => {
     const onRecord = vi.fn()
     const recorder = new EventStreamRecorder({ onRecord })
 
@@ -133,10 +133,38 @@ describe('EventStreamRecorder', () => {
       requestId: 'req-1'
     })
 
-    expect(onRecord).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'request-completed' }),
-      expect.objectContaining({ status: 'success' })
-    )
+    expect(onRecord).toHaveBeenCalledWith(expect.objectContaining({ type: 'request-completed' }))
+  })
+
+  it('caps retained replay records while preserving full aggregate counts', () => {
+    const recorder = new EventStreamRecorder({ maxRetainedEvents: 2 })
+
+    recorder.append({
+      timestampUs: 1n,
+      type: 'request-generated',
+      priority: 1,
+      requestId: 'req-1'
+    })
+    recorder.append({
+      timestampUs: 2n,
+      type: 'request-forwarded',
+      priority: 3,
+      requestId: 'req-1'
+    })
+    recorder.append({
+      timestampUs: 3n,
+      type: 'request-completed',
+      priority: 2,
+      requestId: 'req-1'
+    })
+
+    expect(recorder.getEvents().map((record) => record.type)).toEqual([
+      'request-generated',
+      'request-forwarded'
+    ])
+    expect(recorder.getCountsByType()['request-completed']).toBe(1)
+    expect(recorder.getTotalRecordedEvents()).toBe(3)
+    expect(recorder.isTruncated()).toBe(true)
   })
 
   it('maps existing simulation events to canonical stream inputs', () => {

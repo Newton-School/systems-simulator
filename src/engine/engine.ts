@@ -11,7 +11,8 @@ import {
   NodeSnapshot,
   RequestLifecycle,
   TerminalRequestStatus,
-  eventInputFromSimulationEvent
+  eventInputFromSimulationEvent,
+  projectToDebugEvent
 } from './core/event-stream'
 import { EventPriority, createEvent, Request, SimulationEvent } from './core/events'
 import { microToMs, msToMicro, secToMicro } from './core/time'
@@ -30,6 +31,8 @@ interface SecurityPolicyConfig {
   droppedPackets: number
 }
 
+const DEFAULT_MAX_RETAINED_EVENT_STREAM_EVENTS = 25_000
+
 export class SimulationEngine {
   onProgress?: (percent: number, eventsProcessed: number) => void
   onSnapshot?: (snapshot: TimeSeriesSnapshot) => void
@@ -38,7 +41,8 @@ export class SimulationEngine {
 
   private readonly eventQueue = new MinHeap<SimulationEvent>()
   private readonly eventRecorder = new EventStreamRecorder({
-    onRecord: (_record, debugEvent) => this.handleRecordedDebugEvent(debugEvent)
+    maxRetainedEvents: DEFAULT_MAX_RETAINED_EVENT_STREAM_EVENTS,
+    onRecord: (record) => this.handleRecordedCanonicalEvent(record)
   })
   private readonly distributions: Distributions
   private readonly routing: RoutingTable
@@ -126,6 +130,7 @@ export class SimulationEngine {
 
     this.debugTarget = target
     this.debugEvents.length = 0
+    this.eventRecorder.setMaxRetainedEvents(Number.POSITIVE_INFINITY)
 
     if (target !== 'all' && options.forceTrace) {
       this.tracer.forceTrace(target)
@@ -141,6 +146,7 @@ export class SimulationEngine {
 
     this.debugTarget = null
     this.debugEvents.length = 0
+    this.eventRecorder.setMaxRetainedEvents(DEFAULT_MAX_RETAINED_EVENT_STREAM_EVENTS)
   }
 
   run(): SimulationOutput {
@@ -702,7 +708,13 @@ export class SimulationEngine {
     return undefined
   }
 
-  private handleRecordedDebugEvent(debugEvent: DebugEvent): void {
+  private handleRecordedCanonicalEvent(record: CanonicalEventRecord): void {
+    const needsDebugEvent = this.debugTarget !== null || this.onDebugEvent !== undefined
+    if (!needsDebugEvent) {
+      return
+    }
+
+    const debugEvent = projectToDebugEvent(record)
     if (
       this.debugTarget &&
       (this.debugTarget === 'all' || debugEvent.requestId === this.debugTarget)
@@ -802,8 +814,10 @@ export class SimulationEngine {
     requestId: string,
     eventStream: CanonicalEventRecord[]
   ): RequestLifecycle | null {
-    return replayEventStream(eventStream.filter((event) => event.requestId === requestId))
-      .lifecycleByRequestId[requestId] ?? null
+    return (
+      replayEventStream(eventStream.filter((event) => event.requestId === requestId))
+        .lifecycleByRequestId[requestId] ?? null
+    )
   }
 
   private withNodeDefaults(node: ComponentNode): ComponentNode {

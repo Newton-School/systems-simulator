@@ -110,15 +110,20 @@ export interface RequestLifecycle {
 }
 
 interface EventStreamRecorderOptions {
-  onRecord?: (record: CanonicalEventRecord, debugEvent: DebugEvent) => void
+  maxRetainedEvents?: number
+  onRecord?: (record: CanonicalEventRecord) => void
 }
 
 export class EventStreamRecorder {
   private readonly events: CanonicalEventRecord[] = []
   private countsByType: EventCountsByType = createEmptyEventCounts()
   private nextSequence = 0
+  private maxRetainedEvents: number
+  private truncated = false
 
-  constructor(private readonly options: EventStreamRecorderOptions = {}) {}
+  constructor(private readonly options: EventStreamRecorderOptions = {}) {
+    this.maxRetainedEvents = normalizeMaxRetainedEvents(options.maxRetainedEvents)
+  }
 
   append(input: AppendEventInput): CanonicalEventRecord {
     const record: CanonicalEventRecord = {
@@ -136,9 +141,13 @@ export class EventStreamRecorder {
       nodeSnapshot: input.nodeSnapshot
     }
 
-    this.events.push(record)
+    if (this.events.length < this.maxRetainedEvents) {
+      this.events.push(record)
+    } else {
+      this.truncated = true
+    }
     this.countsByType[record.type]++
-    this.options.onRecord?.(record, projectToDebugEvent(record))
+    this.options.onRecord?.(record)
 
     return record
   }
@@ -151,10 +160,23 @@ export class EventStreamRecorder {
     return { ...this.countsByType }
   }
 
+  getTotalRecordedEvents(): number {
+    return this.nextSequence
+  }
+
+  isTruncated(): boolean {
+    return this.truncated
+  }
+
+  setMaxRetainedEvents(maxRetainedEvents: number): void {
+    this.maxRetainedEvents = normalizeMaxRetainedEvents(maxRetainedEvents)
+  }
+
   clear(): void {
     this.events.length = 0
     this.countsByType = createEmptyEventCounts()
     this.nextSequence = 0
+    this.truncated = false
   }
 }
 
@@ -295,6 +317,18 @@ function normalizeTimestampUs(timestampUs: bigint | number | string): string {
 
 function normalizeOptionalString(value: string | undefined): string | undefined {
   return value && value.length > 0 ? value : undefined
+}
+
+function normalizeMaxRetainedEvents(maxRetainedEvents: number | undefined): number {
+  if (maxRetainedEvents === undefined || maxRetainedEvents === Number.POSITIVE_INFINITY) {
+    return Number.POSITIVE_INFINITY
+  }
+
+  if (!Number.isFinite(maxRetainedEvents) || maxRetainedEvents < 0) {
+    throw new Error(`maxRetainedEvents must be a non-negative finite number: ${maxRetainedEvents}`)
+  }
+
+  return Math.floor(maxRetainedEvents)
 }
 
 function toJsonSafeRecord(value: Record<string, unknown>): Record<string, JsonSafeValue> {

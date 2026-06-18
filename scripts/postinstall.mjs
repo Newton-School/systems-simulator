@@ -10,7 +10,9 @@ let electronBuilderCliPath
 try {
   electronBuilderCliPath = require.resolve('electron-builder/out/cli/cli.js')
 } catch {
-  console.log('[postinstall] Skipping electron-builder install-app-deps because electron-builder is not installed.')
+  console.log(
+    '[postinstall] Skipping electron-builder install-app-deps because electron-builder is not installed.'
+  )
   process.exit(0)
 }
 

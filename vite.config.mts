@@ -45,6 +45,26 @@ const rendererCspPlugin = (): PluginOption => ({
   }
 })
 
+const manualChunks = (id: string): string | undefined => {
+  if (id.includes('node_modules/reactflow')) {
+    return 'reactflow'
+  }
+
+  if (id.includes('node_modules/lucide-react')) {
+    return 'icons'
+  }
+
+  if (
+    id.includes('node_modules/react/') ||
+    id.includes('node_modules/react-dom/') ||
+    id.includes('node_modules/scheduler/')
+  ) {
+    return 'react-vendor'
+  }
+
+  return undefined
+}
+
 export default defineConfig({
   root: rendererRoot,
   base: './',
@@ -61,6 +81,11 @@ export default defineConfig({
   },
   build: {
     outDir: resolve(projectRoot, 'dist'),
-    emptyOutDir: true
+    emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        manualChunks
+      }
+    }
   }
 })

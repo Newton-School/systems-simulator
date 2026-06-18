@@ -122,7 +122,9 @@ export interface SimulationOutput {
   seed: string
   reproducible: true
   eventsProcessed: number
+  /** Canonical replay events retained for UI inspection. Large runs may be capped. */
   eventStream: CanonicalEventRecord[]
+  /** Aggregate counts across the full canonical event stream, including truncated events. */
   eventCountsByType: EventCountsByType
   /** Total simulation duration in ms (including warmup). */
   simulationDuration: number

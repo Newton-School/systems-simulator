@@ -41,6 +41,26 @@ const rendererCspPlugin = (): PluginOption => ({
   }
 })
 
+const manualChunks = (id: string): string | undefined => {
+  if (id.includes('node_modules/reactflow')) {
+    return 'reactflow'
+  }
+
+  if (id.includes('node_modules/lucide-react')) {
+    return 'icons'
+  }
+
+  if (
+    id.includes('node_modules/react/') ||
+    id.includes('node_modules/react-dom/') ||
+    id.includes('node_modules/scheduler/')
+  ) {
+    return 'react-vendor'
+  }
+
+  return undefined
+}
+
 export default defineConfig({
   main: {
     plugins: [externalizeDepsPlugin({})]
@@ -55,6 +75,13 @@ export default defineConfig({
         '@renderer': resolve('src/renderer/src')
       }
     },
-    plugins: [react({}), rendererCspPlugin()]
+    plugins: [react({}), rendererCspPlugin()],
+    build: {
+      rollupOptions: {
+        output: {
+          manualChunks
+        }
+      }
+    }
   }
 })

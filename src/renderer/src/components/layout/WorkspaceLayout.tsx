@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react'
 import { Panel, PanelGroup, ImperativePanelHandle } from 'react-resizable-panels'
 
 // Store
@@ -18,10 +18,8 @@ import {
   LibrarySidebarContent,
   type LibrarySidebarTab
 } from '../library/LibrarySidebar'
-import { PropertiesPanel } from '../properties/PropertiesPanel'
 import { FlowCanvas } from '../canvas/FlowCanvas'
 import { Header } from './Header'
-import { ResultsTray } from '../simulation/ResultsTray'
 
 // Atoms
 import { ResizeHandle } from '../ui/ResizeHandle'
@@ -35,12 +33,30 @@ const LEFT_LIBRARY_DEFAULT_SIZE = 20
 const LEFT_LIBRARY_MIN_SIZE = 12
 const LEFT_LIBRARY_MAX_SIZE = 25
 
+const PropertiesPanel = lazy(async () => {
+  const module = await import('../properties/PropertiesPanel')
+  return { default: module.PropertiesPanel }
+})
+
+const ResultsTray = lazy(async () => {
+  const module = await import('../simulation/ResultsTray')
+  return { default: module.ResultsTray }
+})
+
 function formatValidationIssue(error: ValidationError): string {
   if (error.path === 'workload.sourceNodeId') {
     return error.message
   }
 
   return error.path ? `${error.path}: ${error.message}` : error.message
+}
+
+function PanelFallback({ label }: { label: string }) {
+  return (
+    <div className="h-full w-full flex items-center justify-center bg-nss-panel text-xs text-nss-muted">
+      {label}
+    </div>
+  )
 }
 
 export const WorkspaceLayout = () => {
@@ -92,13 +108,14 @@ export const WorkspaceLayout = () => {
   const { handleSave, handleOpen } = useFlowPersistence(confirmDiscardChanges)
 
   const selectedNodeId = nodes.find((n) => n.selected)?.id
+  const hasElectronCloseBridge = typeof window.nssimulator?.onCloseRequest === 'function'
   const handleLeftSidebarTabSelect = useCallback((tab: LibrarySidebarTab) => {
     setLeftSidebarTab(tab)
     setIsLeftOpen(true)
   }, [])
 
   useEffect(() => {
-    if (!isUnsaved) {
+    if (!isUnsaved || hasElectronCloseBridge) {
       return
     }
 
@@ -109,7 +126,16 @@ export const WorkspaceLayout = () => {
 
     window.addEventListener('beforeunload', handleBeforeUnload)
     return () => window.removeEventListener('beforeunload', handleBeforeUnload)
-  }, [isUnsaved])
+  }, [hasElectronCloseBridge, isUnsaved])
+
+  useEffect(() => {
+    const onCloseRequest = window.nssimulator?.onCloseRequest
+    if (typeof onCloseRequest !== 'function') {
+      return
+    }
+
+    return onCloseRequest(() => useStore.getState().isUnsaved)
+  }, [])
 
   useEffect(() => {
     if (selectedNodeId) {
@@ -180,7 +206,7 @@ export const WorkspaceLayout = () => {
   }
 
   const isRunning = sim.status === 'running'
-  const isPaused = sim.status === 'paused'
+  const isPaused = sim.status === 'paused' && !sim.stopped
   const sourceNodes: SourceNodeOption[] = nodes
     .filter((node) => (node.data as CanvasNodeDataV2).profile === 'source')
     .map((node) => {
@@ -215,9 +241,6 @@ export const WorkspaceLayout = () => {
         onResume={sim.resume}
         onStop={() => {
           sim.stop()
-          clearSimulationMetrics()
-          setShowResults(false)
-          setLastRunContext(null)
           setRunIssues({ messages: [], tone: 'warning' })
         }}
         isRunning={isRunning}
@@ -271,20 +294,23 @@ export const WorkspaceLayout = () => {
                 <>
                   <ResizeHandle id="resize-results" />
                   <Panel defaultSize={35} minSize={15} maxSize={90} order={2}>
-                    <ResultsTray
-                      status={sim.status}
-                      progress={sim.progress}
-                      eventsProcessed={sim.eventsProcessed}
-                      results={sim.results}
-                      error={sim.error}
-                      runContext={lastRunContext}
-                      onClose={() => {
-                        setShowResults(false)
-                        sim.reset()
-                        clearSimulationMetrics()
-                        setLastRunContext(null)
-                      }}
-                    />
+                    <Suspense fallback={<PanelFallback label="Loading simulation results..." />}>
+                      <ResultsTray
+                        status={sim.status}
+                        stopped={sim.stopped}
+                        progress={sim.progress}
+                        eventsProcessed={sim.eventsProcessed}
+                        results={sim.results}
+                        error={sim.error}
+                        runContext={lastRunContext}
+                        onClose={() => {
+                          setShowResults(false)
+                          sim.reset()
+                          clearSimulationMetrics()
+                          setLastRunContext(null)
+                        }}
+                      />
+                    </Suspense>
                   </Panel>
                 </>
               )}
@@ -302,7 +328,9 @@ export const WorkspaceLayout = () => {
             order={3}
             id="right-panel"
           >
-            <PropertiesPanel />
+            <Suspense fallback={<PanelFallback label="Loading inspector..." />}>
+              <PropertiesPanel />
+            </Suspense>
           </Panel>
         </PanelGroup>
       </div>

@@ -1,6 +1,5 @@
 import type { TopologyJSON } from '../core/types'
 import type { SimulationOutput, TimeSeriesSnapshot } from '../analysis/output'
-import type { AdmissionDecision, DebugEvent } from '../core/event-stream'
 
 // ─── Inbound (main thread → worker) ──────────────────────────────────────────
 
@@ -50,16 +49,6 @@ export interface CompleteMessage {
   payload: { output: SimulationOutput; stopped?: boolean }
 }
 
-export interface EventBatchMessage {
-  type: 'event-batch'
-  payload: { events: DebugEvent[] }
-}
-
-export interface AdmissionDecisionMessage {
-  type: 'admission-decision'
-  payload: { decision: AdmissionDecision }
-}
-
 export interface ErrorMessage {
   type: 'error'
   payload: { message: string; stack?: string }
@@ -68,7 +57,5 @@ export interface ErrorMessage {
 export type WorkerOutboundMessage =
   | ProgressMessage
   | SnapshotMessage
-  | EventBatchMessage
-  | AdmissionDecisionMessage
   | CompleteMessage
   | ErrorMessage

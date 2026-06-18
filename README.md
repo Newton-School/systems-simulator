@@ -275,7 +275,8 @@ npm install
 ### Development
 
 ```bash
-npm run dev
+npm run dev:web       # browser SPA
+npm run dev:electron  # Electron desktop shell
 ```
 
 ### Type check
@@ -287,14 +288,13 @@ npm run typecheck
 ### Build
 
 ```bash
-# macOS
-npm run build:mac
+npm run build:web       # browser production bundle
+npm run build:electron  # Electron production bundle
 
-# Windows
-npm run build:win
-
-# Linux
-npm run build:linux
+# Electron installers
+npm run build:electron:mac
+npm run build:electron:win
+npm run build:electron:linux
 ```
 
 ---
@@ -383,7 +383,7 @@ git clone <repo-url>
 cd ns-simulator
 git submodule update --init --recursive   # pulls ns-simulator-docs
 npm install
-npm run dev
+npm run dev:web
 ```
 
 ### Branch Naming
@@ -413,7 +413,7 @@ npm run lint         # eslint
 npm run format       # prettier --write
 ```
 
-All three must pass clean. The build runs `typecheck` automatically, so a failing type check will also break `npm run build`.
+All three must pass clean. The build scripts run `typecheck` automatically, so a failing type check will also break `npm run build:web`, `npm run build:electron`, and `npm run build:all`.
 
 ### Pull Requests
 

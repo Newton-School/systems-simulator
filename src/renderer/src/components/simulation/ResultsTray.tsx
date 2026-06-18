@@ -12,6 +12,7 @@ import type { EdgeSimulationData, ScenarioRunContext } from '@renderer/types/ui'
 
 interface ResultsTrayProps {
   status: SimulationStatus
+  stopped: boolean
   progress: number
   eventsProcessed: number
   results: SimulationOutput | null
@@ -75,6 +76,10 @@ function fmtEventTime(timestampMs: number): string {
 
 function clampSequence(sequence: number, maxSequence: number): number {
   return Math.min(maxSequence, Math.max(0, sequence))
+}
+
+function totalReplayEventCount(output: SimulationOutput): number {
+  return Object.values(output.eventCountsByType).reduce((sum, count) => sum + count, 0)
 }
 
 const SECTION_TITLE = 'text-[11px] font-semibold text-nss-muted uppercase tracking-wider'
@@ -823,8 +828,11 @@ function ReplayPreview({
   output: SimulationOutput
   graphLookup: EventGraphLookup
 }) {
+  const retainedEventCount = output.eventStream.length
+  const totalEventCount = totalReplayEventCount(output)
+  const isTruncated = retainedEventCount < totalEventCount
   const [sequence, setSequence] = useState(0)
-  const maxSequence = Math.max(0, output.eventStream.length - 1)
+  const maxSequence = Math.max(0, retainedEventCount - 1)
 
   useEffect(() => {
     setSequence((current) => clampSequence(current, maxSequence))
@@ -847,7 +855,7 @@ function ReplayPreview({
       <div className="flex items-center justify-between gap-3">
         <h3 className={SECTION_TITLE}>Replay Preview</h3>
         <span className="text-[10px] text-nss-muted tabular-nums">
-          {sequence + 1} / {output.eventStream.length.toLocaleString()}
+          {sequence + 1} / {retainedEventCount.toLocaleString()}
         </span>
       </div>
 
@@ -900,6 +908,13 @@ function ReplayPreview({
           </button>
         </div>
 
+        {isTruncated && (
+          <div className="rounded-md border border-nss-warning/20 bg-nss-warning/10 px-2 py-1 text-[10px] text-nss-warning">
+            Showing the first {retainedEventCount.toLocaleString()} replay events out of{' '}
+            {totalEventCount.toLocaleString()} recorded for this run.
+          </div>
+        )}
+
         <div className="grid grid-cols-2 gap-2 text-xs">
           <StatCard label="Sequence" value={debugEvent.sequence.toLocaleString()} />
           <StatCard label="Time" value={fmtEventTime(debugEvent.timestampMs)} />
@@ -939,7 +954,9 @@ function EventLog({
   const [page, setPage] = useState(0)
   const [activeSequence, setActiveSequence] = useState<number | null>(null)
   const selectGraphElements = useStore((state) => state.selectGraphElements)
-  const eventCount = output.eventStream.length
+  const retainedEventCount = output.eventStream.length
+  const totalEventCount = totalReplayEventCount(output)
+  const isTruncated = retainedEventCount < totalEventCount
   const debugEvents = useMemo(
     () => (isOpen ? output.eventStream.map((event) => projectToDebugEvent(event)) : []),
     [isOpen, output.eventStream]
@@ -968,7 +985,7 @@ function EventLog({
 
   useEffect(() => {
     setPage(0)
-  }, [query, eventCount])
+  }, [query, retainedEventCount])
 
   function selectEventTarget(event: DebugEvent): void {
     if (!event.nodeId && !event.edgeId) {
@@ -991,7 +1008,7 @@ function EventLog({
     selectEventTarget(event)
   }
 
-  if (eventCount === 0) {
+  if (retainedEventCount === 0) {
     return null
   }
 
@@ -1006,7 +1023,9 @@ function EventLog({
         <span className={SECTION_TITLE}>Event Log</span>
         <div className="flex items-center gap-2">
           <span className="text-[10px] text-nss-muted tabular-nums">
-            {eventCount.toLocaleString()} replay events
+            {isTruncated
+              ? `${retainedEventCount.toLocaleString()} / ${totalEventCount.toLocaleString()} replay events`
+              : `${totalEventCount.toLocaleString()} replay events`}
           </span>
           <span className="text-nss-muted text-[10px]">{isOpen ? '▲' : '▼'}</span>
         </div>
@@ -1014,12 +1033,22 @@ function EventLog({
 
       {!isOpen && (
         <div className={`${SURFACE_CARD} px-3 py-2 text-xs text-nss-muted`}>
-          Open to inspect canonical events and filter by request, node, edge, status, or type.
+          {isTruncated
+            ? `Open to inspect the retained replay window (${retainedEventCount.toLocaleString()} of ${totalEventCount.toLocaleString()} events).`
+            : 'Open to inspect canonical events and filter by request, node, edge, status, or type.'}
         </div>
       )}
 
       {isOpen && (
         <>
+          {isTruncated && (
+            <div className="rounded-md border border-nss-warning/20 bg-nss-warning/10 px-3 py-2 text-xs text-nss-warning">
+              Large runs are capped to keep the renderer responsive. This table shows the first{' '}
+              {retainedEventCount.toLocaleString()} replay events out of{' '}
+              {totalEventCount.toLocaleString()} total canonical events.
+            </div>
+          )}
+
           <div className="flex flex-wrap gap-1 text-[10px]">
             {(['rejected', 'timeout', 'success', 'info'] as const).map((status) => (
               <span
@@ -1198,6 +1227,7 @@ function TabButton({
 
 export function ResultsTray({
   status,
+  stopped,
   progress,
   eventsProcessed,
   results,
@@ -1239,6 +1269,14 @@ export function ResultsTray({
     }
   }, [results])
 
+  const retainedReplayEventCount = results ? results.eventStream.length : 0
+  const totalCapturedReplayEvents = results ? totalReplayEventCount(results) : 0
+  const replayEventsTruncated = retainedReplayEventCount < totalCapturedReplayEvents
+  const progressLabel =
+    stopped && status === 'paused'
+      ? `Stopping at ${progress.toFixed(1)}% complete...`
+      : `${progress.toFixed(1)}% complete`
+
   if (status === 'idle') return null
 
   return (
@@ -1248,6 +1286,11 @@ export function ResultsTray({
         <span className="text-sm font-semibold text-nss-text">Simulation</span>
         <div className="flex items-center gap-3">
           <StatusBadge status={status} />
+          {stopped && results && (
+            <span className="px-2 py-0.5 rounded border border-nss-warning/20 bg-nss-warning/10 text-[10px] font-medium text-nss-warning">
+              Stopped early
+            </span>
+          )}
           {onClose && (
             <button
               onClick={onClose}
@@ -1264,7 +1307,7 @@ export function ResultsTray({
       {(status === 'running' || status === 'paused') && (
         <div className="px-4 py-2 shrink-0">
           <ProgressBar progress={progress} />
-          <div className="text-xs text-nss-muted mt-1">{progress.toFixed(1)}% complete</div>
+          <div className="text-xs text-nss-muted mt-1">{progressLabel}</div>
         </div>
       )}
 
@@ -1287,6 +1330,13 @@ export function ResultsTray({
           </div>
 
           <div className="flex-1 overflow-y-auto px-4 py-3 space-y-5">
+            {stopped && (
+              <div className="rounded-md border border-nss-warning/20 bg-nss-warning/10 px-3 py-2 text-xs text-nss-warning">
+                This run was stopped before the event queue drained. Metrics and replay data below
+                reflect the partial output captured up to that point.
+              </div>
+            )}
+
             {activeTab === 'overview' && (
               <>
                 {runContext && <RunContextPanel runContext={runContext} />}
@@ -1310,7 +1360,11 @@ export function ResultsTray({
               <span>Seed: {results.seed}</span>
               <span>Reproducible: {results.reproducible ? 'yes' : 'no'}</span>
               <span>{eventsProcessed.toLocaleString()} events processed</span>
-              <span>{results.eventStream.length.toLocaleString()} replay events</span>
+              <span>
+                {replayEventsTruncated
+                  ? `${retainedReplayEventCount.toLocaleString()} / ${totalCapturedReplayEvents.toLocaleString()} replay events retained`
+                  : `${totalCapturedReplayEvents.toLocaleString()} replay events`}
+              </span>
             </div>
           </div>
         </>
