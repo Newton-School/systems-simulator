@@ -8,9 +8,9 @@ A React + Vite application for simulating, stress-testing, and analysing high-le
 
 ## What It Does
 
-You drag nodes onto a canvas (API servers, databases, caches, load balancers), connect them with edges, configure traffic and failure scenarios, and then press **Run**. The engine simulates thousands of requests flowing through your architecture — tracking latency, queue depth, throughput, and cascading failures — all without a real server in sight.
+You drag nodes onto a canvas (API servers, databases, caches, load balancers), connect them with edges, configure workload and runtime parameters, and then press **Run**. The engine simulates requests flowing through your architecture — tracking latency, queue depth, throughput, timeouts, rejections, and node utilization — without a real server in sight.
 
-The result: P50/P95/P99 latency breakdowns, per-node utilization heatmaps, request waterfall traces, failure cascade graphs, and cost estimates — before you write a line of production code.
+The current MVP surfaces run summaries, bottleneck checks, per-node metrics, and a canonical event replay log in the UI, and it also supports CLI and JSON-based output for scripted runs.
 
 ```
 ┌──────────┐         ┌──────────┐         ┌──────────┐
@@ -32,21 +32,20 @@ The result: P50/P95/P99 latency breakdowns, per-node utilization heatmaps, reque
 
 ### 1 — BUILD
 
-Drag nodes from the palette onto the canvas. Connect them. Configure each node's queue parameters (workers, capacity, service time distribution, timeout), resilience settings (circuit breaker, rate limiter, retry policy), and SLO targets. Set up traffic patterns and fault injections in the scenario bar.
+Drag nodes from the palette onto the canvas. Connect them. Configure each node's queue parameters (workers, capacity, service time distribution, timeout), resilience settings, edge behavior, and SLO targets. Adjust source selection, workload pattern, duration, warmup, timeout, and seed from the simulation controls before a run.
 
 ### 2 — SIMULATE
 
-Press Run. The engine runs in a Web Worker — a discrete event loop that processes millions of events in time order, sampling service times from probability distributions (log-normal, exponential, Poisson, etc.). The canvas updates live: nodes shift from green to yellow to red as they saturate; edges pulse with traffic load.
+Press Run. The topology is serialized, validated, and executed inside a Web Worker. The discrete event loop processes events in time order, supports deterministic replay by seed, and exposes pause / resume / stop controls while the run is in progress.
 
 ### 3 — ANALYSE
 
 When the simulation completes, a results tray expands with:
 
-- **Summary** — P50 / P90 / P95 / P99 latency, throughput, error rate, availability, Little's Law check
-- **Per-Node** — utilization, avg queue depth, RPS, rejection count, P99 per node
-- **Traces** — waterfall views of individual requests (like Chrome DevTools' Network tab)
-- **Failures** — causal cascade graph when failure injection triggers
-- **Cost** — per-node and total cloud cost estimate (AWS / GCP / Azure)
+- **Overview** — latency percentiles, throughput, error rate, timeouts, and run context
+- **Bottlenecks** — SLO breaches, Little's Law checks, conservation checks, and warmup adequacy
+- **Nodes** — per-node throughput, queue depth, utilization, and latency
+- **Traffic** — canonical replay preview plus a filterable event log
 
 ---
 
@@ -55,8 +54,8 @@ When the simulation completes, a results tray expands with:
 This project is structured into three major phases:
 
 - **Phase 1 · BUILD** (Implemented)
-- **Phase 2 · SIMULATE** (Planned)
-- **Phase 3 · ANALYSE** (Planned)
+- **Phase 2 · SIMULATE** (Implemented in the current MVP)
+- **Phase 3 · ANALYSE** (Implemented in the current MVP, with additional views still planned)
 
 It follows an iterative workflow:
 
@@ -95,47 +94,46 @@ flowchart TD
 
 ---
 
-## Phase 2 · SIMULATE · ◌ Planned
+## Phase 2 · SIMULATE
 
 A deterministic simulation engine runs inside a Web Worker.
 
 ```mermaid
 flowchart TD
-    subgraph SIMULATE["Phase 2 · SIMULATE · ◌ planned"]
-        S1["Press Run in Scenario Bar"]
-        S2["Serialize Zustand store → topology + workload + faults"]
-        S3["postMessage → Renderer to Web Worker"]
-        S4["DES Engine event loop (time-ordered) + seeded SFC32 PRNG"]
-        S5["Periodic postMessage → Worker to Renderer (live metrics)"]
-        S6["Canvas live updates (node: green → yellow → red, edges pulse)"]
+    subgraph SIMULATE["Phase 2 · SIMULATE"]
+        S1["Press Run in the simulation controls"]
+        S2["Serialize Zustand store → topology + workload overrides"]
+        S3["Validate topology + derive run context"]
+        S4["postMessage → Renderer to Web Worker"]
+        S5["DES engine event loop + seeded PRNG + metrics collection"]
+        S6["Progress / snapshots / final output returned to UI"]
         S1 --> S2 --> S3 --> S4 --> S5 --> S6
     end
 ```
 
 ### Simulation Flow
 
-- Serialize topology + workload + fault config.
-- Send to Web Worker.
-- Run discrete event simulation (DES).
-- Emit periodic metric snapshots.
-- Update UI in real-time.
+- Serialize topology, edges, and selected workload/global overrides.
+- Validate the topology before execution.
+- Send the resulting `TopologyJSON` to a Web Worker.
+- Run the discrete event simulation (DES) engine.
+- Emit progress updates and snapshots, then return the final output plus replay data.
 
 ---
 
-## Phase 3 · ANALYSE · ◌ Planned
+## Phase 3 · ANALYSE
 
 Results are visualized and broken down for deeper insights.
 
 ```mermaid
 flowchart TD
-    subgraph ANALYSE["Phase 3 · ANALYSE · ◌ planned"]
+    subgraph ANALYSE["Phase 3 · ANALYSE"]
         A1["Results Tray expands"]
-        A2["Summary → P50 · P90 · P95 · P99 · throughput · error rate · availability"]
-        A3["Per-Node → utilisation · avg queue depth · RPS · rejection count"]
-        A4["Traces → waterfall per request (queue + processing + network)"]
-        A5["Failures → causal cascade graph (failure → effect → recovery)"]
-        A6["Cost → AWS · GCP · Azure estimate per node & total"]
-        A1 --> A2 & A3 & A4 & A5 & A6
+        A2["Overview → latency · throughput · error rate · run context"]
+        A3["Bottlenecks → SLOs · Little's Law · conservation · warmup checks"]
+        A4["Nodes → utilisation · queue depth · per-node latency and throughput"]
+        A5["Traffic → canonical replay preview + filterable event log"]
+        A1 --> A2 & A3 & A4 & A5
     end
 ```
 
@@ -144,9 +142,9 @@ flowchart TD
 - Latency percentiles (P50–P99)
 - Throughput & availability
 - Per-node utilisation metrics
-- Request-level waterfall traces
-- Failure cascade graphs
-- Cloud cost estimation
+- Replayable canonical event stream
+- SLO breach detection
+- Warmup, conservation, and Little's Law checks
 
 ---
 
@@ -163,16 +161,17 @@ flowchart LR
 
 ## Tech Stack
 
-| Layer             | Technology                                           |
-| ----------------- | ---------------------------------------------------- |
-| App shell         | Browser SPA + Electron desktop shell                 |
-| Build system      | Vite 7 + electron-vite 4                             |
-| UI framework      | React 19 + TypeScript 5                              |
-| Styling           | Tailwind CSS 3                                       |
-| Canvas            | React Flow 11                                        |
-| State management  | Zustand 5                                            |
-| Icons             | Lucide React                                         |
-| Simulation engine | Discrete Event Simulation (DES) — planned Web Worker |
+| Layer             | Technology                                |
+| ----------------- | ----------------------------------------- |
+| App shell         | Browser SPA + Electron 38 desktop shell   |
+| Build system      | Vite 7 + electron-vite 4                  |
+| UI framework      | React 19 + TypeScript 5                   |
+| Styling           | Tailwind CSS 3                            |
+| Canvas            | React Flow 11                             |
+| State management  | Zustand 5                                 |
+| Validation        | Zod 4                                     |
+| Testing           | Vitest 4                                  |
+| Simulation engine | In-repo DES engine + Web Worker execution |
 
 ---
 
@@ -191,7 +190,7 @@ flowchart LR
 
 ---
 
-## Simulation Engine (Planned)
+## Simulation Engine
 
 The engine is a **Discrete Event Simulation loop** — no real clocks, no real servers, only a priority queue of timestamped events processed in order.
 
@@ -201,55 +200,52 @@ Each node is modelled as a **G/G/c/K queue**:
 - `K` — max queue capacity (excess arrivals are rejected)
 - Service time sampled from a configurable probability distribution (log-normal, exponential, Poisson, Weibull, etc.)
 
-Key engine components being built (see `ns-simulator-docs/planning/`):
+Core runtime pieces currently in the repo:
 
-| Component           | Role                                                            |
-| ------------------- | --------------------------------------------------------------- |
-| Min-Heap            | O(log n) event priority queue                                   |
-| SFC32 PRNG          | Deterministic random (same seed = identical results every time) |
-| G/G/c/K Node        | Per-node queue model with workers and capacity                  |
-| Workload Generator  | Constant / Poisson / Spike / Diurnal / Bursty traffic           |
-| Network Edge        | Latency distributions, congestion, packet loss                  |
-| Failure Injector    | Crash / latency spike / error rate faults at configurable times |
-| Failure Propagation | Cascade walk through the dependency graph                       |
-| Circuit Breaker     | CLOSED / OPEN / HALF_OPEN state machine                         |
-| Metrics Collector   | Latency percentiles, throughput, error rate, Little's Law check |
-| Request Tracer      | Per-request waterfall data                                      |
-| Web Worker          | Runs engine off the main thread; streams snapshots to UI        |
+| Component              | Role                                                             |
+| ---------------------- | ---------------------------------------------------------------- |
+| Min-Heap               | O(log n) event priority queue                                    |
+| BigInt time utilities  | Deterministic microsecond scheduling                             |
+| Seeded PRNG            | Same seed = identical results                                    |
+| G/G/c/K Node           | Per-node queue model with workers and capacity                   |
+| Workload Generator     | Constant / Poisson / Spike / Diurnal / Bursty / Sawtooth traffic |
+| Routing Table          | Weighted path resolution and fan-out handling                    |
+| Topology Validator     | Zod-backed schema + structural validation                        |
+| Metrics Collector      | Latency, throughput, error rate, SLO, and queueing checks        |
+| Request Tracer         | Per-request span collection                                      |
+| Canonical Event Stream | Replay-friendly lifecycle/event recording                        |
+| Web Worker Runner      | Off-main-thread simulation execution                             |
+
+Advanced fault modeling, broader resilience semantics, and richer post-run analysis are also documented in `ns-simulator-docs/` and are being expanded incrementally in the runtime.
 
 ---
 
 ## Submodule: `ns-simulator-docs`
 
-The `ns-simulator-docs/` directory is a Git submodule containing all design documentation:
+The `ns-simulator-docs/` directory is a Git submodule containing the theory, specs, planning material, generated reference artifacts, and workflow assets that support the simulator:
 
 ```
 ns-simulator-docs/
 ├── docs/
-│   ├── SYSTEM_OVERVIEW.md             # End-to-end system reference
-│   ├── theoretical-foundations.md     # Queueing theory, DEVS, reliability
-│   ├── 01-system-diagrams.md          # Nodes, edges, graph patterns
-│   ├── 02-simulation-fundamentals.md  # Events, time, the event loop
-│   ├── 03-data-structures-and-mechanics.md  # Min-heap, PRNG, G/G/c/K
-│   ├── 04-distributed-systems-and-failures.md  # Network physics, failure modes
-│   └── 05-devs-chaos-and-analysis.md  # DEVS formalism, chaos, output analysis
-├── schema/
-│   └── complete_simulator_schema.ts   # 2300+ line TypeScript type system
-├── canonical-catalogue/               # 17 CSV reference files covering:
-│   │                                  #   component taxonomy (110+ types)
-│   │                                  #   failure modes & propagation rules
-│   │                                  #   architectural patterns & anti-patterns
-│   │                                  #   metrics & SLIs
-│   │                                  #   pre-built scenarios
-│   │                                  #   AWS / GCP / Azure provider mapping
-│   └── README.md
+│   ├── SYSTEM_OVERVIEW.md              # End-to-end system reference
+│   ├── theoretical-foundations.md      # Queueing theory, DEVS, reliability
+│   └── 01-05-*.md                      # Core documentation series
+├── schema/                             # Canonical TypeScript schema + schema docs
+├── canonical-catalogue/                # 17 CSV reference files + catalogue README
 ├── planning/
-│   ├── IMPLEMENTATION_PLAN.md         # 10-phase build plan
-│   └── TICKETS.md                     # 46 engineering tickets with acceptance criteria
-└── design-decisions/
-    ├── adr-internal-modularity-over-plugin-system.md
-    └── adr-no-custom-change-detection.md
+│   ├── IMPLEMENTATION_PLAN.md          # 10-phase build plan
+│   ├── TICKETS.md                      # 46 engineering tickets
+│   └── analysis/                       # Planning / meeting analysis notes
+├── design-decisions/                   # ADRs and issue writeups
+├── specs/                              # Feature and semantics specifications
+├── generated/                          # Generated topologies and sheet exports
+├── skills/                             # Codex skills for docs/schema/scenario workflows
+├── tools/                              # Helper scripts
+├── stitch_simulation_output_analysis/  # UI reference captures
+└── system-mind-map.md                  # High-level concept map
 ```
+
+Notable additions in the current submodule checkout are `skills/`, `generated/`, `specs/`, `tools/`, and the expanded `design-decisions/` set.
 
 To initialise the submodule after cloning:
 
@@ -263,7 +259,7 @@ git submodule update --init --recursive
 
 ### Prerequisites
 
-- Node.js 18+
+- Node.js 20+
 - npm
 
 ### Install
@@ -290,11 +286,25 @@ npm run typecheck
 ```bash
 npm run build:web       # browser production bundle
 npm run build:electron  # Electron production bundle
+npm run build:all       # both targets, same path used in CI
 
 # Electron installers
 npm run build:electron:mac
 npm run build:electron:win
 npm run build:electron:linux
+```
+
+### Test
+
+```bash
+npm run test
+```
+
+### CLI
+
+```bash
+npm run simulate -- order-topology.json
+npm run simulate -- order-topology.json --json
 ```
 
 ---
@@ -355,20 +365,25 @@ Fields that are not wired to runtime behavior are hidden from the default inspec
 
 ## Implementation Status
 
-| Area                                           | Status  |
-| ---------------------------------------------- | ------- |
-| React Flow canvas (nodes + edges)              | Done    |
-| Drag-and-drop node palette                     | Done    |
-| Node types (Compute, Service, VPC)             | Done    |
-| Atomic design system (atoms → organisms)       | Done    |
-| Zustand topology store                         | Done    |
-| File save / load via browser APIs and Electron dialogs | Done    |
-| Simulation engine (DES loop)                   | Planned |
-| Inspector panel                                | Planned |
-| Scenario bar (workload + faults + controls)    | Planned |
-| Web Worker + live canvas coloring              | Planned |
-| Results tray (summary, traces, failures, cost) | Planned |
-| CLI (`simulator run / validate / compare`)     | Planned |
+| Area                                                    | Status  |
+| ------------------------------------------------------- | ------- |
+| Browser SPA target                                      | Done    |
+| Electron desktop target                                 | Done    |
+| React Flow canvas (nodes + edges)                       | Done    |
+| Drag-and-drop node palette                              | Done    |
+| Node types (Compute, Service, VPC)                      | Done    |
+| Atomic design system (atoms → organisms)                | Done    |
+| Zustand topology store                                  | Done    |
+| Inspector panel                                         | Done    |
+| File save / load via browser APIs and Electron dialogs  | Done    |
+| Scenario controls (source/workload/global runtime)      | Done    |
+| Topology serialization + validation                     | Done    |
+| Simulation engine (DES loop)                            | Done    |
+| Web Worker execution                                    | Done    |
+| Results tray (overview / bottlenecks / nodes / traffic) | Done    |
+| CLI simulation runner                                   | Done    |
+| Advanced fault authoring UI                             | Partial |
+| Advanced cost / failure analysis UI                     | Planned |
 
 See `ns-simulator-docs/planning/TICKETS.md` for the full 46-ticket breakdown.
 
@@ -410,10 +425,12 @@ Refactor VPC node to extract header and toolbar molecules
 ```bash
 npm run typecheck    # tsc across both node + web tsconfigs
 npm run lint         # eslint
+npm run test         # vitest
+npm run build:all    # browser + Electron production builds
 npm run format       # prettier --write
 ```
 
-All three must pass clean. The build scripts run `typecheck` automatically, so a failing type check will also break `npm run build:web`, `npm run build:electron`, and `npm run build:all`.
+The branch should stay green on both targets. `build:web`, `build:electron`, and `build:all` all run `typecheck` automatically.
 
 ### Pull Requests
 
