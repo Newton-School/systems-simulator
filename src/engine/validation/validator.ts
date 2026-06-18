@@ -1,5 +1,10 @@
 import { z } from 'zod'
-import { TopologyJSON } from '../core/types'
+import type {
+  BaseDistributionConfig,
+  DiurnalHourlyMultipliers,
+  DistributionConfig,
+  TopologyJSON
+} from '../core/types'
 import { inferStructuralRole } from '../catalog/componentSpecs'
 
 const COMPONENT_CATEGORIES = [
@@ -153,68 +158,79 @@ const COMPONENT_TYPES = [
 ] as const
 
 //zod Schema
-const BaseDistributionConfigSchema = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('constant'), value: z.number() }),
-  z.object({ type: z.literal('deterministic'), value: z.number() }),
-  z.object({
-    type: z.literal('log-normal'),
-    mu: z.number(),
-    sigma: z.number().positive('Sigma must be > 0')
-  }),
-  z.object({ type: z.literal('exponential'), lambda: z.number().positive('Lambda must be > 0') }),
-  z.object({ type: z.literal('normal'), mean: z.number(), stdDev: z.number().positive() }),
-  z
-    .object({
-      type: z.literal('uniform'),
-      min: z.number(),
-      max: z.number()
-    })
-    .refine((data) => data.max > data.min, {
-      message: 'For uniform distribution, max must be greater than min',
-      path: ['max']
-    }),
-  z.object({
-    type: z.literal('weibull'),
-    shape: z.number().positive(),
-    scale: z.number().positive()
-  }),
-  z.object({ type: z.literal('poisson'), lambda: z.number().positive() }),
-  z.object({
-    type: z.literal('binomial'),
-    n: z.number().int().positive(),
-    p: z.number().min(0).max(1)
-  }),
-  z.object({
-    type: z.literal('gamma'),
-    shape: z.number().positive(),
-    scale: z.number().positive()
-  }),
-  z.object({ type: z.literal('beta'), alpha: z.number().positive(), beta: z.number().positive() }),
-  z.object({
-    type: z.literal('pareto'),
-    scale: z.number().positive(),
-    shape: z.number().positive()
-  }),
-  z.object({
-    type: z.literal('empirical'),
-    samples: z.array(z.number()).min(1),
-    interpolation: z.enum(['linear', 'step'])
-  })
-])
+type MixtureDistributionConfig = Extract<DistributionConfig, { type: 'mixture' }>
 
-export const DistributionConfigSchema = z.union([
+const BaseDistributionConfigSchema: z.ZodType<BaseDistributionConfig> = z.discriminatedUnion(
+  'type',
+  [
+    z.object({ type: z.literal('constant'), value: z.number() }),
+    z.object({ type: z.literal('deterministic'), value: z.number() }),
+    z.object({
+      type: z.literal('log-normal'),
+      mu: z.number(),
+      sigma: z.number().positive('Sigma must be > 0')
+    }),
+    z.object({ type: z.literal('exponential'), lambda: z.number().positive('Lambda must be > 0') }),
+    z.object({ type: z.literal('normal'), mean: z.number(), stdDev: z.number().positive() }),
+    z
+      .object({
+        type: z.literal('uniform'),
+        min: z.number(),
+        max: z.number()
+      })
+      .refine((data) => data.max > data.min, {
+        message: 'For uniform distribution, max must be greater than min',
+        path: ['max']
+      }),
+    z.object({
+      type: z.literal('weibull'),
+      shape: z.number().positive(),
+      scale: z.number().positive()
+    }),
+    z.object({ type: z.literal('poisson'), lambda: z.number().positive() }),
+    z.object({
+      type: z.literal('binomial'),
+      n: z.number().int().positive(),
+      p: z.number().min(0).max(1)
+    }),
+    z.object({
+      type: z.literal('gamma'),
+      shape: z.number().positive(),
+      scale: z.number().positive()
+    }),
+    z.object({
+      type: z.literal('beta'),
+      alpha: z.number().positive(),
+      beta: z.number().positive()
+    }),
+    z.object({
+      type: z.literal('pareto'),
+      scale: z.number().positive(),
+      shape: z.number().positive()
+    }),
+    z.object({
+      type: z.literal('empirical'),
+      samples: z.array(z.number()).min(1),
+      interpolation: z.enum(['linear', 'step'])
+    })
+  ]
+)
+
+const MixtureDistributionComponentSchema: z.ZodType<
+  MixtureDistributionConfig['components'][number]
+> = z.object({
+  weight: z.number().nonnegative(),
+  distribution: BaseDistributionConfigSchema
+})
+
+const MixtureDistributionConfigSchema: z.ZodType<MixtureDistributionConfig> = z.object({
+  type: z.literal('mixture'),
+  components: z.array(MixtureDistributionComponentSchema).min(1)
+})
+
+export const DistributionConfigSchema: z.ZodType<DistributionConfig> = z.union([
   BaseDistributionConfigSchema,
-  z.object({
-    type: z.literal('mixture'),
-    components: z
-      .array(
-        z.object({
-          weight: z.number().nonnegative(),
-          distribution: BaseDistributionConfigSchema
-        })
-      )
-      .min(1)
-  })
+  MixtureDistributionConfigSchema
 ])
 
 export const GlobalConfigSchema = z.object({
@@ -224,6 +240,70 @@ export const GlobalConfigSchema = z.object({
   timeResolution: z.enum(['microsecond', 'millisecond']),
   defaultTimeout: z.number().positive(),
   traceSampleRate: z.number().min(0).max(1).optional()
+})
+
+const ResilienceConfigSchema = z.object({
+  circuitBreaker: z
+    .object({
+      failureThreshold: z.number().min(0).max(1),
+      failureCount: z.number().int().positive(),
+      recoveryTimeout: z.number().nonnegative(),
+      halfOpenRequests: z.number().int().positive()
+    })
+    .optional(),
+  retry: z
+    .object({
+      maxAttempts: z.number().int().positive(),
+      baseDelay: z.number().nonnegative(),
+      maxDelay: z.number().nonnegative(),
+      multiplier: z.number().positive(),
+      jitter: z.boolean()
+    })
+    .optional(),
+  rateLimiter: z
+    .object({
+      maxTokens: z.number().nonnegative(),
+      refillRate: z.number().nonnegative()
+    })
+    .optional(),
+  bulkhead: z
+    .object({
+      maxConcurrent: z.number().int().positive()
+    })
+    .optional()
+})
+
+const SLOConfigSchema = z.object({
+  latencyP99: z.number().nonnegative(),
+  availabilityTarget: z.number().min(0).max(1),
+  errorBudget: z.number().min(0).max(1)
+})
+
+const FailureTriggerSchema = z.object({
+  metric: z.string(),
+  operator: z.enum(['>', '<', '>=', '<=', '==']),
+  value: z.number()
+})
+
+const FailureModeSchema = z.object({
+  mode: z.string(),
+  severity: z.enum(['critical', 'degraded', 'minor']),
+  mtbf: z.number().nonnegative().optional(),
+  mttr: z.number().nonnegative().optional(),
+  trigger: FailureTriggerSchema.optional()
+})
+
+const ScalingConfigSchema = z.object({
+  type: z.enum(['horizontal', 'vertical']),
+  metric: z.string(),
+  scaleUpThreshold: z.number(),
+  scaleDownThreshold: z.number(),
+  cooldown: z.number().nonnegative(),
+  coldStartPenalty: z
+    .object({
+      distribution: DistributionConfigSchema
+    })
+    .optional()
 })
 
 export const ComponentNodeSchema = z.object({
@@ -265,10 +345,10 @@ export const ComponentNodeSchema = z.object({
     })
     .optional(),
 
-  resilience: z.record(z.string(), z.unknown()).optional(),
-  slo: z.record(z.string(), z.unknown()).optional(),
-  failureModes: z.array(z.record(z.string(), z.unknown())).optional(),
-  scaling: z.record(z.string(), z.unknown()).optional(),
+  resilience: ResilienceConfigSchema.optional(),
+  slo: SLOConfigSchema.optional(),
+  failureModes: z.array(FailureModeSchema).optional(),
+  scaling: ScalingConfigSchema.optional(),
   config: z.record(z.string(), z.unknown()).optional()
 })
 
@@ -294,32 +374,61 @@ export const EdgeDefinitionSchema = z.object({
   animated: z.boolean().optional()
 })
 
-const DiurnalHourlyMultipliersSchema = z.tuple([
-  z.number(),
-  z.number(),
-  z.number(),
-  z.number(),
-  z.number(),
-  z.number(),
-  z.number(),
-  z.number(),
-  z.number(),
-  z.number(),
-  z.number(),
-  z.number(),
-  z.number(),
-  z.number(),
-  z.number(),
-  z.number(),
-  z.number(),
-  z.number(),
-  z.number(),
-  z.number(),
-  z.number(),
-  z.number(),
-  z.number(),
-  z.number()
-])
+const DiurnalHourlyMultipliersSchema: z.ZodType<DiurnalHourlyMultipliers> = z
+  .tuple([
+    z.number(),
+    z.number(),
+    z.number(),
+    z.number(),
+    z.number(),
+    z.number(),
+    z.number(),
+    z.number(),
+    z.number(),
+    z.number(),
+    z.number(),
+    z.number(),
+    z.number(),
+    z.number(),
+    z.number(),
+    z.number(),
+    z.number(),
+    z.number(),
+    z.number(),
+    z.number(),
+    z.number(),
+    z.number(),
+    z.number(),
+    z.number()
+  ])
+  .transform(
+    (hours): DiurnalHourlyMultipliers => [
+      hours[0]!,
+      hours[1]!,
+      hours[2]!,
+      hours[3]!,
+      hours[4]!,
+      hours[5]!,
+      hours[6]!,
+      hours[7]!,
+      hours[8]!,
+      hours[9]!,
+      hours[10]!,
+      hours[11]!,
+      hours[12]!,
+      hours[13]!,
+      hours[14]!,
+      hours[15]!,
+      hours[16]!,
+      hours[17]!,
+      hours[18]!,
+      hours[19]!,
+      hours[20]!,
+      hours[21]!,
+      hours[22]!,
+      hours[23]!
+    ]
+  )
 
 export const WorkloadProfileSchema = z.object({
   sourceNodeId: z.string().min(1),
@@ -398,7 +507,7 @@ export const ScenarioRefSchema = z.object({
   overrides: z.record(z.string(), z.unknown())
 })
 
-export const TopologyJSONSchema = z.object({
+export const TopologyJSONSchema: z.ZodType<TopologyJSON> = z.object({
   id: z.string(),
   name: z.string(),
   version: z.string(),
@@ -474,7 +583,7 @@ export const validateTopology = (input: unknown): ValidationResult => {
     return { valid: false, errors, warnings }
   }
 
-  const topology = parseResult.data as TopologyJSON
+  const topology = parseResult.data
 
   //Cross-Reference Validations
   const nodeIds = new Set<string>()

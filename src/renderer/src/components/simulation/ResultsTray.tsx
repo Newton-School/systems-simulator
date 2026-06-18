@@ -1,12 +1,18 @@
-import { useId, useState } from 'react'
+import { useEffect, useId, useMemo, useState } from 'react'
+import type { KeyboardEvent } from 'react'
+import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react'
 import type { SimulationOutput } from '../../../../engine/analysis/output'
+import type { DebugEvent } from '../../../../engine/core/event-stream'
+import { projectToDebugEvent } from '../../../../engine/core/event-stream'
 import type { SimulationStatus } from '../../hooks/useSimulation'
-import type { ScenarioRunContext } from '@renderer/types/ui'
+import useStore from '../../store/useStore'
+import type { EdgeSimulationData, ScenarioRunContext } from '@renderer/types/ui'
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
 interface ResultsTrayProps {
   status: SimulationStatus
+  stopped: boolean
   progress: number
   eventsProcessed: number
   results: SimulationOutput | null
@@ -14,6 +20,21 @@ interface ResultsTrayProps {
   runContext: ScenarioRunContext | null
   onClose?: () => void
 }
+
+interface EventEdgeDisplayInfo {
+  label?: string
+  source?: string
+  target?: string
+  protocol?: string
+  mode?: string
+}
+
+interface EventGraphLookup {
+  nodeLabelById: Map<string, string>
+  edgeById: Map<string, EventEdgeDisplayInfo>
+}
+
+type ResultsTab = 'overview' | 'bottlenecks' | 'nodes' | 'traffic'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -48,8 +69,28 @@ function fmtW(wSeconds: number): string {
   return wSeconds === 0 ? '—' : fmtMs(wSeconds * 1000)
 }
 
+function fmtEventTime(timestampMs: number): string {
+  if (timestampMs < 1000) return `${timestampMs.toFixed(3)}ms`
+  return `${(timestampMs / 1000).toFixed(3)}s`
+}
+
+function clampSequence(sequence: number, maxSequence: number): number {
+  return Math.min(maxSequence, Math.max(0, sequence))
+}
+
+function totalReplayEventCount(output: SimulationOutput): number {
+  return Object.values(output.eventCountsByType).reduce((sum, count) => sum + count, 0)
+}
+
 const SECTION_TITLE = 'text-[11px] font-semibold text-nss-muted uppercase tracking-wider'
 const SURFACE_CARD = 'bg-nss-surface border border-nss-border rounded-md'
+const EVENT_LOG_PAGE_SIZE = 50
+const RESULTS_TABS: Array<{ id: ResultsTab; label: string }> = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'bottlenecks', label: 'Bottlenecks' },
+  { id: 'nodes', label: 'Nodes' },
+  { id: 'traffic', label: 'Traffic' }
+]
 
 const E2E_PERCENTILE_TOOLTIPS: Record<'p50' | 'p90' | 'p95' | 'p99' | 'max', string> = {
   p50: 'Median end-to-end latency. Half of requests were faster than this, half slower.',
@@ -85,6 +126,128 @@ const PER_NODE_COLUMN_TOOLTIPS = {
   w: 'Mean time a request spends at this node (W, service + queue). End-to-end latency is roughly the sum of W across the path.',
   l: "Average number of requests concurrently at this node (L). By Little's Law, L = λ·W."
 } as const
+
+function eventStatusClass(status: DebugEvent['status']): string {
+  switch (status) {
+    case 'success':
+      return 'text-nss-success bg-nss-success/10 border-nss-success/20'
+    case 'timeout':
+      return 'text-nss-warning bg-nss-warning/10 border-nss-warning/20'
+    case 'rejected':
+    case 'failure':
+      return 'text-nss-danger bg-nss-danger/10 border-nss-danger/20'
+    default:
+      return 'text-nss-muted bg-nss-surface border-nss-border'
+  }
+}
+
+function includesTerm(value: string | undefined, term: string): boolean {
+  return value?.toLowerCase().includes(term) ?? false
+}
+
+function labelForNode(nodeId: string | undefined, lookup: EventGraphLookup): string | undefined {
+  return nodeId ? lookup.nodeLabelById.get(nodeId) : undefined
+}
+
+function nodeDisplayName(event: DebugEvent, lookup: EventGraphLookup): string {
+  return labelForNode(event.nodeId, lookup) ?? event.nodeId ?? '—'
+}
+
+function routeDisplayName(event: DebugEvent, lookup: EventGraphLookup): string {
+  const edge = event.edgeId ? lookup.edgeById.get(event.edgeId) : undefined
+  const sourceId = event.sourceNodeId ?? edge?.source
+  const targetId = event.targetNodeId ?? edge?.target
+  const source = labelForNode(sourceId, lookup) ?? sourceId
+  const target = labelForNode(targetId, lookup) ?? targetId
+
+  return source || target ? `${source ?? '—'} → ${target ?? '—'}` : '—'
+}
+
+function edgeDisplay(
+  event: DebugEvent,
+  lookup: EventGraphLookup
+): { primary: string; secondary?: string; title?: string } {
+  const edge = event.edgeId ? lookup.edgeById.get(event.edgeId) : undefined
+  const route = routeDisplayName(event, lookup)
+  const hasRoute = route !== '—'
+  const protocolMode = [edge?.protocol, edge?.mode].filter(Boolean).join(' / ')
+  const primary = edge?.label ?? (hasRoute ? route : event.edgeId) ?? '—'
+  const secondaryParts: string[] = []
+
+  if (edge?.label && hasRoute) {
+    secondaryParts.push(route)
+  }
+  if (protocolMode) {
+    secondaryParts.push(protocolMode)
+  }
+
+  return {
+    primary,
+    secondary: secondaryParts.length > 0 ? secondaryParts.join(' • ') : undefined,
+    title: [event.edgeId, edge?.label, route, protocolMode].filter(Boolean).join(' | ')
+  }
+}
+
+function eventMatchesQuery(event: DebugEvent, query: string, lookup: EventGraphLookup): boolean {
+  const normalized = query.trim()
+  if (normalized.length === 0) {
+    return true
+  }
+
+  return normalized
+    .split(/\s+OR\s+/i)
+    .some((group) =>
+      group.split(/\s+AND\s+/i).every((term) => eventMatchesTerm(event, term, lookup))
+    )
+}
+
+function eventMatchesTerm(event: DebugEvent, rawTerm: string, lookup: EventGraphLookup): boolean {
+  const term = rawTerm.trim()
+  if (term.length === 0) {
+    return true
+  }
+
+  const edge = event.edgeId ? lookup.edgeById.get(event.edgeId) : undefined
+  const sourceId = event.sourceNodeId ?? edge?.source
+  const targetId = event.targetNodeId ?? edge?.target
+
+  const [field, ...rest] = term.split(':')
+  const value = rest.join(':').toLowerCase()
+  if (!value) {
+    return event.message.toLowerCase().includes(term.toLowerCase())
+  }
+
+  switch (field.toLowerCase()) {
+    case 'request':
+      return includesTerm(event.requestId, value)
+    case 'node':
+      return (
+        includesTerm(event.nodeId, value) ||
+        includesTerm(labelForNode(event.nodeId, lookup), value) ||
+        includesTerm(sourceId, value) ||
+        includesTerm(labelForNode(sourceId, lookup), value) ||
+        includesTerm(targetId, value) ||
+        includesTerm(labelForNode(targetId, lookup), value)
+      )
+    case 'edge':
+      return (
+        includesTerm(event.edgeId, value) ||
+        includesTerm(edge?.label, value) ||
+        includesTerm(edge?.protocol, value) ||
+        includesTerm(edge?.mode, value) ||
+        includesTerm(sourceId, value) ||
+        includesTerm(labelForNode(sourceId, lookup), value) ||
+        includesTerm(targetId, value) ||
+        includesTerm(labelForNode(targetId, lookup), value)
+      )
+    case 'status':
+      return event.status.toLowerCase() === value
+    case 'type':
+      return event.type.toLowerCase() === value
+    default:
+      return event.message.toLowerCase().includes(term.toLowerCase())
+  }
+}
 
 function RunContextPanel({ runContext }: { runContext: ScenarioRunContext }) {
   const workload = runContext.workload
@@ -656,6 +819,369 @@ function PerNodeTable({ output }: { output: SimulationOutput }) {
   )
 }
 
+// ─── Replay Preview ──────────────────────────────────────────────────────────
+
+function ReplayPreview({
+  output,
+  graphLookup
+}: {
+  output: SimulationOutput
+  graphLookup: EventGraphLookup
+}) {
+  const retainedEventCount = output.eventStream.length
+  const totalEventCount = totalReplayEventCount(output)
+  const isTruncated = retainedEventCount < totalEventCount
+  const [sequence, setSequence] = useState(0)
+  const maxSequence = Math.max(0, retainedEventCount - 1)
+
+  useEffect(() => {
+    setSequence((current) => clampSequence(current, maxSequence))
+  }, [maxSequence])
+
+  const event = output.eventStream[clampSequence(sequence, maxSequence)]
+  const debugEvent = useMemo(() => (event ? projectToDebugEvent(event) : null), [event])
+
+  if (!debugEvent) {
+    return null
+  }
+
+  const currentEdge = edgeDisplay(debugEvent, graphLookup)
+
+  const buttonClass =
+    'h-7 w-7 inline-flex items-center justify-center rounded border border-nss-border text-nss-muted hover:text-nss-text hover:bg-nss-surface transition-colors disabled:opacity-40 disabled:hover:bg-transparent'
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between gap-3">
+        <h3 className={SECTION_TITLE}>Replay Preview</h3>
+        <span className="text-[10px] text-nss-muted tabular-nums">
+          {sequence + 1} / {retainedEventCount.toLocaleString()}
+        </span>
+      </div>
+
+      <div className={`${SURFACE_CARD} p-3 space-y-3`}>
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => setSequence(0)}
+            disabled={sequence === 0}
+            className={buttonClass}
+            title="Jump to start"
+          >
+            <ChevronsLeft size={14} />
+          </button>
+          <button
+            type="button"
+            onClick={() => setSequence((current) => clampSequence(current - 1, maxSequence))}
+            disabled={sequence === 0}
+            className={buttonClass}
+            title="Previous event"
+          >
+            <ChevronLeft size={14} />
+          </button>
+          <input
+            type="range"
+            min={0}
+            max={maxSequence}
+            value={sequence}
+            onChange={(event) => setSequence(Number(event.target.value))}
+            className="min-w-0 flex-1 accent-nss-primary"
+            aria-label="Replay sequence"
+          />
+          <button
+            type="button"
+            onClick={() => setSequence((current) => clampSequence(current + 1, maxSequence))}
+            disabled={sequence === maxSequence}
+            className={buttonClass}
+            title="Next event"
+          >
+            <ChevronRight size={14} />
+          </button>
+          <button
+            type="button"
+            onClick={() => setSequence(maxSequence)}
+            disabled={sequence === maxSequence}
+            className={buttonClass}
+            title="Jump to end"
+          >
+            <ChevronsRight size={14} />
+          </button>
+        </div>
+
+        {isTruncated && (
+          <div className="rounded-md border border-nss-warning/20 bg-nss-warning/10 px-2 py-1 text-[10px] text-nss-warning">
+            Showing the first {retainedEventCount.toLocaleString()} replay events out of{' '}
+            {totalEventCount.toLocaleString()} recorded for this run.
+          </div>
+        )}
+
+        <div className="grid grid-cols-2 gap-2 text-xs">
+          <StatCard label="Sequence" value={debugEvent.sequence.toLocaleString()} />
+          <StatCard label="Time" value={fmtEventTime(debugEvent.timestampMs)} />
+          <StatCard label="Type" value={debugEvent.type} />
+          <StatCard label="Status" value={debugEvent.status} />
+          <StatCard label="Request" value={debugEvent.requestId ?? '—'} />
+          <StatCard label="Node" value={nodeDisplayName(debugEvent, graphLookup)} />
+          <StatCard label="Edge" value={currentEdge.primary} />
+          <StatCard label="Route" value={routeDisplayName(debugEvent, graphLookup)} />
+        </div>
+
+        {(debugEvent.reasonCode || debugEvent.nodeSnapshot) && (
+          <div className="grid grid-cols-2 gap-2 text-xs">
+            {debugEvent.reasonCode && <StatCard label="Reason" value={debugEvent.reasonCode} />}
+            {debugEvent.nodeSnapshot && (
+              <StatCard
+                label="Node State"
+                value={`${debugEvent.nodeSnapshot.activeWorkers} active / ${debugEvent.nodeSnapshot.queueLength} queued`}
+              />
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function EventLog({
+  output,
+  graphLookup
+}: {
+  output: SimulationOutput
+  graphLookup: EventGraphLookup
+}) {
+  const [isOpen, setIsOpen] = useState(true)
+  const [query, setQuery] = useState('')
+  const [page, setPage] = useState(0)
+  const [activeSequence, setActiveSequence] = useState<number | null>(null)
+  const selectGraphElements = useStore((state) => state.selectGraphElements)
+  const retainedEventCount = output.eventStream.length
+  const totalEventCount = totalReplayEventCount(output)
+  const isTruncated = retainedEventCount < totalEventCount
+  const debugEvents = useMemo(
+    () => (isOpen ? output.eventStream.map((event) => projectToDebugEvent(event)) : []),
+    [isOpen, output.eventStream]
+  )
+  const visibleEvents = useMemo(
+    () => debugEvents.filter((event) => eventMatchesQuery(event, query, graphLookup)),
+    [debugEvents, query, graphLookup]
+  )
+  const summary = useMemo(
+    () =>
+      visibleEvents.reduce(
+        (acc, event) => {
+          acc[event.status] = (acc[event.status] ?? 0) + 1
+          return acc
+        },
+        {} as Partial<Record<DebugEvent['status'], number>>
+      ),
+    [visibleEvents]
+  )
+  const pageCount = Math.max(1, Math.ceil(visibleEvents.length / EVENT_LOG_PAGE_SIZE))
+  const clampedPage = Math.min(page, pageCount - 1)
+  const pageStart = clampedPage * EVENT_LOG_PAGE_SIZE
+  const rows = visibleEvents.slice(pageStart, pageStart + EVENT_LOG_PAGE_SIZE)
+  const displayStart = visibleEvents.length === 0 ? 0 : pageStart + 1
+  const displayEnd = pageStart + rows.length
+
+  useEffect(() => {
+    setPage(0)
+  }, [query, retainedEventCount])
+
+  function selectEventTarget(event: DebugEvent): void {
+    if (!event.nodeId && !event.edgeId) {
+      return
+    }
+
+    setActiveSequence(event.sequence)
+    selectGraphElements({ nodeId: event.nodeId, edgeId: event.edgeId })
+  }
+
+  function handleRowKeyDown(
+    keyboardEvent: KeyboardEvent<HTMLTableRowElement>,
+    event: DebugEvent
+  ): void {
+    if (keyboardEvent.key !== 'Enter' && keyboardEvent.key !== ' ') {
+      return
+    }
+
+    keyboardEvent.preventDefault()
+    selectEventTarget(event)
+  }
+
+  if (retainedEventCount === 0) {
+    return null
+  }
+
+  return (
+    <div className="space-y-2">
+      <button
+        type="button"
+        onClick={() => setIsOpen((open) => !open)}
+        className="w-full flex items-center justify-between gap-3 text-left"
+        aria-expanded={isOpen}
+      >
+        <span className={SECTION_TITLE}>Event Log</span>
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] text-nss-muted tabular-nums">
+            {isTruncated
+              ? `${retainedEventCount.toLocaleString()} / ${totalEventCount.toLocaleString()} replay events`
+              : `${totalEventCount.toLocaleString()} replay events`}
+          </span>
+          <span className="text-nss-muted text-[10px]">{isOpen ? '▲' : '▼'}</span>
+        </div>
+      </button>
+
+      {!isOpen && (
+        <div className={`${SURFACE_CARD} px-3 py-2 text-xs text-nss-muted`}>
+          {isTruncated
+            ? `Open to inspect the retained replay window (${retainedEventCount.toLocaleString()} of ${totalEventCount.toLocaleString()} events).`
+            : 'Open to inspect canonical events and filter by request, node, edge, status, or type.'}
+        </div>
+      )}
+
+      {isOpen && (
+        <>
+          {isTruncated && (
+            <div className="rounded-md border border-nss-warning/20 bg-nss-warning/10 px-3 py-2 text-xs text-nss-warning">
+              Large runs are capped to keep the renderer responsive. This table shows the first{' '}
+              {retainedEventCount.toLocaleString()} replay events out of{' '}
+              {totalEventCount.toLocaleString()} total canonical events.
+            </div>
+          )}
+
+          <div className="flex flex-wrap gap-1 text-[10px]">
+            {(['rejected', 'timeout', 'success', 'info'] as const).map((status) => (
+              <span
+                key={status}
+                className={`px-1.5 py-0.5 rounded border ${eventStatusClass(status)}`}
+              >
+                {summary[status] ?? 0} {status}
+              </span>
+            ))}
+          </div>
+
+          <input
+            value={query}
+            onChange={(event) => {
+              setQuery(event.target.value)
+              setPage(0)
+            }}
+            placeholder="type:request-forwarded OR status:rejected"
+            className="w-full h-8 px-2 rounded-md bg-nss-surface border border-nss-border text-xs text-nss-text placeholder:text-nss-muted outline-none focus:border-nss-primary"
+          />
+
+          <div className={`${SURFACE_CARD} overflow-hidden`}>
+            <div className="max-h-80 overflow-auto">
+              <table className="w-full text-[11px] tabular-nums">
+                <thead className="sticky top-0 bg-nss-surface text-nss-muted border-b border-nss-border">
+                  <tr>
+                    <th className="text-right py-1.5 px-2">Seq</th>
+                    <th className="text-right py-1.5 px-2">Time</th>
+                    <th className="text-left py-1.5 px-2">Type</th>
+                    <th className="text-left py-1.5 px-2">Request</th>
+                    <th className="text-left py-1.5 px-2">Node</th>
+                    <th className="text-left py-1.5 px-2">Edge / Route</th>
+                    <th className="text-left py-1.5 px-2">Status</th>
+                    <th className="text-left py-1.5 px-2">Reason</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((event) => {
+                    const edge = edgeDisplay(event, graphLookup)
+                    const isActive = activeSequence === event.sequence
+                    const isSelectable = Boolean(event.nodeId || event.edgeId)
+                    return (
+                      <tr
+                        key={event.sequence}
+                        tabIndex={isSelectable ? 0 : undefined}
+                        aria-selected={isActive}
+                        onClick={() => selectEventTarget(event)}
+                        onKeyDown={(keyboardEvent) => handleRowKeyDown(keyboardEvent, event)}
+                        className={`border-b border-nss-border outline-none ${
+                          isSelectable ? 'cursor-pointer hover:bg-nss-bg focus:bg-nss-bg' : ''
+                        } ${
+                          isActive ? 'bg-nss-primary/10 ring-1 ring-inset ring-nss-primary/30' : ''
+                        }`}
+                      >
+                        <td className="text-right py-1 px-2 text-nss-muted">{event.sequence}</td>
+                        <td className="text-right py-1 px-2 text-nss-muted">
+                          {fmtEventTime(event.timestampMs)}
+                        </td>
+                        <td className="py-1 px-2 text-nss-text whitespace-nowrap">{event.type}</td>
+                        <td className="py-1 px-2 text-nss-muted">{event.requestId ?? '—'}</td>
+                        <td className="py-1 px-2 text-nss-muted max-w-32" title={event.nodeId}>
+                          <div className="truncate text-nss-text">
+                            {nodeDisplayName(event, graphLookup)}
+                          </div>
+                          {labelForNode(event.nodeId, graphLookup) && event.nodeId && (
+                            <div className="truncate text-[10px] text-nss-muted">
+                              {event.nodeId}
+                            </div>
+                          )}
+                        </td>
+                        <td className="py-1 px-2 text-nss-muted max-w-48" title={edge.title}>
+                          <div className="truncate text-nss-text">{edge.primary}</div>
+                          {edge.secondary && (
+                            <div className="truncate text-[10px] text-nss-muted">
+                              {edge.secondary}
+                            </div>
+                          )}
+                        </td>
+                        <td className="py-1 px-2">
+                          <span
+                            className={`px-1.5 py-0.5 rounded border ${eventStatusClass(event.status)}`}
+                          >
+                            {event.status}
+                          </span>
+                        </td>
+                        <td className="py-1 px-2 text-nss-muted">{event.reasonCode ?? '—'}</td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+            {visibleEvents.length > 0 && (
+              <div className="px-2 py-1 border-t border-nss-border flex items-center justify-between gap-2 text-[10px] text-nss-muted">
+                <span>
+                  Showing {displayStart.toLocaleString()}-{displayEnd.toLocaleString()} of{' '}
+                  {visibleEvents.length.toLocaleString()}
+                </span>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setPage((current) => Math.max(0, current - 1))}
+                    disabled={clampedPage === 0}
+                    className="px-2 py-0.5 rounded border border-nss-border text-nss-muted hover:text-nss-text hover:bg-nss-bg disabled:opacity-40 disabled:hover:bg-transparent"
+                  >
+                    Prev
+                  </button>
+                  <span className="tabular-nums px-1">
+                    {clampedPage + 1} / {pageCount}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setPage((current) => Math.min(pageCount - 1, current + 1))}
+                    disabled={clampedPage >= pageCount - 1}
+                    className="px-2 py-0.5 rounded border border-nss-border text-nss-muted hover:text-nss-text hover:bg-nss-bg disabled:opacity-40 disabled:hover:bg-transparent"
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            )}
+            {visibleEvents.length === 0 && (
+              <div className="px-3 py-4 text-xs text-nss-muted text-center">
+                No events match this filter.
+              </div>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
 // ─── Status Badge ─────────────────────────────────────────────────────────────
 
 function StatusBadge({ status }: { status: SimulationStatus }) {
@@ -670,10 +1196,38 @@ function StatusBadge({ status }: { status: SimulationStatus }) {
   return <span className={`text-xs font-medium ${cls}`}>{label}</span>
 }
 
+function TabButton({
+  tab,
+  activeTab,
+  onSelect
+}: {
+  tab: (typeof RESULTS_TABS)[number]
+  activeTab: ResultsTab
+  onSelect: (tab: ResultsTab) => void
+}) {
+  const isActive = activeTab === tab.id
+
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(tab.id)}
+      className={`h-8 px-3 rounded-md border text-xs font-semibold whitespace-nowrap transition-colors ${
+        isActive
+          ? 'bg-nss-primary text-white border-nss-primary'
+          : 'bg-nss-surface text-nss-muted border-nss-border hover:text-nss-text hover:bg-nss-bg'
+      }`}
+      aria-pressed={isActive}
+    >
+      {tab.label}
+    </button>
+  )
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export function ResultsTray({
   status,
+  stopped,
   progress,
   eventsProcessed,
   results,
@@ -681,6 +1235,48 @@ export function ResultsTray({
   runContext,
   onClose
 }: ResultsTrayProps) {
+  const [activeTab, setActiveTab] = useState<ResultsTab>('overview')
+  const nodes = useStore((state) => state.nodes)
+  const edges = useStore((state) => state.edges)
+  const graphLookup = useMemo<EventGraphLookup>(() => {
+    const nodeLabelById = new Map<string, string>()
+    const edgeById = new Map<string, EventEdgeDisplayInfo>()
+
+    for (const node of nodes) {
+      const label = (node.data as { label?: unknown } | undefined)?.label
+      if (typeof label === 'string' && label.length > 0) {
+        nodeLabelById.set(node.id, label)
+      }
+    }
+
+    for (const edge of edges) {
+      const data = edge.data as Partial<EdgeSimulationData> | undefined
+      edgeById.set(edge.id, {
+        label: typeof edge.label === 'string' && edge.label.length > 0 ? edge.label : undefined,
+        source: edge.source,
+        target: edge.target,
+        protocol: data?.protocol,
+        mode: data?.mode
+      })
+    }
+
+    return { nodeLabelById, edgeById }
+  }, [nodes, edges])
+
+  useEffect(() => {
+    if (results) {
+      setActiveTab('overview')
+    }
+  }, [results])
+
+  const retainedReplayEventCount = results ? results.eventStream.length : 0
+  const totalCapturedReplayEvents = results ? totalReplayEventCount(results) : 0
+  const replayEventsTruncated = retainedReplayEventCount < totalCapturedReplayEvents
+  const progressLabel =
+    stopped && status === 'paused'
+      ? `Stopping at ${progress.toFixed(1)}% complete...`
+      : `${progress.toFixed(1)}% complete`
+
   if (status === 'idle') return null
 
   return (
@@ -690,6 +1286,11 @@ export function ResultsTray({
         <span className="text-sm font-semibold text-nss-text">Simulation</span>
         <div className="flex items-center gap-3">
           <StatusBadge status={status} />
+          {stopped && results && (
+            <span className="px-2 py-0.5 rounded border border-nss-warning/20 bg-nss-warning/10 text-[10px] font-medium text-nss-warning">
+              Stopped early
+            </span>
+          )}
           {onClose && (
             <button
               onClick={onClose}
@@ -706,7 +1307,7 @@ export function ResultsTray({
       {(status === 'running' || status === 'paused') && (
         <div className="px-4 py-2 shrink-0">
           <ProgressBar progress={progress} />
-          <div className="text-xs text-nss-muted mt-1">{progress.toFixed(1)}% complete</div>
+          <div className="text-xs text-nss-muted mt-1">{progressLabel}</div>
         </div>
       )}
 
@@ -719,19 +1320,54 @@ export function ResultsTray({
 
       {/* Results */}
       {results && (
-        <div className="flex-1 overflow-y-auto px-4 py-3 space-y-5">
-          {runContext && <RunContextPanel runContext={runContext} />}
-          <SummaryPanel output={results} />
-          <SimulationHealth output={results} />
-          <PerNodeTable output={results} />
-
-          {/* Footer — debug info */}
-          <div className="text-[10px] text-nss-muted pb-2 flex flex-wrap gap-x-3 gap-y-1">
-            <span>Seed: {results.seed}</span>
-            <span>Reproducible: {results.reproducible ? 'yes' : 'no'}</span>
-            <span>{eventsProcessed.toLocaleString()} events processed</span>
+        <>
+          <div className="shrink-0 px-4 py-2 border-b border-nss-border overflow-x-auto">
+            <div className="flex items-center gap-2 min-w-max">
+              {RESULTS_TABS.map((tab) => (
+                <TabButton key={tab.id} tab={tab} activeTab={activeTab} onSelect={setActiveTab} />
+              ))}
+            </div>
           </div>
-        </div>
+
+          <div className="flex-1 overflow-y-auto px-4 py-3 space-y-5">
+            {stopped && (
+              <div className="rounded-md border border-nss-warning/20 bg-nss-warning/10 px-3 py-2 text-xs text-nss-warning">
+                This run was stopped before the event queue drained. Metrics and replay data below
+                reflect the partial output captured up to that point.
+              </div>
+            )}
+
+            {activeTab === 'overview' && (
+              <>
+                {runContext && <RunContextPanel runContext={runContext} />}
+                <SummaryPanel output={results} />
+              </>
+            )}
+
+            {activeTab === 'bottlenecks' && <SimulationHealth output={results} />}
+
+            {activeTab === 'nodes' && <PerNodeTable output={results} />}
+
+            {activeTab === 'traffic' && (
+              <>
+                <ReplayPreview output={results} graphLookup={graphLookup} />
+                <EventLog output={results} graphLookup={graphLookup} />
+              </>
+            )}
+
+            {/* Footer — debug info */}
+            <div className="text-[10px] text-nss-muted pb-2 flex flex-wrap gap-x-3 gap-y-1">
+              <span>Seed: {results.seed}</span>
+              <span>Reproducible: {results.reproducible ? 'yes' : 'no'}</span>
+              <span>{eventsProcessed.toLocaleString()} events processed</span>
+              <span>
+                {replayEventsTruncated
+                  ? `${retainedReplayEventCount.toLocaleString()} / ${totalCapturedReplayEvents.toLocaleString()} replay events retained`
+                  : `${totalCapturedReplayEvents.toLocaleString()} replay events`}
+              </span>
+            </div>
+          </div>
+        </>
       )}
     </div>
   )

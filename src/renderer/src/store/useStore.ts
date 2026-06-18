@@ -45,6 +45,7 @@ type RFState = {
   clearSimulationMetrics: () => void
   setNodes: (nodes: Node[]) => void
   setEdges: (edges: Edge[]) => void
+  selectGraphElements: (selection: { nodeId?: string; edgeId?: string }) => void
 
   // --- File Actions ---
   setFileName: (name: string | null) => void
@@ -119,6 +120,19 @@ const useStore = create<RFState>((set, get) => ({
 
   setEdges: (edges: Edge[]) => {
     set({ edges })
+  },
+
+  selectGraphElements: ({ nodeId, edgeId }) => {
+    set({
+      nodes: get().nodes.map((node) => ({
+        ...node,
+        selected: nodeId !== undefined && node.id === nodeId
+      })),
+      edges: get().edges.map((edge) => ({
+        ...edge,
+        selected: edgeId !== undefined && edge.id === edgeId
+      }))
+    })
   },
 
   updateNodeData: (nodeId: string, patch: Partial<AnyNodeData>) => {

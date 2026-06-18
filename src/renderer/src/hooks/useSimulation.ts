@@ -13,6 +13,7 @@ export interface SimulationState {
   eventsProcessed: number
   snapshot: TimeSeriesSnapshot | null
   results: SimulationOutput | null
+  stopped: boolean
   error: string | null
 }
 
@@ -33,6 +34,7 @@ const INITIAL_STATE: SimulationState = {
   eventsProcessed: 0,
   snapshot: null,
   results: null,
+  stopped: false,
   error: null
 }
 
@@ -76,8 +78,10 @@ export function useSimulation(): SimulationState & SimulationControls {
           setState((s) => ({
             ...s,
             status: 'complete',
-            progress: 100,
+            progress: msg.payload.stopped ? s.progress : 100,
+            eventsProcessed: msg.payload.output.eventsProcessed,
             results: msg.payload.output,
+            stopped: msg.payload.stopped ?? false,
             error: null
           }))
           workerRef.current?.terminate()
@@ -128,6 +132,7 @@ export function useSimulation(): SimulationState & SimulationControls {
       eventsProcessed: 0,
       snapshot: null,
       results: null,
+      stopped: false,
       error: null
     })
 
@@ -149,12 +154,10 @@ export function useSimulation(): SimulationState & SimulationControls {
 
   const stop = useCallback(() => {
     postToWorker({ type: 'stop' })
-    workerRef.current?.terminate()
-    workerRef.current = null
-    setState((s) => ({ ...s, status: 'idle' }))
+    setState((s) => ({ ...s, status: 'paused', stopped: true }))
   }, [])
 
-  const step = useCallback((count = 1_000) => {
+  const step = useCallback((count = 1) => {
     postToWorker({ type: 'step', payload: { count } })
   }, [])
 

@@ -52,9 +52,9 @@ async function runChunked(): Promise<void> {
       await sleep(0)
     }
 
-    if (!stopped) {
+    if (engine) {
       const output = engine.getResults()
-      post({ type: 'complete', payload: { output } })
+      post({ type: 'complete', payload: { output, stopped } })
     }
   } catch (err) {
     const e = err as Error

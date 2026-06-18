@@ -38,6 +38,19 @@ describe('RequestTracer', () => {
     expect(tracer.getTraces()).toEqual([])
   })
 
+  it('can force tracing for a specific request regardless of sample rate', () => {
+    const tracer = new RequestTracer({ sampleRate: 0 })
+
+    tracer.forceTrace('req-forced')
+    tracer.setRequestCreatedAt('req-forced', 0n)
+    tracer.recordSpan('req-forced', makeSpan('node-a', 0n, 1_000n, 2_000n))
+    tracer.markStatus('req-forced', 'success')
+
+    const traces = tracer.getTraces()
+    expect(traces).toHaveLength(1)
+    expect(traces[0].requestId).toBe('req-forced')
+  })
+
   it('calculates edge latency and total latency for sequential spans', () => {
     const tracer = new RequestTracer({ sampleRate: 1 })
 

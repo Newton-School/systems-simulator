@@ -9,8 +9,18 @@ import {
 import { migrateCanvasNodes } from '../../../engine/catalog/legacyCanvasMigration'
 import { normalizeScenarioState } from '@renderer/types/ui'
 
-const extractFileName = (path: string): string => {
-  return path.replace(/^.*[\\/]/, '')
+const DEFAULT_FILE_NAME = 'scenario.json'
+
+const normalizeSuggestedFileName = (fileName: string | null): string => {
+  const trimmedFileName = fileName?.trim()
+
+  if (!trimmedFileName || trimmedFileName === 'Untitled') {
+    return DEFAULT_FILE_NAME
+  }
+
+  return trimmedFileName.toLowerCase().endsWith('.json')
+    ? trimmedFileName
+    : `${trimmedFileName}.json`
 }
 
 const useKeyboardShortcuts = (onSave: () => void, onOpen: () => void) => {
@@ -33,7 +43,7 @@ const useKeyboardShortcuts = (onSave: () => void, onOpen: () => void) => {
   }, [onSave, onOpen])
 }
 
-export const useFlowPersistence = () => {
+export const useFlowPersistence = (confirmDiscardChanges: () => Promise<boolean>) => {
   const nodes = useStore((s) => s.nodes)
   const edges = useStore((s) => s.edges)
   const setNodes = useStore((s) => s.setNodes)
@@ -44,6 +54,7 @@ export const useFlowPersistence = () => {
   const setScenario = useStore((s) => s.setScenario)
 
   const isLoadingRef = useRef(false)
+  const lastPersistedContentRef = useRef<string | null>(null)
 
   const handleGetFileData = useCallback(() => {
     const { nodes, edges } = useStore.getState()
@@ -52,7 +63,7 @@ export const useFlowPersistence = () => {
   }, [scenario])
 
   const handleLoadFileData = useCallback(
-    (fileContent: string | object, filePath?: string) => {
+    (fileContent: string | object, fileName?: string) => {
       try {
         const data = (
           typeof fileContent === 'string' ? JSON.parse(fileContent) : fileContent
@@ -61,16 +72,28 @@ export const useFlowPersistence = () => {
         if (!data?.nodes) throw new Error('Invalid file format')
 
         const flatNodes = migrateCanvasNodes(convertNestedToFlat(data.nodes))
+        const normalizedScenario = normalizeScenarioState(data.scenario)
+        const serializedSnapshot = JSON.stringify(
+          {
+            version: '2.0.0',
+            nodes: convertFlatToNested(flatNodes),
+            edges: data.edges || [],
+            scenario: normalizedScenario
+          },
+          null,
+          2
+        )
 
         isLoadingRef.current = true
+        lastPersistedContentRef.current = serializedSnapshot
 
         setNodes(flatNodes)
         setEdges(data.edges || [])
-        setScenario(normalizeScenarioState(data.scenario))
+        setScenario(normalizedScenario)
         setUnsaved(false)
 
-        if (filePath && typeof filePath === 'string') {
-          setFileName(extractFileName(filePath))
+        if (fileName && typeof fileName === 'string') {
+          setFileName(fileName)
         }
 
         setTimeout(() => {
@@ -90,44 +113,50 @@ export const useFlowPersistence = () => {
     handleLoadFileData
   )
 
-  const confirmIfUnsaved = async (): Promise<boolean> => {
+  const confirmIfUnsaved = useCallback(async (): Promise<boolean> => {
     const { isUnsaved } = useStore.getState()
 
     if (!isUnsaved) return true
 
     try {
-      return await window.nssimulator.confirmDiscard()
+      return await confirmDiscardChanges()
     } catch (error) {
-      console.error('Error during confirmDiscard:', error)
+      console.error('Error while confirming discard changes:', error)
       return false
     }
-  }
+  }, [confirmDiscardChanges])
 
   const handleOpenWithCheckIfSaved = useCallback(async () => {
     const ok = await confirmIfUnsaved()
     if (!ok) return
 
-    handleOpen()
-  }, [handleOpen])
+    await handleOpen()
+  }, [confirmIfUnsaved, handleOpen])
 
   const handleSaveWrapper = useCallback(async () => {
-    const savedPath = await innerSave()
+    const savedFile = await innerSave(normalizeSuggestedFileName(useStore.getState().fileName))
 
-    if (savedPath && typeof savedPath === 'string') {
-      setFileName(extractFileName(savedPath))
+    if (savedFile?.name) {
+      lastPersistedContentRef.current = handleGetFileData()
+      setFileName(savedFile.name)
       setUnsaved(false)
     }
-  }, [innerSave, setFileName, setUnsaved])
+  }, [handleGetFileData, innerSave, setFileName, setUnsaved])
 
   useKeyboardShortcuts(handleSaveWrapper, handleOpenWithCheckIfSaved)
 
   useEffect(() => {
+    const currentSnapshot = handleGetFileData()
+
+    if (lastPersistedContentRef.current === null) {
+      lastPersistedContentRef.current = currentSnapshot
+      return
+    }
+
     if (isLoadingRef.current) return
 
-    if (nodes.length > 0) {
-      setUnsaved(true)
-    }
-  }, [edges, nodes, scenario, setUnsaved])
+    setUnsaved(currentSnapshot !== lastPersistedContentRef.current)
+  }, [edges, handleGetFileData, nodes, scenario, setUnsaved])
 
   return { handleSave: handleSaveWrapper, handleOpen: handleOpenWithCheckIfSaved }
 }

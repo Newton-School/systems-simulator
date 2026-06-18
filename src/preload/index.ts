@@ -7,15 +7,15 @@ const api = {
     // Validate that data is a non-empty string and not excessively long
     if (typeof jsonString !== 'string') {
       console.error('saveScenario: data must be a string')
-      return
+      return Promise.resolve(false)
     }
     if (jsonString.length === 0) {
       console.error('saveScenario: data must not be empty')
-      return
+      return Promise.resolve(false)
     }
     if (jsonString.length > 1000000) {
       console.error('saveScenario: data is too large')
-      return
+      return Promise.resolve(false)
     }
     return ipcRenderer.invoke('dialog:save', jsonString).catch((error) => {
       console.error('Error in saveScenario:', error)
@@ -62,6 +62,8 @@ if (process.contextIsolated) {
 } else {
   // @ts-ignore (define in dts)
   window.electron = electronAPI
+  // @ts-ignore (define in dts)
+  window.nssimulator = api
   // @ts-ignore (define in dts)
   window.api = api
 }

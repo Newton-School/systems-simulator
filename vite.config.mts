@@ -1,7 +1,11 @@
-import { resolve } from 'path'
-import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import react from '@vitejs/plugin-react'
-import type { PluginOption } from 'vite'
+import { defineConfig, type PluginOption } from 'vite'
+
+const projectRoot = dirname(fileURLToPath(import.meta.url))
+const rendererRoot = resolve(projectRoot, 'src/renderer')
+const sourceRoot = resolve(projectRoot, 'src')
 
 const createRendererCsp = (isDevelopment: boolean): string => {
   const connectSrc = ["'self'"]
@@ -62,25 +66,25 @@ const manualChunks = (id: string): string | undefined => {
 }
 
 export default defineConfig({
-  main: {
-    plugins: [externalizeDepsPlugin({})]
+  root: rendererRoot,
+  base: './',
+  plugins: [react({}), rendererCspPlugin()],
+  resolve: {
+    alias: {
+      '@renderer': resolve(rendererRoot, 'src')
+    }
   },
-  preload: {
-    plugins: [externalizeDepsPlugin({})]
+  server: {
+    fs: {
+      allow: [sourceRoot]
+    }
   },
-  renderer: {
-    root: resolve('src/renderer'),
-    resolve: {
-      alias: {
-        '@renderer': resolve('src/renderer/src')
-      }
-    },
-    plugins: [react({}), rendererCspPlugin()],
-    build: {
-      rollupOptions: {
-        output: {
-          manualChunks
-        }
+  build: {
+    outDir: resolve(projectRoot, 'dist'),
+    emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        manualChunks
       }
     }
   }

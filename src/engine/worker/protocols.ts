@@ -46,7 +46,7 @@ export interface SnapshotMessage {
 
 export interface CompleteMessage {
   type: 'complete'
-  payload: { output: SimulationOutput }
+  payload: { output: SimulationOutput; stopped?: boolean }
 }
 
 export interface ErrorMessage {

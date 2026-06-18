@@ -27,12 +27,17 @@ interface TraceState {
 export class RequestTracer {
   private readonly sampleRate: number
   private readonly traces = new Map<string, TraceState>()
+  private readonly forcedRequestIds = new Set<string>()
 
   constructor(config: { sampleRate: number }) {
     this.sampleRate = Math.min(1, Math.max(0, config.sampleRate))
   }
 
   shouldTrace(requestId: string): boolean {
+    if (this.forcedRequestIds.has(requestId)) {
+      return true
+    }
+
     if (this.traces.has(requestId)) {
       return true
     }
@@ -40,6 +45,15 @@ export class RequestTracer {
     const hash = this.hash32(requestId)
     const normalized = hash / 0x100000000
     return normalized < this.sampleRate
+  }
+
+  forceTrace(requestId: string): void {
+    this.forcedRequestIds.add(requestId)
+    this.ensureTraceState(requestId)
+  }
+
+  unforceTrace(requestId: string): void {
+    this.forcedRequestIds.delete(requestId)
   }
 
   recordSpan(requestId: string, span: RequestSpan): void {

@@ -37,5 +37,5 @@ jobs:
       - name: Run type check
         run: npm run typecheck
 
-      - name: Run build
-        run: npm run build
+      - name: Run dual-target builds
+        run: npm run build:all

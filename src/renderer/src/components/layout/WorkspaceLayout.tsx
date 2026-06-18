@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react'
 import { Panel, PanelGroup, ImperativePanelHandle } from 'react-resizable-panels'
 
 // Store
@@ -6,17 +6,20 @@ import useStore from '@renderer/store/useStore'
 
 // Hooks
 import { useFlowPersistence } from '@renderer/hooks/useFlowPersistence'
+import { useConfirmDialog } from '@renderer/hooks/useConfirmDialog'
 import { useSimulation } from '@renderer/hooks/useSimulation'
 import { useTopologySerializer } from '@renderer/hooks/useTopologySerializer'
 import { validateTopology } from '../../../../engine/validation/validator'
 import type { ValidationError } from '../../../../engine/validation/validator'
 
 // Organisms
-import { LibrarySidebar } from '../library/LibrarySidebar'
-import { PropertiesPanel } from '../properties/PropertiesPanel'
+import {
+  LibraryActivityRail,
+  LibrarySidebarContent,
+  type LibrarySidebarTab
+} from '../library/LibrarySidebar'
 import { FlowCanvas } from '../canvas/FlowCanvas'
 import { Header } from './Header'
-import { ResultsTray } from '../simulation/ResultsTray'
 
 // Atoms
 import { ResizeHandle } from '../ui/ResizeHandle'
@@ -26,6 +29,20 @@ import type { ScenarioRunContext, SourceNodeOption } from '@renderer/types/ui'
 
 type RunIssueTone = 'warning' | 'error'
 
+const LEFT_LIBRARY_DEFAULT_SIZE = 20
+const LEFT_LIBRARY_MIN_SIZE = 12
+const LEFT_LIBRARY_MAX_SIZE = 25
+
+const PropertiesPanel = lazy(async () => {
+  const module = await import('../properties/PropertiesPanel')
+  return { default: module.PropertiesPanel }
+})
+
+const ResultsTray = lazy(async () => {
+  const module = await import('../simulation/ResultsTray')
+  return { default: module.ResultsTray }
+})
+
 function formatValidationIssue(error: ValidationError): string {
   if (error.path === 'workload.sourceNodeId') {
     return error.message
@@ -34,9 +51,18 @@ function formatValidationIssue(error: ValidationError): string {
   return error.path ? `${error.path}: ${error.message}` : error.message
 }
 
+function PanelFallback({ label }: { label: string }) {
+  return (
+    <div className="h-full w-full flex items-center justify-center bg-nss-panel text-xs text-nss-muted">
+      {label}
+    </div>
+  )
+}
+
 export const WorkspaceLayout = () => {
   // Sidebar State
   const [isLeftOpen, setIsLeftOpen] = useState(true)
+  const [leftSidebarTab, setLeftSidebarTab] = useState<LibrarySidebarTab>('library')
   const [isRightOpen, setIsRightOpen] = useState(false)
   const [showResults, setShowResults] = useState(false)
   const [runIssues, setRunIssues] = useState<{ messages: string[]; tone: RunIssueTone }>({
@@ -60,8 +86,6 @@ export const WorkspaceLayout = () => {
     else rightPanelRef.current?.collapse()
   }, [isRightOpen])
 
-  const { handleSave, handleOpen } = useFlowPersistence()
-
   const fileName = useStore((s) => s.fileName)
   const isUnsaved = useStore((s) => s.isUnsaved)
   const nodes = useStore((s) => s.nodes)
@@ -69,8 +93,49 @@ export const WorkspaceLayout = () => {
   const updateScenario = useStore((s) => s.updateScenario)
   const setSimulationMetrics = useStore((s) => s.setSimulationMetrics)
   const clearSimulationMetrics = useStore((s) => s.clearSimulationMetrics)
+  const { confirm, dialog } = useConfirmDialog()
+  const confirmDiscardChanges = useCallback(
+    () =>
+      confirm({
+        title: 'Discard unsaved changes?',
+        description: 'Open another scenario and lose the edits in the current workspace?',
+        confirmLabel: 'Discard and Open',
+        cancelLabel: 'Keep Editing'
+      }),
+    [confirm]
+  )
+
+  const { handleSave, handleOpen } = useFlowPersistence(confirmDiscardChanges)
 
   const selectedNodeId = nodes.find((n) => n.selected)?.id
+  const hasElectronCloseBridge = typeof window.nssimulator?.onCloseRequest === 'function'
+  const handleLeftSidebarTabSelect = useCallback((tab: LibrarySidebarTab) => {
+    setLeftSidebarTab(tab)
+    setIsLeftOpen(true)
+  }, [])
+
+  useEffect(() => {
+    if (!isUnsaved || hasElectronCloseBridge) {
+      return
+    }
+
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault()
+      event.returnValue = ''
+    }
+
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+  }, [hasElectronCloseBridge, isUnsaved])
+
+  useEffect(() => {
+    const onCloseRequest = window.nssimulator?.onCloseRequest
+    if (typeof onCloseRequest !== 'function') {
+      return
+    }
+
+    return onCloseRequest(() => useStore.getState().isUnsaved)
+  }, [])
 
   useEffect(() => {
     if (selectedNodeId) {
@@ -141,7 +206,7 @@ export const WorkspaceLayout = () => {
   }
 
   const isRunning = sim.status === 'running'
-  const isPaused = sim.status === 'paused'
+  const isPaused = sim.status === 'paused' && !sim.stopped
   const sourceNodes: SourceNodeOption[] = nodes
     .filter((node) => (node.data as CanvasNodeDataV2).profile === 'source')
     .map((node) => {
@@ -176,9 +241,6 @@ export const WorkspaceLayout = () => {
         onResume={sim.resume}
         onStop={() => {
           sim.stop()
-          clearSimulationMetrics()
-          setShowResults(false)
-          setLastRunContext(null)
           setRunIssues({ messages: [], tone: 'warning' })
         }}
         isRunning={isRunning}
@@ -197,19 +259,25 @@ export const WorkspaceLayout = () => {
       )}
 
       {/* Main Content Area */}
-      <div className="flex-1 overflow-hidden relative h-full">
-        <PanelGroup direction="horizontal" autoSaveId="main-layout-horizontal">
-          {/* Left Sidebar — always in DOM, collapsed/expanded via ref */}
+      <div className="flex-1 overflow-hidden relative h-full flex">
+        <LibraryActivityRail activeTab={leftSidebarTab} onSelect={handleLeftSidebarTabSelect} />
+
+        <PanelGroup
+          direction="horizontal"
+          autoSaveId="main-layout-horizontal"
+          className="min-w-0 flex-1"
+        >
+          {/* Left library content — the activity rail stays outside this collapsible panel */}
           <Panel
             ref={leftPanelRef}
             collapsible
-            defaultSize={20}
-            minSize={10}
-            maxSize={30}
+            defaultSize={LEFT_LIBRARY_DEFAULT_SIZE}
+            minSize={LEFT_LIBRARY_MIN_SIZE}
+            maxSize={LEFT_LIBRARY_MAX_SIZE}
             order={1}
             id="left-panel"
           >
-            <LibrarySidebar />
+            <LibrarySidebarContent activeTab={leftSidebarTab} />
           </Panel>
           <ResizeHandle vertical id="resize-left-catalog" />
 
@@ -217,7 +285,7 @@ export const WorkspaceLayout = () => {
           <Panel order={2} minSize={30} id="center-panel">
             <PanelGroup direction="vertical" autoSaveId="main-layout-vertical">
               {/* Canvas */}
-              <Panel defaultSize={showResults ? 65 : 100} minSize={20} order={1}>
+              <Panel defaultSize={showResults ? 65 : 100} minSize={10} order={1}>
                 <FlowCanvas />
               </Panel>
 
@@ -225,21 +293,24 @@ export const WorkspaceLayout = () => {
               {showResults && sim.status !== 'idle' && (
                 <>
                   <ResizeHandle id="resize-results" />
-                  <Panel defaultSize={35} minSize={15} maxSize={60} order={2}>
-                    <ResultsTray
-                      status={sim.status}
-                      progress={sim.progress}
-                      eventsProcessed={sim.eventsProcessed}
-                      results={sim.results}
-                      error={sim.error}
-                      runContext={lastRunContext}
-                      onClose={() => {
-                        setShowResults(false)
-                        sim.reset()
-                        clearSimulationMetrics()
-                        setLastRunContext(null)
-                      }}
-                    />
+                  <Panel defaultSize={35} minSize={15} maxSize={90} order={2}>
+                    <Suspense fallback={<PanelFallback label="Loading simulation results..." />}>
+                      <ResultsTray
+                        status={sim.status}
+                        stopped={sim.stopped}
+                        progress={sim.progress}
+                        eventsProcessed={sim.eventsProcessed}
+                        results={sim.results}
+                        error={sim.error}
+                        runContext={lastRunContext}
+                        onClose={() => {
+                          setShowResults(false)
+                          sim.reset()
+                          clearSimulationMetrics()
+                          setLastRunContext(null)
+                        }}
+                      />
+                    </Suspense>
                   </Panel>
                 </>
               )}
@@ -257,10 +328,14 @@ export const WorkspaceLayout = () => {
             order={3}
             id="right-panel"
           >
-            <PropertiesPanel />
+            <Suspense fallback={<PanelFallback label="Loading inspector..." />}>
+              <PropertiesPanel />
+            </Suspense>
           </Panel>
         </PanelGroup>
       </div>
+
+      {dialog}
     </div>
   )
 }

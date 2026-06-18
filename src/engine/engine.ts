@@ -1,5 +1,20 @@
 import { generateSimulationOutput, SimulationOutput, TimeSeriesSnapshot } from './analysis/output'
-import { createEvent, Request, SimulationEvent } from './core/events'
+import { replayEventStream } from './analysis/replay'
+import {
+  AdmissionDecision,
+  AdmissionDecisionStatus,
+  AppendEventInput,
+  CanonicalEventRecord,
+  DebugEvent,
+  EventCountsByType,
+  EventStreamRecorder,
+  NodeSnapshot,
+  RequestLifecycle,
+  TerminalRequestStatus,
+  eventInputFromSimulationEvent,
+  projectToDebugEvent
+} from './core/event-stream'
+import { EventPriority, createEvent, Request, SimulationEvent } from './core/events'
 import { microToMs, msToMicro, secToMicro } from './core/time'
 import { ComponentNode, EdgeDefinition, EventScheduler, TopologyJSON } from './core/types'
 import { MetricsCollector } from './metrics'
@@ -16,11 +31,19 @@ interface SecurityPolicyConfig {
   droppedPackets: number
 }
 
+const DEFAULT_MAX_RETAINED_EVENT_STREAM_EVENTS = 25_000
+
 export class SimulationEngine {
   onProgress?: (percent: number, eventsProcessed: number) => void
   onSnapshot?: (snapshot: TimeSeriesSnapshot) => void
+  onDebugEvent?: (event: DebugEvent) => void
+  onAdmissionDecision?: (decision: AdmissionDecision) => void
 
   private readonly eventQueue = new MinHeap<SimulationEvent>()
+  private readonly eventRecorder = new EventStreamRecorder({
+    maxRetainedEvents: DEFAULT_MAX_RETAINED_EVENT_STREAM_EVENTS,
+    onRecord: (record) => this.handleRecordedCanonicalEvent(record)
+  })
   private readonly distributions: Distributions
   private readonly routing: RoutingTable
   private readonly metrics: MetricsCollector
@@ -29,9 +52,11 @@ export class SimulationEngine {
   private readonly nodeErrorRateById = new Map<string, number>()
   private readonly nodeTimeoutUsById = new Map<string, bigint>()
   private readonly securityPolicyByNodeId = new Map<string, SecurityPolicyConfig>()
+  private readonly nodeLimitsById = new Map<string, { workers: number; capacity: number }>()
   private readonly workload?: WorkloadGenerator
 
   private readonly requestById = new Map<string, Request>()
+  private readonly terminalStatusByRequestId = new Map<string, TerminalRequestStatus>()
   private readonly simulationDurationUs: bigint
   private readonly snapshotIntervalUs = secToMicro(1)
 
@@ -42,6 +67,9 @@ export class SimulationEngine {
   private running = false
   private paused = false
   private readonly timeSeries: TimeSeriesSnapshot[] = []
+  private debugTarget: 'all' | string | null = null
+  private forcedTraceRequestId: string | null = null
+  private readonly debugEvents: DebugEvent[] = []
 
   constructor(private readonly topology: TopologyJSON) {
     const rng = createRandom(topology.global.seed)
@@ -65,6 +93,10 @@ export class SimulationEngine {
     for (const node of topology.nodes) {
       const normalized = this.withNodeDefaults(node)
       this.nodes.set(node.id, new GGcKNode(normalized, this.distributions, scheduler))
+      this.nodeLimitsById.set(node.id, {
+        workers: normalized.queue?.workers ?? 1,
+        capacity: normalized.queue?.capacity ?? 100
+      })
 
       const nodeErrorRate = this.readNodeErrorRate(normalized)
       if (nodeErrorRate !== null && nodeErrorRate > 0) {
@@ -90,9 +122,39 @@ export class SimulationEngine {
     }
   }
 
+  enableDebug(target: 'all' | string = 'all', options: { forceTrace?: boolean } = {}): void {
+    if (this.forcedTraceRequestId) {
+      this.tracer.unforceTrace(this.forcedTraceRequestId)
+      this.forcedTraceRequestId = null
+    }
+
+    this.debugTarget = target
+    this.debugEvents.length = 0
+    this.eventRecorder.setMaxRetainedEvents(Number.POSITIVE_INFINITY)
+
+    if (target !== 'all' && options.forceTrace) {
+      this.tracer.forceTrace(target)
+      this.forcedTraceRequestId = target
+    }
+  }
+
+  disableDebug(): void {
+    if (this.forcedTraceRequestId) {
+      this.tracer.unforceTrace(this.forcedTraceRequestId)
+      this.forcedTraceRequestId = null
+    }
+
+    this.debugTarget = null
+    this.debugEvents.length = 0
+    this.eventRecorder.setMaxRetainedEvents(DEFAULT_MAX_RETAINED_EVENT_STREAM_EVENTS)
+  }
+
   run(): SimulationOutput {
     this.running = true
     this.paused = false
+    if (this.debugTarget) {
+      this.debugEvents.length = 0
+    }
 
     this.processEvents()
     return this.generateResults()
@@ -141,6 +203,73 @@ export class SimulationEngine {
 
   getEventsProcessed(): number {
     return this.eventsProcessed
+  }
+
+  getEventStream(): CanonicalEventRecord[] {
+    return this.eventRecorder.getEvents()
+  }
+
+  getEventCountsByType(): EventCountsByType {
+    return this.eventRecorder.getCountsByType()
+  }
+
+  private recordCanonicalEvent(input: AppendEventInput): CanonicalEventRecord {
+    return this.eventRecorder.append(input)
+  }
+
+  private recordSimulationEvent(
+    event: SimulationEvent,
+    nodeSnapshot?: NodeSnapshot
+  ): CanonicalEventRecord | null {
+    const input = eventInputFromSimulationEvent(event)
+    if (!input) {
+      return null
+    }
+
+    return this.recordCanonicalEvent({
+      ...input,
+      nodeSnapshot
+    })
+  }
+
+  private emitAdmissionDecision(
+    requestId: string,
+    nodeId: string,
+    decision: AdmissionDecisionStatus,
+    reasonCode?: string,
+    nodeSnapshot?: NodeSnapshot,
+    sequence?: number
+  ): void {
+    this.onAdmissionDecision?.({
+      sequence,
+      timestampUs: this.clock.toString(),
+      requestId,
+      nodeId,
+      decision,
+      reasonCode,
+      nodeSnapshot
+    })
+  }
+
+  private createNodeSnapshot(nodeId: string): NodeSnapshot | undefined {
+    const node = this.nodes.get(nodeId)
+    if (!node) {
+      return undefined
+    }
+
+    const state = node.getState()
+    const limits = this.nodeLimitsById.get(nodeId)
+    return {
+      nodeId,
+      timestampUs: this.clock.toString(),
+      status: state.status,
+      queueLength: state.queueLength,
+      activeWorkers: state.activeWorkers,
+      utilization: state.utilization,
+      totalInSystem: state.totalInSystem,
+      workers: limits?.workers,
+      capacity: limits?.capacity
+    }
   }
 
   private processEvents(maxEvents?: number): void {
@@ -217,9 +346,11 @@ export class SimulationEngine {
         break
       case 'node-failure':
         this.nodes.get(event.nodeId)?.fail(this.clock)
+        this.recordSimulationEvent(event, this.createNodeSnapshot(event.nodeId))
         break
       case 'node-recovery':
         this.nodes.get(event.nodeId)?.recover(this.clock)
+        this.recordSimulationEvent(event, this.createNodeSnapshot(event.nodeId))
         break
       default:
         // Other event types are integrated in later tickets.
@@ -233,8 +364,19 @@ export class SimulationEngine {
     }
 
     const request = this.workload.generateNext(this.clock)
+    event.requestId = request.id
+    event.data.request = request
     this.requestById.set(request.id, request)
+    this.terminalStatusByRequestId.delete(request.id)
     this.tracer.setRequestCreatedAt(request.id, request.createdAt)
+    this.recordCanonicalEvent({
+      timestampUs: this.clock,
+      type: 'request-generated',
+      priority: event.priority,
+      requestId: request.id,
+      nodeId: event.nodeId,
+      payload: { request }
+    })
 
     const sourceNodeId = event.nodeId
     const routes = this.routing.resolveTarget(sourceNodeId, request)
@@ -257,8 +399,28 @@ export class SimulationEngine {
       const routedRequest = routedRequests[i]
       if (routedRequest.id !== request.id) {
         this.requestById.set(routedRequest.id, routedRequest)
+        this.terminalStatusByRequestId.delete(routedRequest.id)
         this.tracer.setRequestCreatedAt(routedRequest.id, routedRequest.createdAt)
+        this.recordCanonicalEvent({
+          timestampUs: this.clock,
+          type: 'request-generated',
+          priority: event.priority,
+          requestId: routedRequest.id,
+          nodeId: sourceNodeId,
+          payload: { request: routedRequest, branchOfRequestId: request.id }
+        })
       }
+      this.recordCanonicalEvent({
+        timestampUs: this.clock,
+        type: 'request-forwarded',
+        priority: EventPriority.DEPARTURE,
+        requestId: routedRequest.id,
+        nodeId: sourceNodeId,
+        edgeId: route.edge.id,
+        sourceNodeId: route.edge.source,
+        targetNodeId: route.targetNodeId,
+        payload: { request: routedRequest, edge: route.edge, targetNodeId: route.targetNodeId }
+      })
       this.enqueueEdgeTransfer(routedRequest, route.edge, route.targetNodeId)
     }
   }
@@ -270,13 +432,16 @@ export class SimulationEngine {
       return
     }
     this.appendNodeToPath(request, event.nodeId)
+    this.recordSimulationEvent(event, this.createNodeSnapshot(event.nodeId))
 
     if (this.applySecurityPolicy(event.nodeId, request)) {
       return
     }
 
     const result = node.handleArrival(request, this.clock)
+    const nodeSnapshot = this.createNodeSnapshot(event.nodeId)
     if (result.status === 'rejected') {
+      this.emitAdmissionDecision(request.id, event.nodeId, 'rejected', result.reason, nodeSnapshot)
       this.eventQueue.insert(
         createEvent(
           'request-rejected',
@@ -287,6 +452,44 @@ export class SimulationEngine {
         )
       )
       return
+    }
+
+    if (result.status === 'queued') {
+      const record = this.recordCanonicalEvent({
+        timestampUs: this.clock,
+        type: 'request-queued',
+        priority: EventPriority.ARRIVAL,
+        requestId: request.id,
+        nodeId: event.nodeId,
+        payload: { request },
+        nodeSnapshot
+      })
+      this.emitAdmissionDecision(
+        request.id,
+        event.nodeId,
+        'queued',
+        undefined,
+        nodeSnapshot,
+        record.sequence
+      )
+    } else {
+      const record = this.recordCanonicalEvent({
+        timestampUs: this.clock,
+        type: 'processing-started',
+        priority: EventPriority.PROCESSING,
+        requestId: request.id,
+        nodeId: event.nodeId,
+        payload: { request },
+        nodeSnapshot
+      })
+      this.emitAdmissionDecision(
+        request.id,
+        event.nodeId,
+        'accepted',
+        undefined,
+        nodeSnapshot,
+        record.sequence
+      )
     }
 
     this.scheduleNodeTimeout(event.nodeId, request)
@@ -302,6 +505,23 @@ export class SimulationEngine {
     const completion = node.handleCompletion(request, this.clock)
     if (completion.completedSpan) {
       request.spans.push(completion.completedSpan)
+    }
+    if (!completion.completedSpan) {
+      return
+    }
+    const nodeSnapshot = this.createNodeSnapshot(event.nodeId)
+    this.recordSimulationEvent(event, nodeSnapshot)
+
+    if (completion.nextRequest) {
+      this.recordCanonicalEvent({
+        timestampUs: this.clock,
+        type: 'processing-started',
+        priority: EventPriority.PROCESSING,
+        requestId: completion.nextRequest.id,
+        nodeId: event.nodeId,
+        payload: { request: completion.nextRequest },
+        nodeSnapshot
+      })
     }
 
     if (this.shouldFailAtNode(event.nodeId)) {
@@ -335,7 +555,16 @@ export class SimulationEngine {
       const routedRequest = routedRequests[i]
       if (routedRequest.id !== request.id) {
         this.requestById.set(routedRequest.id, routedRequest)
+        this.terminalStatusByRequestId.delete(routedRequest.id)
         this.tracer.setRequestCreatedAt(routedRequest.id, routedRequest.createdAt)
+        this.recordCanonicalEvent({
+          timestampUs: this.clock,
+          type: 'request-generated',
+          priority: EventPriority.ARRIVAL,
+          requestId: routedRequest.id,
+          nodeId: event.nodeId,
+          payload: { request: routedRequest, branchOfRequestId: request.id }
+        })
       }
 
       this.eventQueue.insert(
@@ -362,6 +591,7 @@ export class SimulationEngine {
       return
     }
 
+    this.recordSimulationEvent(event)
     this.enqueueEdgeTransfer(request, edge, targetNodeId)
   }
 
@@ -370,6 +600,7 @@ export class SimulationEngine {
     if (!request) {
       return
     }
+    this.recordSimulationEvent(event, this.createNodeSnapshot(event.nodeId))
 
     const totalLatency = microToMs(this.clock - request.createdAt)
     this.metrics.recordRequest({
@@ -386,8 +617,7 @@ export class SimulationEngine {
       this.tracer.recordSpan(request.id, span)
     }
     this.tracer.markStatus(request.id, 'success')
-    request.metadata.__terminal = 'success'
-    this.requestById.delete(request.id)
+    this.markRequestTerminal(request, 'success')
   }
 
   private handleRequestTimeout(event: SimulationEvent): void {
@@ -404,13 +634,13 @@ export class SimulationEngine {
       }
       event.data.nodeArrivalTime = arrivalTime
     }
+    this.recordSimulationEvent(event, this.createNodeSnapshot(event.nodeId))
 
     for (const span of request.spans) {
       this.tracer.recordSpan(request.id, span)
     }
     this.tracer.markStatus(request.id, 'timeout')
-    request.metadata.__terminal = 'timeout'
-    this.requestById.delete(request.id)
+    this.markRequestTerminal(request, 'timeout')
 
     const nodeArrivalTime =
       typeof event.data.nodeArrivalTime === 'bigint' ? event.data.nodeArrivalTime : undefined
@@ -426,6 +656,7 @@ export class SimulationEngine {
     if (!request) {
       return
     }
+    this.recordSimulationEvent(event, this.createNodeSnapshot(event.nodeId))
 
     const nodeArrivalTime =
       typeof event.data.nodeArrivalTime === 'bigint' ? event.data.nodeArrivalTime : undefined
@@ -438,8 +669,7 @@ export class SimulationEngine {
       this.tracer.recordSpan(request.id, span)
     }
     this.tracer.markStatus(request.id, 'rejected')
-    request.metadata.__terminal = 'rejected'
-    this.requestById.delete(request.id)
+    this.markRequestTerminal(request, 'rejected')
   }
 
   private sampleEdgeLatencyUs(edge: EdgeDefinition): bigint {
@@ -448,6 +678,10 @@ export class SimulationEngine {
   }
 
   private getRequest(event: SimulationEvent, hydrate = true): Request | undefined {
+    if (this.terminalStatusByRequestId.has(event.requestId)) {
+      return undefined
+    }
+
     const tracked = this.requestById.get(event.requestId)
     if (tracked) {
       return tracked
@@ -459,6 +693,12 @@ export class SimulationEngine {
 
     const fromEvent = event.data.request as Request | undefined
     if (fromEvent?.metadata?.__terminal) {
+      if (typeof fromEvent.metadata.__terminal === 'string') {
+        this.terminalStatusByRequestId.set(
+          fromEvent.id,
+          fromEvent.metadata.__terminal as TerminalRequestStatus
+        )
+      }
       return undefined
     }
     if (fromEvent) {
@@ -466,6 +706,23 @@ export class SimulationEngine {
       return fromEvent
     }
     return undefined
+  }
+
+  private handleRecordedCanonicalEvent(record: CanonicalEventRecord): void {
+    const needsDebugEvent = this.debugTarget !== null || this.onDebugEvent !== undefined
+    if (!needsDebugEvent) {
+      return
+    }
+
+    const debugEvent = projectToDebugEvent(record)
+    if (
+      this.debugTarget &&
+      (this.debugTarget === 'all' || debugEvent.requestId === this.debugTarget)
+    ) {
+      this.debugEvents.push(debugEvent)
+    }
+
+    this.onDebugEvent?.(debugEvent)
   }
 
   private shouldEmitSnapshot(timestamp: bigint): boolean {
@@ -500,6 +757,12 @@ export class SimulationEngine {
     request.path.push(nodeId)
   }
 
+  private markRequestTerminal(request: Request, status: TerminalRequestStatus): void {
+    request.metadata.__terminal = status
+    this.terminalStatusByRequestId.set(request.id, status)
+    this.requestById.delete(request.id)
+  }
+
   private takeSnapshot(): TimeSeriesSnapshot {
     this.lastSnapshotAt = this.clock
     const nodes: TimeSeriesSnapshot['node'] = {}
@@ -522,6 +785,14 @@ export class SimulationEngine {
   }
 
   private generateResults(): SimulationOutput {
+    const eventStream = this.getEventStream()
+    const eventCountsByType = this.getEventCountsByType()
+    const eventLog = this.debugTarget ? [...this.debugEvents] : null
+    const debuggedLifecycle =
+      this.debugTarget && this.debugTarget !== 'all'
+        ? this.buildDebuggedLifecycle(this.debugTarget, eventStream)
+        : null
+
     return generateSimulationOutput(
       this.metrics,
       this.tracer,
@@ -529,7 +800,23 @@ export class SimulationEngine {
       null,
       [],
       this.topology.global,
-      this.eventsProcessed
+      this.eventsProcessed,
+      eventStream,
+      eventCountsByType,
+      {
+        eventLog,
+        debuggedLifecycle
+      }
+    )
+  }
+
+  private buildDebuggedLifecycle(
+    requestId: string,
+    eventStream: CanonicalEventRecord[]
+  ): RequestLifecycle | null {
+    return (
+      replayEventStream(eventStream.filter((event) => event.requestId === requestId))
+        .lifecycleByRequestId[requestId] ?? null
     )
   }
 
@@ -642,7 +929,15 @@ export class SimulationEngine {
           'request-timeout',
           targetNodeId,
           request.id,
-          { request, nodeArrivalTime: this.clock, scope: 'in-flight' },
+          {
+            request,
+            edge,
+            edgeId: edge.id,
+            sourceNodeId: edge.source,
+            targetNodeId,
+            nodeArrivalTime: this.clock,
+            scope: 'in-flight'
+          },
           timeoutAt
         )
       )
@@ -655,7 +950,15 @@ export class SimulationEngine {
           'request-rejected',
           targetNodeId,
           request.id,
-          { request, reason: 'edge_error_rate', nodeArrivalTime: this.clock },
+          {
+            request,
+            edge,
+            edgeId: edge.id,
+            sourceNodeId: edge.source,
+            targetNodeId,
+            reason: 'edge_error_rate',
+            nodeArrivalTime: this.clock
+          },
           this.clock
         )
       )
@@ -669,7 +972,15 @@ export class SimulationEngine {
           'request-timeout',
           targetNodeId,
           request.id,
-          { request, nodeArrivalTime: this.clock, scope: 'in-flight' },
+          {
+            request,
+            edge,
+            edgeId: edge.id,
+            sourceNodeId: edge.source,
+            targetNodeId,
+            nodeArrivalTime: this.clock,
+            scope: 'in-flight'
+          },
           request.deadline
         )
       )
@@ -677,7 +988,13 @@ export class SimulationEngine {
     }
 
     this.eventQueue.insert(
-      createEvent('request-arrival', targetNodeId, request.id, { request }, arrivalTime)
+      createEvent(
+        'request-arrival',
+        targetNodeId,
+        request.id,
+        { request, edge, sourceNodeId: edge.source },
+        arrivalTime
+      )
     )
   }
 }
