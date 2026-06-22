@@ -144,7 +144,10 @@
   --prox-scale: 1;
   --prox-intensity: 0;
   will-change: transform, opacity;
-  transition: transform 80ms ease-out, opacity 80ms ease-out, box-shadow 80ms ease-out;
+  transition:
+    transform 80ms ease-out,
+    opacity 80ms ease-out,
+    box-shadow 80ms ease-out;
 }
 
 /* Passive proximity: source handle scales up when cursor is nearby */
@@ -161,7 +164,10 @@
   --magnetic-glow-alpha: 0;
   --magnetic-scale: 1;
   will-change: transform, opacity, box-shadow;
-  transition: transform 80ms ease-out, opacity 80ms ease-out, box-shadow 80ms ease-out;
+  transition:
+    transform 80ms ease-out,
+    opacity 80ms ease-out,
+    box-shadow 80ms ease-out;
 }
 
 .custom-source-handle:hover {
@@ -194,7 +200,9 @@ body.react-flow-connecting .custom-target-handle:hover {
   stroke: var(--nss-surface, #fff);
   stroke-width: 2;
   opacity: 0;
-  transition: opacity 150ms ease, r 150ms ease;
+  transition:
+    opacity 150ms ease,
+    r 150ms ease;
   cursor: grab;
 }
 
@@ -226,14 +234,23 @@ body.react-flow-connecting .custom-target-handle.magnetic-snap-winner {
 [data-theme='dark'] body.react-flow-connecting .custom-target-handle.magnetic-snap-winner {
   box-shadow:
     0 0 0 2px rgba(59, 130, 246, calc(var(--magnetic-glow-alpha, 0) * 0.7)),
-    0 0 16px rgba(59, 130, 246, calc(var(--magnetic-glow-alpha, 0) * 1.0)) !important;
+    0 0 16px rgba(59, 130, 246, calc(var(--magnetic-glow-alpha, 0) * 1)) !important;
 }
 
 /* Pulsing ring in connection line SVG — shown when cursor is in the drop zone */
 @keyframes connection-snap-ring {
-  0%   { r: 8px;  opacity: 0.7; }
-  60%  { r: 18px; opacity: 0;   }
-  100% { r: 18px; opacity: 0;   }
+  0% {
+    r: 8px;
+    opacity: 0.7;
+  }
+  60% {
+    r: 18px;
+    opacity: 0;
+  }
+  100% {
+    r: 18px;
+    opacity: 0;
+  }
 }
 
 .connection-snap-ring {
