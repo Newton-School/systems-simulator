@@ -9,7 +9,8 @@ import ReactFlow, {
   Edge,
   Connection,
   ConnectionLineType,
-  updateEdge
+  updateEdge,
+  Node
 } from 'reactflow'
 import 'reactflow/dist/style.css'
 import { EdgeSimulationData } from '@renderer/types/ui'
