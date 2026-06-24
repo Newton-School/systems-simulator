@@ -2,17 +2,12 @@ import { memo } from 'react'
 import { LucideIcon, HelpCircle } from 'lucide-react'
 import { InlineEditableLabel } from '../properties/InlineEditable'
 import { ColorTheme } from '@renderer/types/ui'
-
-const STATUS_COLORS = {
-  healthy: 'bg-nss-success shadow-[0_0_8px_rgba(16,185,129,0.4)]',
-  degraded: 'bg-nss-warning shadow-[0_0_8px_rgba(245,158,11,0.4)]',
-  critical: 'bg-nss-danger shadow-[0_0_8px_rgba(239,68,68,0.4)]'
-} as const
+import { NODE_HEALTH_STYLES, type NodeHealthStatus } from './nodePresentation'
 
 interface NodeHeaderProps {
   label: string
   icon?: LucideIcon
-  status?: keyof typeof STATUS_COLORS
+  status?: NodeHealthStatus
   color?: ColorTheme | string
   onLabelChange?: (newLabel: string) => void
   children?: React.ReactNode
@@ -56,7 +51,7 @@ export const NodeHeader = memo(
 
         <div className="flex items-center gap-3 shrink-0">
           <div
-            className={`w-2 h-2 rounded-full transition-colors duration-300 ${STATUS_COLORS[status]}`}
+            className={`w-2 h-2 rounded-full transition-colors duration-300 ${NODE_HEALTH_STYLES[status].dot}`}
             title={`Status: ${status}`}
           />
           {children}

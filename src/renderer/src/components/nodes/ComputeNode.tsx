@@ -8,13 +8,16 @@ import { useNodeMetrics } from '@renderer/hooks/useNodeMetrics'
 import BaseNode from '@renderer/components/nodes/BaseNode'
 import { InlineEditableLabel } from '@renderer/components/properties/InlineEditable'
 import { useFlowStore } from '@renderer/components/canvas/hooks/useFlowStore'
-import { getNodeStatus, getPreRunSummary } from './nodePresentation'
+import {
+  NODE_HEALTH_STYLES,
+  getEffectiveNodeStatus,
+  getPreRunSummary,
+  isRuntimeNodeInactive
+} from './nodePresentation'
 
 const ComputeNode = ({ id, data, selected }: NodeProps<ComputeNodeData>) => {
   const { updateNodeData } = useFlowStore()
   const { icon: Icon, theme } = resolveNodeConfig(data.templateId || data.iconKey)
-  const status = getNodeStatus(data)
-  const isOverloaded = status === 'critical'
   const summaryMetrics = getPreRunSummary(data)
 
   const handleLabelChange = useCallback(
@@ -24,19 +27,21 @@ const ComputeNode = ({ id, data, selected }: NodeProps<ComputeNodeData>) => {
     [id, updateNodeData]
   )
 
-  const { utilization, queueDepth, hasRuntime, active } = useNodeMetrics(id)
-  const isInactive = hasRuntime && active === false
+  const { utilization, queueDepth, errorRate, hasRuntime, active } = useNodeMetrics(id)
+  const status = getEffectiveNodeStatus(data, { utilization, errorRate, queueDepth }, hasRuntime)
+  const isOverloaded = status === 'critical'
+  const isInactive = isRuntimeNodeInactive(hasRuntime, active)
   const safeColor = theme.bg || 'bg-nss-primary'
 
   const containerClassName = useMemo(() => {
     const base = 'group relative min-w-[180px] bg-nss-surface rounded-lg border-2'
+    const statusStyle = NODE_HEALTH_STYLES[status]
     if (isInactive) return `${base} border-nss-border opacity-40 grayscale`
-    if (isOverloaded) {
-      return `${base} border-nss-danger shadow-[0_0_15px_rgba(239,68,68,0.6)]`
+    if (selected) {
+      return `${base} ${statusStyle.border} ring-2 ${statusStyle.ring} ${statusStyle.shadow}`
     }
-    if (selected) return `${base} border-nss-primary shadow-lg`
-    return `${base} border-nss-border hover:border-nss-muted`
-  }, [isInactive, isOverloaded, selected])
+    return `${base} ${statusStyle.border} ${statusStyle.shadow}`
+  }, [isInactive, selected, status])
 
   return (
     <BaseNode id={id} selected={selected} containerClassName={containerClassName}>
@@ -65,6 +70,10 @@ const ComputeNode = ({ id, data, selected }: NodeProps<ComputeNodeData>) => {
               />
               <span className="text-[10px] text-nss-muted font-mono px-1">{data.profile}</span>
             </div>
+            <div
+              className={`w-2 h-2 rounded-full transition-colors duration-300 shrink-0 ${NODE_HEALTH_STYLES[status].dot}`}
+              title={`Status: ${status}`}
+            />
           </div>
 
           <div className="p-3 space-y-3">

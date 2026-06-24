@@ -9,7 +9,7 @@ import { resolveNodeConfig } from '@renderer/config/nodeRegistry'
 import { useNodeMetrics } from '@renderer/hooks/useNodeMetrics'
 import BaseNode from '@renderer/components/nodes/BaseNode'
 import { useFlowStore } from '@renderer/components/canvas/hooks/useFlowStore'
-import { getNodeStatus, getPreRunSummary } from './nodePresentation'
+import { getEffectiveNodeStatus, getPreRunSummary, isRuntimeNodeInactive } from './nodePresentation'
 
 const ServiceNode = ({ id, data, selected }: NodeProps<ServiceNodeData>) => {
   const { updateNodeData } = useFlowStore()
@@ -24,14 +24,19 @@ const ServiceNode = ({ id, data, selected }: NodeProps<ServiceNodeData>) => {
 
   const { throughput, errorRate, queueDepth, utilization, hasRuntime, active } = useNodeMetrics(id)
   const summaryMetrics = getPreRunSummary(data)
-  const status = getNodeStatus(data)
+  const status = getEffectiveNodeStatus(data, { utilization, errorRate, queueDepth }, hasRuntime)
 
   // After a simulation run, nodes that received zero post-warmup traffic are
   // visually muted so users can see at a glance which nodes stayed inactive.
-  const isInactive = hasRuntime && active === false
+  const isInactive = isRuntimeNodeInactive(hasRuntime, active)
 
   return (
-    <BaseNode id={id} selected={selected} selectionVariant="primary">
+    <BaseNode
+      id={id}
+      selected={selected}
+      selectionVariant="primary"
+      healthStatus={isInactive ? undefined : status}
+    >
       {({ isMenuOpen, onMenuClose, onMenuToggle }) => (
         <div className={isInactive ? 'opacity-40 grayscale' : undefined}>
           <NodeHeader

@@ -9,12 +9,11 @@ import { resolveNodeConfig } from '@renderer/config/nodeRegistry'
 import { useNodeMetrics } from '@renderer/hooks/useNodeMetrics'
 import BaseNode from '@renderer/components/nodes/BaseNode'
 import { useFlowStore } from '@renderer/components/canvas/hooks/useFlowStore'
-import { getNodeStatus, getPreRunSummary } from './nodePresentation'
+import { getEffectiveNodeStatus, getPreRunSummary, isRuntimeNodeInactive } from './nodePresentation'
 
 const SecurityNode = ({ id, data, selected }: NodeProps<SecurityNodeData>) => {
   const { updateNodeData } = useFlowStore()
   const { icon: IconComponent, theme } = resolveNodeConfig(data.templateId || data.iconKey)
-  const status = getNodeStatus(data)
   const summaryMetrics = getPreRunSummary(data)
 
   const handleLabelChange = useCallback(
@@ -25,10 +24,16 @@ const SecurityNode = ({ id, data, selected }: NodeProps<SecurityNodeData>) => {
   )
 
   const { throughput, errorRate, queueDepth, utilization, hasRuntime, active } = useNodeMetrics(id)
-  const isInactive = hasRuntime && active === false
+  const status = getEffectiveNodeStatus(data, { utilization, errorRate, queueDepth }, hasRuntime)
+  const isInactive = isRuntimeNodeInactive(hasRuntime, active)
 
   return (
-    <BaseNode id={id} selected={selected} selectionVariant="warning">
+    <BaseNode
+      id={id}
+      selected={selected}
+      selectionVariant="warning"
+      healthStatus={isInactive ? undefined : status}
+    >
       {({ isMenuOpen, onMenuClose, onMenuToggle }) => (
         <div className={isInactive ? 'opacity-40 grayscale' : undefined}>
           <NodeHeader
