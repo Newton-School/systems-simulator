@@ -1,4 +1,5 @@
 import type { TopologyJSON } from '../core/types'
+import type { EdgeFlowEvent } from '../core/events'
 import type { SimulationOutput, TimeSeriesSnapshot } from '../analysis/output'
 
 // ─── Inbound (main thread → worker) ──────────────────────────────────────────
@@ -44,6 +45,11 @@ export interface SnapshotMessage {
   payload: { snapshot: TimeSeriesSnapshot }
 }
 
+export interface EdgeFlowMessage {
+  type: 'edge-flow'
+  payload: { event: EdgeFlowEvent }
+}
+
 export interface CompleteMessage {
   type: 'complete'
   payload: { output: SimulationOutput; stopped?: boolean }
@@ -57,5 +63,6 @@ export interface ErrorMessage {
 export type WorkerOutboundMessage =
   | ProgressMessage
   | SnapshotMessage
+  | EdgeFlowMessage
   | CompleteMessage
   | ErrorMessage

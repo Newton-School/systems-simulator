@@ -65,6 +65,20 @@ export interface Request {
   metadata: Record<string, unknown>
 }
 
+export type EdgeFlowStatus = 'success' | 'edge-error' | 'packet-loss' | 'timeout'
+
+export interface EdgeFlowEvent {
+  sequence: number
+  requestId: string
+  edgeId: string
+  sourceNodeId: string
+  targetNodeId: string
+  startedAtMs: number
+  completedAtMs: number
+  latencyMs: number
+  status: EdgeFlowStatus
+}
+
 /**
  * Internal helper to resolve the default priority based on EventType. (At runtime)
  */

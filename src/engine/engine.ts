@@ -14,7 +14,14 @@ import {
   eventInputFromSimulationEvent,
   projectToDebugEvent
 } from './core/event-stream'
-import { EventPriority, createEvent, Request, SimulationEvent } from './core/events'
+import {
+  EventPriority,
+  createEvent,
+  type EdgeFlowEvent,
+  type EdgeFlowStatus,
+  type Request,
+  type SimulationEvent
+} from './core/events'
 import { microToMs, msToMicro, secToMicro } from './core/time'
 import { ComponentNode, EdgeDefinition, EventScheduler, TopologyJSON } from './core/types'
 import { MetricsCollector } from './metrics'
@@ -38,6 +45,7 @@ export class SimulationEngine {
   onSnapshot?: (snapshot: TimeSeriesSnapshot) => void
   onDebugEvent?: (event: DebugEvent) => void
   onAdmissionDecision?: (decision: AdmissionDecision) => void
+  onEdgeFlowEvent?: (event: EdgeFlowEvent) => void
 
   private readonly eventQueue = new MinHeap<SimulationEvent>()
   private readonly eventRecorder = new EventStreamRecorder({
@@ -63,6 +71,7 @@ export class SimulationEngine {
   private clock = 0n
   private lastSnapshotAt = -1n
   private eventsProcessed = 0
+  private edgeFlowSequence = 0
   private forkCounter = 0
   private running = false
   private paused = false
@@ -922,8 +931,27 @@ export class SimulationEngine {
   }
 
   private enqueueEdgeTransfer(request: Request, edge: EdgeDefinition, targetNodeId: string): void {
+    const emitEdgeFlowEvent = (
+      status: EdgeFlowStatus,
+      completedAt: bigint,
+      latencyUs: bigint
+    ): void => {
+      this.onEdgeFlowEvent?.({
+        sequence: ++this.edgeFlowSequence,
+        requestId: request.id,
+        edgeId: edge.id,
+        sourceNodeId: edge.source,
+        targetNodeId,
+        startedAtMs: microToMs(this.clock),
+        completedAtMs: microToMs(completedAt),
+        latencyMs: microToMs(latencyUs),
+        status
+      })
+    }
+
     if (this.distributions.random() < edge.packetLossRate) {
       const timeoutAt = request.deadline > this.clock ? request.deadline : this.clock
+      emitEdgeFlowEvent('packet-loss', timeoutAt, timeoutAt - this.clock)
       this.eventQueue.insert(
         createEvent(
           'request-timeout',
@@ -945,6 +973,7 @@ export class SimulationEngine {
     }
 
     if (this.distributions.random() < edge.errorRate) {
+      emitEdgeFlowEvent('edge-error', this.clock, 0n)
       this.eventQueue.insert(
         createEvent(
           'request-rejected',
@@ -965,8 +994,10 @@ export class SimulationEngine {
       return
     }
 
-    const arrivalTime = this.clock + this.sampleEdgeLatencyUs(edge)
+    const edgeLatencyUs = this.sampleEdgeLatencyUs(edge)
+    const arrivalTime = this.clock + edgeLatencyUs
     if (request.deadline <= arrivalTime) {
+      emitEdgeFlowEvent('timeout', request.deadline, request.deadline - this.clock)
       this.eventQueue.insert(
         createEvent(
           'request-timeout',
@@ -987,6 +1018,7 @@ export class SimulationEngine {
       return
     }
 
+    emitEdgeFlowEvent('success', arrivalTime, edgeLatencyUs)
     this.eventQueue.insert(
       createEvent(
         'request-arrival',

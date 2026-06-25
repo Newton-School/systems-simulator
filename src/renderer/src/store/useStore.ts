@@ -19,12 +19,90 @@ import type {
   ScenarioState
 } from '@renderer/types/ui'
 import { DEFAULT_SCENARIO_STATE } from '@renderer/types/ui'
+import type { EdgeFlowEvent } from '../../../engine/core/events'
+import type { WorkloadProfile } from '../../../engine/core/types'
+
+export type EdgeFlowRenderEvent = EdgeFlowEvent & {
+  receivedAtMs: number
+  displayAtMs: number
+}
+
+export interface EdgeFlowState {
+  recent: EdgeFlowRenderEvent[]
+  attemptedPerSecond: number
+  successPerSecond: number
+  failedPerSecond: number
+  failureRatio: number
+  totalAttempted: number
+  totalSuccess: number
+  totalFailed: number
+  avgAttemptedPerSecond: number
+  avgSuccessPerSecond: number
+  avgFailedPerSecond: number
+  firstStartedAtMs: number
+  lastStartedAtMs: number
+}
+
+export type EdgeFlowStatus = 'idle' | 'running' | 'complete'
+
+export interface EdgeFlowRunConfig {
+  workload: WorkloadProfile
+  simulationDurationMs: number
+}
+
+const EDGE_FLOW_WINDOW_MS = 6_000
+const EDGE_FLOW_MAX_EVENTS = 25_000
+const EDGE_FLOW_PLAYBACK_SPEED = 10
+
+const EMPTY_EDGE_FLOW_STATE: EdgeFlowState = {
+  recent: [],
+  attemptedPerSecond: 0,
+  successPerSecond: 0,
+  failedPerSecond: 0,
+  failureRatio: 0,
+  totalAttempted: 0,
+  totalSuccess: 0,
+  totalFailed: 0,
+  avgAttemptedPerSecond: 0,
+  avgSuccessPerSecond: 0,
+  avgFailedPerSecond: 0,
+  firstStartedAtMs: 0,
+  lastStartedAtMs: 0
+}
+
+function summarizeEdgeFlow(
+  events: EdgeFlowRenderEvent[]
+): Pick<
+  EdgeFlowState,
+  'attemptedPerSecond' | 'successPerSecond' | 'failedPerSecond' | 'failureRatio'
+> {
+  const attempted = events.length
+  const success = events.filter((event) => event.status === 'success').length
+  const failed = attempted - success
+  const first = events[0]?.displayAtMs
+  const last = events[events.length - 1]?.displayAtMs
+  const spanSeconds = Math.max(
+    1,
+    first !== undefined && last !== undefined ? (last - first) / 1000 : 1
+  )
+
+  return {
+    attemptedPerSecond: attempted / spanSeconds,
+    successPerSecond: success / spanSeconds,
+    failedPerSecond: failed / spanSeconds,
+    failureRatio: attempted > 0 ? failed / attempted : 0
+  }
+}
 
 type RFState = {
   // --- Graph Data ---
   nodes: Node[]
   edges: Edge[]
   simulationMetricsByNode: Record<string, NodeSimulationMetrics>
+  edgeFlowById: Record<string, EdgeFlowState>
+  edgeFlowPlayback: { wallStartMs: number; simStartMs: number } | null
+  edgeFlowStatus: EdgeFlowStatus
+  edgeFlowRunConfig: EdgeFlowRunConfig | null
 
   // --- File State ---
   fileName: string | null
@@ -43,6 +121,10 @@ type RFState = {
   ) => void
   setSimulationMetrics: (metrics: Record<string, NodeSimulationMetrics>) => void
   clearSimulationMetrics: () => void
+  recordEdgeFlowEvent: (event: EdgeFlowEvent) => void
+  setEdgeFlowStatus: (status: EdgeFlowStatus) => void
+  setEdgeFlowRunConfig: (config: EdgeFlowRunConfig) => void
+  clearEdgeFlow: () => void
   setNodes: (nodes: Node[]) => void
   setEdges: (edges: Edge[]) => void
   selectGraphElements: (selection: { nodeId?: string; edgeId?: string }) => void
@@ -58,6 +140,10 @@ const useStore = create<RFState>((set, get) => ({
   nodes: [],
   edges: [],
   simulationMetricsByNode: {},
+  edgeFlowById: {},
+  edgeFlowPlayback: null,
+  edgeFlowStatus: 'idle',
+  edgeFlowRunConfig: null,
 
   // Initial File State
   fileName: 'Untitled',
@@ -179,6 +265,72 @@ const useStore = create<RFState>((set, get) => ({
 
   clearSimulationMetrics: () => {
     set({ simulationMetricsByNode: {} })
+  },
+
+  recordEdgeFlowEvent: (event) => {
+    const now = Date.now()
+    const playback = get().edgeFlowPlayback ?? {
+      wallStartMs: now,
+      simStartMs: event.startedAtMs
+    }
+    const edgeFlowById = get().edgeFlowById
+    const previous = edgeFlowById[event.edgeId] ?? EMPTY_EDGE_FLOW_STATE
+    const displayAtMs =
+      playback.wallStartMs + (event.startedAtMs - playback.simStartMs) / EDGE_FLOW_PLAYBACK_SPEED
+    const recent = [
+      ...previous.recent,
+      {
+        ...event,
+        receivedAtMs: now,
+        displayAtMs
+      }
+    ]
+      .filter((item) => displayAtMs - item.displayAtMs <= EDGE_FLOW_WINDOW_MS * 2)
+      .slice(-EDGE_FLOW_MAX_EVENTS)
+    const totalAttempted = previous.totalAttempted + 1
+    const totalSuccess = previous.totalSuccess + (event.status === 'success' ? 1 : 0)
+    const totalFailed = totalAttempted - totalSuccess
+    const firstStartedAtMs =
+      previous.totalAttempted === 0 ? event.startedAtMs : previous.firstStartedAtMs
+    const lastStartedAtMs = Math.max(previous.lastStartedAtMs, event.startedAtMs)
+    const durationSeconds = Math.max(1, (lastStartedAtMs - firstStartedAtMs) / 1000)
+
+    set({
+      edgeFlowStatus: 'running',
+      edgeFlowPlayback: playback,
+      edgeFlowById: {
+        ...edgeFlowById,
+        [event.edgeId]: {
+          recent,
+          ...summarizeEdgeFlow(recent),
+          totalAttempted,
+          totalSuccess,
+          totalFailed,
+          avgAttemptedPerSecond: totalAttempted / durationSeconds,
+          avgSuccessPerSecond: totalSuccess / durationSeconds,
+          avgFailedPerSecond: totalFailed / durationSeconds,
+          firstStartedAtMs,
+          lastStartedAtMs
+        }
+      }
+    })
+  },
+
+  setEdgeFlowStatus: (status) => {
+    set({ edgeFlowStatus: status })
+  },
+
+  setEdgeFlowRunConfig: (config) => {
+    set({ edgeFlowRunConfig: config })
+  },
+
+  clearEdgeFlow: () => {
+    set({
+      edgeFlowById: {},
+      edgeFlowPlayback: null,
+      edgeFlowStatus: 'idle',
+      edgeFlowRunConfig: null
+    })
   },
 
   // File State Setters

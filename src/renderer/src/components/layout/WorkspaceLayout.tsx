@@ -177,7 +177,7 @@ export const WorkspaceLayout = () => {
   function startSimulation() {
     const { topology, errors, runContext } = serialize()
 
-    if (!topology || errors.length > 0) {
+    if (!topology || !runContext || errors.length > 0) {
       setRunIssues({
         messages: errors.length > 0 ? errors : ['Unable to serialize topology.'],
         tone: 'error'
@@ -198,6 +198,13 @@ export const WorkspaceLayout = () => {
     setShowResults(true)
     setLastRunContext(runContext)
     clearSimulationMetrics()
+    const flowStore = useStore.getState()
+    flowStore.clearEdgeFlow()
+    flowStore.setEdgeFlowRunConfig({
+      workload: runContext.workload,
+      simulationDurationMs: runContext.global.simulationDuration
+    })
+    flowStore.setEdgeFlowStatus('running')
     sim.run(topology)
   }
 

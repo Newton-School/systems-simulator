@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useEffect } from 'react'
 import type { SimulationOutput, TimeSeriesSnapshot } from '../../../engine/analysis/output'
 import type { TopologyJSON } from '../../../engine/core/types'
 import type { WorkerInboundMessage, WorkerOutboundMessage } from '../../../engine/worker/protocols'
+import useStore from '@renderer/store/useStore'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -74,7 +75,12 @@ export function useSimulation(): SimulationState & SimulationControls {
           setState((s) => ({ ...s, snapshot: msg.payload.snapshot }))
           break
 
+        case 'edge-flow':
+          useStore.getState().recordEdgeFlowEvent(msg.payload.event)
+          break
+
         case 'complete':
+          useStore.getState().setEdgeFlowStatus('complete')
           setState((s) => ({
             ...s,
             status: 'complete',
@@ -164,6 +170,7 @@ export function useSimulation(): SimulationState & SimulationControls {
   const reset = useCallback(() => {
     workerRef.current?.terminate()
     workerRef.current = null
+    useStore.getState().clearEdgeFlow()
     setState(INITIAL_STATE)
   }, [])
 

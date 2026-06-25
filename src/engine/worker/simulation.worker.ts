@@ -97,6 +97,10 @@ self.onmessage = (event: MessageEvent<WorkerInboundMessage>) => {
         post({ type: 'snapshot', payload: { snapshot } })
       }
 
+      engine.onEdgeFlowEvent = (event) => {
+        post({ type: 'edge-flow', payload: { event } })
+      }
+
       // Kick off the chunked execution loop (async, doesn't block the thread)
       runChunked()
       break
