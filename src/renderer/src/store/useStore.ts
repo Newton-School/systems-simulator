@@ -20,6 +20,27 @@ import type {
 } from '@renderer/types/ui'
 import { DEFAULT_SCENARIO_STATE } from '@renderer/types/ui'
 
+const SAVED_SEEDS_KEY = 'ns_simulator_saved_seeds'
+
+function loadSavedSeeds(): string[] {
+  try {
+    const raw = localStorage.getItem(SAVED_SEEDS_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed.filter((s) => typeof s === 'string') : []
+  } catch {
+    return []
+  }
+}
+
+function persistSeeds(seeds: string[]) {
+  try {
+    localStorage.setItem(SAVED_SEEDS_KEY, JSON.stringify(seeds))
+  } catch {
+    // Ignore localStorage errors
+  }
+}
+
 type RFState = {
   // --- Graph Data ---
   nodes: Node[]
@@ -30,6 +51,7 @@ type RFState = {
   fileName: string | null
   isUnsaved: boolean
   scenario: ScenarioState
+  savedSeeds: string[]
 
   // --- Actions ---
   onNodesChange: OnNodesChange
@@ -52,6 +74,8 @@ type RFState = {
   setUnsaved: (unsaved: boolean) => void
   setScenario: (scenario: ScenarioState) => void
   updateScenario: (updater: (scenario: ScenarioState) => ScenarioState) => void
+  saveSeed: (seed: string) => void
+  removeSeed: (seed: string) => void
 }
 
 const useStore = create<RFState>((set, get) => ({
@@ -63,6 +87,7 @@ const useStore = create<RFState>((set, get) => ({
   fileName: 'Untitled',
   isUnsaved: false,
   scenario: DEFAULT_SCENARIO_STATE,
+  savedSeeds: loadSavedSeeds(),
 
   onNodesChange: (changes: NodeChange[]) => {
     set({
@@ -185,7 +210,22 @@ const useStore = create<RFState>((set, get) => ({
   setFileName: (fileName) => set({ fileName }),
   setUnsaved: (isUnsaved) => set({ isUnsaved }),
   setScenario: (scenario) => set({ scenario }),
-  updateScenario: (updater) => set((state) => ({ scenario: updater(state.scenario) }))
+  updateScenario: (updater) => set((state) => ({ scenario: updater(state.scenario) })),
+
+  saveSeed: (seed: string) => {
+    const trimmed = seed.trim()
+    if (!trimmed || trimmed === 'default-seed') return
+    const current = get().savedSeeds
+    if (current.includes(trimmed)) return
+    const next = [...current, trimmed]
+    persistSeeds(next)
+    set({ savedSeeds: next })
+  },
+  removeSeed: (seed: string) => {
+    const next = get().savedSeeds.filter((s) => s !== seed)
+    persistSeeds(next)
+    set({ savedSeeds: next })
+  }
 }))
 
 export default useStore

@@ -32,6 +32,8 @@ interface SimulationControlsProps {
   scenario: ScenarioState
   onScenarioChange: (updater: (current: ScenarioState) => ScenarioState) => void
   disabled?: boolean
+  savedSeeds: string[]
+  onSaveSeed: (seed: string) => void
 }
 
 function mergeWorkload(
@@ -104,10 +106,21 @@ export function SimulationControls({
   sourceNodes,
   scenario,
   onScenarioChange,
-  disabled = false
+  disabled = false,
+  savedSeeds,
+  onSaveSeed
 }: SimulationControlsProps) {
   const [isOpen, setIsOpen] = useState(false)
   const wrapperRef = useRef<HTMLDivElement>(null)
+
+  const [isCustomSeed, setIsCustomSeed] = useState(false)
+
+  const handleSaveSeed = () => {
+    const currentSeed = scenario.global.seed
+    if (currentSeed && currentSeed !== 'default-seed' && !savedSeeds.includes(currentSeed)) {
+      onSaveSeed(currentSeed)
+    }
+  }
 
   const selectedSource =
     sourceNodes.find((node) => node.id === scenario.selectedSourceNodeId) ?? sourceNodes[0]
@@ -389,12 +402,75 @@ export function SimulationControls({
           </div>
 
           <Field label="Seed" className="mb-3">
-            <input
-              type="text"
-              value={scenario.global.seed}
-              onChange={(event) => setGlobalField('seed', event.target.value)}
-              className={CONTROL_BASE}
-            />
+            {!isCustomSeed &&
+            (scenario.global.seed === 'default-seed' ||
+              savedSeeds.includes(scenario.global.seed)) ? (
+              <select
+                value={scenario.global.seed}
+                onChange={(event) => {
+                  const val = event.target.value
+                  if (val === 'custom') {
+                    setIsCustomSeed(true)
+                    setGlobalField('seed', '')
+                  } else {
+                    setGlobalField('seed', val)
+                  }
+                }}
+                className={CONTROL_BASE}
+              >
+                <option value="default-seed">default-seed</option>
+                {savedSeeds.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+                <option value="custom">Custom...</option>
+              </select>
+            ) : (
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={scenario.global.seed}
+                  onChange={(event) => setGlobalField('seed', event.target.value)}
+                  className={CONTROL_BASE}
+                  autoFocus
+                  placeholder="Enter custom seed..."
+                />
+                {scenario.global.seed &&
+                scenario.global.seed !== 'default-seed' &&
+                !savedSeeds.includes(scenario.global.seed) ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleSaveSeed()
+                      setIsCustomSeed(false)
+                    }}
+                    className={`${ACTION_BUTTON_BASE} bg-nss-surface text-nss-text border-nss-border hover:bg-nss-bg flex-shrink-0`}
+                    title="Save this seed for future use"
+                  >
+                    Save
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsCustomSeed(false)
+                      if (
+                        !scenario.global.seed ||
+                        (!savedSeeds.includes(scenario.global.seed) &&
+                          scenario.global.seed !== 'default-seed')
+                      ) {
+                        setGlobalField('seed', 'default-seed')
+                      }
+                    }}
+                    className={`${ACTION_BUTTON_BASE} bg-nss-surface text-nss-text border-nss-border hover:bg-nss-bg flex-shrink-0`}
+                    title="Cancel custom seed"
+                  >
+                    X
+                  </button>
+                )}
+              </div>
+            )}
           </Field>
 
           <button
