@@ -93,6 +93,9 @@ export const WorkspaceLayout = () => {
   const updateScenario = useStore((s) => s.updateScenario)
   const setSimulationMetrics = useStore((s) => s.setSimulationMetrics)
   const clearSimulationMetrics = useStore((s) => s.clearSimulationMetrics)
+  const savedSeeds = useStore((s) => s.savedSeeds)
+  const saveSeed = useStore((s) => s.saveSeed)
+  const removeSeed = useStore((s) => s.removeSeed)
   const { confirm, dialog } = useConfirmDialog()
   const confirmDiscardChanges = useCallback(
     () =>
@@ -248,6 +251,9 @@ export const WorkspaceLayout = () => {
         sourceNodes={sourceNodes}
         scenario={scenario}
         onScenarioChange={updateScenario}
+        savedSeeds={savedSeeds}
+        onSaveSeed={saveSeed}
+        onRemoveSeed={removeSeed}
       />
 
       {runIssues.messages.length > 0 && (
