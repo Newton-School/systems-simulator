@@ -348,7 +348,10 @@ export class SimulationEngine {
         break
       case 'node-failure':
         this.nodes.get(event.nodeId)?.fail(this.clock)
-        this.nodeUnhealthyUntilUs.set(event.nodeId, this.clock + LOAD_BALANCER_UNHEALTHY_COOLDOWN_US)
+        this.nodeUnhealthyUntilUs.set(
+          event.nodeId,
+          this.clock + LOAD_BALANCER_UNHEALTHY_COOLDOWN_US
+        )
         this.recordSimulationEvent(event, this.createNodeSnapshot(event.nodeId))
         break
       case 'node-recovery':
@@ -935,7 +938,7 @@ export class SimulationEngine {
     }
 
     const nodeErrorRate = this.nodeErrorRateById.get(nodeId) ?? 0
-    if (nodeErrorRate >= 1) { 
+    if (nodeErrorRate >= 1) {
       return false
     }
 
