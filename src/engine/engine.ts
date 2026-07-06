@@ -967,11 +967,7 @@ export class SimulationEngine {
   }
 
   private markNodeUnhealthyForReason(nodeId: string, reason: string): void {
-    if (
-      reason === 'node_failed' ||
-      reason === 'capacity_exceeded' ||
-      reason === 'node_error_rate'
-    ) {
+    if (reason === 'node_failed' || reason === 'capacity_exceeded') {
       this.markNodeTemporarilyUnhealthy(nodeId)
     }
   }
