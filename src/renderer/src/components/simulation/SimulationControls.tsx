@@ -239,7 +239,10 @@ export function SimulationControls({
               Workload
             </p>
             <button
+              type="button"
               onClick={() => setIsOpen(false)}
+              aria-label="Close workload tray"
+              title="Close"
               className="text-nss-muted hover:text-nss-text transition-colors"
             >
               <X size={14} />
