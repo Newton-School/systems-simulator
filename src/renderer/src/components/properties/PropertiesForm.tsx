@@ -4,7 +4,18 @@ import {
   PROFILE_FIELD_GROUPS,
   type FieldPath
 } from '@renderer/config/fieldConfig'
+import { Input } from '../ui/Input'
+import { Label } from '../ui/Label'
+import { Select } from '../ui/Select'
 import { FormField } from './FormField'
+import {
+  HEALTH_PRESET_ERROR_RATE,
+  clamp,
+  formatErrorRatePercent,
+  getHealthPreset,
+  normalizeErrorRate,
+  type HealthPreset
+} from './nodeHealth'
 
 interface PropertiesFormProps {
   data: AnyNodeData
@@ -31,6 +42,52 @@ function getPathValue(target: unknown, path: string): unknown {
     }
     return undefined
   }, target)
+}
+
+function NodeHealthField({
+  value,
+  onChange
+}: {
+  value: unknown
+  onChange: (value: unknown) => void
+}) {
+  const errorRate = normalizeErrorRate(value)
+  const preset = getHealthPreset(errorRate)
+
+  return (
+    <div className="mb-5" data-field-path="sim.nodeErrorRate">
+      <Label>Node Health</Label>
+
+      <div className="grid grid-cols-[minmax(0,1fr)_5.75rem] gap-2">
+        <Select
+          value={preset}
+          onChange={(event) => {
+            const nextPreset = event.target.value as HealthPreset
+            onChange(HEALTH_PRESET_ERROR_RATE[nextPreset])
+          }}
+        >
+          <option value="healthy">Healthy</option>
+          <option value="degraded">Degraded</option>
+          <option value="critical">Critical</option>
+          <option value="down">Down</option>
+        </Select>
+
+        <Input
+          type="number"
+          min={0}
+          max={100}
+          step={1}
+          value={formatErrorRatePercent(errorRate)}
+          rightElement="%"
+          className="pr-8"
+          onChange={(event) => {
+            const parsed = Number(event.target.value)
+            onChange(Number.isNaN(parsed) ? 0 : clamp(parsed, 0, 100) / 100)
+          }}
+        />
+      </div>
+    </div>
+  )
 }
 
 export const PropertiesForm = ({ data, onUpdate }: PropertiesFormProps) => {
@@ -72,13 +129,21 @@ export const PropertiesForm = ({ data, onUpdate }: PropertiesFormProps) => {
                   if (!config) return null
 
                   return (
-                    <FormField
-                      key={path}
-                      fieldPath={path}
-                      config={config}
-                      value={getPathValue(data, path)}
-                      onChange={(value) => onUpdate(path, value)}
-                    />
+                    <div key={path}>
+                      {path === 'sim.nodeErrorRate' ? (
+                        <NodeHealthField
+                          value={getPathValue(data, path)}
+                          onChange={(value) => onUpdate(path, value)}
+                        />
+                      ) : (
+                        <FormField
+                          fieldPath={path}
+                          config={config}
+                          value={getPathValue(data, path)}
+                          onChange={(value) => onUpdate(path, value)}
+                        />
+                      )}
+                    </div>
                   )
                 })}
               </div>

@@ -39,6 +39,7 @@ interface SecurityPolicyConfig {
 }
 
 const DEFAULT_MAX_RETAINED_EVENT_STREAM_EVENTS = 25_000
+const LOAD_BALANCER_UNHEALTHY_COOLDOWN_US = msToMicro(5_000)
 
 export class SimulationEngine {
   onProgress?: (percent: number, eventsProcessed: number) => void
@@ -61,6 +62,7 @@ export class SimulationEngine {
   private readonly nodeTimeoutUsById = new Map<string, bigint>()
   private readonly securityPolicyByNodeId = new Map<string, SecurityPolicyConfig>()
   private readonly nodeLimitsById = new Map<string, { workers: number; capacity: number }>()
+  private readonly nodeUnhealthyUntilUs = new Map<string, bigint>()
   private readonly workload?: WorkloadGenerator
 
   private readonly requestById = new Map<string, Request>()
@@ -355,10 +357,15 @@ export class SimulationEngine {
         break
       case 'node-failure':
         this.nodes.get(event.nodeId)?.fail(this.clock)
+        this.nodeUnhealthyUntilUs.set(
+          event.nodeId,
+          this.clock + LOAD_BALANCER_UNHEALTHY_COOLDOWN_US
+        )
         this.recordSimulationEvent(event, this.createNodeSnapshot(event.nodeId))
         break
       case 'node-recovery':
         this.nodes.get(event.nodeId)?.recover(this.clock)
+        this.nodeUnhealthyUntilUs.delete(event.nodeId)
         this.recordSimulationEvent(event, this.createNodeSnapshot(event.nodeId))
         break
       default:
@@ -388,7 +395,13 @@ export class SimulationEngine {
     })
 
     const sourceNodeId = event.nodeId
-    const routes = this.routing.resolveTarget(sourceNodeId, request)
+    const routeResult = this.resolveRoutes(sourceNodeId, request)
+    if (routeResult.rejectionReason) {
+      this.rejectRequestAtNode(sourceNodeId, request, routeResult.rejectionReason, this.clock)
+      return
+    }
+
+    const routes = routeResult.routes
     if (routes.length === 0) {
       if (this.nodes.has(sourceNodeId)) {
         this.eventQueue.insert(
@@ -550,7 +563,18 @@ export class SimulationEngine {
       return
     }
 
-    const routes = this.routing.resolveTarget(event.nodeId, request)
+    const routeResult = this.resolveRoutes(event.nodeId, request)
+    if (routeResult.rejectionReason) {
+      this.rejectRequestAtNode(
+        event.nodeId,
+        request,
+        routeResult.rejectionReason,
+        completion.completedSpan.arrivalTime
+      )
+      return
+    }
+
+    const routes = routeResult.routes
     if (routes.length === 0) {
       this.eventQueue.insert(
         createEvent('request-complete', event.nodeId, request.id, { request }, this.clock)
@@ -642,6 +666,7 @@ export class SimulationEngine {
         return
       }
       event.data.nodeArrivalTime = arrivalTime
+      this.markNodeTemporarilyUnhealthy(event.nodeId)
     }
     this.recordSimulationEvent(event, this.createNodeSnapshot(event.nodeId))
 
@@ -665,6 +690,7 @@ export class SimulationEngine {
     if (!request) {
       return
     }
+    this.markNodeUnhealthyForReason(event.nodeId, reason)
     this.recordSimulationEvent(event, this.createNodeSnapshot(event.nodeId))
 
     const nodeArrivalTime =
@@ -908,6 +934,72 @@ export class SimulationEngine {
     const nodeErrorRate = this.nodeErrorRateById.get(nodeId)
     if (!nodeErrorRate || nodeErrorRate <= 0) return false
     return this.distributions.random() < nodeErrorRate
+  }
+
+  private isNodeHealthy(nodeId: string): boolean {
+    const node = this.nodes.get(nodeId)
+    if (!node) {
+      return true
+    }
+
+    if (node.getState().status === 'failed') {
+      return false
+    }
+
+    const nodeErrorRate = this.nodeErrorRateById.get(nodeId) ?? 0
+    if (nodeErrorRate >= 1) {
+      return false
+    }
+
+    const unhealthyUntil = this.nodeUnhealthyUntilUs.get(nodeId)
+    if (unhealthyUntil === undefined) {
+      return true
+    }
+
+    if (unhealthyUntil > this.clock) {
+      return false
+    }
+
+    this.nodeUnhealthyUntilUs.delete(nodeId)
+    return true
+  }
+
+  private isEdgeHealthy(edge: EdgeDefinition): boolean {
+    return edge.packetLossRate < 1 && edge.errorRate < 1
+  }
+
+  private resolveRoutes(sourceNodeId: string, request: Request) {
+    return this.routing.resolveTargetResult(sourceNodeId, request, {
+      isTargetHealthy: (nodeId) => this.isNodeHealthy(nodeId),
+      isEdgeHealthy: (edge) => this.isEdgeHealthy(edge)
+    })
+  }
+
+  private markNodeUnhealthyForReason(nodeId: string, reason: string): void {
+    if (reason === 'node_failed' || reason === 'capacity_exceeded') {
+      this.markNodeTemporarilyUnhealthy(nodeId)
+    }
+  }
+
+  private markNodeTemporarilyUnhealthy(nodeId: string): void {
+    this.nodeUnhealthyUntilUs.set(nodeId, this.clock + LOAD_BALANCER_UNHEALTHY_COOLDOWN_US)
+  }
+
+  private rejectRequestAtNode(
+    nodeId: string,
+    request: Request,
+    reason: string,
+    nodeArrivalTime: bigint
+  ): void {
+    this.eventQueue.insert(
+      createEvent(
+        'request-rejected',
+        nodeId,
+        request.id,
+        { request, reason, nodeArrivalTime },
+        this.clock
+      )
+    )
   }
 
   private scheduleNodeTimeout(nodeId: string, request: Request): void {

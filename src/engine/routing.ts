@@ -16,6 +16,24 @@ export interface ResolveRoute {
   edge: EdgeDefinition
 }
 
+export type RouteRejectionReason = 'no_healthy_targets'
+
+export interface ResolveTargetOptions {
+  isTargetHealthy?: (nodeId: string) => boolean
+  isEdgeHealthy?: (edge: EdgeDefinition) => boolean
+}
+
+export interface ResolveTargetResult {
+  routes: ResolveRoute[]
+  rejectionReason?: RouteRejectionReason
+}
+
+const HEALTH_AWARE_ROUTER_TYPES = new Set<ComponentNode['type']>([
+  'load-balancer',
+  'load-balancer-l4',
+  'load-balancer-l7'
+])
+
 /**
  * Maintains pre-indexed outgoing edges and source-specific cursors used by
  * routing strategies (for example: weighted and round-robin).
@@ -37,6 +55,7 @@ export class RoutingTable {
    * config metadata. Only populated when node definitions are provided.
    */
   private readonly roundRobinSourceIds: Set<string>
+  private readonly healthAwareSourceIds: Set<string>
 
   /**
    * @param edges Topology edges used to build routing lookup tables.
@@ -60,8 +79,16 @@ export class RoutingTable {
 
     this.roundRobinSourceIds = new Set(
       nodes
-        .filter((node) => node.config?.['routingStrategy'] === 'round-robin')
+        .filter(
+          (node) =>
+            node.config?.['routingStrategy'] === 'round-robin' ||
+            HEALTH_AWARE_ROUTER_TYPES.has(node.type)
+        )
         .map((node) => node.id)
+    )
+
+    this.healthAwareSourceIds = new Set(
+      nodes.filter((node) => HEALTH_AWARE_ROUTER_TYPES.has(node.type)).map((node) => node.id)
     )
   }
 
@@ -83,19 +110,36 @@ export class RoutingTable {
    * Both groups are evaluated independently, so a mixed topology fans out
    * to all async targets while still picking one sync target.
    */
-  resolveTarget(sourceNodeId: string, request: Request): ResolveRoute[] {
+  resolveTarget(
+    sourceNodeId: string,
+    request: Request,
+    options: ResolveTargetOptions = {}
+  ): ResolveRoute[] {
+    return this.resolveTargetResult(sourceNodeId, request, options).routes
+  }
+
+  resolveTargetResult(
+    sourceNodeId: string,
+    request: Request,
+    options: ResolveTargetOptions = {}
+  ): ResolveTargetResult {
     const outgoing = this.outgoingBySource.get(sourceNodeId)
     if (!outgoing || outgoing.length === 0) {
-      return []
+      return { routes: [] }
     }
 
     const eligible = outgoing.filter((edge) => this.matchesCondition(edge, request))
     if (eligible.length === 0) {
-      return []
+      return { routes: [] }
     }
 
-    const asyncEdges = eligible.filter((edge) => edge.mode === 'asynchronous')
-    const syncEdges = eligible.filter((edge) => edge.mode !== 'asynchronous')
+    const healthEligible = this.filterHealthyTargets(sourceNodeId, eligible, options)
+    if (healthEligible.length === 0) {
+      return { routes: [], rejectionReason: 'no_healthy_targets' }
+    }
+
+    const asyncEdges = healthEligible.filter((edge) => edge.mode === 'asynchronous')
+    const syncEdges = healthEligible.filter((edge) => edge.mode !== 'asynchronous')
 
     const results: ResolveRoute[] = asyncEdges.map((edge) => this.toResolved(edge))
 
@@ -105,7 +149,7 @@ export class RoutingTable {
       results.push(this.toResolved(this.pickSyncRoute(sourceNodeId, syncEdges)))
     }
 
-    return results
+    return { routes: results }
   }
 
   /**
@@ -203,6 +247,22 @@ export class RoutingTable {
     return edges[edges.length - 1]
   }
 
+  private filterHealthyTargets(
+    sourceNodeId: string,
+    edges: EdgeDefinition[],
+    options: ResolveTargetOptions
+  ): EdgeDefinition[] {
+    if (!this.isHealthAwareSource(sourceNodeId)) {
+      return edges
+    }
+
+    return edges.filter((edge) => {
+      const targetHealthy = options.isTargetHealthy?.(edge.target) ?? true
+      const edgeHealthy = options.isEdgeHealthy?.(edge) ?? true
+      return targetHealthy && edgeHealthy
+    })
+  }
+
   /**
    * Returns true if the source node should use round-robin routing.
    * Uses explicit node config when available. Falls back to an ID substring
@@ -219,6 +279,15 @@ export class RoutingTable {
       id.includes('ingress') ||
       id.includes('reverse-proxy')
     )
+  }
+
+  private isHealthAwareSource(sourceNodeId: string): boolean {
+    if (this.healthAwareSourceIds.size > 0) {
+      return this.healthAwareSourceIds.has(sourceNodeId)
+    }
+
+    const id = sourceNodeId.toLowerCase()
+    return id.includes('load-balancer') || id.includes('lb')
   }
 
   /**
