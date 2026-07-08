@@ -1,9 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { BaseEdge, getSmoothStepPath, EdgeProps, EdgeLabelRenderer } from 'reactflow'
 import useStore, { type EdgeFlowRunConfig, type EdgeFlowState } from '@renderer/store/useStore'
-import { createRoutingVisualizationFrames } from '@renderer/utils/routingStrategyVisualization'
-import { buildRoutingVisualizationTargets } from '@renderer/utils/routingStrategyGraph'
-import type { NodeSimulationMetrics } from '@renderer/types/ui'
+import { getRoutingPreviewSnapshot } from '@renderer/utils/routingStrategyPreview'
 
 const EDGE_VISUAL_WINDOW_MS = 3_000
 const FAILED_PULSE_MS = 650
@@ -222,39 +220,6 @@ function packetSpeedJitter(
   return 0.7 + hash01(`${edgeId}:speed:${index}`) * 0.75
 }
 
-function finiteCount(value: unknown): number | null {
-  return typeof value === 'number' && Number.isFinite(value) && value >= 0
-    ? Math.round(value)
-    : null
-}
-
-function getRoutingPreviewRequestCount({
-  sourceNodeId,
-  targetEdgeIds,
-  metricsByNode,
-  edgeFlowById
-}: {
-  sourceNodeId: string
-  targetEdgeIds: string[]
-  metricsByNode: Record<string, NodeSimulationMetrics>
-  edgeFlowById: Record<string, EdgeFlowState>
-}): number {
-  const sourceMetrics = metricsByNode[sourceNodeId]
-  const processed = finiteCount(sourceMetrics?.postWarmupProcessed)
-  if (processed && processed > 0) return processed
-
-  const outgoingAttempted = targetEdgeIds.reduce(
-    (sum, edgeId) => sum + (edgeFlowById[edgeId]?.totalAttempted ?? 0),
-    0
-  )
-  if (outgoingAttempted > 0) return Math.round(outgoingAttempted)
-
-  const arrived = finiteCount(sourceMetrics?.postWarmupArrived)
-  if (arrived && arrived > 0) return arrived
-
-  return processed ?? arrived ?? 0
-}
-
 export const PacketEdge = ({
   id,
   source,
@@ -297,37 +262,24 @@ export const PacketEdge = ({
   const routingPreview = useMemo(() => {
     if (!routingVisualization || routingVisualization.sourceNodeId !== source) return null
 
-    const targets = buildRoutingVisualizationTargets({
-      sourceNodeId: routingVisualization.sourceNodeId,
+    const snapshot = getRoutingPreviewSnapshot({
+      routingVisualization,
       edges,
       nodes,
-      metricsByNode
-    })
-    const requestCount = getRoutingPreviewRequestCount({
-      sourceNodeId: routingVisualization.sourceNodeId,
-      targetEdgeIds: targets.map((target) => target.id),
       metricsByNode,
-      edgeFlowById: previewEdgeFlowById
-    })
-    const demo = createRoutingVisualizationFrames({
-      strategy: routingVisualization.strategy,
-      targets,
-      requestCount,
+      edgeFlowById: previewEdgeFlowById,
       decisionSampleLimit: ROUTING_PREVIEW_DECISION_SAMPLE_LIMIT
     })
-    const selectedCount = demo.finalCounts[id] ?? 0
-    const totalCount = Object.values(demo.finalCounts).reduce((sum, count) => sum + count, 0)
-    const maxCount = Math.max(1, ...Object.values(demo.finalCounts))
+    if (!snapshot.targetEdgeIds.has(id)) return null
 
-    return targets.some((target) => target.id === id)
-      ? {
-          selectedCount,
-          totalCount,
-          maxCount,
-          requestCount,
-          isSelected: selectedCount > 0
-        }
-      : null
+    const selectedCount = snapshot.countsByEdgeId[id] ?? 0
+    return {
+      selectedCount,
+      totalCount: snapshot.totalCount,
+      maxCount: snapshot.maxCount,
+      requestCount: snapshot.requestCount,
+      isSelected: selectedCount > 0
+    }
   }, [edges, id, metricsByNode, nodes, previewEdgeFlowById, routingVisualization, source])
   const isRoutingPreviewEdge = routingPreview !== null
   const [now, setNow] = useState(() => Date.now())

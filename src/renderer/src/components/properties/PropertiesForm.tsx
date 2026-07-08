@@ -143,7 +143,7 @@ export const PropertiesForm = ({ nodeId, data, onUpdate }: PropertiesFormProps) 
                                   : 'border-nss-border bg-nss-panel text-nss-text hover:border-nss-primary'
                               ].join(' ')}
                             >
-                              {isRoutingVisualizationActive ? 'Preview on' : 'Show visualization'}
+                              {isRoutingVisualizationActive ? 'Preview off' : 'Preview on'}
                             </button>
                           ) : undefined
                         }
