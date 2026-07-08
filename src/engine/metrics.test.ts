@@ -188,6 +188,40 @@ describe('MetricsCollector', () => {
     expect(perNode?.postWarmupArrived).toBe(1)
   })
 
+  it('tracks cache hit and miss counters per node', () => {
+    const metrics = new MetricsCollector({ warmupDuration: 0 })
+
+    metrics.recordNodeTraitCounters('cache-a', { cacheHits: 8, cacheMisses: 2 })
+
+    const perNode = metrics.getPerNodeMetrics(1_000).get('cache-a')
+    expect(perNode).toBeDefined()
+    expect(perNode?.cacheHits).toBe(8)
+    expect(perNode?.cacheMisses).toBe(2)
+    expect(perNode?.cacheHitRatio).toBe(0.8)
+  })
+
+  it('keeps rejections distinguishable by reason instead of collapsing them into one count', () => {
+    const metrics = new MetricsCollector({ warmupDuration: 0 })
+
+    metrics.recordRejection('gw', 'rate_limited', { requestCreatedAt: 0n, nodeArrivalTime: 0n })
+    metrics.recordRejection('gw', 'rate_limited', { requestCreatedAt: 0n, nodeArrivalTime: 0n })
+    metrics.recordRejection('gw', 'capacity_exceeded', { requestCreatedAt: 0n, nodeArrivalTime: 0n })
+
+    const perNode = metrics.getPerNodeMetrics(1_000).get('gw')
+    expect(perNode?.totalRejected).toBe(3)
+    expect(perNode?.rejectionsByReason).toEqual({ rate_limited: 2, capacity_exceeded: 1 })
+  })
+
+  it('records any trait-reported counter generically, not just cache', () => {
+    const metrics = new MetricsCollector({ warmupDuration: 0 })
+
+    metrics.recordNodeTraitCounters('gw', { tokensExhausted: 1 })
+    metrics.recordNodeTraitCounters('gw', { tokensExhausted: 1 })
+
+    const perNode = metrics.getPerNodeMetrics(1_000).get('gw')
+    expect(perNode?.traitCounters).toEqual({ tokensExhausted: 2 })
+  })
+
   it('postWarmupAvgInSystem only integrates snapshots after warmup', () => {
     // warmupDuration = 100ms = 100_000µs
     const metrics = new MetricsCollector({ warmupDuration: 100 })

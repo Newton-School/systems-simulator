@@ -7,6 +7,10 @@ import type {
   SerializeContext,
   StructuralRole
 } from './nodeSpecTypes'
+import { CACHE_COMPONENT_TYPES } from '../traits/cache'
+import { L4_CONTENT_ROUTING_FORBIDDEN_MESSAGE } from '../traits/contentRouting'
+import { HEALTH_AWARE_COMPONENT_TYPES } from '../traits/healthAwareRouting'
+import { asDistributionConfig } from '../traits/serviceTimeOverride'
 
 const CATEGORY_MIN_SERVICE_MS = {
   'storage-and-data': 3,
@@ -57,6 +61,35 @@ const TYPE_MEAN_SERVICE_MS: Partial<Record<ComponentType, number>> = {
   'metrics-store': 0.5,
   'distributed-tracing': 1,
   'alerting-hook': 5
+}
+
+const HEALTH_AWARE_COMPONENT_TYPE_SET = new Set<ComponentType>(HEALTH_AWARE_COMPONENT_TYPES)
+const CACHE_COMPONENT_TYPE_SET = new Set<ComponentType>(CACHE_COMPONENT_TYPES)
+
+function defaultCacheHitRate(componentType: ComponentType): number | null {
+  switch (componentType) {
+    case 'cdn':
+      return 0.9
+    case 'in-memory-cache':
+      return 0.8
+    case 'reverse-proxy':
+      return 0
+    default:
+      return null
+  }
+}
+
+function defaultCacheHitLatencyMs(componentType: ComponentType): number | null {
+  switch (componentType) {
+    case 'cdn':
+      return 1
+    case 'in-memory-cache':
+      return 0.1
+    case 'reverse-proxy':
+      return 1
+    default:
+      return null
+  }
 }
 
 const DEFAULT_UTILIZATION_HINT = 65
@@ -169,6 +202,23 @@ export function buildSeededSimulationConfig(
     sim.nodeErrorRate = nodeErrorRate
   }
 
+  if (HEALTH_AWARE_COMPONENT_TYPE_SET.has(componentType)) {
+    sim.healthCheckEnabled = true
+  }
+
+  if (CACHE_COMPONENT_TYPE_SET.has(componentType)) {
+    const cacheHitRate = defaultCacheHitRate(componentType)
+    const cacheHitLatencyMs = defaultCacheHitLatencyMs(componentType)
+
+    if (cacheHitRate !== null) {
+      sim.cacheHitRate = cacheHitRate
+    }
+
+    if (cacheHitLatencyMs !== null) {
+      sim.cacheHitLatencyMs = cacheHitLatencyMs
+    }
+  }
+
   if (blockRate > 0 || droppedPackets > 0) {
     sim.securityPolicy = { blockRate, droppedPackets }
   }
@@ -213,6 +263,56 @@ function buildRuntimeNode(
     if (blockRate > 0 || droppedPackets > 0) {
       config.securityPolicy = { blockRate, droppedPackets }
     }
+  }
+
+  if (typeof data.sim?.healthCheckEnabled === 'boolean') {
+    config.healthCheckEnabled = data.sim.healthCheckEnabled
+  }
+
+  if (typeof data.sim?.cacheHitRate === 'number' && Number.isFinite(data.sim.cacheHitRate)) {
+    config.cacheHitRate = clamp(data.sim.cacheHitRate, 0, 1)
+  }
+
+  if (
+    typeof data.sim?.cacheHitLatencyMs === 'number' &&
+    Number.isFinite(data.sim.cacheHitLatencyMs) &&
+    data.sim.cacheHitLatencyMs > 0
+  ) {
+    config.cacheHitLatencyMs = data.sim.cacheHitLatencyMs
+  }
+
+  if (typeof data.sim?.ttlSeconds === 'number' && Number.isFinite(data.sim.ttlSeconds)) {
+    config.ttlSeconds = Math.max(0, data.sim.ttlSeconds)
+  }
+
+  if (Array.isArray(data.sim?.routingRules) && data.sim.routingRules.length > 0) {
+    config.routingRules = data.sim.routingRules
+  }
+
+  if (typeof data.sim?.maxTokens === 'number' && Number.isFinite(data.sim.maxTokens)) {
+    config.maxTokens = data.sim.maxTokens
+  }
+
+  if (
+    typeof data.sim?.refillRatePerSecond === 'number' &&
+    Number.isFinite(data.sim.refillRatePerSecond)
+  ) {
+    config.refillRatePerSecond = data.sim.refillRatePerSecond
+  }
+
+  if (spec.componentType === 'relational-db') {
+    // "Primary DB" and "Read Replica" share this component type — the
+    // template chosen from the palette is the one truthful signal of role,
+    // since it's fixed at creation time (unlike a freely renamable label).
+    config.replicationRole = data.sim?.replicationRole ?? (data.templateId === 'read-replica' ? 'replica' : 'primary')
+  }
+
+  if (data.sim?.readLatency) {
+    config.readLatency = data.sim.readLatency
+  }
+
+  if (data.sim?.writeLatency) {
+    config.writeLatency = data.sim.writeLatency
   }
 
   return {
@@ -266,6 +366,82 @@ function validateSimulationNode(data: CanvasNodeDataV2): string[] {
       data.sim.nodeErrorRate > 1)
   ) {
     errors.push('nodeErrorRate must be between 0 and 1.')
+  }
+
+  if (
+    data.sim?.healthCheckEnabled !== undefined &&
+    typeof data.sim.healthCheckEnabled !== 'boolean'
+  ) {
+    errors.push('healthCheckEnabled must be a boolean.')
+  }
+
+  if (
+    data.sim?.cacheHitRate !== undefined &&
+    (!Number.isFinite(data.sim.cacheHitRate) ||
+      data.sim.cacheHitRate < 0 ||
+      data.sim.cacheHitRate > 1)
+  ) {
+    errors.push('cacheHitRate must be between 0 and 1.')
+  }
+
+  if (
+    data.sim?.cacheHitLatencyMs !== undefined &&
+    (!Number.isFinite(data.sim.cacheHitLatencyMs) || data.sim.cacheHitLatencyMs <= 0)
+  ) {
+    errors.push('cacheHitLatencyMs must be greater than 0.')
+  }
+
+  if (
+    data.sim?.ttlSeconds !== undefined &&
+    (!Number.isFinite(data.sim.ttlSeconds) || data.sim.ttlSeconds < 0)
+  ) {
+    errors.push('ttlSeconds must be greater than or equal to 0.')
+  }
+
+  if (data.sim?.readLatency !== undefined && !asDistributionConfig(data.sim.readLatency)) {
+    errors.push('readLatency must be a valid distribution config.')
+  }
+
+  if (data.sim?.writeLatency !== undefined && !asDistributionConfig(data.sim.writeLatency)) {
+    errors.push('writeLatency must be a valid distribution config.')
+  }
+
+  if (
+    data.sim?.replicationRole !== undefined &&
+    data.sim.replicationRole !== 'primary' &&
+    data.sim.replicationRole !== 'replica'
+  ) {
+    errors.push('replicationRole must be "primary" or "replica".')
+  }
+
+  if (data.sim?.maxTokens !== undefined && (!Number.isFinite(data.sim.maxTokens) || data.sim.maxTokens <= 0)) {
+    errors.push('maxTokens must be greater than 0.')
+  }
+
+  if (
+    data.sim?.refillRatePerSecond !== undefined &&
+    (!Number.isFinite(data.sim.refillRatePerSecond) || data.sim.refillRatePerSecond < 0)
+  ) {
+    errors.push('refillRatePerSecond must be greater than or equal to 0.')
+  }
+
+  const routingRules = data.sim?.routingRules
+  if (routingRules !== undefined) {
+    if (data.componentType === 'load-balancer-l4' && routingRules.length > 0) {
+      errors.push(L4_CONTENT_ROUTING_FORBIDDEN_MESSAGE)
+    } else {
+      routingRules.forEach((rule, ruleIndex) => {
+        if (!['type', 'path', 'host'].includes(rule.matchField)) {
+          errors.push(`routingRules[${ruleIndex}].matchField must be one of "type", "path", "host".`)
+        }
+        if (!rule.matchValue) {
+          errors.push(`routingRules[${ruleIndex}].matchValue is required.`)
+        }
+        if (!rule.targetNodeId) {
+          errors.push(`routingRules[${ruleIndex}].targetNodeId is required.`)
+        }
+      })
+    }
   }
 
   return errors

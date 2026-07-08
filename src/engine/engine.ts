@@ -31,13 +31,21 @@ import { MinHeap } from './scheduler/min-heap'
 import { Distributions } from './stochastic/distribution'
 import { createRandom } from './stochastic/random'
 import { RequestTracer } from './tracer'
+import {
+  createInitialProbeState,
+  evaluateProbe,
+  parseHealthCheckManagerConfig,
+  type HealthCheckManagerConfig,
+  type ProbeState
+} from './traits/healthProber'
 import { resolveTraits } from './traits/resolveTraits'
 import type {
   BeforeArrivalDecision,
   BeforeRoutingDecision,
   NodeBehaviourTrait,
   TraitHookName,
-  TraitResolver
+  TraitResolver,
+  TraitStateStore
 } from './traits/types'
 import { WorkloadGenerator } from './workload'
 
@@ -77,6 +85,10 @@ export class SimulationEngine {
   private readonly securityPolicyByNodeId = new Map<string, SecurityPolicyConfig>()
   private readonly nodeLimitsById = new Map<string, { workers: number; capacity: number }>()
   private readonly nodeUnhealthyUntilUs = new Map<string, bigint>()
+  private readonly healthCheckManagerConfigById = new Map<string, HealthCheckManagerConfig>()
+  private readonly probedNodeIds = new Set<string>()
+  private readonly probeStateByNodeId = new Map<string, ProbeState>()
+  private readonly traitStateByNodeId = new Map<string, Map<string, unknown>>()
   private readonly workload?: WorkloadGenerator
 
   private readonly requestById = new Map<string, Request>()
@@ -141,6 +153,28 @@ export class SimulationEngine {
       const securityPolicy = this.readSecurityPolicy(normalized)
       if (securityPolicy) {
         this.securityPolicyByNodeId.set(node.id, securityPolicy)
+      }
+
+      if (normalized.type === 'health-check-manager') {
+        const proberConfig = parseHealthCheckManagerConfig(normalized.config)
+        if (proberConfig) {
+          this.healthCheckManagerConfigById.set(node.id, proberConfig)
+          for (const monitoredNodeId of proberConfig.monitoredNodes) {
+            this.probedNodeIds.add(monitoredNodeId)
+            if (!this.probeStateByNodeId.has(monitoredNodeId)) {
+              this.probeStateByNodeId.set(monitoredNodeId, createInitialProbeState())
+            }
+          }
+          scheduler.schedule(
+            createEvent(
+              'health-check',
+              node.id,
+              '',
+              {},
+              msToMicro(proberConfig.checkIntervalMs)
+            )
+          )
+        }
       }
     }
 
@@ -388,6 +422,9 @@ export class SimulationEngine {
         this.nodeUnhealthyUntilUs.delete(event.nodeId)
         this.recordSimulationEvent(event, this.createNodeSnapshot(event.nodeId))
         break
+      case 'health-check':
+        this.handleHealthProbe(event)
+        break
       default:
         // Other event types are integrated in later tickets.
         break
@@ -499,33 +536,88 @@ export class SimulationEngine {
     }
 
     if (arrivalTraitDecision.action === 'handled') {
-      const completionTime = this.clock + arrivalTraitDecision.latencyUs
-      if (request.deadline <= completionTime) {
-        this.eventQueue.insert(
-          createEvent(
-            'request-timeout',
-            event.nodeId,
-            request.id,
-            { request, nodeArrivalTime: this.clock, scope: 'trait' },
-            request.deadline
-          )
-        )
-      } else {
-        this.eventQueue.insert(
-          createEvent('request-complete', event.nodeId, request.id, { request }, completionTime)
-        )
+      this.completeRequestViaTrait(event.nodeId, request, arrivalTraitDecision)
+
+      if (arrivalTraitDecision.payload?.forkConsumerRequest === true) {
+        this.forkConsumerRequest(node, event.nodeId, request)
       }
       return
     }
 
+    this.admitToNodeQueue(node, event.nodeId, request)
+  }
+
+  private completeRequestViaTrait(
+    nodeId: string,
+    request: Request,
+    decision: Extract<BeforeArrivalDecision, { action: 'handled' }>
+  ): void {
+    const completionTime = this.clock + decision.latencyUs
+    if (request.deadline <= completionTime) {
+      this.eventQueue.insert(
+        createEvent(
+          'request-timeout',
+          nodeId,
+          request.id,
+          { request, nodeArrivalTime: this.clock, scope: 'trait' },
+          request.deadline
+        )
+      )
+      return
+    }
+
+    const servedFromCache = decision.payload?.servedFromCache === true
+    if (servedFromCache) {
+      request.metadata.servedFromCache = true
+    }
+    request.spans.push({
+      nodeId,
+      arrivalTime: this.clock,
+      queueWait: 0n,
+      serviceTime: decision.latencyUs,
+      departureTime: completionTime
+    })
+    this.eventQueue.insert(
+      createEvent(
+        'request-complete',
+        nodeId,
+        request.id,
+        { request, ...(servedFromCache ? { servedFromCache: true } : {}) },
+        completionTime
+      )
+    )
+  }
+
+  /**
+   * Spawns an independent lifecycle for a request that a trait acknowledged
+   * immediately (e.g. AckAndReleaseTrait) — the clone enters the node's real
+   * queue directly, bypassing beforeArrival traits so the ack doesn't
+   * re-trigger itself in an infinite fork loop.
+   */
+  private forkConsumerRequest(node: GGcKNode, nodeId: string, producerRequest: Request): void {
+    const consumerRequest = this.cloneRequestForBranch(producerRequest)
+    this.requestById.set(consumerRequest.id, consumerRequest)
+    this.tracer.setRequestCreatedAt(consumerRequest.id, consumerRequest.createdAt)
+    this.recordCanonicalEvent({
+      timestampUs: this.clock,
+      type: 'request-generated',
+      priority: EventPriority.ARRIVAL,
+      requestId: consumerRequest.id,
+      nodeId,
+      payload: { request: consumerRequest, branchOfRequestId: producerRequest.id }
+    })
+    this.admitToNodeQueue(node, nodeId, consumerRequest)
+  }
+
+  private admitToNodeQueue(node: GGcKNode, nodeId: string, request: Request): void {
     const result = node.handleArrival(request, this.clock)
-    const nodeSnapshot = this.createNodeSnapshot(event.nodeId)
+    const nodeSnapshot = this.createNodeSnapshot(nodeId)
     if (result.status === 'rejected') {
-      this.emitAdmissionDecision(request.id, event.nodeId, 'rejected', result.reason, nodeSnapshot)
+      this.emitAdmissionDecision(request.id, nodeId, 'rejected', result.reason, nodeSnapshot)
       this.eventQueue.insert(
         createEvent(
           'request-rejected',
-          event.nodeId,
+          nodeId,
           request.id,
           { request, reason: result.reason, nodeArrivalTime: this.clock },
           this.clock
@@ -540,39 +632,25 @@ export class SimulationEngine {
         type: 'request-queued',
         priority: EventPriority.ARRIVAL,
         requestId: request.id,
-        nodeId: event.nodeId,
+        nodeId,
         payload: { request },
         nodeSnapshot
       })
-      this.emitAdmissionDecision(
-        request.id,
-        event.nodeId,
-        'queued',
-        undefined,
-        nodeSnapshot,
-        record.sequence
-      )
+      this.emitAdmissionDecision(request.id, nodeId, 'queued', undefined, nodeSnapshot, record.sequence)
     } else {
       const record = this.recordCanonicalEvent({
         timestampUs: this.clock,
         type: 'processing-started',
         priority: EventPriority.PROCESSING,
         requestId: request.id,
-        nodeId: event.nodeId,
+        nodeId,
         payload: { request },
         nodeSnapshot
       })
-      this.emitAdmissionDecision(
-        request.id,
-        event.nodeId,
-        'accepted',
-        undefined,
-        nodeSnapshot,
-        record.sequence
-      )
+      this.emitAdmissionDecision(request.id, nodeId, 'accepted', undefined, nodeSnapshot, record.sequence)
     }
 
-    this.scheduleNodeTimeout(event.nodeId, request)
+    this.scheduleNodeTimeout(nodeId, request)
   }
 
   private handleProcessingComplete(event: SimulationEvent): void {
@@ -1005,7 +1083,32 @@ export class SimulationEngine {
     return this.distributions.random() < nodeErrorRate
   }
 
+  private getTraitStateStore(nodeId: string): TraitStateStore {
+    let store = this.traitStateByNodeId.get(nodeId)
+    if (!store) {
+      store = new Map<string, unknown>()
+      this.traitStateByNodeId.set(nodeId, store)
+    }
+    return {
+      get: <T,>(key: string) => store!.get(key) as T | undefined,
+      set: <T,>(key: string, value: T) => {
+        store!.set(key, value)
+      }
+    }
+  }
+
   private isNodeHealthy(nodeId: string): boolean {
+    // Nodes watched by a Health Check Manager only become (un)healthy once the
+    // prober detects it — this is the detection-latency lesson. Unmonitored
+    // nodes fall back to instantaneous knowledge, a declared simplification.
+    if (this.probedNodeIds.has(nodeId)) {
+      return this.probeStateByNodeId.get(nodeId)?.healthy ?? true
+    }
+
+    return this.isNodeHealthyInstant(nodeId)
+  }
+
+  private isNodeHealthyInstant(nodeId: string): boolean {
     const node = this.nodes.get(nodeId)
     if (!node) {
       return true
@@ -1031,6 +1134,45 @@ export class SimulationEngine {
 
     this.nodeUnhealthyUntilUs.delete(nodeId)
     return true
+  }
+
+  private handleHealthProbe(event: SimulationEvent): void {
+    const config = this.healthCheckManagerConfigById.get(event.nodeId)
+    if (!config) {
+      return
+    }
+
+    for (const monitoredNodeId of config.monitoredNodes) {
+      const actualHealthy = this.isNodeHealthyInstant(monitoredNodeId)
+      const previous = this.probeStateByNodeId.get(monitoredNodeId) ?? createInitialProbeState()
+      const next = evaluateProbe(previous, actualHealthy, config)
+      this.probeStateByNodeId.set(monitoredNodeId, next)
+
+      this.recordCanonicalEvent({
+        timestampUs: this.clock,
+        type: 'health-probed',
+        priority: EventPriority.SYSTEM,
+        nodeId: monitoredNodeId,
+        sourceNodeId: event.nodeId,
+        payload: {
+          healthCheckManagerId: event.nodeId,
+          actualHealthy,
+          probedHealthy: next.healthy,
+          consecutiveFailures: next.consecutiveFailures,
+          consecutiveSuccesses: next.consecutiveSuccesses
+        }
+      })
+    }
+
+    this.eventQueue.insert(
+      createEvent(
+        'health-check',
+        event.nodeId,
+        '',
+        {},
+        this.clock + msToMicro(config.checkIntervalMs)
+      )
+    )
   }
 
   private isEdgeHealthy(edge: EdgeDefinition): boolean {
@@ -1222,7 +1364,14 @@ export class SimulationEngine {
         continue
       }
 
-      const decision = trait.beforeArrival({ node, request, clock: this.clock })
+      const decision = trait.beforeArrival({
+        node,
+        request,
+        clock: this.clock,
+        random: () => this.distributions.random(),
+        state: this.getTraitStateStore(nodeId)
+      })
+      this.recordTraitPayloadMetrics(nodeId, decision.payload)
       this.recordTraitDecision(nodeId, request.id, trait.name, 'beforeArrival', {
         decision: decision.action,
         ...(decision.action === 'handled' ? { latencyUs: decision.latencyUs.toString() } : {}),
@@ -1249,7 +1398,13 @@ export class SimulationEngine {
         continue
       }
 
-      const decision = trait.beforeRouting({ node, request, clock: this.clock })
+      const decision = trait.beforeRouting({
+        node,
+        request,
+        clock: this.clock,
+        random: () => this.distributions.random(),
+        state: this.getTraitStateStore(nodeId)
+      })
       this.recordTraitDecision(nodeId, request.id, trait.name, 'beforeRouting', {
         decision: decision.action,
         ...(decision.action === 'reroute' ? { targetNodeId: decision.targetNodeId } : {}),
@@ -1291,5 +1446,35 @@ export class SimulationEngine {
       },
       nodeSnapshot: this.createNodeSnapshot(nodeId)
     })
+  }
+
+  /**
+   * Any trait can report count-style metrics via payload.metricCounters —
+   * this passes every numeric entry through generically so a new trait never
+   * needs an engine-side change to show up in PerNodeMetrics.traitCounters.
+   */
+  private recordTraitPayloadMetrics(
+    nodeId: string,
+    payload: Record<string, unknown> | undefined
+  ): void {
+    if (!payload || typeof payload !== 'object') {
+      return
+    }
+
+    const metricCounters = payload['metricCounters']
+    if (!metricCounters || typeof metricCounters !== 'object') {
+      return
+    }
+
+    const counters: Record<string, number> = {}
+    for (const [key, value] of Object.entries(metricCounters as Record<string, unknown>)) {
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        counters[key] = Math.max(0, value)
+      }
+    }
+
+    if (Object.keys(counters).length > 0) {
+      this.metrics.recordNodeTraitCounters(nodeId, counters)
+    }
   }
 }

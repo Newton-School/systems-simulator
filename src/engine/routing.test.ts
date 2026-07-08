@@ -3,6 +3,7 @@ import { Request } from './core/events'
 import { ComponentNode, EdgeDefinition } from './core/types'
 import { RoutingTable } from './routing'
 import { createRandom } from './stochastic/random'
+import { resolveTraits } from './traits/resolveTraits'
 import type { NodeBehaviourTrait, TraitResolver } from './traits/types'
 
 function makeRequest(type = 'GET'): Request {
@@ -262,5 +263,77 @@ describe('RoutingTable', () => {
     const resolved = routing.resolveTarget('router', makeRequest())
     expect(resolved).toHaveLength(1)
     expect(resolved[0].targetNodeId).toBe('b')
+  })
+
+  it('an L7 LB with a content routing rule sends writes to the rule target and round-robins reads', () => {
+    const edges = [
+      makeEdge('e1', 'gw', 'db-primary'),
+      makeEdge('e2', 'gw', 'db-replica-a'),
+      makeEdge('e3', 'gw', 'db-replica-b')
+    ]
+    const gateway: ComponentNode = {
+      id: 'gw',
+      type: 'load-balancer-l7',
+      category: 'network-and-edge',
+      role: 'router',
+      label: 'L7 LB',
+      position: { x: 0, y: 0 },
+      config: {
+        routingRules: [{ matchField: 'type', matchValue: 'write', targetNodeId: 'db-primary' }]
+      }
+    }
+
+    const routing = new RoutingTable(edges, createRandom('content-routing'), [gateway], resolveTraits)
+
+    for (let i = 0; i < 5; i++) {
+      const writeResult = routing.resolveTarget('gw', makeRequest('write'))
+      expect(writeResult).toHaveLength(1)
+      expect(writeResult[0].targetNodeId).toBe('db-primary')
+    }
+
+    const seenTargets = new Set<string>()
+    for (let i = 0; i < 3; i++) {
+      const readResult = routing.resolveTarget('gw', makeRequest('read'))
+      expect(readResult).toHaveLength(1)
+      seenTargets.add(readResult[0].targetNodeId)
+    }
+    expect(seenTargets).toEqual(new Set(['db-primary', 'db-replica-a', 'db-replica-b']))
+  })
+
+  it('forces edges into observability nodes to async even when misconfigured as synchronous', () => {
+    const edges = [
+      makeEdge('svc-api', 'svc', 'api', { mode: 'synchronous' }),
+      makeEdge('svc-metrics', 'svc', 'metrics', { mode: 'synchronous' })
+    ]
+    const nodes = [makeNode('svc'), makeNode('api'), makeNode('metrics', 'metrics-store')]
+
+    const routing = new RoutingTable(edges, createRandom('async-only'), nodes)
+
+    for (let i = 0; i < 10; i++) {
+      const resolved = routing.resolveTarget('svc', makeRequest())
+      const targets = resolved.map((route) => route.targetNodeId)
+      // Every request reaches BOTH the real business target and the
+      // observability node — the metrics edge never competes for the single
+      // sync selection slot and steals traffic from the real target.
+      expect(targets).toContain('api')
+      expect(targets).toContain('metrics')
+      expect(resolved.find((route) => route.targetNodeId === 'metrics')?.edge.mode).toBe(
+        'asynchronous'
+      )
+    }
+  })
+
+  it('gives the original request id to the sync continuation, not an async observability branch', () => {
+    const edges = [
+      makeEdge('svc-api', 'svc', 'api'),
+      makeEdge('svc-metrics', 'svc', 'metrics', { mode: 'asynchronous' })
+    ]
+    const nodes = [makeNode('svc'), makeNode('api'), makeNode('metrics', 'metrics-store')]
+
+    const routing = new RoutingTable(edges, createRandom('branch-order'), nodes)
+    const resolved = routing.resolveTarget('svc', makeRequest())
+
+    expect(resolved[0].targetNodeId).toBe('api')
+    expect(resolved[1]?.targetNodeId).toBe('metrics')
   })
 })

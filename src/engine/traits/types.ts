@@ -1,19 +1,35 @@
 import type { Request } from '../core/events'
-import type { ComponentNode } from '../core/types'
+import type { ComponentNode, EdgeDefinition } from '../core/types'
 import type { ResolveRoute } from '../routing'
 
 export type TraitHookName = 'beforeArrival' | 'beforeRouting' | 'filterRoutes'
 
 export type TraitRoutingStrategyHint = 'round-robin'
 
+/**
+ * Per-node mutable state store, scoped to a single engine run. Traits that
+ * need to remember something across calls (token buckets, cold-start
+ * timers, circuit-breaker state) read/write through this instead of module
+ * -level state, which would otherwise leak between concurrent/sequential
+ * engine instances that reuse the same node IDs.
+ */
+export interface TraitStateStore {
+  get<T>(key: string): T | undefined
+  set<T>(key: string, value: T): void
+}
+
 export interface TraitContext {
   node: ComponentNode
   request: Request
   clock: bigint
+  random?: () => number
+  state?: TraitStateStore
 }
 
 export interface TraitFilterRoutesContext extends TraitContext {
   candidates: ResolveRoute[]
+  isTargetHealthy?: (nodeId: string) => boolean
+  isEdgeHealthy?: (edge: EdgeDefinition) => boolean
 }
 
 export type BeforeArrivalDecision =
@@ -31,6 +47,7 @@ export type FilterRoutesDecision =
   | {
       routes: ResolveRoute[]
       decision?: string
+      rejectionReason?: string
       payload?: Record<string, unknown>
     }
 

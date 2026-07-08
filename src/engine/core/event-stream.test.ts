@@ -194,7 +194,15 @@ describe('EventStreamRecorder', () => {
 
   it('ignores simulation events outside the canonical event contract', () => {
     expect(
-      eventInputFromSimulationEvent(createEvent('health-check', 'worker', '', {}, 1n))
+      eventInputFromSimulationEvent(createEvent('circuit-breaker-open', 'worker', '', {}, 1n))
     ).toBeNull()
+  })
+
+  it('maps health-check simulation events to the health-probed canonical type', () => {
+    expect(
+      eventInputFromSimulationEvent(
+        createEvent('health-check', 'prober', '', { probedHealthy: false }, 1n)
+      )
+    ).toMatchObject({ type: 'health-probed', nodeId: 'prober' })
   })
 })

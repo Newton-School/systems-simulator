@@ -48,6 +48,13 @@ export interface PerNodeMetrics {
   latencyP50: number
   latencyP95: number
   latencyP99: number
+  cacheHits: number
+  cacheMisses: number
+  cacheHitRatio: number
+  /** Rejections at this node, grouped by the reason each trait/queue gave — never collapsed into one count. */
+  rejectionsByReason: Record<string, number>
+  /** Generic counters any trait reports via payload.metricCounters (cacheHits/cacheMisses included for convenience). */
+  traitCounters: Record<string, number>
   /**
    * Average items in system computed only over the post-warmup window.
    * Used for Little's Law verification so that λ, W, and L share the same window.
@@ -92,6 +99,10 @@ interface InternalNodeMetrics {
   utilizationSamples: number
   utilizationSum: number
   latencySamplesMs: number[]
+  cacheHits: number
+  cacheMisses: number
+  rejectionsByReason: Record<string, number>
+  traitCounters: Record<string, number>
   // Post-warmup-only accumulators (keyed on span.arrivalTime, not request.createdAt)
   postWarmupProcessed: number
   postWarmupQueueWaitSumMs: number
@@ -211,7 +222,6 @@ export class MetricsCollector {
    *                                  post-warmup arrival/rejection gating.
    */
   recordRejection(nodeId: string, reason: string, context: FailureMetricsContext = {}): void {
-    void reason
     const arrivalTime = context.nodeArrivalTime ?? context.requestCreatedAt
 
     this.totalRequests++
@@ -224,6 +234,7 @@ export class MetricsCollector {
     const node = this.ensureNodeMetrics(nodeId)
     node.totalArrived++
     node.totalRejected++
+    node.rejectionsByReason[reason] = (node.rejectionsByReason[reason] ?? 0) + 1
     if (this.isPostWarmup(arrivalTime)) {
       node.postWarmupArrived++
       node.postWarmupRejected++
@@ -283,6 +294,23 @@ export class MetricsCollector {
     }
   }
 
+  /**
+   * Merges any trait-reported counters (payload.metricCounters) into this
+   * node's generic counter bag. cacheHits/cacheMisses additionally feed the
+   * dedicated cacheHitRatio computation below.
+   */
+  recordNodeTraitCounters(nodeId: string, counters: Record<string, number>): void {
+    const node = this.ensureNodeMetrics(nodeId)
+    for (const [key, value] of Object.entries(counters)) {
+      if (typeof value !== 'number' || !Number.isFinite(value)) {
+        continue
+      }
+      node.traitCounters[key] = (node.traitCounters[key] ?? 0) + value
+    }
+    node.cacheHits += counters.cacheHits ?? 0
+    node.cacheMisses += counters.cacheMisses ?? 0
+  }
+
   generateSummary(duration: number): SimulationSummary {
     const effectiveDurationMs = Math.max(0, duration - this.warmupDurationMs)
     const throughput =
@@ -332,6 +360,10 @@ export class MetricsCollector {
       const latencyP50 = this.percentileSorted(sortedLatencies, 0.5)
       const latencyP95 = this.percentileSorted(sortedLatencies, 0.95)
       const latencyP99 = this.percentileSorted(sortedLatencies, 0.99)
+      const cacheHits = metrics?.cacheHits ?? 0
+      const cacheMisses = metrics?.cacheMisses ?? 0
+      const cacheHitRatio =
+        cacheHits + cacheMisses > 0 ? cacheHits / (cacheHits + cacheMisses) : 0
 
       // Post-warmup W: sojourn time averaged over spans whose arrivalTime is post-warmup
       const pwProcessed = metrics?.postWarmupProcessed ?? 0
@@ -386,6 +418,11 @@ export class MetricsCollector {
         latencyP50,
         latencyP95,
         latencyP99,
+        cacheHits,
+        cacheMisses,
+        cacheHitRatio,
+        rejectionsByReason: { ...(metrics?.rejectionsByReason ?? {}) },
+        traitCounters: { ...(metrics?.traitCounters ?? {}) },
         postWarmupAvgInSystem,
         postWarmupAvgTimeInSystem
       })
@@ -458,6 +495,10 @@ export class MetricsCollector {
       utilizationSamples: 0,
       utilizationSum: 0,
       latencySamplesMs: [],
+      cacheHits: 0,
+      cacheMisses: 0,
+      rejectionsByReason: {},
+      traitCounters: {},
       postWarmupProcessed: 0,
       postWarmupQueueWaitSumMs: 0,
       postWarmupServiceTimeSumMs: 0,

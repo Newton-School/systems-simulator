@@ -1,7 +1,13 @@
 import type { Request } from './core/events'
 import type { ComponentNode, EdgeDefinition, RandomGenerator } from './core/types'
+import { isObservabilityComponentType } from './traits/asyncOnly'
 import { resolveTraits } from './traits/resolveTraits'
-import type { FilterRoutesDecision, NodeBehaviourTrait, TraitResolver } from './traits/types'
+import type {
+  FilterRoutesDecision,
+  NodeBehaviourTrait,
+  TraitResolver,
+  TraitStateStore
+} from './traits/types'
 
 /**
  * Normalized output for a single routing choice.
@@ -38,12 +44,6 @@ export interface ResolveTargetResult {
   rejectionReason?: RouteRejectionReason
 }
 
-const HEALTH_AWARE_ROUTER_TYPES = new Set<ComponentNode['type']>([
-  'load-balancer',
-  'load-balancer-l4',
-  'load-balancer-l7'
-])
-
 /**
  * Maintains pre-indexed outgoing edges and source-specific cursors used by
  * routing strategies (for example: weighted and round-robin).
@@ -65,9 +65,9 @@ export class RoutingTable {
    * config metadata. Only populated when node definitions are provided.
    */
   private readonly roundRobinSourceIds: Set<string>
-  private readonly healthAwareSourceIds: Set<string>
   private readonly nodeById = new Map<string, ComponentNode>()
   private readonly traitsBySourceId = new Map<string, readonly NodeBehaviourTrait[]>()
+  private readonly traitStateBySourceId = new Map<string, Map<string, unknown>>()
 
   /**
    * @param edges Topology edges used to build routing lookup tables.
@@ -81,18 +81,24 @@ export class RoutingTable {
     nodes: ComponentNode[] = [],
     traitResolver: TraitResolver = resolveTraits
   ) {
-    for (const edge of edges) {
-      const list = this.outgoingBySource.get(edge.source)
-      if (list) {
-        list.push(edge)
-      } else {
-        this.outgoingBySource.set(edge.source, [edge])
-      }
-    }
-
     for (const node of nodes) {
       this.nodeById.set(node.id, node)
       this.traitsBySourceId.set(node.id, traitResolver(node))
+    }
+
+    for (const edge of edges) {
+      const targetType = this.nodeById.get(edge.target)?.type
+      const resolvedEdge =
+        targetType && isObservabilityComponentType(targetType) && edge.mode !== 'asynchronous'
+          ? { ...edge, mode: 'asynchronous' as const }
+          : edge
+
+      const list = this.outgoingBySource.get(edge.source)
+      if (list) {
+        list.push(resolvedEdge)
+      } else {
+        this.outgoingBySource.set(edge.source, [resolvedEdge])
+      }
     }
 
     this.roundRobinSourceIds = new Set(
@@ -107,9 +113,6 @@ export class RoutingTable {
         .map((node) => node.id)
     )
 
-    this.healthAwareSourceIds = new Set(
-      nodes.filter((node) => HEALTH_AWARE_ROUTER_TYPES.has(node.type)).map((node) => node.id)
-    )
   }
 
   /**
@@ -153,32 +156,37 @@ export class RoutingTable {
       return { routes: [] }
     }
 
-    const healthEligible = this.filterHealthyTargets(sourceNodeId, eligible, options)
-    if (healthEligible.length === 0) {
-      return { routes: [], rejectionReason: 'no_healthy_targets' }
-    }
-
     const traitFiltered = this.applyTraitRouteFilters(
       sourceNodeId,
-      healthEligible.map((edge) => this.toResolved(edge)),
+      eligible.map((edge) => this.toResolved(edge)),
       request,
       options
     )
 
-    if (traitFiltered.length === 0) {
+    if (traitFiltered.rejectionReason) {
+      return { routes: [], rejectionReason: traitFiltered.rejectionReason }
+    }
+
+    if (traitFiltered.routes.length === 0) {
       return { routes: [] }
     }
 
-    const asyncRoutes = traitFiltered.filter((route) => route.edge.mode === 'asynchronous')
-    const syncRoutes = traitFiltered.filter((route) => route.edge.mode !== 'asynchronous')
+    const asyncRoutes = traitFiltered.routes.filter((route) => route.edge.mode === 'asynchronous')
+    const syncRoutes = traitFiltered.routes.filter((route) => route.edge.mode !== 'asynchronous')
 
-    const results: ResolveRoute[] = [...asyncRoutes]
+    // Sync route goes first so it inherits the original request ID when the
+    // engine forks branches — the real continuation should never lose its
+    // identity to a side-effect async branch (e.g. telemetry) just because
+    // that branch happened to resolve first.
+    const results: ResolveRoute[] = []
 
     if (syncRoutes.length === 1) {
       results.push(syncRoutes[0])
     } else if (syncRoutes.length > 1) {
       results.push(this.pickSyncRoute(sourceNodeId, syncRoutes))
     }
+
+    results.push(...asyncRoutes)
 
     return { routes: results }
   }
@@ -278,33 +286,26 @@ export class RoutingTable {
     return routes[routes.length - 1]
   }
 
-  private filterHealthyTargets(
-    sourceNodeId: string,
-    edges: EdgeDefinition[],
-    options: ResolveTargetOptions
-  ): EdgeDefinition[] {
-    if (!this.isHealthAwareSource(sourceNodeId)) {
-      return edges
-    }
-
-    return edges.filter((edge) => {
-      const targetHealthy = options.isTargetHealthy?.(edge.target) ?? true
-      const edgeHealthy = options.isEdgeHealthy?.(edge) ?? true
-      return targetHealthy && edgeHealthy
-    })
-  }
-
   /**
    * Returns true if the source node should use round-robin routing.
-   * Uses explicit node config when available. Falls back to an ID substring
-   * heuristic for legacy topology JSON that predates routingStrategy.
+   * Resolution is driven by explicit node config and type-derived trait hints.
    */
   private isRoundRobinSource(sourceNodeId: string): boolean {
     return this.roundRobinSourceIds.has(sourceNodeId)
   }
 
-  private isHealthAwareSource(sourceNodeId: string): boolean {
-    return this.healthAwareSourceIds.has(sourceNodeId)
+  private getTraitStateStore(sourceNodeId: string): TraitStateStore {
+    let store = this.traitStateBySourceId.get(sourceNodeId)
+    if (!store) {
+      store = new Map<string, unknown>()
+      this.traitStateBySourceId.set(sourceNodeId, store)
+    }
+    return {
+      get: <T,>(key: string) => store!.get(key) as T | undefined,
+      set: <T,>(key: string, value: T) => {
+        store!.set(key, value)
+      }
+    }
   }
 
   /**
@@ -319,13 +320,17 @@ export class RoutingTable {
     candidates: ResolveRoute[],
     request: Request,
     options: ResolveTargetOptions
-  ): ResolveRoute[] {
+  ): {
+    routes: ResolveRoute[]
+    rejectionReason?: RouteRejectionReason
+  } {
     const node = this.nodeById.get(sourceNodeId)
     if (!node) {
-      return candidates
+      return { routes: candidates }
     }
 
     let filtered = candidates
+    let rejectionReason: RouteRejectionReason | undefined
     for (const trait of this.traitsBySourceId.get(sourceNodeId) ?? []) {
       if (!trait.filterRoutes) {
         continue
@@ -335,7 +340,11 @@ export class RoutingTable {
         node,
         request,
         clock: options.clock ?? 0n,
-        candidates: filtered
+        random: this.rng.next,
+        candidates: filtered,
+        isTargetHealthy: options.isTargetHealthy,
+        isEdgeHealthy: options.isEdgeHealthy,
+        state: this.getTraitStateStore(sourceNodeId)
       })
       const normalized = this.normalizeFilterRoutesDecision(filtered, result)
       options.onTraitDecision?.({
@@ -346,9 +355,14 @@ export class RoutingTable {
         payload: normalized.payload
       })
       filtered = normalized.routes
+      rejectionReason = normalized.rejectionReason
+
+      if (rejectionReason) {
+        break
+      }
     }
 
-    return filtered
+    return { routes: filtered, rejectionReason }
   }
 
   private normalizeFilterRoutesDecision(
@@ -357,6 +371,7 @@ export class RoutingTable {
   ): {
     routes: ResolveRoute[]
     decision: string
+    rejectionReason?: RouteRejectionReason
     payload: Record<string, unknown>
   } {
     if (Array.isArray(decision)) {
@@ -375,6 +390,12 @@ export class RoutingTable {
       decision:
         decision.decision ??
         (decision.routes.length === previousRoutes.length ? 'continue' : 'filtered'),
+      rejectionReason:
+        decision.rejectionReason === 'no_healthy_targets'
+          ? 'no_healthy_targets'
+          : decision.rejectionReason === 'trait_invalid_reroute'
+            ? 'trait_invalid_reroute'
+            : undefined,
       payload: {
         beforeCandidateCount: previousRoutes.length,
         afterCandidateCount: decision.routes.length,

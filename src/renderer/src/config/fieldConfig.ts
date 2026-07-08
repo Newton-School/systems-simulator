@@ -1,4 +1,6 @@
 import type { CanvasNodeDataV2, NodeProfile } from '../../../engine/catalog/nodeSpecTypes'
+import { CACHE_COMPONENT_TYPES } from '../../../engine/traits/cache'
+import { HEALTH_AWARE_COMPONENT_TYPES } from '../../../engine/traits/healthAwareRouting'
 
 export type FieldPath = string
 export type AccuracyClass = 'invariant' | 'default-override' | 'user-parameter' | 'not-simulated'
@@ -28,11 +30,21 @@ export type FieldDefinition =
   | {
       type: 'boolean'
       label: string
+      defaultValue?: boolean
       visible?: (data: CanvasNodeDataV2) => boolean
     }
 
 const isDistribution = (data: CanvasNodeDataV2, type: string) =>
   data.sim?.processing?.distribution?.type === type
+
+const HEALTH_AWARE_COMPONENT_TYPE_SET = new Set<string>(HEALTH_AWARE_COMPONENT_TYPES)
+const CACHE_COMPONENT_TYPE_SET = new Set<string>(CACHE_COMPONENT_TYPES)
+
+const supportsHealthAwareRouting = (data: CanvasNodeDataV2) =>
+  typeof data.componentType === 'string' && HEALTH_AWARE_COMPONENT_TYPE_SET.has(data.componentType)
+
+const supportsCacheTrait = (data: CanvasNodeDataV2) =>
+  typeof data.componentType === 'string' && CACHE_COMPONENT_TYPE_SET.has(data.componentType)
 
 export const FIELD_DEFINITIONS: Record<FieldPath, FieldDefinition> = {
   'source.defaultWorkload.pattern': {
@@ -97,6 +109,33 @@ export const FIELD_DEFINITIONS: Record<FieldPath, FieldDefinition> = {
     type: 'select',
     label: 'Routing Strategy',
     options: ['passthrough', 'round-robin', 'random', 'weighted', 'least-conn', 'broadcast']
+  },
+  'sim.healthCheckEnabled': {
+    type: 'boolean',
+    label: 'Health Check Enabled',
+    defaultValue: true,
+    visible: supportsHealthAwareRouting
+  },
+  'sim.cacheHitRate': {
+    type: 'input',
+    label: 'Cache Hit Rate',
+    step: 0.01,
+    unit: 'ratio',
+    visible: supportsCacheTrait
+  },
+  'sim.cacheHitLatencyMs': {
+    type: 'input',
+    label: 'Cache Hit Latency',
+    step: 0.1,
+    unit: 'ms',
+    visible: supportsCacheTrait
+  },
+  'sim.ttlSeconds': {
+    type: 'input',
+    label: 'TTL',
+    step: 1,
+    unit: 's',
+    visible: supportsCacheTrait
   },
   'sim.queue.workers': { type: 'input', label: 'Workers', unit: 'count' },
   'sim.queue.capacity': { type: 'input', label: 'Capacity', unit: 'req' },
@@ -176,6 +215,10 @@ export const FIELD_DEFINITIONS: Record<FieldPath, FieldDefinition> = {
 
 export const FIELD_ACCURACY: Partial<Record<FieldPath, AccuracyClass>> = {
   routingStrategy: 'user-parameter',
+  'sim.healthCheckEnabled': 'user-parameter',
+  'sim.cacheHitRate': 'user-parameter',
+  'sim.cacheHitLatencyMs': 'user-parameter',
+  'sim.ttlSeconds': 'user-parameter',
   'source.defaultWorkload.pattern': 'user-parameter',
   'source.defaultWorkload.baseRps': 'user-parameter',
   'source.defaultWorkload.bursty.burstRps': 'user-parameter',
@@ -219,7 +262,8 @@ export const PROFILE_FIELD_GROUPS: Record<NodeProfile, Record<string, FieldPath[
     ]
   },
   router: {
-    Routing: ['routingStrategy'],
+    Routing: ['routingStrategy', 'sim.healthCheckEnabled'],
+    Caching: ['sim.cacheHitRate', 'sim.cacheHitLatencyMs', 'sim.ttlSeconds'],
     Queueing: ['sim.queue.workers', 'sim.queue.capacity', 'sim.queue.discipline'],
     Processing: [
       'sim.processing.timeout',
@@ -262,6 +306,7 @@ export const PROFILE_FIELD_GROUPS: Record<NodeProfile, Record<string, FieldPath[
     Reliability: ['sim.nodeErrorRate', 'sim.slo.latencyP99', 'sim.slo.availabilityTarget']
   },
   datastore: {
+    Caching: ['sim.cacheHitRate', 'sim.cacheHitLatencyMs', 'sim.ttlSeconds'],
     Queueing: ['sim.queue.workers', 'sim.queue.capacity', 'sim.queue.discipline'],
     Processing: [
       'sim.processing.timeout',

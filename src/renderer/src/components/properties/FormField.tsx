@@ -23,7 +23,7 @@ export const FormField = ({ fieldPath, config, value, onChange, controlRight }: 
       case 'select':
         return config.options[0] ?? ''
       case 'boolean':
-        return false
+        return config.defaultValue ?? false
       case 'input':
       default:
         return 0

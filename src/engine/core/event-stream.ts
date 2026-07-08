@@ -12,7 +12,8 @@ export const CANONICAL_EVENT_TYPES = [
   'request-timed-out',
   'request-rejected',
   'node-failed',
-  'node-recovered'
+  'node-recovered',
+  'health-probed'
 ] as const
 
 export type CanonicalEventType = (typeof CANONICAL_EVENT_TYPES)[number]
@@ -207,6 +208,8 @@ export function toCanonicalEventType(type: EventType): CanonicalEventType | null
       return 'node-failed'
     case 'node-recovery':
       return 'node-recovered'
+    case 'health-check':
+      return 'health-probed'
     default:
       return null
   }
@@ -303,6 +306,10 @@ function buildDebugMessage(record: CanonicalEventRecord): string {
       return `node ${record.nodeId ?? 'unknown'} failed${reasonSuffix}`
     case 'node-recovered':
       return `node ${record.nodeId ?? 'unknown'} recovered`
+    case 'health-probed': {
+      const probedHealthy = record.payload.probedHealthy === true
+      return `health probe of ${record.nodeId ?? 'unknown'} reported ${probedHealthy ? 'healthy' : 'unhealthy'}`
+    }
   }
 }
 

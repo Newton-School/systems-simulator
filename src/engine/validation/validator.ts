@@ -6,6 +6,8 @@ import type {
   TopologyJSON
 } from '../core/types'
 import { inferStructuralRole } from '../catalog/componentSpecs'
+import { L4_CONTENT_ROUTING_FORBIDDEN_MESSAGE } from '../traits/contentRouting'
+import { asDistributionConfig } from '../traits/serviceTimeOverride'
 
 const COMPONENT_CATEGORIES = [
   'compute',
@@ -525,6 +527,7 @@ export const TopologyJSONSchema: z.ZodType<TopologyJSON> = z.object({
 export interface ValidationError {
   path: string
   message: string
+  code?: string
 }
 
 export interface ValidationResult {
@@ -657,6 +660,157 @@ export const validateTopology = (input: unknown): ValidationResult => {
         path: `nodes[${index}].config.nodeErrorRate`,
         message: 'nodeErrorRate must be between 0 and 1.'
       })
+    }
+
+    const healthCheckEnabled = node.config?.['healthCheckEnabled']
+    if (healthCheckEnabled !== undefined && typeof healthCheckEnabled !== 'boolean') {
+      errors.push({
+        path: `nodes[${index}].config.healthCheckEnabled`,
+        message: 'healthCheckEnabled must be a boolean.'
+      })
+    }
+
+    const cacheHitRate = node.config?.['cacheHitRate']
+    if (
+      cacheHitRate !== undefined &&
+      (typeof cacheHitRate !== 'number' ||
+        !Number.isFinite(cacheHitRate) ||
+        cacheHitRate < 0 ||
+        cacheHitRate > 1)
+    ) {
+      errors.push({
+        path: `nodes[${index}].config.cacheHitRate`,
+        message: 'cacheHitRate must be between 0 and 1.'
+      })
+    }
+
+    const cacheHitLatencyMs = node.config?.['cacheHitLatencyMs']
+    if (
+      cacheHitLatencyMs !== undefined &&
+      (typeof cacheHitLatencyMs !== 'number' ||
+        !Number.isFinite(cacheHitLatencyMs) ||
+        cacheHitLatencyMs <= 0)
+    ) {
+      errors.push({
+        path: `nodes[${index}].config.cacheHitLatencyMs`,
+        message: 'cacheHitLatencyMs must be greater than 0.'
+      })
+    }
+
+    const ttlSeconds = node.config?.['ttlSeconds']
+    if (
+      ttlSeconds !== undefined &&
+      (typeof ttlSeconds !== 'number' || !Number.isFinite(ttlSeconds) || ttlSeconds < 0)
+    ) {
+      errors.push({
+        path: `nodes[${index}].config.ttlSeconds`,
+        message: 'ttlSeconds must be greater than or equal to 0.'
+      })
+    }
+
+    const replicationRole = node.config?.['replicationRole']
+    if (replicationRole !== undefined && replicationRole !== 'primary' && replicationRole !== 'replica') {
+      errors.push({
+        path: `nodes[${index}].config.replicationRole`,
+        message: 'replicationRole must be "primary" or "replica".'
+      })
+    }
+
+    for (const field of ['readLatency', 'writeLatency'] as const) {
+      const value = node.config?.[field]
+      if (value !== undefined && !asDistributionConfig(value)) {
+        errors.push({
+          path: `nodes[${index}].config.${field}`,
+          message: `${field} must be a valid distribution config.`
+        })
+      }
+    }
+
+    const maxTokens = node.config?.['maxTokens']
+    if (maxTokens !== undefined && (typeof maxTokens !== 'number' || !Number.isFinite(maxTokens) || maxTokens <= 0)) {
+      errors.push({
+        path: `nodes[${index}].config.maxTokens`,
+        message: 'maxTokens must be greater than 0.'
+      })
+    }
+
+    const refillRatePerSecond = node.config?.['refillRatePerSecond']
+    if (
+      refillRatePerSecond !== undefined &&
+      (typeof refillRatePerSecond !== 'number' ||
+        !Number.isFinite(refillRatePerSecond) ||
+        refillRatePerSecond < 0)
+    ) {
+      errors.push({
+        path: `nodes[${index}].config.refillRatePerSecond`,
+        message: 'refillRatePerSecond must be greater than or equal to 0.'
+      })
+    }
+
+    if (node.type === 'health-check-manager') {
+      const monitoredNodes = node.config?.['monitoredNodes']
+      if (
+        monitoredNodes !== undefined &&
+        (!Array.isArray(monitoredNodes) ||
+          !monitoredNodes.every((id) => typeof id === 'string' && id.length > 0))
+      ) {
+        errors.push({
+          path: `nodes[${index}].config.monitoredNodes`,
+          message: 'monitoredNodes must be an array of non-empty node IDs.'
+        })
+      }
+
+      for (const field of ['checkIntervalMs', 'unhealthyThreshold', 'healthyThreshold'] as const) {
+        const value = node.config?.[field]
+        if (value !== undefined && (typeof value !== 'number' || !Number.isFinite(value) || value <= 0)) {
+          errors.push({
+            path: `nodes[${index}].config.${field}`,
+            message: `${field} must be a positive number.`
+          })
+        }
+      }
+    }
+
+    const routingRules = node.config?.['routingRules']
+    if (routingRules !== undefined) {
+      if (!Array.isArray(routingRules)) {
+        errors.push({
+          path: `nodes[${index}].config.routingRules`,
+          message: 'routingRules must be an array.'
+        })
+      } else if (node.type === 'load-balancer-l4' && routingRules.length > 0) {
+        errors.push({
+          path: `nodes[${index}].config.routingRules`,
+          message: L4_CONTENT_ROUTING_FORBIDDEN_MESSAGE,
+          code: 'l4_content_routing_forbidden'
+        })
+      } else {
+        routingRules.forEach((rule: unknown, ruleIndex: number) => {
+          const candidate = rule as Partial<{
+            matchField: unknown
+            matchValue: unknown
+            targetNodeId: unknown
+          }>
+          if (!['type', 'path', 'host'].includes(candidate?.matchField as string)) {
+            errors.push({
+              path: `nodes[${index}].config.routingRules[${ruleIndex}].matchField`,
+              message: 'matchField must be one of "type", "path", "host".'
+            })
+          }
+          if (typeof candidate?.matchValue !== 'string' || candidate.matchValue.length === 0) {
+            errors.push({
+              path: `nodes[${index}].config.routingRules[${ruleIndex}].matchValue`,
+              message: 'matchValue is required.'
+            })
+          }
+          if (typeof candidate?.targetNodeId !== 'string' || candidate.targetNodeId.length === 0) {
+            errors.push({
+              path: `nodes[${index}].config.routingRules[${ruleIndex}].targetNodeId`,
+              message: 'targetNodeId is required.'
+            })
+          }
+        })
+      }
     }
 
     if (role === 'sink' && node.config?.['routingStrategy'] !== undefined) {

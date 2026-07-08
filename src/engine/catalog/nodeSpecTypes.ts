@@ -6,6 +6,7 @@ import type {
   SLOConfig,
   WorkloadProfile
 } from '../core/types'
+import type { ContentRoutingRule } from '../traits/contentRouting'
 
 export type StructuralRole = 'source' | 'processor' | 'storage' | 'router' | 'sink' | 'composite'
 
@@ -48,6 +49,16 @@ export interface NodeSimulationConfig {
     blockRate?: number
     droppedPackets?: number
   }
+  healthCheckEnabled?: boolean
+  cacheHitRate?: number
+  cacheHitLatencyMs?: number
+  ttlSeconds?: number
+  routingRules?: ContentRoutingRule[]
+  maxTokens?: number
+  refillRatePerSecond?: number
+  replicationRole?: 'primary' | 'replica'
+  readLatency?: DistributionConfig
+  writeLatency?: DistributionConfig
   slo?: SLOConfig
 }
 
