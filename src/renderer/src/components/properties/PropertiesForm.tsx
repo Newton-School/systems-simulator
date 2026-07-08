@@ -64,7 +64,6 @@ function getRoutingStrategy(data: AnyNodeData): RoutingStrategy {
     : 'passthrough'
 }
 
-export const PropertiesForm = ({ nodeId, data, onUpdate }: PropertiesFormProps) => {
 function NodeHealthField({
   value,
   onChange
@@ -111,7 +110,7 @@ function NodeHealthField({
   )
 }
 
-export const PropertiesForm = ({ data, onUpdate }: PropertiesFormProps) => {
+export const PropertiesForm = ({ nodeId, data, onUpdate }: PropertiesFormProps) => {
   const groups = PROFILE_FIELD_GROUPS[data.profile]
   const routingVisualization = useStore((state) => state.routingStrategyVisualization)
   const setRoutingStrategyVisualization = useStore((state) => state.setRoutingStrategyVisualization)
@@ -167,54 +166,54 @@ export const PropertiesForm = ({ data, onUpdate }: PropertiesFormProps) => {
           engine.
         </div>
       ) : (
-        <>
-          {Object.entries(groups).map(([groupLabel, paths]) => {
-            const visiblePaths = getVisibleFieldPaths(data, paths)
-            if (visiblePaths.length === 0) return null
+        Object.entries(groups).map(([groupLabel, paths]) => {
+          const visiblePaths = getVisibleFieldPaths(data, paths)
+          if (visiblePaths.length === 0) return null
 
-            return (
-              <section key={groupLabel} className="space-y-4">
-                <h3 className="text-[10px] font-bold uppercase tracking-widest text-nss-muted">
-                  {groupLabel}
-                </h3>
-                <div className="rounded-lg border border-nss-border bg-nss-surface px-4 py-3">
-                  {visiblePaths.map((path) => {
-                    const config = FIELD_DEFINITIONS[path]
-                    if (!config) return null
+          return (
+            <section key={groupLabel} className="space-y-4">
+              <h3 className="text-[10px] font-bold uppercase tracking-widest text-nss-muted">
+                {groupLabel}
+              </h3>
+              <div className="rounded-lg border border-nss-border bg-nss-surface px-4 py-3">
+                {visiblePaths.map((path) => {
+                  const config = FIELD_DEFINITIONS[path]
+                  if (!config) return null
 
-                  return (
-                    <div key={path}>
-                      {path === 'sim.nodeErrorRate' ? (
-                        <NodeHealthField
-                          value={getPathValue(data, path)}
-                          onChange={(value) => onUpdate(path, value)}
-                        />
-                      ) : (
-                        <FormField
+                  if (path === 'sim.nodeErrorRate') {
+                    return (
+                      <NodeHealthField
                         key={path}
-                        fieldPath={path}
-                        config={config}
                         value={getPathValue(data, path)}
                         onChange={(value) => onUpdate(path, value)}
-                        controlRight={
-                          path === 'routingStrategy' ? (
-                            <button
-                              type="button"
-                              onClick={toggleRoutingVisualization}
-                              className={[
-                                'shrink-0 rounded border px-2.5 py-1.5 text-[11px] font-semibold transition-colors',
-                                isRoutingVisualizationActive
-                                  ? 'border-nss-primary bg-nss-primary text-white'
-                                  : 'border-nss-border bg-nss-panel text-nss-text hover:border-nss-primary'
-                              ].join(' ')}
-                            >
-                              {isRoutingVisualizationActive ? 'Preview off' : 'Preview on'}
-                            </button>
-                          ) : undefined
-                        }
                       />
-                      )}
-                    </div>
+                    )
+                  }
+
+                  return (
+                    <FormField
+                      key={path}
+                      fieldPath={path}
+                      config={config}
+                      value={getPathValue(data, path)}
+                      onChange={(value) => onUpdate(path, value)}
+                      controlRight={
+                        path === 'routingStrategy' ? (
+                          <button
+                            type="button"
+                            onClick={toggleRoutingVisualization}
+                            className={[
+                              'shrink-0 rounded border px-2.5 py-1.5 text-[11px] font-semibold transition-colors',
+                              isRoutingVisualizationActive
+                                ? 'border-nss-primary bg-nss-primary text-white'
+                                : 'border-nss-border bg-nss-panel text-nss-text hover:border-nss-primary'
+                            ].join(' ')}
+                          >
+                            {isRoutingVisualizationActive ? 'Preview on' : 'Show visualization'}
+                          </button>
+                        ) : undefined
+                      }
+                    />
                   )
                 })}
               </div>
