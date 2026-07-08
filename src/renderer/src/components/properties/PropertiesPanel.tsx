@@ -86,7 +86,7 @@ export const PropertiesPanel = () => {
       <PropertiesHeader data={data} />
 
       <div className="flex-1 overflow-y-auto custom-scrollbar p-5 bg-nss-panel">
-        <PropertiesForm data={data} onUpdate={handleUpdate} />
+        <PropertiesForm nodeId={selectedNode.id} data={data} onUpdate={handleUpdate} />
       </div>
     </div>
   )

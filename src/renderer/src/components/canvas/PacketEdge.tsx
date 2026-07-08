@@ -1,6 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { BaseEdge, getSmoothStepPath, EdgeProps, EdgeLabelRenderer } from 'reactflow'
 import useStore, { type EdgeFlowRunConfig } from '@renderer/store/useStore'
+import { createRoutingVisualizationFrames } from '@renderer/utils/routingStrategyVisualization'
+import { buildRoutingVisualizationTargets } from '@renderer/utils/routingStrategyGraph'
 
 const EDGE_VISUAL_WINDOW_MS = 3_000
 const FAILED_PULSE_MS = 650
@@ -219,6 +221,7 @@ function packetSpeedJitter(
 
 export const PacketEdge = ({
   id,
+  source,
   sourceX,
   sourceY,
   targetX,
@@ -246,15 +249,47 @@ export const PacketEdge = ({
   const flowStatus = useStore((state) => state.edgeFlowStatus)
   const runConfig = useStore((state) => state.edgeFlowRunConfig)
   const playback = useStore((state) => state.edgeFlowPlayback)
+  const routingVisualization = useStore((state) => state.routingStrategyVisualization)
+  const nodes = useStore((state) => state.nodes)
+  const edges = useStore((state) => state.edges)
+  const metricsByNode = useStore((state) => state.simulationMetricsByNode)
+  const routingPreview = useMemo(() => {
+    if (!routingVisualization || routingVisualization.sourceNodeId !== source) return null
+
+    const targets = buildRoutingVisualizationTargets({
+      sourceNodeId: routingVisualization.sourceNodeId,
+      edges,
+      nodes,
+      metricsByNode
+    })
+    const demo = createRoutingVisualizationFrames({
+      strategy: routingVisualization.strategy,
+      targets,
+      requestCount: 36
+    })
+    const selectedCount = demo.finalCounts[id] ?? 0
+    const totalCount = Object.values(demo.finalCounts).reduce((sum, count) => sum + count, 0)
+    const maxCount = Math.max(1, ...Object.values(demo.finalCounts))
+
+    return targets.some((target) => target.id === id)
+      ? {
+          selectedCount,
+          totalCount,
+          maxCount,
+          isSelected: selectedCount > 0
+        }
+      : null
+  }, [edges, id, metricsByNode, nodes, routingVisualization, source])
+  const isRoutingPreviewEdge = routingPreview !== null
   const [now, setNow] = useState(() => Date.now())
   const pathRef = useRef<SVGPathElement | null>(null)
   const [pathLength, setPathLength] = useState(0)
 
   useEffect(() => {
-    if (!flow && flowStatus !== 'complete') return
+    if (!isRoutingPreviewEdge && !flow && flowStatus !== 'complete') return
     const intervalId = window.setInterval(() => setNow(Date.now()), 33)
     return () => window.clearInterval(intervalId)
-  }, [flow, flowStatus])
+  }, [flow, flowStatus, isRoutingPreviewEdge])
 
   useEffect(() => {
     setPathLength(pathRef.current?.getTotalLength() ?? 0)
@@ -288,29 +323,55 @@ export const PacketEdge = ({
       : configuredSuccessRatio
   const renderedSuccessRps = displayAttemptedRps * observedSuccessRatio
   const visualMultiplier = patternMultiplier(runConfig, playback, now, id)
-  const visualSuccessRps = renderedSuccessRps * visualMultiplier
+  const previewShare =
+    routingPreview && routingPreview.totalCount > 0
+      ? routingPreview.selectedCount / routingPreview.maxCount
+      : 0
+  const visualSuccessRps = isRoutingPreviewEdge
+    ? routingPreview?.isSelected
+      ? 40 + previewShare * 140
+      : 0
+    : renderedSuccessRps * visualMultiplier
   const basePacketCount = compressedPacketCount(renderedSuccessRps)
-  const streamPacketCount = patternPacketCount(basePacketCount, visualMultiplier)
+  const streamPacketCount = isRoutingPreviewEdge
+    ? routingPreview?.isSelected
+      ? clamp(Math.round(2 + previewShare * 6), 2, 8)
+      : 0
+    : patternPacketCount(basePacketCount, visualMultiplier)
   const phaseLabel = patternPhaseLabel(runConfig, playback, now)
   const isInactiveAfterRun = flowStatus === 'complete' && !flow
-  const hasFlow = displayAttemptedRps > 0
-  const trafficStrokeWidth = hasFlow
-    ? clamp(3 + Math.log2(visualSuccessRps + 1) * 0.55, selected ? 3.5 : 3, 5)
-    : selected
-      ? 3
+  const hasFlow = isRoutingPreviewEdge
+    ? Boolean(routingPreview?.isSelected)
+    : displayAttemptedRps > 0
+  const trafficStrokeWidth = isRoutingPreviewEdge
+    ? hasFlow
+      ? clamp(2.5 + previewShare * 1.2, 2.5, 3.7)
       : 2
+    : hasFlow
+      ? clamp(3 + Math.log2(visualSuccessRps + 1) * 0.55, selected ? 3.5 : 3, 5)
+      : selected
+        ? 3
+        : 2
   const failureStroke =
     failureRatio > 0.5 ? FLOW_DANGER_COLOR : failureRatio > 0.05 ? FLOW_WARNING_COLOR : undefined
-  const flowLabelText = isInactiveAfterRun
-    ? 'inactive'
-    : `${fmtRps(displaySuccessRps)}${phaseLabel ? ` - ${phaseLabel}` : ''}${failureRatio > 0 ? ` / ${(failureRatio * 100).toFixed(1)}% fail` : ''}`
+  const flowLabelText = isRoutingPreviewEdge
+    ? routingPreview?.isSelected
+      ? `${routingPreview.selectedCount}/${routingPreview.totalCount} preview`
+      : 'not selected'
+    : isInactiveAfterRun
+      ? 'inactive'
+      : `${fmtRps(displaySuccessRps)}${phaseLabel ? ` - ${phaseLabel}` : ''}${failureRatio > 0 ? ` / ${(failureRatio * 100).toFixed(1)}% fail` : ''}`
   const flowLabelClassName = [
     'bg-nss-bg px-2 py-0.5 text-[11px] font-bold leading-none tracking-wide',
-    isInactiveAfterRun
-      ? 'text-nss-muted'
-      : failureRatio > 0.05
-        ? 'text-nss-warning'
-        : 'text-nss-primary'
+    isRoutingPreviewEdge
+      ? routingPreview?.isSelected
+        ? 'text-nss-success'
+        : 'text-nss-muted'
+      : isInactiveAfterRun
+        ? 'text-nss-muted'
+        : failureRatio > 0.05
+          ? 'text-nss-warning'
+          : 'text-nss-primary'
   ].join(' ')
 
   const pointForProgress = (progress: number) => {
@@ -343,9 +404,19 @@ export const PacketEdge = ({
         style={{
           ...style,
           strokeWidth: trafficStrokeWidth,
-          stroke: selected ? FLOW_PRIMARY_COLOR : (failureStroke ?? 'var(--nss-border-high)'),
+          stroke: isRoutingPreviewEdge
+            ? 'var(--nss-border-high)'
+            : selected
+              ? FLOW_PRIMARY_COLOR
+              : (failureStroke ?? 'var(--nss-border-high)'),
           strokeDasharray: 'none',
-          opacity: isInactiveAfterRun ? 0.28 : 1
+          opacity: isRoutingPreviewEdge
+            ? routingPreview?.isSelected
+              ? 1
+              : 0.28
+            : isInactiveAfterRun
+              ? 0.28
+              : 1
         }}
         interactionWidth={30}
       />
@@ -423,7 +494,7 @@ export const PacketEdge = ({
         style={{ pointerEvents: 'all', ...(selected ? { opacity: 1 } : {}) }}
       />
 
-      {(hasLabel || flowStatus === 'complete' || flow) && (
+      {(hasLabel || isRoutingPreviewEdge || flowStatus === 'complete' || flow) && (
         <EdgeLabelRenderer>
           <div
             style={{
@@ -439,7 +510,7 @@ export const PacketEdge = ({
                   {label.toString()}
                 </span>
               )}
-              {(flowStatus === 'complete' || flow) && (
+              {(isRoutingPreviewEdge || flowStatus === 'complete' || flow) && (
                 <span className={flowLabelClassName}>{flowLabelText}</span>
               )}
             </div>

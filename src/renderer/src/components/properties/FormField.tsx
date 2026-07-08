@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { Label } from '../ui/Label'
 import { Input } from '../ui/Input'
 import { Select } from '../ui/Select'
@@ -9,9 +10,10 @@ interface FormFieldProps {
   config: FieldDefinition
   value: unknown
   onChange: (value: unknown) => void
+  controlRight?: ReactNode
 }
 
-export const FormField = ({ fieldPath, config, value, onChange }: FormFieldProps) => {
+export const FormField = ({ fieldPath, config, value, onChange, controlRight }: FormFieldProps) => {
   const normalizedValue = (() => {
     if (value !== undefined) return value
 
@@ -96,7 +98,14 @@ export const FormField = ({ fieldPath, config, value, onChange }: FormFieldProps
   return (
     <div className="mb-5" data-field-path={fieldPath}>
       <Label>{config.label}</Label>
-      {renderInput()}
+      {controlRight ? (
+        <div className="flex items-center gap-2">
+          <div className="min-w-0 flex-1">{renderInput()}</div>
+          {controlRight}
+        </div>
+      ) : (
+        renderInput()
+      )}
     </div>
   )
 }
