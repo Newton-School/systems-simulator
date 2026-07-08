@@ -24,6 +24,7 @@ import { Header } from './Header'
 // Atoms
 import { ResizeHandle } from '../ui/ResizeHandle'
 import { RunToast } from '../ui/RunToast'
+import { RoutingVisualizationToast } from '../ui/RoutingVisualizationToast'
 import type { CanvasNodeDataV2 } from '../../../../engine/catalog/nodeSpecTypes'
 import type { ScenarioRunContext, SourceNodeOption } from '@renderer/types/ui'
 
@@ -93,6 +94,8 @@ export const WorkspaceLayout = () => {
   const updateScenario = useStore((s) => s.updateScenario)
   const setSimulationMetrics = useStore((s) => s.setSimulationMetrics)
   const clearSimulationMetrics = useStore((s) => s.clearSimulationMetrics)
+  const routingVisualization = useStore((s) => s.routingStrategyVisualization)
+  const setRoutingVisualization = useStore((s) => s.setRoutingStrategyVisualization)
   const { confirm, dialog } = useConfirmDialog()
   const confirmDiscardChanges = useCallback(
     () =>
@@ -157,6 +160,10 @@ export const WorkspaceLayout = () => {
         nodeId,
         {
           throughput: Math.round(metrics.throughput * 10) / 10,
+          postWarmupArrived: metrics.postWarmupArrived,
+          postWarmupProcessed: metrics.postWarmupProcessed,
+          postWarmupRejected: metrics.postWarmupRejected,
+          postWarmupTimedOut: metrics.postWarmupTimedOut,
           queueDepth: Math.round(metrics.avgQueueLength * 10) / 10,
           utilization: Math.round(metrics.utilization * 1000) / 10,
           errorRate: Math.round(metrics.errorRate * 10000) / 100,
@@ -262,6 +269,13 @@ export const WorkspaceLayout = () => {
           messages={runIssues.messages}
           tone={runIssues.tone}
           onClose={() => setRunIssues({ messages: [], tone: 'warning' })}
+        />
+      )}
+
+      {routingVisualization && (
+        <RoutingVisualizationToast
+          state={routingVisualization}
+          onClose={() => setRoutingVisualization(null)}
         />
       )}
 

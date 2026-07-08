@@ -11,6 +11,10 @@ export type VpcNodeData = CanvasNodeDataV2
 
 export interface NodeSimulationMetrics {
   throughput?: number
+  postWarmupArrived?: number
+  postWarmupProcessed?: number
+  postWarmupRejected?: number
+  postWarmupTimedOut?: number
   queueDepth?: number
   utilization?: number
   errorRate?: number

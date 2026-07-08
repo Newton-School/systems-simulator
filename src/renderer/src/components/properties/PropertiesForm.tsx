@@ -1,9 +1,12 @@
+import { useEffect } from 'react'
 import type { AnyNodeData } from '@renderer/types/ui'
+import type { RoutingStrategy } from '../../../../engine/catalog/nodeSpecTypes'
 import {
   FIELD_DEFINITIONS,
   PROFILE_FIELD_GROUPS,
   type FieldPath
 } from '@renderer/config/fieldConfig'
+import useStore from '@renderer/store/useStore'
 import { Input } from '../ui/Input'
 import { Label } from '../ui/Label'
 import { Select } from '../ui/Select'
@@ -18,6 +21,7 @@ import {
 } from './nodeHealth'
 
 interface PropertiesFormProps {
+  nodeId: string
   data: AnyNodeData
   onUpdate: (path: FieldPath, value: unknown) => void
 }
@@ -42,6 +46,22 @@ function getPathValue(target: unknown, path: string): unknown {
     }
     return undefined
   }, target)
+}
+
+const ROUTING_STRATEGIES = new Set<RoutingStrategy>([
+  'passthrough',
+  'round-robin',
+  'random',
+  'weighted',
+  'least-conn',
+  'broadcast',
+  'conditional'
+])
+
+function getRoutingStrategy(data: AnyNodeData): RoutingStrategy {
+  return data.routingStrategy && ROUTING_STRATEGIES.has(data.routingStrategy)
+    ? data.routingStrategy
+    : 'passthrough'
 }
 
 function NodeHealthField({
@@ -90,8 +110,40 @@ function NodeHealthField({
   )
 }
 
-export const PropertiesForm = ({ data, onUpdate }: PropertiesFormProps) => {
+export const PropertiesForm = ({ nodeId, data, onUpdate }: PropertiesFormProps) => {
   const groups = PROFILE_FIELD_GROUPS[data.profile]
+  const routingVisualization = useStore((state) => state.routingStrategyVisualization)
+  const setRoutingStrategyVisualization = useStore((state) => state.setRoutingStrategyVisualization)
+  const routingStrategy = getRoutingStrategy(data)
+  const isRoutingVisualizationActive = routingVisualization?.sourceNodeId === nodeId
+
+  useEffect(() => {
+    if (!isRoutingVisualizationActive) return
+    setRoutingStrategyVisualization({
+      sourceNodeId: nodeId,
+      sourceLabel: data.label,
+      strategy: routingStrategy
+    })
+  }, [
+    data.label,
+    isRoutingVisualizationActive,
+    nodeId,
+    routingStrategy,
+    setRoutingStrategyVisualization
+  ])
+
+  const toggleRoutingVisualization = () => {
+    if (isRoutingVisualizationActive) {
+      setRoutingStrategyVisualization(null)
+      return
+    }
+
+    setRoutingStrategyVisualization({
+      sourceNodeId: nodeId,
+      sourceLabel: data.label,
+      strategy: routingStrategy
+    })
+  }
 
   return (
     <div className="space-y-6">
@@ -128,22 +180,40 @@ export const PropertiesForm = ({ data, onUpdate }: PropertiesFormProps) => {
                   const config = FIELD_DEFINITIONS[path]
                   if (!config) return null
 
+                  if (path === 'sim.nodeErrorRate') {
+                    return (
+                      <NodeHealthField
+                        key={path}
+                        value={getPathValue(data, path)}
+                        onChange={(value) => onUpdate(path, value)}
+                      />
+                    )
+                  }
+
                   return (
-                    <div key={path}>
-                      {path === 'sim.nodeErrorRate' ? (
-                        <NodeHealthField
-                          value={getPathValue(data, path)}
-                          onChange={(value) => onUpdate(path, value)}
-                        />
-                      ) : (
-                        <FormField
-                          fieldPath={path}
-                          config={config}
-                          value={getPathValue(data, path)}
-                          onChange={(value) => onUpdate(path, value)}
-                        />
-                      )}
-                    </div>
+                    <FormField
+                      key={path}
+                      fieldPath={path}
+                      config={config}
+                      value={getPathValue(data, path)}
+                      onChange={(value) => onUpdate(path, value)}
+                      controlRight={
+                        path === 'routingStrategy' ? (
+                          <button
+                            type="button"
+                            onClick={toggleRoutingVisualization}
+                            className={[
+                              'shrink-0 rounded border px-2.5 py-1.5 text-[11px] font-semibold transition-colors',
+                              isRoutingVisualizationActive
+                                ? 'border-nss-primary bg-nss-primary text-white'
+                                : 'border-nss-border bg-nss-panel text-nss-text hover:border-nss-primary'
+                            ].join(' ')}
+                          >
+                            {isRoutingVisualizationActive ? 'Preview on' : 'Show visualization'}
+                          </button>
+                        ) : undefined
+                      }
+                    />
                   )
                 })}
               </div>

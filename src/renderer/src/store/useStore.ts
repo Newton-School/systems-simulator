@@ -21,6 +21,7 @@ import type {
 import { DEFAULT_SCENARIO_STATE } from '@renderer/types/ui'
 import type { EdgeFlowEvent } from '../../../engine/core/events'
 import type { WorkloadProfile } from '../../../engine/core/types'
+import type { RoutingStrategy } from '../../../engine/catalog/nodeSpecTypes'
 
 export type EdgeFlowRenderEvent = EdgeFlowEvent & {
   receivedAtMs: number
@@ -44,6 +45,12 @@ export interface EdgeFlowState {
 }
 
 export type EdgeFlowStatus = 'idle' | 'running' | 'complete'
+
+export interface RoutingStrategyVisualizationState {
+  sourceNodeId: string
+  sourceLabel: string
+  strategy: RoutingStrategy
+}
 
 export interface EdgeFlowRunConfig {
   workload: WorkloadProfile
@@ -103,6 +110,7 @@ type RFState = {
   edgeFlowPlayback: { wallStartMs: number; simStartMs: number } | null
   edgeFlowStatus: EdgeFlowStatus
   edgeFlowRunConfig: EdgeFlowRunConfig | null
+  routingStrategyVisualization: RoutingStrategyVisualizationState | null
 
   // --- File State ---
   fileName: string | null
@@ -125,6 +133,7 @@ type RFState = {
   setEdgeFlowStatus: (status: EdgeFlowStatus) => void
   setEdgeFlowRunConfig: (config: EdgeFlowRunConfig) => void
   clearEdgeFlow: () => void
+  setRoutingStrategyVisualization: (state: RoutingStrategyVisualizationState | null) => void
   setNodes: (nodes: Node[]) => void
   setEdges: (edges: Edge[]) => void
   selectGraphElements: (selection: { nodeId?: string; edgeId?: string }) => void
@@ -144,6 +153,7 @@ const useStore = create<RFState>((set, get) => ({
   edgeFlowPlayback: null,
   edgeFlowStatus: 'idle',
   edgeFlowRunConfig: null,
+  routingStrategyVisualization: null,
 
   // Initial File State
   fileName: 'Untitled',
@@ -331,6 +341,10 @@ const useStore = create<RFState>((set, get) => ({
       edgeFlowStatus: 'idle',
       edgeFlowRunConfig: null
     })
+  },
+
+  setRoutingStrategyVisualization: (routingStrategyVisualization) => {
+    set({ routingStrategyVisualization })
   },
 
   // File State Setters
