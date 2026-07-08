@@ -1,6 +1,7 @@
 import { CatalogCategory } from '@renderer/types/ui'
 import { NODE_REGISTRY } from '@renderer/config/nodeRegistry'
 import { getTheme } from '@renderer/config/themeConfig'
+import { getLibraryItemInfo } from '@renderer/config/libraryInfo'
 
 const fromRegistry = (id: string) => {
   const def = NODE_REGISTRY[id]
@@ -10,7 +11,7 @@ const fromRegistry = (id: string) => {
   }
   const theme = getTheme(def.lookupKey)
 
-  return {
+  const item = {
     id: def.id,
     templateId: def.id,
     type: def.type,
@@ -18,6 +19,11 @@ const fromRegistry = (id: string) => {
     subLabel: def.subLabel,
     icon: def.icon,
     color: theme
+  }
+
+  return {
+    ...item,
+    info: getLibraryItemInfo(item)
   }
 }
 

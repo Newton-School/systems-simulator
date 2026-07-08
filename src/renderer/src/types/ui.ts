@@ -1,6 +1,7 @@
 import { LucideIcon } from 'lucide-react'
 import type { GlobalConfig, WorkloadProfile } from '../../../engine/core/types'
 import type { CanvasNodeDataV2, RendererNodeType } from '../../../engine/catalog/nodeSpecTypes'
+import type { LibraryItemInfo } from '@renderer/config/libraryInfo'
 
 export type AnyNodeData = CanvasNodeDataV2
 export type ServiceNodeData = CanvasNodeDataV2
@@ -44,6 +45,7 @@ export interface CatalogItem {
   subLabel: string
   icon: LucideIcon
   color: ColorTheme
+  info: LibraryItemInfo
 }
 
 export interface CatalogCategory {
