@@ -411,7 +411,7 @@ export const PacketEdge = ({
       ? 'inactive'
       : `${fmtRps(displaySuccessRps)}${phaseLabel ? ` - ${phaseLabel}` : ''}${failureRatio > 0 ? ` / ${(failureRatio * 100).toFixed(1)}% fail` : ''}`
   const flowLabelClassName = [
-    'bg-nss-bg px-2 py-0.5 text-[11px] font-bold leading-none tracking-wide',
+    'bg-nss-bg px-2 py-0.5 text-[18px] font-bold leading-none tracking-wide',
     isRoutingPreviewEdge
       ? routingPreview?.isSelected
         ? 'text-nss-success'
