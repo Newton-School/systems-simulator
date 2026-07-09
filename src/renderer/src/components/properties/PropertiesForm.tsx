@@ -289,7 +289,7 @@ export const PropertiesForm = ({ nodeId, data, onUpdate }: PropertiesFormProps) 
                     className={[
                       'mb-4 rounded-md border px-3 py-2 text-[11px] leading-relaxed',
                       section.note.tone === 'locked'
-                        ? 'border-amber-500/30 bg-amber-500/10 text-amber-100'
+                        ? 'border-nss-warning/20 bg-nss-warning/10 font-medium text-nss-warning'
                         : 'border-nss-border bg-nss-panel text-nss-muted'
                     ].join(' ')}
                   >
