@@ -9,7 +9,8 @@ import ReactFlow, {
   Edge,
   Connection,
   ConnectionLineType,
-  updateEdge
+  updateEdge,
+  Node
 } from 'reactflow'
 import 'reactflow/dist/style.css'
 import { EdgeSimulationData } from '@renderer/types/ui'
@@ -26,7 +27,11 @@ import { useHandleProximity } from './hooks/useHandleProximity'
 import MagneticConnectionLine from './MagneticConnectionLine'
 import { MAGNETIC_CONNECTION_RADIUS_PX } from './magneticSnapConfig'
 
-const FlowCanvasInternal = () => {
+interface FlowCanvasProps {
+  onNodeDoubleClick?: (event: React.MouseEvent, node: Node) => void
+}
+
+const FlowCanvasInternal = ({ onNodeDoubleClick }: FlowCanvasProps) => {
   const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance | null>(null)
   const [selectedEdge, setSelectedEdge] = useState<Edge | null>(null)
 
@@ -147,6 +152,7 @@ const FlowCanvasInternal = () => {
         onNodeDragStop={onNodeDragStop}
         onEdgeClick={onEdgeClick}
         onPaneClick={onPaneClick}
+        onNodeDoubleClick={onNodeDoubleClick}
       >
         <Background variant={BackgroundVariant.Dots} gap={30} size={1.2} color={GRID_COLOR} />
         <Controls className="!bg-nss-surface !border-nss-border" />
@@ -169,8 +175,8 @@ const FlowCanvasInternal = () => {
   )
 }
 
-export const FlowCanvas = () => (
+export const FlowCanvas = (props: FlowCanvasProps) => (
   <ReactFlowProvider>
-    <FlowCanvasInternal />
+    <FlowCanvasInternal {...props} />
   </ReactFlowProvider>
 )

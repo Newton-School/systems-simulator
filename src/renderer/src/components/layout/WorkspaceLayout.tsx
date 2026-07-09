@@ -94,6 +94,7 @@ export const WorkspaceLayout = () => {
   const updateScenario = useStore((s) => s.updateScenario)
   const setSimulationMetrics = useStore((s) => s.setSimulationMetrics)
   const clearSimulationMetrics = useStore((s) => s.clearSimulationMetrics)
+  const selectGraphElements = useStore((s) => s.selectGraphElements)
   const routingVisualization = useStore((s) => s.routingStrategyVisualization)
   const setRoutingVisualization = useStore((s) => s.setRoutingStrategyVisualization)
   const { confirm, dialog } = useConfirmDialog()
@@ -141,9 +142,7 @@ export const WorkspaceLayout = () => {
   }, [])
 
   useEffect(() => {
-    if (selectedNodeId) {
-      setIsRightOpen(true)
-    } else {
+    if (!selectedNodeId) {
       setIsRightOpen(false)
     }
   }, [selectedNodeId])
@@ -307,7 +306,12 @@ export const WorkspaceLayout = () => {
             <PanelGroup direction="vertical" autoSaveId="main-layout-vertical">
               {/* Canvas */}
               <Panel defaultSize={showResults ? 65 : 100} minSize={10} order={1}>
-                <FlowCanvas />
+                <FlowCanvas
+                  onNodeDoubleClick={(_, node) => {
+                    selectGraphElements({ nodeId: node.id })
+                    setIsRightOpen(true)
+                  }}
+                />
               </Panel>
 
               {/* Results Tray */}
