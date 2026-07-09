@@ -38,9 +38,13 @@ export interface EdgeFlowState {
   totalAttempted: number
   totalSuccess: number
   totalFailed: number
+  totalPostWarmupAttempted: number
+  totalPostWarmupSuccess: number
+  totalPostWarmupFailed: number
   avgAttemptedPerSecond: number
   avgSuccessPerSecond: number
   avgFailedPerSecond: number
+  avgPostWarmupSuccessPerSecond: number
   firstStartedAtMs: number
   lastStartedAtMs: number
 }
@@ -56,6 +60,7 @@ export interface RoutingStrategyVisualizationState {
 export interface EdgeFlowRunConfig {
   workload: WorkloadProfile
   simulationDurationMs: number
+  warmupDurationMs: number
 }
 
 const EDGE_FLOW_WINDOW_MS = 6_000
@@ -71,9 +76,13 @@ const EMPTY_EDGE_FLOW_STATE: EdgeFlowState = {
   totalAttempted: 0,
   totalSuccess: 0,
   totalFailed: 0,
+  totalPostWarmupAttempted: 0,
+  totalPostWarmupSuccess: 0,
+  totalPostWarmupFailed: 0,
   avgAttemptedPerSecond: 0,
   avgSuccessPerSecond: 0,
   avgFailedPerSecond: 0,
+  avgPostWarmupSuccessPerSecond: 0,
   firstStartedAtMs: 0,
   lastStartedAtMs: 0
 }
@@ -100,6 +109,29 @@ function summarizeEdgeFlow(
     failedPerSecond: failed / spanSeconds,
     failureRatio: attempted > 0 ? failed / attempted : 0
   }
+}
+
+function distributeIntegerTotal(total: number, weights: number[]): number[] {
+  if (weights.length === 0) return []
+  if (total <= 0) return weights.map(() => 0)
+
+  const weightSum = weights.reduce((sum, weight) => sum + Math.max(0, weight), 0)
+  const normalizedWeights = weightSum > 0 ? weights : weights.map(() => 1)
+  const normalizedSum = weightSum > 0 ? weightSum : normalizedWeights.length
+  const shares = normalizedWeights.map((weight) => (Math.max(0, weight) / normalizedSum) * total)
+  const floors = shares.map(Math.floor)
+  let remaining = total - floors.reduce((sum, value) => sum + value, 0)
+  const order = shares
+    .map((share, index) => ({ index, remainder: share - floors[index] }))
+    .sort((a, b) => b.remainder - a.remainder)
+
+  for (const item of order) {
+    if (remaining <= 0) break
+    floors[item.index] += 1
+    remaining--
+  }
+
+  return floors
 }
 
 type RFState = {
@@ -133,6 +165,7 @@ type RFState = {
   clearSimulationMetrics: () => void
   setMetricLens: (lens: MetricLens) => void
   recordEdgeFlowEvent: (event: EdgeFlowEvent) => void
+  reconcileEdgeFlowArrivals: (metrics: Record<string, NodeSimulationMetrics>) => void
   setEdgeFlowStatus: (status: EdgeFlowStatus) => void
   setEdgeFlowRunConfig: (config: EdgeFlowRunConfig) => void
   clearEdgeFlow: () => void
@@ -305,13 +338,25 @@ const useStore = create<RFState>((set, get) => ({
     ]
       .filter((item) => displayAtMs - item.displayAtMs <= EDGE_FLOW_WINDOW_MS * 2)
       .slice(-EDGE_FLOW_MAX_EVENTS)
+    const warmupDurationMs = get().edgeFlowRunConfig?.warmupDurationMs ?? 0
+    const isPostWarmupEvent = event.completedAtMs >= warmupDurationMs
+    const isPostWarmupSuccess = event.status === 'success' && isPostWarmupEvent
     const totalAttempted = previous.totalAttempted + 1
     const totalSuccess = previous.totalSuccess + (event.status === 'success' ? 1 : 0)
     const totalFailed = totalAttempted - totalSuccess
+    const totalPostWarmupAttempted =
+      previous.totalPostWarmupAttempted + (isPostWarmupEvent ? 1 : 0)
+    const totalPostWarmupSuccess =
+      previous.totalPostWarmupSuccess + (isPostWarmupSuccess ? 1 : 0)
+    const totalPostWarmupFailed = totalPostWarmupAttempted - totalPostWarmupSuccess
     const firstStartedAtMs =
       previous.totalAttempted === 0 ? event.startedAtMs : previous.firstStartedAtMs
     const lastStartedAtMs = Math.max(previous.lastStartedAtMs, event.startedAtMs)
     const durationSeconds = Math.max(1, (lastStartedAtMs - firstStartedAtMs) / 1000)
+    const postWarmupDurationSeconds = Math.max(
+      1,
+      (Math.max(lastStartedAtMs, warmupDurationMs) - warmupDurationMs) / 1000
+    )
 
     set({
       edgeFlowStatus: 'running',
@@ -324,14 +369,69 @@ const useStore = create<RFState>((set, get) => ({
           totalAttempted,
           totalSuccess,
           totalFailed,
+          totalPostWarmupAttempted,
+          totalPostWarmupSuccess,
+          totalPostWarmupFailed,
           avgAttemptedPerSecond: totalAttempted / durationSeconds,
           avgSuccessPerSecond: totalSuccess / durationSeconds,
           avgFailedPerSecond: totalFailed / durationSeconds,
+          avgPostWarmupSuccessPerSecond: totalPostWarmupSuccess / postWarmupDurationSeconds,
           firstStartedAtMs,
           lastStartedAtMs
         }
       }
     })
+  },
+
+  reconcileEdgeFlowArrivals: (metrics) => {
+    const { edges, edgeFlowById, edgeFlowRunConfig } = get()
+    const durationSeconds = Math.max(
+      1,
+      ((edgeFlowRunConfig?.simulationDurationMs ?? 0) -
+        (edgeFlowRunConfig?.warmupDurationMs ?? 0)) /
+        1000
+    )
+    const nextEdgeFlowById = { ...edgeFlowById }
+    const edgesByTarget = new Map<string, typeof edges>()
+
+    for (const edge of edges) {
+      const targetEdges = edgesByTarget.get(edge.target) ?? []
+      targetEdges.push(edge)
+      edgesByTarget.set(edge.target, targetEdges)
+    }
+
+    for (const [targetNodeId, incomingEdges] of edgesByTarget) {
+      const targetTotal = metrics[targetNodeId]?.postWarmupArrived
+      if (typeof targetTotal !== 'number' || !Number.isFinite(targetTotal)) continue
+
+      const roundedTargetTotal = Math.max(0, Math.round(targetTotal))
+      const observedCounts = incomingEdges.map(
+        (edge) => edgeFlowById[edge.id]?.totalPostWarmupSuccess ?? 0
+      )
+      const reconciledCounts =
+        incomingEdges.length === 1
+          ? [roundedTargetTotal]
+          : distributeIntegerTotal(roundedTargetTotal, observedCounts)
+
+      incomingEdges.forEach((edge, index) => {
+        const previous = nextEdgeFlowById[edge.id] ?? EMPTY_EDGE_FLOW_STATE
+        const totalPostWarmupSuccess = reconciledCounts[index] ?? 0
+        const totalPostWarmupAttempted = Math.max(
+          previous.totalPostWarmupAttempted,
+          totalPostWarmupSuccess
+        )
+        const totalPostWarmupFailed = Math.max(0, totalPostWarmupAttempted - totalPostWarmupSuccess)
+        nextEdgeFlowById[edge.id] = {
+          ...previous,
+          totalPostWarmupAttempted,
+          totalPostWarmupSuccess,
+          totalPostWarmupFailed,
+          avgPostWarmupSuccessPerSecond: totalPostWarmupSuccess / durationSeconds
+        }
+      })
+    }
+
+    set({ edgeFlowById: nextEdgeFlowById })
   },
 
   setEdgeFlowStatus: (status) => {

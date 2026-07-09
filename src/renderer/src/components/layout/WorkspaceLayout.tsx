@@ -248,7 +248,8 @@ export const WorkspaceLayout = () => {
     flowStore.clearEdgeFlow()
     flowStore.setEdgeFlowRunConfig({
       workload: runContext.workload,
-      simulationDurationMs: runContext.global.simulationDuration
+      simulationDurationMs: runContext.global.simulationDuration,
+      warmupDurationMs: runContext.global.warmupDuration
     })
     flowStore.setEdgeFlowStatus('running')
     sim.run(topology)

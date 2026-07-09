@@ -15,30 +15,27 @@ const FLOW_PRIMARY_COLOR = 'rgb(var(--nss-primary))'
 const ROUTING_PREVIEW_DECISION_SAMPLE_LIMIT = 2_000
 const EMPTY_EDGE_FLOW_BY_ID: Record<string, EdgeFlowState> = {}
 
-type PacketEdgeData = {
-  packetLossRate?: number
-  errorRate?: number
-}
-
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value))
 }
 
-function fmtRps(value: number): string {
-  if (value >= 100) return `${Math.round(value)} rps`
-  if (value >= 10) return `${value.toFixed(1)} rps`
-  return `${value.toFixed(2)} rps`
+function fmtRequestCount(value: number): string {
+  return Math.round(value).toLocaleString()
 }
 
-function compressedPacketCount(rps: number): number {
-  if (rps <= 0) return 0
-  return clamp(Math.ceil(Math.log2(rps + 1) * 0.8), 2, 7)
+function fmtFailureRate(ratio: number): string {
+  return `${(clamp(ratio, 0, 1) * 100).toFixed(1)}% fail`
 }
 
-function streamDurationForRps(rps: number): number {
-  if (rps <= 0) return MAX_STREAM_DURATION_MS
+function compressedPacketCount(arrivalRate: number): number {
+  if (arrivalRate <= 0) return 0
+  return clamp(Math.ceil(Math.log2(arrivalRate + 1) * 0.8), 2, 7)
+}
+
+function streamDurationForRate(arrivalRate: number): number {
+  if (arrivalRate <= 0) return MAX_STREAM_DURATION_MS
   return clamp(
-    MAX_STREAM_DURATION_MS - Math.log2(rps + 1) * 420,
+    MAX_STREAM_DURATION_MS - Math.log2(arrivalRate + 1) * 420,
     MIN_STREAM_DURATION_MS,
     MAX_STREAM_DURATION_MS
   )
@@ -47,18 +44,6 @@ function streamDurationForRps(rps: number): number {
 function patternPacketCount(baseCount: number, multiplier: number): number {
   if (baseCount <= 0) return 0
   return clamp(Math.round(baseCount * clamp(multiplier, 0.35, 4)), 1, 14)
-}
-
-function percentToRatio(value: unknown): number | null {
-  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return null
-  return clamp(value / 100, 0, 1)
-}
-
-function edgeConfiguredSuccessRatio(data: unknown): number {
-  const edgeData = data as PacketEdgeData | undefined
-  const configuredLossRatio = percentToRatio(edgeData?.packetLossRate)
-  const configuredErrorRatio = percentToRatio(edgeData?.errorRate)
-  return (1 - (configuredLossRatio ?? 0)) * (1 - (configuredErrorRatio ?? 0))
 }
 
 function hash01(input: string): number {
@@ -232,7 +217,6 @@ export const PacketEdge = ({
   style = {},
   markerEnd,
   label,
-  data,
   selected
 }: EdgeProps) => {
   const [edgePath, labelX, labelY] = getSmoothStepPath({
@@ -287,7 +271,9 @@ export const PacketEdge = ({
   const [pathLength, setPathLength] = useState(0)
 
   useEffect(() => {
-    if (!isRoutingPreviewEdge && !flow && flowStatus !== 'complete') return
+    if (!isRoutingPreviewEdge && !flow && flowStatus !== 'running' && flowStatus !== 'complete') {
+      return
+    }
     const intervalId = window.setInterval(() => setNow(Date.now()), 33)
     return () => window.clearInterval(intervalId)
   }, [flow, flowStatus, isRoutingPreviewEdge])
@@ -304,52 +290,54 @@ export const PacketEdge = ({
     .filter((event) => event.status !== 'success' && now - event.displayAtMs <= FAILED_PULSE_MS)
     .slice(-12)
 
-  const displaySuccessRps =
-    flowStatus === 'complete'
-      ? (flow?.avgSuccessPerSecond ?? 0)
-      : Math.max(flow?.successPerSecond ?? 0, flow?.avgSuccessPerSecond ?? 0)
-  const displayAttemptedRps =
-    flowStatus === 'complete'
-      ? (flow?.avgAttemptedPerSecond ?? 0)
-      : Math.max(flow?.attemptedPerSecond ?? 0, flow?.avgAttemptedPerSecond ?? 0)
-  const displayFailedRps =
-    flowStatus === 'complete'
-      ? (flow?.avgFailedPerSecond ?? 0)
-      : Math.max(flow?.failedPerSecond ?? 0, flow?.avgFailedPerSecond ?? 0)
-  const failureRatio = displayAttemptedRps > 0 ? displayFailedRps / displayAttemptedRps : 0
-  const configuredSuccessRatio = edgeConfiguredSuccessRatio(data)
-  const observedSuccessRatio =
-    displayAttemptedRps > 0
-      ? clamp(displaySuccessRps / displayAttemptedRps, 0, 1)
-      : configuredSuccessRatio
-  const renderedSuccessRps = displayAttemptedRps * observedSuccessRatio
+  const isRunning = flowStatus === 'running'
+  const isComplete = flowStatus === 'complete'
+  const liveIncomingRate = Math.max(flow?.attemptedPerSecond ?? 0, flow?.avgAttemptedPerSecond ?? 0)
+  const postRunPacketRate = flow?.avgPostWarmupSuccessPerSecond ?? 0
+  const arrivedRequestCount = flow?.totalPostWarmupSuccess ?? 0
+  const liveFailedRate = Math.max(flow?.failedPerSecond ?? 0, flow?.avgFailedPerSecond ?? 0)
+  const liveFailureRatio = liveIncomingRate > 0 ? liveFailedRate / liveIncomingRate : 0
+  const postWarmupAttemptedCount = flow?.totalPostWarmupAttempted ?? 0
+  const postRunFailureRatio =
+    postWarmupAttemptedCount > 0
+      ? (flow?.totalPostWarmupFailed ?? 0) / postWarmupAttemptedCount
+      : 0
+  const failureRatio = isComplete ? postRunFailureRatio : liveFailureRatio
   const visualMultiplier = patternMultiplier(runConfig, playback, now, id)
+  const hasObservedLiveTraffic = !isComplete && (flow?.totalAttempted ?? 0) > 0
+  const effectiveLiveRate = Math.max(liveIncomingRate, hasObservedLiveTraffic ? 1 : 0)
   const previewShare =
     routingPreview && routingPreview.totalCount > 0
       ? routingPreview.selectedCount / routingPreview.maxCount
       : 0
-  const visualSuccessRps = isRoutingPreviewEdge
+  const visualRequestRate = isRoutingPreviewEdge
     ? routingPreview?.isSelected
       ? 40 + previewShare * 140
       : 0
-    : renderedSuccessRps * visualMultiplier
-  const basePacketCount = compressedPacketCount(renderedSuccessRps)
+    : isComplete
+      ? postRunPacketRate
+      : effectiveLiveRate * visualMultiplier
+  const basePacketCount = compressedPacketCount(
+    isComplete ? postRunPacketRate : effectiveLiveRate
+  )
   const streamPacketCount = isRoutingPreviewEdge
     ? routingPreview?.isSelected
       ? clamp(Math.round(2 + previewShare * 6), 2, 8)
       : 0
-    : patternPacketCount(basePacketCount, visualMultiplier)
+    : patternPacketCount(basePacketCount, isComplete ? 1 : visualMultiplier)
   const phaseLabel = patternPhaseLabel(runConfig, playback, now)
   const isInactiveAfterRun = flowStatus === 'complete' && !flow
   const hasFlow = isRoutingPreviewEdge
     ? Boolean(routingPreview?.isSelected)
-    : displayAttemptedRps > 0
+    : isComplete
+      ? arrivedRequestCount > 0
+      : effectiveLiveRate > 0
   const trafficStrokeWidth = isRoutingPreviewEdge
     ? hasFlow
       ? clamp(2.5 + previewShare * 1.2, 2.5, 3.7)
       : 2
     : hasFlow
-      ? clamp(3 + Math.log2(visualSuccessRps + 1) * 0.55, selected ? 3.5 : 3, 5)
+      ? clamp(3 + Math.log2(visualRequestRate + 1) * 0.55, selected ? 3.5 : 3, 5)
       : selected
         ? 3
         : 2
@@ -361,7 +349,7 @@ export const PacketEdge = ({
       : 'not selected'
     : isInactiveAfterRun
       ? 'inactive'
-      : `${fmtRps(displaySuccessRps)}${phaseLabel ? ` - ${phaseLabel}` : ''}${failureRatio > 0 ? ` / ${(failureRatio * 100).toFixed(1)}% fail` : ''}`
+      : `${fmtRequestCount(arrivedRequestCount)} arrived / ${fmtFailureRate(failureRatio)}${isRunning && phaseLabel ? ` - ${phaseLabel}` : ''}`
   const flowLabelClassName = [
     'bg-nss-bg px-2 py-0.5 text-[18px] font-bold leading-none tracking-wide',
     isRoutingPreviewEdge
@@ -434,7 +422,7 @@ export const PacketEdge = ({
 
       {Array.from({ length: streamPacketCount }, (_, index) => {
         const speedJitter = packetSpeedJitter(runConfig?.workload.pattern, id, index)
-        const duration = streamDurationForRps(visualSuccessRps) / speedJitter
+        const duration = streamDurationForRate(visualRequestRate) / speedJitter
         const offset = packetOffset(runConfig?.workload.pattern, id, index, streamPacketCount)
         const progress = (((now / duration + offset) % 1) + 1) % 1
         const point = pointForProgress(progress)
@@ -446,7 +434,7 @@ export const PacketEdge = ({
             key={`${id}-packet-${index}`}
             cx={point.x}
             cy={point.y}
-            r={visualSuccessRps > 150 ? 5.25 : 6.75}
+            r={visualRequestRate > 150 ? 5.25 : 6.75}
             fill={FLOW_SUCCESS_COLOR}
             stroke="var(--nss-panel)"
             strokeWidth={1.25}
