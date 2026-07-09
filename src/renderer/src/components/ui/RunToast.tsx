@@ -13,7 +13,7 @@ export function RunToast({ messages, tone, onClose }: RunToastProps) {
     <div
       role="alert"
       className={`
-        fixed top-14 right-4 z-50 w-80 rounded-lg border shadow-2xl font-sans text-xs
+        fixed top-14 right-4 z-50 w-[28rem] max-w-[calc(100vw-2rem)] rounded-lg border shadow-2xl font-sans text-sm
         ${
           isError
             ? 'bg-nss-panel border-nss-danger/40 text-nss-text'
@@ -32,8 +32,8 @@ export function RunToast({ messages, tone, onClose }: RunToastProps) {
           }
         `}
       >
-        <span className="font-semibold uppercase tracking-widest text-[10px]">
-          {isError ? 'Run blocked' : 'Run checks'}
+        <span className="font-semibold uppercase tracking-[0.2em] text-[11px]">
+          {isError ? 'Run blocked' : 'Run warning'}
         </span>
         <button
           onClick={onClose}
@@ -45,10 +45,12 @@ export function RunToast({ messages, tone, onClose }: RunToastProps) {
       </div>
 
       {/* Message list */}
-      <ul className="px-3 py-2.5 space-y-1.5 text-nss-text/80">
+      <ul className="max-h-[60vh] overflow-y-auto px-4 py-3 space-y-2 text-nss-text/95">
         {messages.map((msg, i) => (
-          <li key={i} className="flex gap-2 leading-relaxed">
-            <span className={`mt-0.5 shrink-0 ${isError ? 'text-nss-danger' : 'text-nss-warning'}`}>
+          <li key={i} className="flex gap-2.5 leading-6">
+            <span
+              className={`mt-0.5 shrink-0 text-base ${isError ? 'text-nss-danger' : 'text-nss-warning'}`}
+            >
               •
             </span>
             {msg}

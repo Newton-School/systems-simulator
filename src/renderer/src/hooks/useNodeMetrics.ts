@@ -22,6 +22,10 @@ export function useNodeMetrics(id: string) {
     traitCounters: runtime?.traitCounters,
     totalArrived: runtime?.totalArrived,
     totalRejected: runtime?.totalRejected,
+    postWarmupArrived: runtime?.postWarmupArrived,
+    postWarmupProcessed: runtime?.postWarmupProcessed,
+    postWarmupRejected: runtime?.postWarmupRejected,
+    postWarmupTimedOut: runtime?.postWarmupTimedOut,
     hasRuntime,
     active
   }

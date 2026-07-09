@@ -44,9 +44,37 @@ const ResultsTray = lazy(async () => {
   return { default: module.ResultsTray }
 })
 
-function formatValidationIssue(error: ValidationError): string {
+function titleCaseField(field: string): string {
+  switch (field) {
+    case 'latencyP99':
+      return 'Latency target (p99)'
+    case 'availabilityTarget':
+      return 'Availability target'
+    case 'errorBudget':
+      return 'Error budget'
+    default:
+      return field.replace(/([A-Z])/g, ' $1').replace(/^./, (c) => c.toUpperCase())
+  }
+}
+
+function formatValidationIssue(error: ValidationError, nodes: ReturnType<typeof useStore.getState>['nodes']): string {
   if (error.path === 'workload.sourceNodeId') {
     return error.message
+  }
+
+  const nodeMatch = error.path.match(/^nodes\.(\d+)\.(.+)$/)
+  if (nodeMatch) {
+    const nodeIndex = Number(nodeMatch[1])
+    const node = nodes[nodeIndex]
+    const rawFieldPath = nodeMatch[2]
+    const lastSegment = rawFieldPath.split('.').pop() ?? rawFieldPath
+    const nodeLabel = (node?.data as CanvasNodeDataV2 | undefined)?.label ?? `Node ${nodeIndex + 1}`
+
+    if (error.message.includes('received undefined')) {
+      return `${nodeLabel}: ${titleCaseField(lastSegment)} is missing.`
+    }
+
+    return `${nodeLabel}: ${titleCaseField(lastSegment)} - ${error.message}`
   }
 
   return error.path ? `${error.path}: ${error.message}` : error.message
@@ -206,7 +234,7 @@ export const WorkspaceLayout = () => {
 
     const validation = validateTopology(topology)
     if (!validation.valid) {
-      const validationErrors = validation.errors?.map(formatValidationIssue) ?? [
+      const validationErrors = validation.errors?.map((error) => formatValidationIssue(error, nodes)) ?? [
         'Topology validation failed.'
       ]
       setRunIssues({ messages: validationErrors, tone: 'error' })
@@ -319,7 +347,7 @@ export const WorkspaceLayout = () => {
             <PanelGroup direction="vertical" autoSaveId="main-layout-vertical">
               {/* Canvas */}
               <Panel defaultSize={showResults ? 65 : 100} minSize={10} order={1}>
-                <FlowCanvas />
+                <FlowCanvas showMetricLens={showResults} />
               </Panel>
 
               {/* Results Tray */}

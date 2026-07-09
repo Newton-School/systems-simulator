@@ -27,7 +27,11 @@ import { useHandleProximity } from './hooks/useHandleProximity'
 import MagneticConnectionLine from './MagneticConnectionLine'
 import { MAGNETIC_CONNECTION_RADIUS_PX } from './magneticSnapConfig'
 
-const FlowCanvasInternal = () => {
+interface FlowCanvasProps {
+  showMetricLens?: boolean
+}
+
+const FlowCanvasInternal = ({ showMetricLens = false }: FlowCanvasProps) => {
   const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance | null>(null)
   const [selectedEdge, setSelectedEdge] = useState<Edge | null>(null)
 
@@ -153,7 +157,7 @@ const FlowCanvasInternal = () => {
         <Controls className="!bg-nss-surface !border-nss-border" />
         <MiniMap className="!bg-nss-surface !border-nss-border" />
       </ReactFlow>
-      {!isEmpty && <MetricLensSwitcher />}
+      {!isEmpty && showMetricLens && <MetricLensSwitcher />}
 
       {/* Empty State */}
       <EmptyFlowState isEmpty={isEmpty} />
@@ -172,8 +176,8 @@ const FlowCanvasInternal = () => {
   )
 }
 
-export const FlowCanvas = () => (
+export const FlowCanvas = ({ showMetricLens = false }: FlowCanvasProps) => (
   <ReactFlowProvider>
-    <FlowCanvasInternal />
+    <FlowCanvasInternal showMetricLens={showMetricLens} />
   </ReactFlowProvider>
 )

@@ -1,4 +1,9 @@
 import type { AnyNodeData, MetricLens, NodeSimulationMetrics } from '@renderer/types/ui'
+import { ACK_AND_RELEASE_COMPONENT_TYPES } from '../../../../engine/traits/ackAndRelease'
+import { HEALTH_AWARE_COMPONENT_TYPES } from '../../../../engine/traits/healthAwareRouting'
+
+const ACK_AND_RELEASE_COMPONENT_TYPE_SET = new Set<string>(ACK_AND_RELEASE_COMPONENT_TYPES)
+const HEALTH_AWARE_COMPONENT_TYPE_SET = new Set<string>(HEALTH_AWARE_COMPONENT_TYPES)
 
 export type NodeHealthStatus = 'healthy' | 'degraded' | 'critical'
 
@@ -100,11 +105,23 @@ export function getIdentityChip(data: AnyNodeData): IdentityChip | null {
   if (data.sim?.replicationRole === 'replica' || data.templateId === 'read-replica') {
     return { label: 'Role', value: 'read-only replica' }
   }
+  // AckAndReleaseTrait has no config knob - it's unconditionally active on
+  // every Message Queue - so it needs an explicit declaration or it never
+  // shows up as anything at all, despite being real, defining behavior.
+  if (typeof data.componentType === 'string' && ACK_AND_RELEASE_COMPONENT_TYPE_SET.has(data.componentType)) {
+    return { label: 'Async', value: 'acks at enqueue' }
+  }
   if (typeof data.sim?.refillRatePerSecond === 'number') {
     return { label: 'Rate limit', value: `${data.sim.refillRatePerSecond} rps` }
   }
-  if (data.sim?.healthCheckEnabled === false) {
-    return { label: 'Health checks', value: 'off' }
+  // Shown even at the true default: health-aware routing not visibly stating
+  // itself is exactly the "LB routes to dead servers" trust gap this trait
+  // exists to close, so its state is worth declaring either way.
+  if (typeof data.componentType === 'string' && HEALTH_AWARE_COMPONENT_TYPE_SET.has(data.componentType)) {
+    return {
+      label: 'Health checks',
+      value: data.sim?.healthCheckEnabled === false ? 'off' : 'on'
+    }
   }
   if (
     typeof data.sim?.securityPolicy?.blockRate === 'number' &&
