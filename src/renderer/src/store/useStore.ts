@@ -185,7 +185,7 @@ const useStore = create<RFState>((set, get) => ({
   nodes: [],
   edges: [],
   simulationMetricsByNode: {},
-  metricLens: 'saturation',
+  metricLens: 'results',
   edgeFlowById: {},
   edgeFlowPlayback: null,
   edgeFlowStatus: 'idle',

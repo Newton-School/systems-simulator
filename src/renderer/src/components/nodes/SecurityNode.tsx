@@ -35,7 +35,7 @@ const SecurityNode = ({ id, data, selected }: NodeProps<SecurityNodeData>) => {
   const metrics = useNodeMetrics(id)
   const { arrived, completed, errorRate, queueDepth, utilization, hasRuntime, active } = metrics
   const lens = useMetricLens()
-  const lensCard = hasRuntime ? getLensCard(lens, data, metrics) : null
+  const lensCard = hasRuntime && lens !== 'results' ? getLensCard(lens, data, metrics) : null
   const status = getEffectiveNodeStatus(data, { utilization, errorRate, queueDepth }, hasRuntime)
   const isInactive = isRuntimeNodeInactive(hasRuntime, active)
 
@@ -68,11 +68,11 @@ const SecurityNode = ({ id, data, selected }: NodeProps<SecurityNodeData>) => {
               <p className="text-[10px] text-nss-muted italic text-center py-2">
                 No post-warmup traffic
               </p>
+            ) : lens === 'results' && hasRuntime ? (
+              <RuntimeNodeMetrics arrived={arrived} completed={completed} failureRate={errorRate} />
             ) : lensCard ? (
               <LensMetricCard card={lensCard} />
-            ) : hasRuntime ? (
-              <RuntimeNodeMetrics arrived={arrived} completed={completed} failureRate={errorRate} />
-            ) : (
+            ) : hasRuntime ? null : (
               <>
                 {identityChip ? (
                   <div className="flex items-baseline gap-1.5 mb-3">

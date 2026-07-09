@@ -35,7 +35,7 @@ const ComputeNode = ({ id, data, selected }: NodeProps<ComputeNodeData>) => {
   const metrics = useNodeMetrics(id)
   const { arrived, completed, utilization, queueDepth, errorRate, hasRuntime, active } = metrics
   const lens = useMetricLens()
-  const lensCard = hasRuntime ? getLensCard(lens, data, metrics) : null
+  const lensCard = hasRuntime && lens !== 'results' ? getLensCard(lens, data, metrics) : null
   const status = getEffectiveNodeStatus(data, { utilization, errorRate, queueDepth }, hasRuntime)
   const isOverloaded = status === 'critical'
   const isInactive = isRuntimeNodeInactive(hasRuntime, active)
@@ -89,16 +89,16 @@ const ComputeNode = ({ id, data, selected }: NodeProps<ComputeNodeData>) => {
               <p className="text-[10px] text-nss-muted italic text-center py-1">
                 No post-warmup traffic
               </p>
-            ) : lensCard ? (
-              <LensMetricCard card={lensCard} />
-            ) : hasRuntime ? (
+            ) : lens === 'results' && hasRuntime ? (
               <RuntimeNodeMetrics
                 arrived={arrived}
                 completed={completed}
                 failureRate={errorRate}
                 className="grid grid-cols-2 gap-3"
               />
-            ) : (
+            ) : lensCard ? (
+              <LensMetricCard card={lensCard} />
+            ) : hasRuntime ? null : (
               <>
                 {identityChip ? (
                   <div className="flex items-baseline gap-1.5">

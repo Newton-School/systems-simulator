@@ -4,6 +4,7 @@ import type { MetricLens } from '@renderer/types/ui'
 import useStore from '@renderer/store/useStore'
 
 const LENSES: Array<{ id: MetricLens; label: string }> = [
+  { id: 'results', label: 'Results' },
   { id: 'saturation', label: 'Saturation' },
   { id: 'latency', label: 'Latency' },
   { id: 'errors', label: 'Errors' },
@@ -12,8 +13,7 @@ const LENSES: Array<{ id: MetricLens; label: string }> = [
 
 /**
  * One control decides the single metric family every node card and edge
- * label shows (C1). Default is Saturation — the question most runs are
- * asking first.
+ * label shows (C1). Default is Results — the post-run completion view.
  */
 export const MetricLensSwitcher = () => {
   const { metricLens, setMetricLens } = useStore(

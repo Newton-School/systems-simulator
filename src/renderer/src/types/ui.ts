@@ -9,7 +9,7 @@ export type ComputeNodeData = CanvasNodeDataV2
 export type SecurityNodeData = CanvasNodeDataV2
 export type VpcNodeData = CanvasNodeDataV2
 
-export type MetricLens = 'saturation' | 'latency' | 'errors' | 'throughput'
+export type MetricLens = 'results' | 'saturation' | 'latency' | 'errors' | 'throughput'
 
 export interface NodeSimulationMetrics {
   throughput?: number
