@@ -1,21 +1,33 @@
 import type { ReactNode } from 'react'
+import type { AnyNodeData } from '@renderer/types/ui'
 import { Label } from '../ui/Label'
 import { Input } from '../ui/Input'
 import { Select } from '../ui/Select'
 import { Slider } from '../ui/Slider'
-import type { FieldDefinition, FieldPath } from '@renderer/config/fieldConfig'
+import type { FieldPath, ResolvedFieldDefinition } from '@renderer/config/fieldConfig'
 
 interface FormFieldProps {
   fieldPath: FieldPath
-  config: FieldDefinition
+  config: ResolvedFieldDefinition
+  data: AnyNodeData
   value: unknown
   onChange: (value: unknown) => void
   controlRight?: ReactNode
 }
 
-export const FormField = ({ fieldPath, config, value, onChange, controlRight }: FormFieldProps) => {
+export const FormField = ({
+  fieldPath,
+  config,
+  data,
+  value,
+  onChange,
+  controlRight
+}: FormFieldProps) => {
+  const transformedValue =
+    config.displayAs && value !== undefined ? config.displayAs.toDisplay(value, data) : value
+
   const normalizedValue = (() => {
-    if (value !== undefined) return value
+    if (transformedValue !== undefined) return transformedValue
 
     switch (config.type) {
       case 'slider':
@@ -26,7 +38,7 @@ export const FormField = ({ fieldPath, config, value, onChange, controlRight }: 
         return config.defaultValue ?? false
       case 'input':
       default:
-        return 0
+        return ''
     }
   })()
 
@@ -68,18 +80,25 @@ export const FormField = ({ fieldPath, config, value, onChange, controlRight }: 
       default:
         return (
           <Input
-            type={typeof normalizedValue === 'number' ? 'number' : 'text'}
+            type="number"
             step={config.step}
             value={normalizedValue as string | number}
             rightElement={config.unit}
+            placeholder={config.placeholder}
             onChange={(e) => {
               const val = e.target.value
-              if (typeof normalizedValue === 'number') {
-                const parsed = Number(val)
-                onChange(Number.isNaN(parsed) ? 0 : parsed)
+              if (val === '') {
+                onChange(undefined)
                 return
               }
-              onChange(val)
+
+              const parsed = Number(val)
+              if (Number.isNaN(parsed)) {
+                onChange(undefined)
+                return
+              }
+
+              onChange(config.displayAs ? config.displayAs.fromDisplay(parsed, data) : parsed)
             }}
           />
         )
@@ -89,7 +108,12 @@ export const FormField = ({ fieldPath, config, value, onChange, controlRight }: 
   if (config.type === 'boolean') {
     return (
       <div className="mb-5 flex items-center justify-between rounded border border-nss-border bg-nss-surface px-3 py-2">
-        <Label className="mb-0">{config.label}</Label>
+        <div className="min-w-0 pr-3">
+          <Label className="mb-0">{config.label}</Label>
+          {config.why && (
+            <p className="mt-1 text-[10px] leading-relaxed text-nss-muted">{config.why}</p>
+          )}
+        </div>
         {renderInput()}
       </div>
     )
@@ -98,6 +122,9 @@ export const FormField = ({ fieldPath, config, value, onChange, controlRight }: 
   return (
     <div className="mb-5" data-field-path={fieldPath}>
       <Label>{config.label}</Label>
+      {config.why && (
+        <p className="mb-2 text-[10px] leading-relaxed text-nss-muted">{config.why}</p>
+      )}
       {controlRight ? (
         <div className="flex items-center gap-2">
           <div className="min-w-0 flex-1">{renderInput()}</div>

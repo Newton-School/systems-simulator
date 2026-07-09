@@ -1,395 +1,191 @@
-import type { CanvasNodeDataV2, NodeProfile } from '../../../engine/catalog/nodeSpecTypes'
-import { CACHE_COMPONENT_TYPES } from '../../../engine/traits/cache'
-import { HEALTH_AWARE_COMPONENT_TYPES } from '../../../engine/traits/healthAwareRouting'
+import type { AnyNodeData } from '@renderer/types/ui'
+import { NODE_CONFIG_MODULES, moduleAppliesToNode } from '../../../engine/traits/capabilityModules'
+import type {
+  AccuracyClass,
+  ConfigCustomRenderer,
+  ConfigDisplayTransform,
+  ConfigField,
+  ConfigNoteTone,
+  FieldPath
+} from '../../../engine/traits/types'
 
-export type FieldPath = string
-export type AccuracyClass = 'invariant' | 'default-override' | 'user-parameter' | 'not-simulated'
+export type { AccuracyClass, FieldPath } from '../../../engine/traits/types'
 
-export type FieldDefinition =
-  | {
-      type: 'slider'
-      label: string
-      min: number
-      max: number
-      unit?: string
-      visible?: (data: CanvasNodeDataV2) => boolean
-    }
-  | {
-      type: 'select'
-      label: string
-      options: string[]
-      visible?: (data: CanvasNodeDataV2) => boolean
-    }
-  | {
-      type: 'input'
-      label: string
-      unit?: string
-      step?: number
-      visible?: (data: CanvasNodeDataV2) => boolean
-    }
-  | {
-      type: 'boolean'
-      label: string
-      defaultValue?: boolean
-      visible?: (data: CanvasNodeDataV2) => boolean
-    }
+export interface ResolvedFieldDefinition {
+  path: FieldPath
+  type: ConfigField['type']
+  label: string
+  unit?: string
+  step?: number
+  min?: number
+  max?: number
+  defaultValue?: boolean
+  options?: readonly string[]
+  why?: string
+  altitude: 'primary' | 'advanced'
+  optional: boolean
+  accuracy: AccuracyClass
+  renderer: ConfigCustomRenderer
+  displayAs?: ConfigDisplayTransform
+  placeholder?: string
+}
 
-const isDistribution = (data: CanvasNodeDataV2, type: string) =>
-  data.sim?.processing?.distribution?.type === type
-
-const HEALTH_AWARE_COMPONENT_TYPE_SET = new Set<string>(HEALTH_AWARE_COMPONENT_TYPES)
-const CACHE_COMPONENT_TYPE_SET = new Set<string>(CACHE_COMPONENT_TYPES)
-
-const supportsHealthAwareRouting = (data: CanvasNodeDataV2) =>
-  typeof data.componentType === 'string' && HEALTH_AWARE_COMPONENT_TYPE_SET.has(data.componentType)
-
-const supportsCacheTrait = (data: CanvasNodeDataV2) =>
-  typeof data.componentType === 'string' && CACHE_COMPONENT_TYPE_SET.has(data.componentType)
-
-export const FIELD_DEFINITIONS: Record<FieldPath, FieldDefinition> = {
-  'source.defaultWorkload.pattern': {
-    type: 'select',
-    label: 'Pattern',
-    options: ['constant', 'poisson', 'bursty', 'diurnal', 'spike', 'sawtooth']
-  },
-  'source.defaultWorkload.baseRps': {
-    type: 'input',
-    label: 'Base RPS',
-    unit: 'req/s'
-  },
-  'source.defaultWorkload.bursty.burstRps': {
-    type: 'input',
-    label: 'Burst RPS',
-    unit: 'req/s',
-    visible: (data) => data.source?.defaultWorkload.pattern === 'bursty'
-  },
-  'source.defaultWorkload.bursty.burstDuration': {
-    type: 'input',
-    label: 'Burst Duration',
-    unit: 'ms',
-    visible: (data) => data.source?.defaultWorkload.pattern === 'bursty'
-  },
-  'source.defaultWorkload.bursty.normalDuration': {
-    type: 'input',
-    label: 'Normal Duration',
-    unit: 'ms',
-    visible: (data) => data.source?.defaultWorkload.pattern === 'bursty'
-  },
-  'source.defaultWorkload.spike.spikeTime': {
-    type: 'input',
-    label: 'Spike Time',
-    unit: 'ms',
-    visible: (data) => data.source?.defaultWorkload.pattern === 'spike'
-  },
-  'source.defaultWorkload.spike.spikeRps': {
-    type: 'input',
-    label: 'Spike RPS',
-    unit: 'req/s',
-    visible: (data) => data.source?.defaultWorkload.pattern === 'spike'
-  },
-  'source.defaultWorkload.spike.spikeDuration': {
-    type: 'input',
-    label: 'Spike Duration',
-    unit: 'ms',
-    visible: (data) => data.source?.defaultWorkload.pattern === 'spike'
-  },
-  'source.defaultWorkload.sawtooth.peakRps': {
-    type: 'input',
-    label: 'Peak RPS',
-    unit: 'req/s',
-    visible: (data) => data.source?.defaultWorkload.pattern === 'sawtooth'
-  },
-  'source.defaultWorkload.sawtooth.rampDuration': {
-    type: 'input',
-    label: 'Ramp Duration',
-    unit: 'ms',
-    visible: (data) => data.source?.defaultWorkload.pattern === 'sawtooth'
-  },
-  routingStrategy: {
-    type: 'select',
-    label: 'Routing Strategy',
-    options: ['passthrough', 'round-robin', 'random', 'weighted', 'least-conn', 'broadcast']
-  },
-  'sim.healthCheckEnabled': {
-    type: 'boolean',
-    label: 'Health Check Enabled',
-    defaultValue: true,
-    visible: supportsHealthAwareRouting
-  },
-  'sim.cacheHitRate': {
-    type: 'input',
-    label: 'Cache Hit Rate',
-    step: 0.01,
-    unit: 'ratio',
-    visible: supportsCacheTrait
-  },
-  'sim.cacheHitLatencyMs': {
-    type: 'input',
-    label: 'Cache Hit Latency',
-    step: 0.1,
-    unit: 'ms',
-    visible: supportsCacheTrait
-  },
-  'sim.ttlSeconds': {
-    type: 'input',
-    label: 'TTL',
-    step: 1,
-    unit: 's',
-    visible: supportsCacheTrait
-  },
-  'sim.queue.workers': { type: 'input', label: 'Workers', unit: 'count' },
-  'sim.queue.capacity': { type: 'input', label: 'Capacity', unit: 'req' },
-  'sim.queue.discipline': {
-    type: 'select',
-    label: 'Queue Discipline',
-    options: ['fifo', 'lifo', 'priority', 'wfq']
-  },
-  'sim.processing.timeout': { type: 'input', label: 'Timeout', unit: 'ms' },
-  'sim.processing.distribution.type': {
-    type: 'select',
-    label: 'Distribution',
-    options: ['constant', 'exponential', 'log-normal', 'normal']
-  },
-  'sim.processing.distribution.value': {
-    type: 'input',
-    label: 'Constant Value',
-    unit: 'ms',
-    visible: (data) => isDistribution(data, 'constant') || isDistribution(data, 'deterministic')
-  },
-  'sim.processing.distribution.lambda': {
-    type: 'input',
-    label: 'Lambda',
-    step: 0.001,
-    visible: (data) => isDistribution(data, 'exponential')
-  },
-  'sim.processing.distribution.mu': {
-    type: 'input',
-    label: 'Mu',
-    step: 0.01,
-    visible: (data) => isDistribution(data, 'log-normal')
-  },
-  'sim.processing.distribution.sigma': {
-    type: 'input',
-    label: 'Sigma',
-    step: 0.01,
-    visible: (data) => isDistribution(data, 'log-normal')
-  },
-  'sim.processing.distribution.mean': {
-    type: 'input',
-    label: 'Mean',
-    step: 0.01,
-    visible: (data) => isDistribution(data, 'normal')
-  },
-  'sim.processing.distribution.stdDev': {
-    type: 'input',
-    label: 'Std Dev',
-    step: 0.01,
-    visible: (data) => isDistribution(data, 'normal')
-  },
-  'sim.nodeErrorRate': {
-    type: 'input',
-    label: 'Node Error Rate',
-    unit: 'ratio',
-    step: 0.001
-  },
-  'sim.securityPolicy.blockRate': {
-    type: 'input',
-    label: 'Block Rate',
-    unit: 'ratio',
-    step: 0.001
-  },
-  'sim.securityPolicy.droppedPackets': {
-    type: 'input',
-    label: 'Dropped Packets',
-    unit: 'ratio',
-    step: 0.001
-  },
-  'sim.slo.latencyP99': { type: 'input', label: 'SLO P99', unit: 'ms' },
-  'sim.slo.availabilityTarget': {
-    type: 'input',
-    label: 'Availability Target',
-    unit: 'ratio',
-    step: 0.001
+export interface ResolvedConfigSection {
+  id: string
+  title: string
+  fields: ResolvedFieldDefinition[]
+  note?: {
+    tone: ConfigNoteTone
+    text: string
   }
 }
 
-export const FIELD_ACCURACY: Partial<Record<FieldPath, AccuracyClass>> = {
-  routingStrategy: 'user-parameter',
-  'sim.healthCheckEnabled': 'user-parameter',
-  'sim.cacheHitRate': 'user-parameter',
-  'sim.cacheHitLatencyMs': 'user-parameter',
-  'sim.ttlSeconds': 'user-parameter',
-  'source.defaultWorkload.pattern': 'user-parameter',
-  'source.defaultWorkload.baseRps': 'user-parameter',
-  'source.defaultWorkload.bursty.burstRps': 'user-parameter',
-  'source.defaultWorkload.bursty.burstDuration': 'user-parameter',
-  'source.defaultWorkload.bursty.normalDuration': 'user-parameter',
-  'source.defaultWorkload.spike.spikeTime': 'user-parameter',
-  'source.defaultWorkload.spike.spikeRps': 'user-parameter',
-  'source.defaultWorkload.spike.spikeDuration': 'user-parameter',
-  'source.defaultWorkload.sawtooth.peakRps': 'user-parameter',
-  'source.defaultWorkload.sawtooth.rampDuration': 'user-parameter',
-  'sim.queue.workers': 'user-parameter',
-  'sim.queue.capacity': 'user-parameter',
-  'sim.queue.discipline': 'user-parameter',
-  'sim.processing.timeout': 'user-parameter',
-  'sim.processing.distribution.type': 'user-parameter',
-  'sim.processing.distribution.value': 'user-parameter',
-  'sim.processing.distribution.lambda': 'user-parameter',
-  'sim.processing.distribution.mu': 'user-parameter',
-  'sim.processing.distribution.sigma': 'user-parameter',
-  'sim.processing.distribution.mean': 'user-parameter',
-  'sim.processing.distribution.stdDev': 'user-parameter',
-  'sim.nodeErrorRate': 'user-parameter',
-  'sim.securityPolicy.blockRate': 'user-parameter',
-  'sim.securityPolicy.droppedPackets': 'user-parameter',
-  'sim.slo.latencyP99': 'user-parameter',
-  'sim.slo.availabilityTarget': 'user-parameter'
+function resolveText(
+  value: string | ((data: AnyNodeData) => string) | undefined,
+  data: AnyNodeData
+): string | undefined {
+  if (typeof value === 'function') {
+    return value(data)
+  }
+
+  return value
 }
 
-export const PROFILE_FIELD_GROUPS: Record<NodeProfile, Record<string, FieldPath[]>> = {
-  source: {
-    Workload: ['source.defaultWorkload.pattern', 'source.defaultWorkload.baseRps'],
-    Pattern: [
-      'source.defaultWorkload.bursty.burstRps',
-      'source.defaultWorkload.bursty.burstDuration',
-      'source.defaultWorkload.bursty.normalDuration',
-      'source.defaultWorkload.spike.spikeTime',
-      'source.defaultWorkload.spike.spikeRps',
-      'source.defaultWorkload.spike.spikeDuration',
-      'source.defaultWorkload.sawtooth.peakRps',
-      'source.defaultWorkload.sawtooth.rampDuration'
-    ]
-  },
-  router: {
-    Routing: ['routingStrategy', 'sim.healthCheckEnabled'],
-    Caching: ['sim.cacheHitRate', 'sim.cacheHitLatencyMs', 'sim.ttlSeconds'],
-    Queueing: ['sim.queue.workers', 'sim.queue.capacity', 'sim.queue.discipline'],
-    Processing: [
-      'sim.processing.timeout',
-      'sim.processing.distribution.type',
-      'sim.processing.distribution.value',
-      'sim.processing.distribution.lambda',
-      'sim.processing.distribution.mu',
-      'sim.processing.distribution.sigma',
-      'sim.processing.distribution.mean',
-      'sim.processing.distribution.stdDev'
-    ],
-    Reliability: ['sim.nodeErrorRate', 'sim.slo.latencyP99', 'sim.slo.availabilityTarget']
-  },
-  'compute-service': {
-    Queueing: ['sim.queue.workers', 'sim.queue.capacity', 'sim.queue.discipline'],
-    Processing: [
-      'sim.processing.timeout',
-      'sim.processing.distribution.type',
-      'sim.processing.distribution.value',
-      'sim.processing.distribution.lambda',
-      'sim.processing.distribution.mu',
-      'sim.processing.distribution.sigma',
-      'sim.processing.distribution.mean',
-      'sim.processing.distribution.stdDev'
-    ],
-    Reliability: ['sim.nodeErrorRate', 'sim.slo.latencyP99', 'sim.slo.availabilityTarget']
-  },
-  worker: {
-    Queueing: ['sim.queue.workers', 'sim.queue.capacity', 'sim.queue.discipline'],
-    Processing: [
-      'sim.processing.timeout',
-      'sim.processing.distribution.type',
-      'sim.processing.distribution.value',
-      'sim.processing.distribution.lambda',
-      'sim.processing.distribution.mu',
-      'sim.processing.distribution.sigma',
-      'sim.processing.distribution.mean',
-      'sim.processing.distribution.stdDev'
-    ],
-    Reliability: ['sim.nodeErrorRate', 'sim.slo.latencyP99', 'sim.slo.availabilityTarget']
-  },
-  datastore: {
-    Caching: ['sim.cacheHitRate', 'sim.cacheHitLatencyMs', 'sim.ttlSeconds'],
-    Queueing: ['sim.queue.workers', 'sim.queue.capacity', 'sim.queue.discipline'],
-    Processing: [
-      'sim.processing.timeout',
-      'sim.processing.distribution.type',
-      'sim.processing.distribution.value',
-      'sim.processing.distribution.lambda',
-      'sim.processing.distribution.mu',
-      'sim.processing.distribution.sigma',
-      'sim.processing.distribution.mean',
-      'sim.processing.distribution.stdDev'
-    ],
-    Reliability: ['sim.nodeErrorRate', 'sim.slo.latencyP99', 'sim.slo.availabilityTarget']
-  },
-  broker: {
-    Queueing: ['sim.queue.workers', 'sim.queue.capacity', 'sim.queue.discipline'],
-    Processing: [
-      'sim.processing.timeout',
-      'sim.processing.distribution.type',
-      'sim.processing.distribution.value',
-      'sim.processing.distribution.lambda',
-      'sim.processing.distribution.mu',
-      'sim.processing.distribution.sigma',
-      'sim.processing.distribution.mean',
-      'sim.processing.distribution.stdDev'
-    ],
-    Reliability: ['sim.nodeErrorRate']
-  },
-  'security-filter': {
-    Queueing: ['sim.queue.workers', 'sim.queue.capacity', 'sim.queue.discipline'],
-    Processing: [
-      'sim.processing.timeout',
-      'sim.processing.distribution.type',
-      'sim.processing.distribution.value',
-      'sim.processing.distribution.lambda',
-      'sim.processing.distribution.mu',
-      'sim.processing.distribution.sigma',
-      'sim.processing.distribution.mean',
-      'sim.processing.distribution.stdDev'
-    ],
-    Security: ['sim.securityPolicy.blockRate', 'sim.securityPolicy.droppedPackets'],
-    Reliability: ['sim.nodeErrorRate', 'sim.slo.latencyP99', 'sim.slo.availabilityTarget']
-  },
-  'control-plane': {
-    Queueing: ['sim.queue.workers', 'sim.queue.capacity', 'sim.queue.discipline'],
-    Processing: [
-      'sim.processing.timeout',
-      'sim.processing.distribution.type',
-      'sim.processing.distribution.value',
-      'sim.processing.distribution.lambda',
-      'sim.processing.distribution.mu',
-      'sim.processing.distribution.sigma',
-      'sim.processing.distribution.mean',
-      'sim.processing.distribution.stdDev'
-    ],
-    Reliability: ['sim.nodeErrorRate', 'sim.slo.latencyP99', 'sim.slo.availabilityTarget']
-  },
-  observability: {
-    Queueing: ['sim.queue.workers', 'sim.queue.capacity', 'sim.queue.discipline'],
-    Processing: [
-      'sim.processing.timeout',
-      'sim.processing.distribution.type',
-      'sim.processing.distribution.value',
-      'sim.processing.distribution.lambda',
-      'sim.processing.distribution.mu',
-      'sim.processing.distribution.sigma',
-      'sim.processing.distribution.mean',
-      'sim.processing.distribution.stdDev'
-    ],
-    Reliability: ['sim.nodeErrorRate', 'sim.slo.latencyP99', 'sim.slo.availabilityTarget']
-  },
-  integration: {
-    Queueing: ['sim.queue.workers', 'sim.queue.capacity', 'sim.queue.discipline'],
-    Processing: [
-      'sim.processing.timeout',
-      'sim.processing.distribution.type',
-      'sim.processing.distribution.value',
-      'sim.processing.distribution.lambda',
-      'sim.processing.distribution.mu',
-      'sim.processing.distribution.sigma',
-      'sim.processing.distribution.mean',
-      'sim.processing.distribution.stdDev'
-    ],
-    Reliability: ['sim.nodeErrorRate', 'sim.slo.latencyP99', 'sim.slo.availabilityTarget']
-  },
-  composite: {}
+function resolveNote(
+  value: string | ((data: AnyNodeData) => string | null) | undefined,
+  data: AnyNodeData
+): string | undefined {
+  if (typeof value === 'function') {
+    return value(data) ?? undefined
+  }
+
+  return value
+}
+
+function fieldVisible(field: ConfigField, data: AnyNodeData): boolean {
+  return field.visible ? field.visible(data) : true
+}
+
+function resolveField(field: ConfigField, data: AnyNodeData): ResolvedFieldDefinition {
+  const base = {
+    path: field.path,
+    type: field.type,
+    label: resolveText(field.label, data) ?? field.path,
+    unit: resolveText(field.unit, data),
+    why: field.why,
+    altitude: field.altitude ?? 'primary',
+    optional: field.optional ?? false,
+    accuracy: field.accuracy ?? 'user-parameter',
+    renderer: field.renderer ?? 'default',
+    displayAs: field.displayAs,
+    placeholder: field.placeholder
+  } satisfies Omit<ResolvedFieldDefinition, 'options' | 'min' | 'max' | 'step' | 'defaultValue'>
+
+  switch (field.type) {
+    case 'slider':
+      return {
+        ...base,
+        min: field.min,
+        max: field.max
+      }
+    case 'select':
+      return {
+        ...base,
+        options: typeof field.options === 'function' ? field.options(data) : field.options
+      }
+    case 'boolean':
+      return {
+        ...base,
+        defaultValue: field.defaultValue
+      }
+    case 'input':
+    default:
+      return {
+        ...base,
+        step: field.step
+      }
+  }
+}
+
+function mergeSection(
+  target: ResolvedConfigSection,
+  incoming: ResolvedConfigSection
+): ResolvedConfigSection {
+  return {
+    ...target,
+    fields: [...target.fields, ...incoming.fields],
+    note: target.note ?? incoming.note
+  }
+}
+
+function createForbiddenSection(
+  moduleName: string,
+  title: string,
+  text: string
+): ResolvedConfigSection {
+  return {
+    id: `${moduleName}:forbidden`,
+    title,
+    fields: [],
+    note: {
+      tone: 'locked',
+      text
+    }
+  }
+}
+
+export function getNodeConfigSections(data: AnyNodeData): ResolvedConfigSection[] {
+  const sections = new Map<string, ResolvedConfigSection>()
+
+  for (const module of NODE_CONFIG_MODULES) {
+    const applies = moduleAppliesToNode(module, data)
+    const forbidden =
+      typeof data.componentType === 'string' &&
+      module.forbiddenOn?.types.includes(data.componentType)
+        ? module.forbiddenOn
+        : undefined
+
+    if (!applies && !forbidden) {
+      continue
+    }
+
+    if (forbidden && !applies) {
+      const section = createForbiddenSection(
+        module.name,
+        forbidden.sectionTitle ?? resolveText(module.config?.sections[0]?.title, data) ?? 'Config',
+        forbidden.lockedNote
+      )
+      sections.set(section.id, section)
+      continue
+    }
+
+    for (const section of module.config?.sections ?? []) {
+      const resolvedFields = section.fields
+        .filter((field) => fieldVisible(field, data))
+        .map((field) => resolveField(field, data))
+
+      const noteText = resolveNote(section.note, data)
+
+      if (resolvedFields.length === 0 && !noteText) {
+        continue
+      }
+
+      const resolvedSection: ResolvedConfigSection = {
+        id: section.id,
+        title: resolveText(section.title, data) ?? section.id,
+        fields: resolvedFields,
+        note: noteText
+          ? {
+              tone: section.noteTone ?? 'info',
+              text: noteText
+            }
+          : undefined
+      }
+
+      const existing = sections.get(section.id)
+      sections.set(section.id, existing ? mergeSection(existing, resolvedSection) : resolvedSection)
+    }
+  }
+
+  return Array.from(sections.values())
 }
