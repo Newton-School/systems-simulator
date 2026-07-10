@@ -1,5 +1,6 @@
 import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react'
 import { Panel, PanelGroup, ImperativePanelHandle } from 'react-resizable-panels'
+import { AlertTriangle } from 'lucide-react'
 
 // Store
 import useStore from '@renderer/store/useStore'
@@ -71,6 +72,8 @@ export const WorkspaceLayout = () => {
     tone: 'warning'
   })
   const [lastRunContext, setLastRunContext] = useState<ScenarioRunContext | null>(null)
+  const [lastRunTopologyJson, setLastRunTopologyJson] = useState<string | null>(null)
+  const [isTopologyStale, setIsTopologyStale] = useState(false)
 
   // Panel refs — panels stay in the DOM always; we collapse/expand imperatively
   // so that opening one side never redistributes the other side's size.
@@ -180,6 +183,31 @@ export const WorkspaceLayout = () => {
     }
   }, [sim.status, clearSimulationMetrics])
 
+  const simReset = sim.reset
+
+  useEffect(() => {
+    if (nodes.length === 0) {
+      setShowResults(false)
+      setIsTopologyStale(false)
+      setLastRunTopologyJson(null)
+      simReset()
+      clearSimulationMetrics()
+      setLastRunContext(null)
+      return
+    }
+
+    if (lastRunTopologyJson) {
+      const { topology } = serialize()
+      const currentJson = topology ? JSON.stringify(topology) : null
+      if (currentJson !== lastRunTopologyJson) {
+        setIsTopologyStale(true)
+        setShowResults(false)
+      } else {
+        setIsTopologyStale(false)
+      }
+    }
+  }, [serialize, lastRunTopologyJson, nodes.length, simReset, clearSimulationMetrics])
+
   function startSimulation() {
     const { topology, errors, runContext } = serialize()
 
@@ -202,6 +230,8 @@ export const WorkspaceLayout = () => {
 
     setRunIssues({ messages: validation.warnings ?? [], tone: 'warning' })
     setShowResults(true)
+    setIsTopologyStale(false)
+    setLastRunTopologyJson(JSON.stringify(topology))
     setLastRunContext(runContext)
     clearSimulationMetrics()
     const flowStore = useStore.getState()
@@ -306,12 +336,26 @@ export const WorkspaceLayout = () => {
             <PanelGroup direction="vertical" autoSaveId="main-layout-vertical">
               {/* Canvas */}
               <Panel defaultSize={showResults ? 65 : 100} minSize={10} order={1}>
-                <FlowCanvas
-                  onNodeDoubleClick={(_, node) => {
-                    selectGraphElements({ nodeId: node.id })
-                    setIsRightOpen(true)
-                  }}
-                />
+                <div className="relative h-full w-full">
+                  <FlowCanvas
+                    onNodeDoubleClick={(_, node) => {
+                      selectGraphElements({ nodeId: node.id })
+                      setIsRightOpen(true)
+                    }}
+                  />
+                  {isTopologyStale && (
+                    <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-5 py-3 bg-nss-warning/10 border border-nss-warning/30 text-nss-warning rounded-lg shadow-lg backdrop-blur-sm pointer-events-auto">
+                      <AlertTriangle className="w-5 h-5" />
+                      <span className="text-sm font-medium">Topology changed. Run simulation again to see results.</span>
+                      <button 
+                        onClick={startSimulation}
+                        className="ml-2 px-4 py-1.5 text-sm font-semibold bg-nss-warning/20 hover:bg-nss-warning/30 text-nss-warning rounded-md transition-colors"
+                      >
+                        Run
+                      </button>
+                    </div>
+                  )}
+                </div>
               </Panel>
 
               {/* Results Tray */}
