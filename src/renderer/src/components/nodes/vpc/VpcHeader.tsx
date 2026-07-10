@@ -1,16 +1,28 @@
 import { memo } from 'react'
 import { Cloud, Lock, LucideIcon } from 'lucide-react'
 import { InlineEditableLabel } from '@renderer/components/properties/InlineEditable'
+import { ColorTheme } from '@renderer/types/ui'
 interface VpcHeaderProps {
   label: string
   isSuccessState: boolean
   icon?: LucideIcon
+  theme?: ColorTheme
   onLabelChange?: (newLabel: string) => void
   children?: React.ReactNode
 }
 
 export const VpcHeader = memo(
-  ({ label, isSuccessState, icon: Icon = Cloud, onLabelChange, children }: VpcHeaderProps) => {
+  ({
+    label,
+    isSuccessState,
+    icon: Icon = Cloud,
+    theme,
+    onLabelChange,
+    children
+  }: VpcHeaderProps) => {
+    const safeBg = theme?.bg || 'bg-nss-surface'
+    const safeText = theme?.text || 'text-nss-primary'
+
     return (
       <div
         className={`
@@ -18,10 +30,17 @@ export const VpcHeader = memo(
       ${isSuccessState ? 'border-[rgb(var(--nss-success))]/30' : 'border-[var(--nss-vpc-border)]'}
         `}
       >
-        <div className="p-1 rounded bg-nss-surface border border-nss-border shrink-0">
+        <div
+          className={`
+          p-1 rounded border border-nss-border shrink-0 flex items-center justify-center
+          ${isSuccessState ? 'bg-[rgb(var(--nss-success))]/10' : `${safeBg} bg-opacity-30 dark:bg-opacity-30`}
+        `}
+        >
           <Icon
             size={14}
-            className={isSuccessState ? 'text-[rgb(var(--nss-success))]' : 'text-nss-primary'}
+            className={
+              isSuccessState ? 'text-[rgb(var(--nss-success))]' : `${safeText} dark:!text-nss-bg`
+            }
           />
         </div>
 

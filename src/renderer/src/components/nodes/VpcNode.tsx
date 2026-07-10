@@ -6,6 +6,7 @@ import { VpcToolbar } from './vpc/VpcToolbar'
 import { VpcHeader } from './vpc/VpcHeader'
 import { NodeSettingsMenu } from '@renderer/components/nodes/NodeSettingsMenu'
 import { useFlowStore } from '../canvas/hooks/useFlowStore'
+import { resolveNodeConfig } from '@renderer/config/nodeRegistry'
 
 const VPC_ICON_LOOKUP: Record<string, LucideIcon> = {
   cloud: Cloud,
@@ -16,6 +17,7 @@ const VPC_ICON_LOOKUP: Record<string, LucideIcon> = {
 const VpcNode = ({ id, data, selected }: NodeProps) => {
   const { updateNodeData } = useFlowStore()
   const { isUngrouped, hasChildren, minSize, handleUngroup } = useVpcLogic(id)
+  const { theme } = resolveNodeConfig(data.templateId || data.iconKey)
   const ContainerIcon = VPC_ICON_LOOKUP[data.iconKey] || Cloud
   const [isMenuOpen, setIsMenuOpen] = useState(false)
 
@@ -60,6 +62,7 @@ const VpcNode = ({ id, data, selected }: NodeProps) => {
           label={data.label}
           isSuccessState={isSuccessState}
           icon={ContainerIcon}
+          theme={theme}
           onLabelChange={handleLabelChange}
         >
           <NodeSettingsMenu
