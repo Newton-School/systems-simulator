@@ -64,35 +64,13 @@ export const LibraryItem = ({ item }: LibraryItemProps) => {
   }
 
   return (
-    <div
-      draggable
-      onDragStart={onDragStart}
-      title={subLabel}
-      className="
-        group flex flex-col items-center gap-1.5 p-1.5 rounded-lg
-        cursor-grab active:cursor-grabbing select-none
-        bg-transparent hover:bg-nss-surface
-        border border-transparent hover:border-nss-border
-        transition-all duration-200
-      "
-    >
-      {/* Icon tile */}
-      <div
-        className={`
-          w-12 h-12 rounded-lg flex items-center justify-center
-          ${bg} bg-opacity-30 group-hover:bg-opacity-40
-          dark:bg-opacity-30 dark:group-hover:bg-opacity-30 transition-all
-        `}
-      >
-        <Icon size={16} className={`${text} dark:!text-nss-bg`} />
-      </div>
     <HoverTooltip content={<LibraryItemTooltipContent item={item} />}>
       {(triggerProps) => (
         <div
           draggable
           {...triggerProps}
           onDragStart={(event) => {
-            triggerProps.onDragStart()
+            if (triggerProps.onDragStart) triggerProps.onDragStart(event)
             onDragStart(event)
           }}
           className="
@@ -107,10 +85,11 @@ export const LibraryItem = ({ item }: LibraryItemProps) => {
           <div
             className={`
               w-12 h-12 rounded-lg flex items-center justify-center
-              ${bg} bg-opacity-30 group-hover:bg-opacity-40 transition-all
+              ${bg} bg-opacity-30 group-hover:bg-opacity-40
+              dark:bg-opacity-30 dark:group-hover:bg-opacity-30 transition-all
             `}
           >
-            <Icon size={16} className={text} />
+            <Icon size={16} className={`${text} dark:!text-nss-bg`} />
           </div>
 
           {/* Label */}

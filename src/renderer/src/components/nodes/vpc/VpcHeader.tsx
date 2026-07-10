@@ -12,7 +12,14 @@ interface VpcHeaderProps {
 }
 
 export const VpcHeader = memo(
-  ({ label, isSuccessState, icon: Icon = Cloud, theme, onLabelChange, children }: VpcHeaderProps) => {
+  ({
+    label,
+    isSuccessState,
+    icon: Icon = Cloud,
+    theme,
+    onLabelChange,
+    children
+  }: VpcHeaderProps) => {
     const safeBg = theme?.bg || 'bg-nss-surface'
     const safeText = theme?.text || 'text-nss-primary'
 
@@ -23,16 +30,16 @@ export const VpcHeader = memo(
       ${isSuccessState ? 'border-[rgb(var(--nss-success))]/30' : 'border-[var(--nss-vpc-border)]'}
         `}
       >
-        <div className={`
+        <div
+          className={`
           p-1 rounded border border-nss-border shrink-0 flex items-center justify-center
           ${isSuccessState ? 'bg-[rgb(var(--nss-success))]/10' : `${safeBg} bg-opacity-30 dark:bg-opacity-30`}
-        `}>
+        `}
+        >
           <Icon
             size={14}
             className={
-              isSuccessState 
-                ? 'text-[rgb(var(--nss-success))]' 
-                : `${safeText} dark:!text-nss-bg`
+              isSuccessState ? 'text-[rgb(var(--nss-success))]' : `${safeText} dark:!text-nss-bg`
             }
           />
         </div>
