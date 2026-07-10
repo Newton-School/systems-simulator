@@ -61,6 +61,21 @@ function PanelFallback({ label }: { label: string }) {
   )
 }
 
+function getTopologyHash(topology: any): string | null {
+  if (!topology) return null
+  try {
+    const clone = JSON.parse(JSON.stringify(topology))
+    if (Array.isArray(clone.nodes)) {
+      clone.nodes.forEach((n: any) => {
+        delete n.position
+      })
+    }
+    return JSON.stringify(clone)
+  } catch {
+    return null
+  }
+}
+
 export const WorkspaceLayout = () => {
   // Sidebar State
   const [isLeftOpen, setIsLeftOpen] = useState(true)
@@ -198,7 +213,7 @@ export const WorkspaceLayout = () => {
 
     if (lastRunTopologyJson) {
       const { topology } = serialize()
-      const currentJson = topology ? JSON.stringify(topology) : null
+      const currentJson = getTopologyHash(topology)
       if (currentJson !== lastRunTopologyJson) {
         setIsTopologyStale(true)
         setShowResults(false)
@@ -231,7 +246,7 @@ export const WorkspaceLayout = () => {
     setRunIssues({ messages: validation.warnings ?? [], tone: 'warning' })
     setShowResults(true)
     setIsTopologyStale(false)
-    setLastRunTopologyJson(JSON.stringify(topology))
+    setLastRunTopologyJson(getTopologyHash(topology))
     setLastRunContext(runContext)
     clearSimulationMetrics()
     const flowStore = useStore.getState()
