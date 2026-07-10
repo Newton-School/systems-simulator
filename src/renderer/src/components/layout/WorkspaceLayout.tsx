@@ -344,12 +344,12 @@ export const WorkspaceLayout = () => {
                     }}
                   />
                   {isTopologyStale && (
-                    <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-5 py-3 bg-nss-warning/10 border border-nss-warning/30 text-nss-warning rounded-lg shadow-lg backdrop-blur-sm pointer-events-auto">
-                      <AlertTriangle className="w-5 h-5" />
+                    <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-5 py-3 bg-yellow-50 border border-yellow-300 text-yellow-800 rounded-lg shadow-lg pointer-events-auto">
+                      <AlertTriangle className="w-5 h-5 text-yellow-600" />
                       <span className="text-sm font-medium">Topology changed. Run simulation again to see results.</span>
                       <button 
                         onClick={startSimulation}
-                        className="ml-2 px-4 py-1.5 text-sm font-semibold bg-nss-warning/20 hover:bg-nss-warning/30 text-nss-warning rounded-md transition-colors"
+                        className="ml-2 px-4 py-1.5 text-sm font-semibold bg-yellow-200 hover:bg-yellow-300 text-yellow-900 rounded-md transition-colors shadow-sm"
                       >
                         Run
                       </button>
