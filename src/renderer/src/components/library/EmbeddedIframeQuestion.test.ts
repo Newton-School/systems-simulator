@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseEmbeddedIframeQuestion } from './EmbeddedIframeQuestion'
+import { parseEmbeddedIframeQuestion } from './embeddedIframeQuestion'
 
 describe('parseEmbeddedIframeQuestion', () => {
   it('parses a valid embedded-iframe question payload', () => {

@@ -1,13 +1,17 @@
 import { msToMicro } from '../core/time'
-import type { ComponentNode, ComponentType, DistributionConfig, RandomGenerator } from '../core/types'
+import type {
+  ComponentNode,
+  ComponentType,
+  DistributionConfig,
+  RandomGenerator
+} from '../core/types'
 import { Distributions } from '../stochastic/distribution'
-import {
-  SERVICE_TIME_LATENCY_PENALTY_MS_KEY,
-  asDistributionConfig
-} from './serviceTimeOverride'
+import { SERVICE_TIME_LATENCY_PENALTY_MS_KEY, asDistributionConfig } from './serviceTimeOverride'
 import type { NodeBehaviourTrait, NodeCapabilityModule } from './types'
 
-export const COLD_START_COMPONENT_TYPES = ['serverless-function'] as const satisfies readonly ComponentType[]
+export const COLD_START_COMPONENT_TYPES = [
+  'serverless-function'
+] as const satisfies readonly ComponentType[]
 
 const DEFAULT_COLD_START_LATENCY_MS = 200
 const DEFAULT_IDLE_TIMEOUT_MS = 30_000
@@ -81,10 +85,7 @@ export const coldStartTrait: NodeBehaviourTrait = {
     const lastRequestAt = state?.get<bigint>(key)
     state?.set(key, clock)
 
-    if (
-      lastRequestAt !== undefined &&
-      clock - lastRequestAt <= msToMicro(config.idleTimeoutMs)
-    ) {
+    if (lastRequestAt !== undefined && clock - lastRequestAt <= msToMicro(config.idleTimeoutMs)) {
       return {
         action: 'continue',
         payload: { coldStart: false, idleTimeoutMs: config.idleTimeoutMs }

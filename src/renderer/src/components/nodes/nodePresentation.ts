@@ -108,7 +108,10 @@ export function getIdentityChip(data: AnyNodeData): IdentityChip | null {
   // AckAndReleaseTrait has no config knob - it's unconditionally active on
   // every Message Queue - so it needs an explicit declaration or it never
   // shows up as anything at all, despite being real, defining behavior.
-  if (typeof data.componentType === 'string' && ACK_AND_RELEASE_COMPONENT_TYPE_SET.has(data.componentType)) {
+  if (
+    typeof data.componentType === 'string' &&
+    ACK_AND_RELEASE_COMPONENT_TYPE_SET.has(data.componentType)
+  ) {
     return { label: 'Async', value: 'acks at enqueue' }
   }
   if (typeof data.sim?.refillRatePerSecond === 'number') {
@@ -117,7 +120,10 @@ export function getIdentityChip(data: AnyNodeData): IdentityChip | null {
   // Shown even at the true default: health-aware routing not visibly stating
   // itself is exactly the "LB routes to dead servers" trust gap this trait
   // exists to close, so its state is worth declaring either way.
-  if (typeof data.componentType === 'string' && HEALTH_AWARE_COMPONENT_TYPE_SET.has(data.componentType)) {
+  if (
+    typeof data.componentType === 'string' &&
+    HEALTH_AWARE_COMPONENT_TYPE_SET.has(data.componentType)
+  ) {
     return {
       label: 'Health checks',
       value: data.sim?.healthCheckEnabled === false ? 'off' : 'on'

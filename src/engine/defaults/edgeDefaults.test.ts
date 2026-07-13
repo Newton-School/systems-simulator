@@ -8,7 +8,11 @@ import {
 } from './edgeDefaults'
 
 function makeCanvasNode(
-  overrides: Partial<CanvasNodeDataV2> & Pick<CanvasNodeDataV2, 'templateId' | 'structuralRole' | 'profile' | 'rendererType' | 'label' | 'iconKey'>
+  overrides: Partial<CanvasNodeDataV2> &
+    Pick<
+      CanvasNodeDataV2,
+      'templateId' | 'structuralRole' | 'profile' | 'rendererType' | 'label' | 'iconKey'
+    >
 ): CanvasNodeDataV2 {
   return {
     schemaVersion: 2,

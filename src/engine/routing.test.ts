@@ -133,10 +133,7 @@ describe('RoutingTable', () => {
     const routing = new RoutingTable(edges, createRandom('rr'), nodes)
     const request = makeRequest()
 
-    const picks = Array.from(
-      { length: 7 },
-      () => routing.resolveTarget('my-router-1', request)[0]
-    )
+    const picks = Array.from({ length: 7 }, () => routing.resolveTarget('my-router-1', request)[0])
     expect(picks.map((r) => r.targetNodeId)).toEqual(['a', 'b', 'c', 'a', 'b', 'c', 'a'])
   })
 
@@ -255,10 +252,14 @@ describe('RoutingTable', () => {
         decision: 'filtered-to-b'
       })
     }
-    const traitResolver: TraitResolver = (node) =>
-      node.id === 'router' ? [filterTrait] : []
+    const traitResolver: TraitResolver = (node) => (node.id === 'router' ? [filterTrait] : [])
 
-    const routing = new RoutingTable(edges, createRandom('trait-filter'), [makeNode('router')], traitResolver)
+    const routing = new RoutingTable(
+      edges,
+      createRandom('trait-filter'),
+      [makeNode('router')],
+      traitResolver
+    )
 
     const resolved = routing.resolveTarget('router', makeRequest())
     expect(resolved).toHaveLength(1)
@@ -283,7 +284,12 @@ describe('RoutingTable', () => {
       }
     }
 
-    const routing = new RoutingTable(edges, createRandom('content-routing'), [gateway], resolveTraits)
+    const routing = new RoutingTable(
+      edges,
+      createRandom('content-routing'),
+      [gateway],
+      resolveTraits
+    )
 
     for (let i = 0; i < 5; i++) {
       const writeResult = routing.resolveTarget('gw', makeRequest('write'))

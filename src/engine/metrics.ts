@@ -368,8 +368,7 @@ export class MetricsCollector {
       const latencyP99 = this.percentileSorted(sortedLatencies, 0.99)
       const cacheHits = metrics?.cacheHits ?? 0
       const cacheMisses = metrics?.cacheMisses ?? 0
-      const cacheHitRatio =
-        cacheHits + cacheMisses > 0 ? cacheHits / (cacheHits + cacheMisses) : 0
+      const cacheHitRatio = cacheHits + cacheMisses > 0 ? cacheHits / (cacheHits + cacheMisses) : 0
 
       // Post-warmup W: sojourn time averaged over spans whose arrivalTime is post-warmup
       const pwProcessed = metrics?.postWarmupProcessed ?? 0

@@ -1,7 +1,12 @@
 import { msToMicro } from '../core/time'
 import type { Request } from '../core/events'
 import type { ComponentNode, ComponentType } from '../core/types'
-import type { BeforeRoutingDecision, NodeBehaviourTrait, NodeCapabilityModule, TraitStateStore } from './types'
+import type {
+  BeforeRoutingDecision,
+  NodeBehaviourTrait,
+  NodeCapabilityModule,
+  TraitStateStore
+} from './types'
 
 export const CIRCUIT_BREAKER_COMPONENT_TYPES = [
   'service-mesh',
@@ -36,7 +41,9 @@ function asPositiveInt(value: unknown): number | null {
 }
 
 function asRatio(value: unknown): number | null {
-  return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1 ? value : null
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1
+    ? value
+    : null
 }
 
 const DEFAULT_BREAKER_CONFIG: CircuitBreakerConfig = {
@@ -123,7 +130,11 @@ export function beginCircuitBreakerRouting(
   }
 
   let current = getState(store)
-  if (current.phase === 'open' && current.openUntilUs !== undefined && clock >= current.openUntilUs) {
+  if (
+    current.phase === 'open' &&
+    current.openUntilUs !== undefined &&
+    clock >= current.openUntilUs
+  ) {
     current = {
       phase: 'half-open',
       recentOutcomes: [],
@@ -173,8 +184,7 @@ export function readCircuitBreakerTracking(request: Request): CircuitBreakerTrac
   }
 
   const tracking = raw as Partial<CircuitBreakerTracking>
-  return typeof tracking.trackerNodeId === 'string' &&
-    typeof tracking.targetNodeId === 'string'
+  return typeof tracking.trackerNodeId === 'string' && typeof tracking.targetNodeId === 'string'
     ? { trackerNodeId: tracking.trackerNodeId, targetNodeId: tracking.targetNodeId }
     : null
 }
@@ -327,7 +337,8 @@ export const circuitBreakerCapabilityModule: NodeCapabilityModule = {
     {
       path: 'sim.circuitBreaker.halfOpenRequests',
       value: DEFAULT_BREAKER_CONFIG.halfOpenRequests,
-      rationale: 'Probe traffic stays intentionally small until the downstream proves healthy again.'
+      rationale:
+        'Probe traffic stays intentionally small until the downstream proves healthy again.'
     }
   ],
   metrics: {

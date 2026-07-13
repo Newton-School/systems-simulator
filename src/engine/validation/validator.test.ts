@@ -400,7 +400,10 @@ describe('validateTopology node config validation', () => {
     const result = validateTopology(
       makeTopology({
         nodes: [source, router, service],
-        edges: [makeEdge('client-lb', source.id, router.id), makeEdge('lb-service', router.id, service.id)],
+        edges: [
+          makeEdge('client-lb', source.id, router.id),
+          makeEdge('lb-service', router.id, service.id)
+        ],
         sourceNodeId: source.id
       })
     )

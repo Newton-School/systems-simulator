@@ -43,16 +43,19 @@ export const EdgePropertiesPanel = ({
   onClose
 }: EdgePropertiesPanelProps) => {
   const defaults = inferEdgeDefaults(sourceNodeData, targetNodeData)
-  const constraints = getEdgeConstraints(sourceNodeData?.componentType, targetNodeData?.componentType)
+  const constraints = getEdgeConstraints(
+    sourceNodeData?.componentType,
+    targetNodeData?.componentType
+  )
   const selectedProtocol = value.protocol ?? defaults.protocol
   const selectedMode = value.mode ?? 'synchronous'
   const selectedCondition = value.condition ?? ''
-  const protocolWarning =
-    !constraints.allowedProtocols.includes(selectedProtocol)
-      ? constraints.reasons.protocol[selectedProtocol]
-      : null
-  const modeWarning =
-    !constraints.allowedModes.includes(selectedMode) ? constraints.reasons.mode[selectedMode] : null
+  const protocolWarning = !constraints.allowedProtocols.includes(selectedProtocol)
+    ? constraints.reasons.protocol[selectedProtocol]
+    : null
+  const modeWarning = !constraints.allowedModes.includes(selectedMode)
+    ? constraints.reasons.mode[selectedMode]
+    : null
 
   return (
     <div className="absolute top-4 right-4 z-10 w-72 p-4 rounded shadow-xl border border-nss-border bg-nss-panel transition-colors duration-200">
@@ -117,7 +120,11 @@ export const EdgePropertiesPanel = ({
               className={CONTROL_CLASS}
             >
               {EDGE_MODE_OPTIONS.map((option) => (
-                <option key={option} value={option} disabled={!constraints.allowedModes.includes(option)}>
+                <option
+                  key={option}
+                  value={option}
+                  disabled={!constraints.allowedModes.includes(option)}
+                >
                   {option}
                   {!constraints.allowedModes.includes(option)
                     ? ` - ${constraints.reasons.mode[option]}`
@@ -125,7 +132,9 @@ export const EdgePropertiesPanel = ({
                 </option>
               ))}
             </select>
-            {modeWarning && <p className="text-[10px] leading-relaxed text-nss-warning">{modeWarning}</p>}
+            {modeWarning && (
+              <p className="text-[10px] leading-relaxed text-nss-warning">{modeWarning}</p>
+            )}
           </div>
         </div>
 

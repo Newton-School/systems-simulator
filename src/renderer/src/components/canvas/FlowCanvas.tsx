@@ -34,10 +34,7 @@ interface FlowCanvasProps {
   onNodeDoubleClick?: (event: React.MouseEvent, node: Node) => void
 }
 
-const FlowCanvasInternal = ({
-  showMetricLens = false,
-  onNodeDoubleClick
-}: FlowCanvasProps) => {
+const FlowCanvasInternal = ({ showMetricLens = false, onNodeDoubleClick }: FlowCanvasProps) => {
   const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance | null>(null)
   const [selectedEdge, setSelectedEdge] = useState<Edge | null>(null)
 
@@ -171,12 +168,16 @@ const FlowCanvasInternal = ({
 
       {selectedEdge && (
         <EdgePropertiesPanel
-          sourceNodeData={nodes.find((node) => node.id === selectedEdge.source)?.data as
-            | CanvasNodeDataV2
-            | undefined}
-          targetNodeData={nodes.find((node) => node.id === selectedEdge.target)?.data as
-            | CanvasNodeDataV2
-            | undefined}
+          sourceNodeData={
+            nodes.find((node) => node.id === selectedEdge.source)?.data as
+              | CanvasNodeDataV2
+              | undefined
+          }
+          targetNodeData={
+            nodes.find((node) => node.id === selectedEdge.target)?.data as
+              | CanvasNodeDataV2
+              | undefined
+          }
           value={{
             label: (selectedEdge.label as string) || '',
             ...(((selectedEdge.data as EdgeSimulationData | undefined) ?? {}) as EdgeSimulationData)

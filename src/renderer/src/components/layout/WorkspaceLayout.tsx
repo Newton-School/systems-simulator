@@ -95,7 +95,7 @@ function formatValidationIssue(
         ? edge.label
         : sourceLabel && targetLabel
           ? `${sourceLabel} -> ${targetLabel}`
-          : edge?.id ?? `Edge ${edgeIndex + 1}`
+          : (edge?.id ?? `Edge ${edgeIndex + 1}`)
 
     if (error.message.includes('received undefined')) {
       const rawFieldPath = edgeMatch[2]?.replace(/^\./, '') ?? ''
@@ -292,10 +292,9 @@ export const WorkspaceLayout = () => {
 
     const validation = validateTopology(topology)
     if (!validation.valid) {
-      const validationErrors =
-        validation.errors?.map((error) => formatValidationIssue(error, nodes, useStore.getState().edges)) ?? [
-          'Topology validation failed.'
-        ]
+      const validationErrors = validation.errors?.map((error) =>
+        formatValidationIssue(error, nodes, useStore.getState().edges)
+      ) ?? ['Topology validation failed.']
       setRunIssues({ messages: validationErrors, tone: 'error' })
       return
     }
@@ -397,10 +396,7 @@ export const WorkspaceLayout = () => {
             order={1}
             id="left-panel"
           >
-            <LibrarySidebarContent
-              activeTab={leftSidebarTab}
-              onLoadScenario={handleLoadScenario}
-            />
+            <LibrarySidebarContent activeTab={leftSidebarTab} onLoadScenario={handleLoadScenario} />
           </Panel>
           <ResizeHandle vertical id="resize-left-catalog" />
 

@@ -6,8 +6,8 @@ import { rateLimiterTrait } from './rateLimiter'
 function makeStateStore(): TraitStateStore {
   const store = new Map<string, unknown>()
   return {
-    get: <T,>(key: string) => store.get(key) as T | undefined,
-    set: <T,>(key: string, value: T) => {
+    get: <T>(key: string) => store.get(key) as T | undefined,
+    set: <T>(key: string, value: T) => {
       store.set(key, value)
     }
   }
@@ -46,7 +46,12 @@ describe('rateLimiterTrait', () => {
     const first = rateLimiterTrait.beforeArrival?.({ node, request: {} as never, clock: 0n, state })
     expect(first).toMatchObject({ action: 'continue' })
 
-    const second = rateLimiterTrait.beforeArrival?.({ node, request: {} as never, clock: 0n, state })
+    const second = rateLimiterTrait.beforeArrival?.({
+      node,
+      request: {} as never,
+      clock: 0n,
+      state
+    })
     expect(second).toMatchObject({ action: 'continue' })
 
     const third = rateLimiterTrait.beforeArrival?.({ node, request: {} as never, clock: 0n, state })

@@ -3,7 +3,10 @@ import type { ComponentType, EdgeDefinition } from '../core/types'
 
 type EdgeProtocol = EdgeDefinition['protocol']
 type EdgePathType = EdgeDefinition['latency']['pathType']
-type LogNormalLatencyProfile = Extract<EdgeDefinition['latency']['distribution'], { type: 'log-normal' }>
+type LogNormalLatencyProfile = Extract<
+  EdgeDefinition['latency']['distribution'],
+  { type: 'log-normal' }
+>
 
 const DATABASE_TYPES = new Set<ComponentType>([
   'relational-db',
@@ -17,7 +20,12 @@ const DATABASE_TYPES = new Set<ComponentType>([
   'kv-store'
 ])
 
-const CACHE_TYPES = new Set<ComponentType>(['in-memory-cache', 'cdn', 'reverse-proxy', 'search-index'])
+const CACHE_TYPES = new Set<ComponentType>([
+  'in-memory-cache',
+  'cdn',
+  'reverse-proxy',
+  'search-index'
+])
 
 const MESSAGING_TYPES = new Set<ComponentType>([
   'queue',
@@ -219,10 +227,7 @@ export function inferEdgeProtocol(
   return 'grpc'
 }
 
-function inferBandwidth(
-  pathType: EdgePathType,
-  targetType: ComponentType | undefined
-): number {
+function inferBandwidth(pathType: EdgePathType, targetType: ComponentType | undefined): number {
   if (isDatabase(targetType) || isCache(targetType)) {
     return 10_000
   }

@@ -9,8 +9,9 @@ describe('topologyCanvasAdapter', () => {
   })
 
   it('converts a curated topology into canvas file data', () => {
-    const topology = CURATED_SCENARIOS.find((scenario) => scenario.id === 'serverless-cold-start')!
-      .topology
+    const topology = CURATED_SCENARIOS.find(
+      (scenario) => scenario.id === 'serverless-cold-start'
+    )!.topology
     const canvas = topologyToCanvasFileData(topology)
 
     expect(canvas.nodes).toHaveLength(2)

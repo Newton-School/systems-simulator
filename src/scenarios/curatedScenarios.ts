@@ -25,7 +25,8 @@ export const CURATED_SCENARIOS: readonly CuratedScenario[] = [
   {
     id: 'serverless-cold-start',
     title: 'Serverless Cold Start',
-    description: 'A bursty source wakes an idle serverless function, showing the first cold-start spike and later warm requests.',
+    description:
+      'A bursty source wakes an idle serverless function, showing the first cold-start spike and later warm requests.',
     concepts: ['cold start', 'serverless', 'throttling'],
     difficulty: 'intro',
     whatToLookAt:
@@ -92,7 +93,8 @@ export const CURATED_SCENARIOS: readonly CuratedScenario[] = [
   {
     id: 'key-based-sharding',
     title: 'Key-Based Sharding',
-    description: 'Requests with the same shard key always land on the same shard while different keys spread across the ring.',
+    description:
+      'Requests with the same shard key always land on the same shard while different keys spread across the ring.',
     concepts: ['sharding', 'hash routing', 'determinism'],
     difficulty: 'intermediate',
     whatToLookAt:
@@ -245,7 +247,8 @@ export const CURATED_SCENARIOS: readonly CuratedScenario[] = [
   {
     id: 'stream-consumer-lag',
     title: 'Stream Consumer Lag',
-    description: 'A producer publishes faster than the stream can drain, causing visible lag growth inside the broker.',
+    description:
+      'A producer publishes faster than the stream can drain, causing visible lag growth inside the broker.',
     concepts: ['kafka', 'consumer lag', 'backlog'],
     difficulty: 'intermediate',
     whatToLookAt:
@@ -306,7 +309,8 @@ export const CURATED_SCENARIOS: readonly CuratedScenario[] = [
   {
     id: 'dns-weighted-routing',
     title: 'DNS Weighted Routing',
-    description: 'A resolver returns weighted answers and caches lookups, making 80/20 splits and TTL effects visible.',
+    description:
+      'A resolver returns weighted answers and caches lookups, making 80/20 splits and TTL effects visible.',
     concepts: ['dns', 'weighted routing', 'ttl cache'],
     difficulty: 'intermediate',
     whatToLookAt:
@@ -436,7 +440,8 @@ export const CURATED_SCENARIOS: readonly CuratedScenario[] = [
   {
     id: 'circuit-breaker-fail-fast',
     title: 'Circuit Breaker Fail-Fast',
-    description: 'A sidecar trips open after repeated downstream failures, then rejects quickly until probe traffic is allowed again.',
+    description:
+      'A sidecar trips open after repeated downstream failures, then rejects quickly until probe traffic is allowed again.',
     concepts: ['circuit breaker', 'fail fast', 'recovery timeout'],
     difficulty: 'advanced',
     whatToLookAt:

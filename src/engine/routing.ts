@@ -112,7 +112,6 @@ export class RoutingTable {
         )
         .map((node) => node.id)
     )
-
   }
 
   /**
@@ -326,8 +325,8 @@ export class RoutingTable {
       this.traitStateBySourceId.set(sourceNodeId, store)
     }
     return {
-      get: <T,>(key: string) => store!.get(key) as T | undefined,
-      set: <T,>(key: string, value: T) => {
+      get: <T>(key: string) => store!.get(key) as T | undefined,
+      set: <T>(key: string, value: T) => {
         store!.set(key, value)
       }
     }

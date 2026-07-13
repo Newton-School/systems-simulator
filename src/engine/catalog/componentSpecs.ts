@@ -138,10 +138,7 @@ function normalizeSLOConfig(slo: SLOConfig | undefined): SLOConfig | undefined {
     normalized.errorBudget = slo.errorBudget
   }
 
-  if (
-    normalized.availabilityTarget === undefined &&
-    typeof normalized.errorBudget === 'number'
-  ) {
+  if (normalized.availabilityTarget === undefined && typeof normalized.errorBudget === 'number') {
     normalized.availabilityTarget = clamp(1 - normalized.errorBudget, 0, 1)
   }
 
@@ -336,10 +333,7 @@ function buildRuntimeNode(
 
   if (data.sim?.coldStartLatency) {
     config.coldStartLatency = data.sim.coldStartLatency
-  } else if (
-    typeof data.sim?.coldStartLatencyMs === 'number' &&
-    data.sim.coldStartLatencyMs > 0
-  ) {
+  } else if (typeof data.sim?.coldStartLatencyMs === 'number' && data.sim.coldStartLatencyMs > 0) {
     config.coldStartLatency = { type: 'exponential', lambda: 1 / data.sim.coldStartLatencyMs }
   }
 
@@ -378,7 +372,8 @@ function buildRuntimeNode(
     // "Primary DB" and "Read Replica" share this component type — the
     // template chosen from the palette is the one truthful signal of role,
     // since it's fixed at creation time (unlike a freely renamable label).
-    config.replicationRole = data.sim?.replicationRole ?? (data.templateId === 'read-replica' ? 'replica' : 'primary')
+    config.replicationRole =
+      data.sim?.replicationRole ?? (data.templateId === 'read-replica' ? 'replica' : 'primary')
   }
 
   if (data.sim?.readLatency) {
@@ -485,11 +480,17 @@ function validateSimulationNode(data: CanvasNodeDataV2): string[] {
     errors.push('writeLatency must be a valid distribution config.')
   }
 
-  if (data.sim?.readLatencyMs !== undefined && (!Number.isFinite(data.sim.readLatencyMs) || data.sim.readLatencyMs <= 0)) {
+  if (
+    data.sim?.readLatencyMs !== undefined &&
+    (!Number.isFinite(data.sim.readLatencyMs) || data.sim.readLatencyMs <= 0)
+  ) {
     errors.push('readLatencyMs must be greater than 0.')
   }
 
-  if (data.sim?.writeLatencyMs !== undefined && (!Number.isFinite(data.sim.writeLatencyMs) || data.sim.writeLatencyMs <= 0)) {
+  if (
+    data.sim?.writeLatencyMs !== undefined &&
+    (!Number.isFinite(data.sim.writeLatencyMs) || data.sim.writeLatencyMs <= 0)
+  ) {
     errors.push('writeLatencyMs must be greater than 0.')
   }
 
@@ -501,7 +502,10 @@ function validateSimulationNode(data: CanvasNodeDataV2): string[] {
     errors.push('replicationRole must be "primary" or "replica".')
   }
 
-  if (data.sim?.maxTokens !== undefined && (!Number.isFinite(data.sim.maxTokens) || data.sim.maxTokens <= 0)) {
+  if (
+    data.sim?.maxTokens !== undefined &&
+    (!Number.isFinite(data.sim.maxTokens) || data.sim.maxTokens <= 0)
+  ) {
     errors.push('maxTokens must be greater than 0.')
   }
 
@@ -512,7 +516,10 @@ function validateSimulationNode(data: CanvasNodeDataV2): string[] {
     errors.push('refillRatePerSecond must be greater than or equal to 0.')
   }
 
-  if (data.sim?.coldStartLatency !== undefined && !asDistributionConfig(data.sim.coldStartLatency)) {
+  if (
+    data.sim?.coldStartLatency !== undefined &&
+    !asDistributionConfig(data.sim.coldStartLatency)
+  ) {
     errors.push('coldStartLatency must be a valid distribution config.')
   }
 
@@ -589,7 +596,9 @@ function validateSimulationNode(data: CanvasNodeDataV2): string[] {
     } else {
       routingRules.forEach((rule, ruleIndex) => {
         if (!['type', 'path', 'host'].includes(rule.matchField)) {
-          errors.push(`routingRules[${ruleIndex}].matchField must be one of "type", "path", "host".`)
+          errors.push(
+            `routingRules[${ruleIndex}].matchField must be one of "type", "path", "host".`
+          )
         }
         if (!rule.matchValue) {
           errors.push(`routingRules[${ruleIndex}].matchValue is required.`)

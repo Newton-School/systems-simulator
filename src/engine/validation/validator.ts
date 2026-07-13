@@ -797,7 +797,11 @@ export const validateTopology = (input: unknown): ValidationResult => {
     }
 
     const replicationRole = node.config?.['replicationRole']
-    if (replicationRole !== undefined && replicationRole !== 'primary' && replicationRole !== 'replica') {
+    if (
+      replicationRole !== undefined &&
+      replicationRole !== 'primary' &&
+      replicationRole !== 'replica'
+    ) {
       errors.push({
         path: `nodes[${index}].config.replicationRole`,
         message: 'replicationRole must be "primary" or "replica".'
@@ -815,7 +819,10 @@ export const validateTopology = (input: unknown): ValidationResult => {
     }
 
     const maxTokens = node.config?.['maxTokens']
-    if (maxTokens !== undefined && (typeof maxTokens !== 'number' || !Number.isFinite(maxTokens) || maxTokens <= 0)) {
+    if (
+      maxTokens !== undefined &&
+      (typeof maxTokens !== 'number' || !Number.isFinite(maxTokens) || maxTokens <= 0)
+    ) {
       errors.push({
         path: `nodes[${index}].config.maxTokens`,
         message: 'maxTokens must be greater than 0.'
@@ -847,7 +854,10 @@ export const validateTopology = (input: unknown): ValidationResult => {
       const value = node.config?.[field]
       if (
         value !== undefined &&
-        (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || (field !== 'dnsCacheTtlSeconds' && value <= 0))
+        (typeof value !== 'number' ||
+          !Number.isFinite(value) ||
+          value < 0 ||
+          (field !== 'dnsCacheTtlSeconds' && value <= 0))
       ) {
         errors.push({
           path: `nodes[${index}].config.${field}`,
@@ -905,8 +915,7 @@ export const validateTopology = (input: unknown): ValidationResult => {
     }
 
     const circuitBreaker =
-      node.config?.['circuitBreaker'] &&
-      typeof node.config['circuitBreaker'] === 'object'
+      node.config?.['circuitBreaker'] && typeof node.config['circuitBreaker'] === 'object'
         ? (node.config['circuitBreaker'] as Record<string, unknown>)
         : undefined
     if (circuitBreaker) {
@@ -956,7 +965,10 @@ export const validateTopology = (input: unknown): ValidationResult => {
 
       for (const field of ['checkIntervalMs', 'unhealthyThreshold', 'healthyThreshold'] as const) {
         const value = node.config?.[field]
-        if (value !== undefined && (typeof value !== 'number' || !Number.isFinite(value) || value <= 0)) {
+        if (
+          value !== undefined &&
+          (typeof value !== 'number' || !Number.isFinite(value) || value <= 0)
+        ) {
           errors.push({
             path: `nodes[${index}].config.${field}`,
             message: `${field} must be a positive number.`
@@ -1096,11 +1108,7 @@ export const validateTopology = (input: unknown): ValidationResult => {
 
     const sourceNode = nodeById.get(edge.source)
     const targetNode = nodeById.get(edge.target)
-    const edgeWarnings = validateEdgeConstraintSelection(
-      edge,
-      sourceNode?.type,
-      targetNode?.type
-    )
+    const edgeWarnings = validateEdgeConstraintSelection(edge, sourceNode?.type, targetNode?.type)
     const sourceLabel = sourceNode ? displayNodeLabel(sourceNode) : edge.source
     const targetLabel = targetNode ? displayNodeLabel(targetNode) : edge.target
     warnings.push(

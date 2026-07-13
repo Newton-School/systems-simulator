@@ -32,7 +32,9 @@ describe('CURATED_SCENARIOS', () => {
         break
       case 'circuit-breaker-fail-fast':
         expect(output.eventCountsByType['circuit-breaker-open']).toBeGreaterThan(0)
-        expect(output.perNode.sidecar?.rejectionsByReason.circuit_breaker_open ?? 0).toBeGreaterThan(0)
+        expect(
+          output.perNode.sidecar?.rejectionsByReason.circuit_breaker_open ?? 0
+        ).toBeGreaterThan(0)
         break
       default:
         throw new Error(`Unhandled curated scenario '${scenario.id}'.`)

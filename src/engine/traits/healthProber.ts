@@ -44,10 +44,7 @@ export function parseHealthCheckManagerConfig(
   return {
     monitoredNodes,
     checkIntervalMs: asPositiveInt(config?.['checkIntervalMs'], DEFAULT_CHECK_INTERVAL_MS),
-    unhealthyThreshold: asPositiveInt(
-      config?.['unhealthyThreshold'],
-      DEFAULT_UNHEALTHY_THRESHOLD
-    ),
+    unhealthyThreshold: asPositiveInt(config?.['unhealthyThreshold'], DEFAULT_UNHEALTHY_THRESHOLD),
     healthyThreshold: asPositiveInt(config?.['healthyThreshold'], DEFAULT_HEALTHY_THRESHOLD)
   }
 }

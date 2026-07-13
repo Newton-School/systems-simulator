@@ -4,7 +4,9 @@ import type { ResolveRoute } from '../routing'
 import { getPathTypeLatencyProfile } from '../defaults/edgeDefaults'
 import type { NodeBehaviourTrait, NodeCapabilityModule } from './types'
 
-export const DNS_ROUTING_COMPONENT_TYPES = ['internal-dns'] as const satisfies readonly ComponentType[]
+export const DNS_ROUTING_COMPONENT_TYPES = [
+  'internal-dns'
+] as const satisfies readonly ComponentType[]
 
 type DnsRoutingPolicy = 'simple' | 'weighted' | 'failover' | 'latency-based' | 'geolocation'
 
@@ -67,7 +69,9 @@ function readDnsConfig(node: ComponentNode): DnsConfig {
 
 function pickWeightedRoute(routes: ResolveRoute[], random?: () => number): ResolveRoute {
   const normalizedWeights = routes.map((route) =>
-    Number.isFinite(route.edge.weight) && (route.edge.weight ?? 0) > 0 ? (route.edge.weight as number) : 1
+    Number.isFinite(route.edge.weight) && (route.edge.weight ?? 0) > 0
+      ? (route.edge.weight as number)
+      : 1
   )
   const total = normalizedWeights.reduce((sum, value) => sum + value, 0)
   const target = (random?.() ?? Math.random()) * total
@@ -215,13 +219,13 @@ export const dnsRoutingPolicyTrait: NodeBehaviourTrait = {
         : candidates
 
       return {
-        routes: targeted.length > 0 ? [sortRoutesStable(targeted)[0]] : [sortRoutesStable(candidates)[0]],
+        routes:
+          targeted.length > 0 ? [sortRoutesStable(targeted)[0]] : [sortRoutesStable(candidates)[0]],
         decision: matchedTarget ? 'geolocation-match' : 'geolocation-fallback',
         payload: {
           routingPolicy: config.routingPolicy,
           origin,
-          targetNodeId:
-            (targeted.length > 0 ? targeted[0] : candidates[0])?.targetNodeId
+          targetNodeId: (targeted.length > 0 ? targeted[0] : candidates[0])?.targetNodeId
         }
       }
     }

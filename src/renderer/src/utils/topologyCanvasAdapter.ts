@@ -231,7 +231,10 @@ function overlaySimulationConfig(
   return Object.keys(sim).length > 0 ? sim : undefined
 }
 
-function convertNode(node: ComponentNode, workload?: WorkloadProfile): Node<CanvasNodeDataV2> | null {
+function convertNode(
+  node: ComponentNode,
+  workload?: WorkloadProfile
+): Node<CanvasNodeDataV2> | null {
   const template = pickTemplateForNode(node)
   if (!template) {
     return null

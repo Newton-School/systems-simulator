@@ -67,7 +67,12 @@ export const NodeMetricsDetail = ({ metrics }: NodeMetricsDetailProps) => {
       <Section title="Availability">
         <div className="grid grid-cols-2 gap-4">
           <MetricItem label="Availability" value={metrics.availability} unit="%" />
-          <MetricItem label="Error Rate" value={metrics.errorRate} unit="%" textColor="text-nss-danger" />
+          <MetricItem
+            label="Error Rate"
+            value={metrics.errorRate}
+            unit="%"
+            textColor="text-nss-danger"
+          />
         </div>
       </Section>
 

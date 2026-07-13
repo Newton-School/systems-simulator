@@ -1,11 +1,15 @@
 import { memo, useMemo, useState } from 'react'
-import { FileText, FlaskConical, Library as LibraryIcon, Search, type LucideIcon } from 'lucide-react'
+import {
+  FileText,
+  FlaskConical,
+  Library as LibraryIcon,
+  Search,
+  type LucideIcon
+} from 'lucide-react'
 import { CATALOG_CONFIG } from '../../config/catalogConfig'
 import { CURATED_SCENARIOS } from '../../../../scenarios/curatedScenarios'
-import {
-  EmbeddedIframeQuestionPreview,
-  parseEmbeddedIframeQuestion
-} from './EmbeddedIframeQuestion'
+import { EmbeddedIframeQuestionPreview } from './EmbeddedIframeQuestion'
+import { parseEmbeddedIframeQuestion } from './embeddedIframeQuestion'
 import { LibraryItem } from './LibraryItem'
 
 type Filter = 'all' | 'common'

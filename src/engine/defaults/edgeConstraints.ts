@@ -175,7 +175,10 @@ export function getEdgeConstraints(
 }
 
 export function validateEdgeConstraintSelection(
-  edge: Pick<EdgeDefinition, 'protocol' | 'mode' | 'packetLossRate' | 'maxConcurrentRequests' | 'bandwidth'>,
+  edge: Pick<
+    EdgeDefinition,
+    'protocol' | 'mode' | 'packetLossRate' | 'maxConcurrentRequests' | 'bandwidth'
+  >,
   sourceType?: ComponentType,
   targetType?: ComponentType
 ): string[] {
@@ -183,7 +186,9 @@ export function validateEdgeConstraintSelection(
   const warnings: string[] = []
 
   if (!constraints.allowedProtocols.includes(edge.protocol)) {
-    warnings.push(constraints.reasons.protocol[edge.protocol] ?? 'This protocol is unrealistic here.')
+    warnings.push(
+      constraints.reasons.protocol[edge.protocol] ?? 'This protocol is unrealistic here.'
+    )
   }
 
   if (!constraints.allowedModes.includes(edge.mode)) {
@@ -191,19 +196,27 @@ export function validateEdgeConstraintSelection(
   }
 
   if (sourceType && LOAD_BALANCER_SOURCES.has(sourceType) && edge.mode === 'asynchronous') {
-    warnings.push('Load balancers normally proxy live requests; async edges here are a deliberate simplification.')
+    warnings.push(
+      'Load balancers normally proxy live requests; async edges here are a deliberate simplification.'
+    )
   }
 
   if (edge.bandwidth < 10 && edge.mode !== 'asynchronous') {
-    warnings.push('Bandwidth below 10 Mbps is unusually low for an actively routed application edge.')
+    warnings.push(
+      'Bandwidth below 10 Mbps is unusually low for an actively routed application edge.'
+    )
   }
 
   if (edge.maxConcurrentRequests > 10_000) {
-    warnings.push('Max concurrent requests above 10,000 is unusually high and may hide connection-pool bottlenecks.')
+    warnings.push(
+      'Max concurrent requests above 10,000 is unusually high and may hide connection-pool bottlenecks.'
+    )
   }
 
   if (edge.packetLossRate > 0.1) {
-    warnings.push('Packet loss above 10% is extremely severe outside intentionally hostile networks.')
+    warnings.push(
+      'Packet loss above 10% is extremely severe outside intentionally hostile networks.'
+    )
   }
 
   return warnings

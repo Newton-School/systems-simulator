@@ -66,8 +66,7 @@ export const useFlowPersistence = (confirmDiscardChanges: () => Promise<boolean>
   const handleLoadFileData = useCallback(
     (fileContent: string | object, fileName?: string) => {
       try {
-        const parsedData =
-          typeof fileContent === 'string' ? JSON.parse(fileContent) : fileContent
+        const parsedData = typeof fileContent === 'string' ? JSON.parse(fileContent) : fileContent
         const data = isTopologyJsonLike(parsedData)
           ? topologyToCanvasFileData(parsedData)
           : (parsedData as NestedFileData)

@@ -20,9 +20,7 @@ function stableHash(input: string): number {
 
 function readRoutingKeyField(node: ComponentNode): string {
   const raw = node.config?.['routingKeyField']
-  return typeof raw === 'string' && raw.trim().length > 0
-    ? raw.trim()
-    : DEFAULT_ROUTING_KEY_FIELD
+  return typeof raw === 'string' && raw.trim().length > 0 ? raw.trim() : DEFAULT_ROUTING_KEY_FIELD
 }
 
 function pickRouteForKey(routes: ResolveRoute[], key: string): ResolveRoute {
@@ -40,9 +38,7 @@ export const keyBasedRoutingTrait: NodeBehaviourTrait = {
     const keyField = readRoutingKeyField(node)
     const rawKey = request.metadata[keyField]
     const routingKey =
-      typeof rawKey === 'string' || typeof rawKey === 'number'
-        ? String(rawKey)
-        : request.id
+      typeof rawKey === 'string' || typeof rawKey === 'number' ? String(rawKey) : request.id
 
     const selected = pickRouteForKey(candidates, routingKey)
     return {

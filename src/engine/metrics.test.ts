@@ -205,7 +205,10 @@ describe('MetricsCollector', () => {
 
     metrics.recordRejection('gw', 'rate_limited', { requestCreatedAt: 0n, nodeArrivalTime: 0n })
     metrics.recordRejection('gw', 'rate_limited', { requestCreatedAt: 0n, nodeArrivalTime: 0n })
-    metrics.recordRejection('gw', 'capacity_exceeded', { requestCreatedAt: 0n, nodeArrivalTime: 0n })
+    metrics.recordRejection('gw', 'capacity_exceeded', {
+      requestCreatedAt: 0n,
+      nodeArrivalTime: 0n
+    })
 
     const perNode = metrics.getPerNodeMetrics(1_000).get('gw')
     expect(perNode?.totalRejected).toBe(3)

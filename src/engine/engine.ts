@@ -180,13 +180,7 @@ export class SimulationEngine {
             }
           }
           scheduler.schedule(
-            createEvent(
-              'health-check',
-              node.id,
-              '',
-              {},
-              msToMicro(proberConfig.checkIntervalMs)
-            )
+            createEvent('health-check', node.id, '', {}, msToMicro(proberConfig.checkIntervalMs))
           )
         }
       }
@@ -651,7 +645,14 @@ export class SimulationEngine {
         payload: { request },
         nodeSnapshot
       })
-      this.emitAdmissionDecision(request.id, nodeId, 'queued', undefined, nodeSnapshot, record.sequence)
+      this.emitAdmissionDecision(
+        request.id,
+        nodeId,
+        'queued',
+        undefined,
+        nodeSnapshot,
+        record.sequence
+      )
     } else {
       const record = this.recordCanonicalEvent({
         timestampUs: this.clock,
@@ -662,7 +663,14 @@ export class SimulationEngine {
         payload: { request },
         nodeSnapshot
       })
-      this.emitAdmissionDecision(request.id, nodeId, 'accepted', undefined, nodeSnapshot, record.sequence)
+      this.emitAdmissionDecision(
+        request.id,
+        nodeId,
+        'accepted',
+        undefined,
+        nodeSnapshot,
+        record.sequence
+      )
     }
 
     this.scheduleNodeTimeout(nodeId, request)
@@ -1143,8 +1151,8 @@ export class SimulationEngine {
       this.traitStateByNodeId.set(nodeId, store)
     }
     return {
-      get: <T,>(key: string) => store!.get(key) as T | undefined,
-      set: <T,>(key: string, value: T) => {
+      get: <T>(key: string) => store!.get(key) as T | undefined,
+      set: <T>(key: string, value: T) => {
         store!.set(key, value)
       }
     }
@@ -1354,7 +1362,12 @@ export class SimulationEngine {
       return
     }
 
-    const outcome = recordCircuitBreakerOutcome(this.getTraitStateStore(nodeId), node, success, this.clock)
+    const outcome = recordCircuitBreakerOutcome(
+      this.getTraitStateStore(nodeId),
+      node,
+      success,
+      this.clock
+    )
     if (!outcome.transition) {
       return
     }

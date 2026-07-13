@@ -240,8 +240,7 @@ describe('SimulationEngine', () => {
       name: 'test.reject-all',
       beforeArrival: () => ({ action: 'rejected', reason: 'test_reject' })
     }
-    const traitResolver: TraitResolver = (node) =>
-      node.id === 'worker' ? [rejectAllTrait] : []
+    const traitResolver: TraitResolver = (node) => (node.id === 'worker' ? [rejectAllTrait] : [])
 
     const topology = makeTopology({
       global: { simulationDuration: 20, defaultTimeout: 1_000, traceSampleRate: 1 },
@@ -309,12 +308,7 @@ describe('SimulationEngine', () => {
   it('health-aware routing sends all traffic to healthy targets when enabled', () => {
     const topology = makeTopology({
       global: { simulationDuration: 1_000, defaultTimeout: 1_000, traceSampleRate: 1 },
-      nodes: [
-        makeNode('source'),
-        makeRouterNode('lb'),
-        makeNode('worker-a'),
-        makeNode('worker-b')
-      ],
+      nodes: [makeNode('source'), makeRouterNode('lb'), makeNode('worker-a'), makeNode('worker-b')],
       edges: [
         makeEdge('source-to-lb', 'source', 'lb'),
         makeEdge('lb-to-a', 'lb', 'worker-a'),
@@ -432,7 +426,12 @@ describe('SimulationEngine', () => {
     const detectionWindowUs = msToMicro(checkIntervalMs * unhealthyThreshold)
 
     const topology = makeTopology({
-      global: { simulationDuration: 200, defaultTimeout: 1_000, traceSampleRate: 1, seed: 'prober-seed' },
+      global: {
+        simulationDuration: 200,
+        defaultTimeout: 1_000,
+        traceSampleRate: 1,
+        seed: 'prober-seed'
+      },
       nodes: [
         makeNode('source'),
         makeRouterNode('lb'),
@@ -518,7 +517,9 @@ describe('SimulationEngine', () => {
 
     const output = new SimulationEngine(topology).run()
 
-    const generated = output.eventStream.filter((event) => event.type === 'request-generated').length
+    const generated = output.eventStream.filter(
+      (event) => event.type === 'request-generated'
+    ).length
     const rateLimited = output.eventStream.filter(
       (event) => event.type === 'request-rejected' && event.reasonCode === 'rate_limited'
     ).length
@@ -572,12 +573,19 @@ describe('SimulationEngine', () => {
 
     expect(readOutput.perNode.db.avgServiceTime).toBeCloseTo(4, 6)
     expect(writeOutput.perNode.db.avgServiceTime).toBeCloseTo(10, 6)
-    expect(writeOutput.perNode.db.avgServiceTime).toBeGreaterThan(readOutput.perNode.db.avgServiceTime)
+    expect(writeOutput.perNode.db.avgServiceTime).toBeGreaterThan(
+      readOutput.perNode.db.avgServiceTime
+    )
   })
 
   it('a Read Replica rejects writes with read_only_node while reads succeed', () => {
     const topology = makeTopology({
-      global: { simulationDuration: 500, defaultTimeout: 1_000, traceSampleRate: 0, seed: 'read-only-seed' },
+      global: {
+        simulationDuration: 500,
+        defaultTimeout: 1_000,
+        traceSampleRate: 0,
+        seed: 'read-only-seed'
+      },
       nodes: [
         makeNode('source'),
         {
@@ -646,7 +654,11 @@ describe('SimulationEngine', () => {
 
     const generatedAtByRequestId = new Map<string, bigint>()
     for (const event of output.eventStream) {
-      if (event.type === 'request-generated' && event.requestId && !event.requestId.includes('::branch-')) {
+      if (
+        event.type === 'request-generated' &&
+        event.requestId &&
+        !event.requestId.includes('::branch-')
+      ) {
         generatedAtByRequestId.set(event.requestId, BigInt(event.timestampUs))
       }
     }
@@ -676,10 +688,15 @@ describe('SimulationEngine', () => {
     expect(output.perNode.queue.peakQueueLength).toBeGreaterThan(5)
   })
 
-  it('deleting an observability branch does not change the real downstream node\'s traffic or latency', () => {
+  it("deleting an observability branch does not change the real downstream node's traffic or latency", () => {
     const buildTopology = (withMetrics: boolean) =>
       makeTopology({
-        global: { simulationDuration: 1_000, defaultTimeout: 1_000, traceSampleRate: 0, seed: 'async-only-seed' },
+        global: {
+          simulationDuration: 1_000,
+          defaultTimeout: 1_000,
+          traceSampleRate: 0,
+          seed: 'async-only-seed'
+        },
         nodes: [
           makeNode('source'),
           makeNode('svc'),
@@ -700,7 +717,9 @@ describe('SimulationEngine', () => {
           // Misconfigured as synchronous on purpose — AsyncOnlyTrait must
           // still force it async so it can't steal traffic from 'api'.
           makeEdge('svc-api', 'svc', 'api', { mode: 'synchronous' }),
-          ...(withMetrics ? [makeEdge('svc-metrics', 'svc', 'metrics', { mode: 'synchronous' })] : [])
+          ...(withMetrics
+            ? [makeEdge('svc-metrics', 'svc', 'metrics', { mode: 'synchronous' })]
+            : [])
         ],
         workload: {
           sourceNodeId: 'source',
@@ -713,17 +732,26 @@ describe('SimulationEngine', () => {
     const withMetricsOutput = new SimulationEngine(buildTopology(true)).run()
     const withoutMetricsOutput = new SimulationEngine(buildTopology(false)).run()
 
-    expect(withMetricsOutput.perNode.api.totalArrived).toBe(withoutMetricsOutput.perNode.api.totalArrived)
+    expect(withMetricsOutput.perNode.api.totalArrived).toBe(
+      withoutMetricsOutput.perNode.api.totalArrived
+    )
     expect(withMetricsOutput.perNode.api.avgServiceTime).toBeCloseTo(
       withoutMetricsOutput.perNode.api.avgServiceTime,
       6
     )
-    expect(withMetricsOutput.perNode.metrics?.totalArrived).toBe(withMetricsOutput.perNode.api.totalArrived)
+    expect(withMetricsOutput.perNode.metrics?.totalArrived).toBe(
+      withMetricsOutput.perNode.api.totalArrived
+    )
   })
 
   it('cache hits reduce downstream arrivals to roughly the miss rate', () => {
     const topology = makeTopology({
-      global: { simulationDuration: 1_000, defaultTimeout: 1_000, traceSampleRate: 1, seed: 'cache-seed' },
+      global: {
+        simulationDuration: 1_000,
+        defaultTimeout: 1_000,
+        traceSampleRate: 1,
+        seed: 'cache-seed'
+      },
       nodes: [
         makeNode('source'),
         makeCacheNode('cache', 'in-memory-cache', { cacheHitRate: 0.9, cacheHitLatencyMs: 0.1 }),
@@ -750,7 +778,12 @@ describe('SimulationEngine', () => {
 
   it('cache-hit completions use cache hit latency instead of queue service time', () => {
     const topology = makeTopology({
-      global: { simulationDuration: 50, defaultTimeout: 1_000, traceSampleRate: 1, seed: 'cache-hit-latency' },
+      global: {
+        simulationDuration: 50,
+        defaultTimeout: 1_000,
+        traceSampleRate: 1,
+        seed: 'cache-hit-latency'
+      },
       nodes: [
         makeNode('source'),
         makeCacheNode('cache', 'in-memory-cache', { cacheHitRate: 1, cacheHitLatencyMs: 2.5 }),
@@ -774,7 +807,12 @@ describe('SimulationEngine', () => {
 
   it('cacheHitRate 0 preserves pass-through behavior', () => {
     const topology = makeTopology({
-      global: { simulationDuration: 500, defaultTimeout: 1_000, traceSampleRate: 1, seed: 'cache-pass-through' },
+      global: {
+        simulationDuration: 500,
+        defaultTimeout: 1_000,
+        traceSampleRate: 1,
+        seed: 'cache-pass-through'
+      },
       nodes: [
         makeNode('source'),
         makeCacheNode('cache', 'in-memory-cache', { cacheHitRate: 0, cacheHitLatencyMs: 0.1 }),
@@ -798,7 +836,12 @@ describe('SimulationEngine', () => {
 
   it('cache-served completions keep conservation balanced at the cache node', () => {
     const topology = makeTopology({
-      global: { simulationDuration: 500, defaultTimeout: 1_000, traceSampleRate: 1, seed: 'cache-conservation' },
+      global: {
+        simulationDuration: 500,
+        defaultTimeout: 1_000,
+        traceSampleRate: 1,
+        seed: 'cache-conservation'
+      },
       nodes: [
         makeNode('source'),
         makeCacheNode('cache', 'in-memory-cache', { cacheHitRate: 1, cacheHitLatencyMs: 0.1 }),
@@ -1025,7 +1068,12 @@ describe('SimulationEngine', () => {
 
     const sameRackOutput = new SimulationEngine(
       makeTopology({
-        global: { simulationDuration: 500, defaultTimeout: 5_000, traceSampleRate: 1, seed: 'same-seed' },
+        global: {
+          simulationDuration: 500,
+          defaultTimeout: 5_000,
+          traceSampleRate: 1,
+          seed: 'same-seed'
+        },
         nodes: [makeNode('source'), makeNode('dst')],
         edges: [makeDerivedEdge('same-rack-edge', 'same-rack')],
         workload: {
