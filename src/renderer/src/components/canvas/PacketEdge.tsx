@@ -20,12 +20,6 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value))
 }
 
-function fmtRps(value: number): string {
-  if (value >= 100) return `${Math.round(value)} rps`
-  if (value >= 10) return `${value.toFixed(1)} rps`
-  return `${value.toFixed(2)} rps`
-}
-
 function fmtRequestCount(value: number): string {
   return Math.round(value).toLocaleString()
 }
@@ -137,56 +131,6 @@ function patternMultiplier(
 
     default:
       return 1
-  }
-}
-
-function patternPhaseLabel(
-  runConfig: EdgeFlowRunConfig | null,
-  playback: { wallStartMs: number; simStartMs: number } | null,
-  now: number
-): string | null {
-  if (!runConfig) return null
-
-  const workload = runConfig.workload
-  const elapsed = patternElapsedMs(runConfig, playback, now)
-
-  switch (workload.pattern) {
-    case 'bursty': {
-      const burst = workload.bursty
-      if (!burst) return null
-      const cycle = Math.max(1, burst.burstDuration) + Math.max(1, burst.normalDuration)
-      return elapsed % cycle < Math.max(1, burst.burstDuration) ? 'burst' : 'base'
-    }
-
-    case 'spike': {
-      const spike = workload.spike
-      if (!spike) return null
-      return elapsed >= spike.spikeTime && elapsed < spike.spikeTime + spike.spikeDuration
-        ? 'spike'
-        : 'base'
-    }
-
-    case 'sawtooth': {
-      const sawtooth = workload.sawtooth
-      if (!sawtooth) return null
-      const t = (elapsed % Math.max(1, sawtooth.rampDuration)) / Math.max(1, sawtooth.rampDuration)
-      if (t > 0.66) return 'ramp high'
-      if (t > 0.33) return 'ramp mid'
-      return 'ramp low'
-    }
-
-    case 'diurnal': {
-      const multiplier = patternMultiplier(runConfig, playback, now, 'diurnal-label')
-      if (multiplier > 1.1) return 'peak'
-      if (multiplier < 0.8) return 'low'
-      return 'normal'
-    }
-
-    case 'poisson':
-      return 'jitter'
-
-    default:
-      return null
   }
 }
 
@@ -325,7 +269,6 @@ export const PacketEdge = ({
       ? clamp(Math.round(2 + previewShare * 6), 2, 8)
       : 0
     : patternPacketCount(basePacketCount, visualMultiplier)
-  const phaseLabel = patternPhaseLabel(runConfig, playback, now)
   const isInactiveAfterRun = flowStatus === 'complete' && !flow
   const hasFlow = isRoutingPreviewEdge
     ? Boolean(routingPreview?.isSelected)
@@ -354,12 +297,9 @@ export const PacketEdge = ({
       : 'not selected'
     : isInactiveAfterRun
       ? 'inactive'
-      : [
-          fmtRps(steadyRequestRate),
-          phaseLabel ? ` - ${phaseLabel}` : '',
-          isComplete ? ` / ${fmtRequestCount(arrivedRequestCount)} arrived` : '',
-          failureRatio > 0 ? ` / ${fmtFailureRate(failureRatio)}` : ''
-        ].join('')
+      : [`${fmtRequestCount(arrivedRequestCount)} arrived`, fmtFailureRate(failureRatio)].join(
+          ' / '
+        )
   const flowLabelClassName = [
     'bg-nss-bg px-2 py-0.5 text-[18px] font-bold leading-none tracking-wide',
     isRoutingPreviewEdge
