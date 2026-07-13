@@ -2,8 +2,13 @@ import type { CanvasNodeDataV2, RoutingStrategy } from '../catalog/nodeSpecTypes
 import type { ComponentType } from '../core/types'
 import { ackAndReleaseCapabilityModule } from './ackAndRelease'
 import { cacheCapabilityModule } from './cache'
+import { circuitBreakerCapabilityModule } from './circuitBreaker'
+import { coldStartCapabilityModule } from './coldStart'
 import { CONTENT_ROUTING_COMPONENT_TYPES, contentRoutingCapabilityModule } from './contentRouting'
+import { consumerLagCapabilityModule } from './consumerLag'
+import { dnsRoutingPolicyCapabilityModule } from './dnsRoutingPolicy'
 import { healthAwareRoutingCapabilityModule } from './healthAwareRouting'
+import { keyBasedRoutingCapabilityModule } from './keyBasedRouting'
 import { rateLimiterCapabilityModule } from './rateLimiter'
 import { readOnlyCapabilityModule } from './readOnly'
 import { readWriteSplitCapabilityModule } from './readWriteSplit'
@@ -580,6 +585,11 @@ export const TRAIT_CAPABILITY_MODULES: readonly NodeCapabilityModule[] = [
   contentRoutingCapabilityModule,
   healthAwareRoutingCapabilityModule,
   cacheCapabilityModule,
+  coldStartCapabilityModule,
+  keyBasedRoutingCapabilityModule,
+  consumerLagCapabilityModule,
+  dnsRoutingPolicyCapabilityModule,
+  circuitBreakerCapabilityModule,
   readOnlyCapabilityModule,
   readWriteSplitCapabilityModule,
   ackAndReleaseCapabilityModule

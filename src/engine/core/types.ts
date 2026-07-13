@@ -316,6 +316,7 @@ export interface EdgeDefinition {
   latency: {
     distribution: DistributionConfig
     pathType: 'same-rack' | 'same-dc' | 'cross-zone' | 'cross-region' | 'internet'
+    derivedFromPathType?: boolean
   }
   bandwidth: number //Mbps
   maxConcurrentRequests: number
@@ -409,6 +410,7 @@ export interface WorkloadProfile {
      */
     weight: number
     sizeBytes: number
+    metadata?: Record<string, unknown>
   }>
 }
 

@@ -281,6 +281,7 @@ function buildRuntimeNode(
   ctx: SerializeContext
 ): ComponentNode {
   const config: Record<string, unknown> = {}
+  const resilience: NonNullable<ComponentNode['resilience']> = {}
 
   if (typeof data.sim?.nodeErrorRate === 'number' && Number.isFinite(data.sim.nodeErrorRate)) {
     config.nodeErrorRate = clamp(data.sim.nodeErrorRate, 0, 1)
@@ -333,6 +334,46 @@ function buildRuntimeNode(
     config.refillRatePerSecond = data.sim.refillRatePerSecond
   }
 
+  if (data.sim?.coldStartLatency) {
+    config.coldStartLatency = data.sim.coldStartLatency
+  } else if (
+    typeof data.sim?.coldStartLatencyMs === 'number' &&
+    data.sim.coldStartLatencyMs > 0
+  ) {
+    config.coldStartLatency = { type: 'exponential', lambda: 1 / data.sim.coldStartLatencyMs }
+  }
+
+  if (typeof data.sim?.idleTimeoutMs === 'number' && data.sim.idleTimeoutMs > 0) {
+    config.idleTimeoutMs = data.sim.idleTimeoutMs
+  }
+
+  if (typeof data.sim?.maxConcurrency === 'number' && data.sim.maxConcurrency > 0) {
+    config.maxConcurrency = Math.round(data.sim.maxConcurrency)
+    resilience.bulkhead = { maxConcurrent: Math.round(data.sim.maxConcurrency) }
+  }
+
+  if (typeof data.sim?.routingKeyField === 'string' && data.sim.routingKeyField.trim().length > 0) {
+    config.routingKeyField = data.sim.routingKeyField.trim()
+  }
+
+  if (typeof data.sim?.dnsRoutingPolicy === 'string') {
+    config.dnsRoutingPolicy = data.sim.dnsRoutingPolicy
+  }
+
+  if (typeof data.sim?.dnsCacheTtlSeconds === 'number' && data.sim.dnsCacheTtlSeconds >= 0) {
+    config.dnsCacheTtlSeconds = data.sim.dnsCacheTtlSeconds
+  }
+
+  if (data.sim?.circuitBreaker) {
+    resilience.circuitBreaker = {
+      failureThreshold: data.sim.circuitBreaker.failureThreshold,
+      failureCount: Math.round(data.sim.circuitBreaker.failureCount),
+      recoveryTimeout: Math.round(data.sim.circuitBreaker.recoveryTimeout),
+      halfOpenRequests: Math.round(data.sim.circuitBreaker.halfOpenRequests)
+    }
+    config.circuitBreaker = resilience.circuitBreaker
+  }
+
   if (spec.componentType === 'relational-db') {
     // "Primary DB" and "Read Replica" share this component type — the
     // template chosen from the palette is the one truthful signal of role,
@@ -361,6 +402,7 @@ function buildRuntimeNode(
     position: ctx.position,
     queue: data.sim?.queue,
     processing: data.sim?.processing,
+    resilience: Object.keys(resilience).length > 0 ? resilience : undefined,
     slo: normalizeSLOConfig(data.sim?.slo),
     config: Object.keys(config).length > 0 ? config : undefined
   }
@@ -468,6 +510,76 @@ function validateSimulationNode(data: CanvasNodeDataV2): string[] {
     (!Number.isFinite(data.sim.refillRatePerSecond) || data.sim.refillRatePerSecond < 0)
   ) {
     errors.push('refillRatePerSecond must be greater than or equal to 0.')
+  }
+
+  if (data.sim?.coldStartLatency !== undefined && !asDistributionConfig(data.sim.coldStartLatency)) {
+    errors.push('coldStartLatency must be a valid distribution config.')
+  }
+
+  if (
+    data.sim?.coldStartLatencyMs !== undefined &&
+    (!Number.isFinite(data.sim.coldStartLatencyMs) || data.sim.coldStartLatencyMs <= 0)
+  ) {
+    errors.push('coldStartLatencyMs must be greater than 0.')
+  }
+
+  if (
+    data.sim?.idleTimeoutMs !== undefined &&
+    (!Number.isFinite(data.sim.idleTimeoutMs) || data.sim.idleTimeoutMs <= 0)
+  ) {
+    errors.push('idleTimeoutMs must be greater than 0.')
+  }
+
+  if (
+    data.sim?.maxConcurrency !== undefined &&
+    (!Number.isFinite(data.sim.maxConcurrency) || data.sim.maxConcurrency <= 0)
+  ) {
+    errors.push('maxConcurrency must be greater than 0.')
+  }
+
+  if (
+    data.sim?.routingKeyField !== undefined &&
+    (typeof data.sim.routingKeyField !== 'string' || data.sim.routingKeyField.trim().length === 0)
+  ) {
+    errors.push('routingKeyField must be a non-empty string.')
+  }
+
+  if (
+    data.sim?.dnsRoutingPolicy !== undefined &&
+    !['simple', 'weighted', 'failover', 'latency-based', 'geolocation'].includes(
+      data.sim.dnsRoutingPolicy
+    )
+  ) {
+    errors.push(
+      'dnsRoutingPolicy must be one of "simple", "weighted", "failover", "latency-based", "geolocation".'
+    )
+  }
+
+  if (
+    data.sim?.dnsCacheTtlSeconds !== undefined &&
+    (!Number.isFinite(data.sim.dnsCacheTtlSeconds) || data.sim.dnsCacheTtlSeconds < 0)
+  ) {
+    errors.push('dnsCacheTtlSeconds must be greater than or equal to 0.')
+  }
+
+  if (data.sim?.circuitBreaker) {
+    const breaker = data.sim.circuitBreaker
+    if (
+      !Number.isFinite(breaker.failureThreshold) ||
+      breaker.failureThreshold < 0 ||
+      breaker.failureThreshold > 1
+    ) {
+      errors.push('circuitBreaker.failureThreshold must be between 0 and 1.')
+    }
+    if (!Number.isFinite(breaker.failureCount) || breaker.failureCount <= 0) {
+      errors.push('circuitBreaker.failureCount must be greater than 0.')
+    }
+    if (!Number.isFinite(breaker.recoveryTimeout) || breaker.recoveryTimeout <= 0) {
+      errors.push('circuitBreaker.recoveryTimeout must be greater than 0.')
+    }
+    if (!Number.isFinite(breaker.halfOpenRequests) || breaker.halfOpenRequests <= 0) {
+      errors.push('circuitBreaker.halfOpenRequests must be greater than 0.')
+    }
   }
 
   const routingRules = data.sim?.routingRules

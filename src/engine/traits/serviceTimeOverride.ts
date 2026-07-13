@@ -9,6 +9,7 @@ import type { Request } from '../core/events'
  * "read an optional override off the request," never why one exists.
  */
 export const SERVICE_TIME_DISTRIBUTION_OVERRIDE_KEY = 'serviceTimeDistributionOverride'
+export const SERVICE_TIME_LATENCY_PENALTY_MS_KEY = 'serviceTimeLatencyPenaltyMs'
 
 const KNOWN_DISTRIBUTION_TYPES = new Set([
   'constant',
@@ -39,4 +40,9 @@ export function asDistributionConfig(value: unknown): DistributionConfig | null 
 
 export function readServiceTimeDistributionOverride(request: Request): DistributionConfig | null {
   return asDistributionConfig(request.metadata?.[SERVICE_TIME_DISTRIBUTION_OVERRIDE_KEY])
+}
+
+export function readServiceTimeLatencyPenaltyMs(request: Request): number {
+  const raw = request.metadata?.[SERVICE_TIME_LATENCY_PENALTY_MS_KEY]
+  return typeof raw === 'number' && Number.isFinite(raw) && raw > 0 ? raw : 0
 }

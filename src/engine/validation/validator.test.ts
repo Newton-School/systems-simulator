@@ -150,6 +150,31 @@ describe('validateTopology workload fields', () => {
     expect(result.data?.global.traceSampleRate).toBe(0.25)
   })
 
+  it('accepts path-type-derived latency metadata on edges', () => {
+    const topology = makeTopology({
+      nodes: [makeSourceNode('source'), makeProcessorNode('worker')],
+      edges: [
+        {
+          ...makeEdge('source-to-worker', 'source', 'worker'),
+          latency: {
+            distribution: { type: 'constant', value: 1 },
+            pathType: 'cross-region',
+            derivedFromPathType: true
+          }
+        }
+      ],
+      sourceNodeId: 'source'
+    })
+
+    const result = validateTopology(topology)
+
+    expect(result.valid).toBe(true)
+    expect(result.data?.edges[0].latency).toMatchObject({
+      pathType: 'cross-region',
+      derivedFromPathType: true
+    })
+  })
+
   it('accepts a node with only a latency SLO target', () => {
     const topology = cloneMockArchitecture()
     topology.nodes[0] = {
@@ -286,7 +311,7 @@ describe('validateTopology active-source validation', () => {
     expect(result.valid).toBe(true)
   })
 
-  it('warns on self-loop edges without blocking a runnable topology', () => {
+  it('rejects self-loop edges', () => {
     const source = makeSourceNode('client', 'Client App')
     const service = makeProcessorNode('orders', 'Order Service')
 
@@ -301,9 +326,14 @@ describe('validateTopology active-source validation', () => {
       })
     )
 
-    expect(result.valid).toBe(true)
-    expect(result.warnings).toEqual(
-      expect.arrayContaining([expect.stringContaining("Edge 'orders-self' forms a self-loop")])
+    expect(result.valid).toBe(false)
+    expect(result.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: 'edges[1].target',
+          message: expect.stringContaining("Edge 'orders-self' forms a self-loop")
+        })
+      ])
     )
   })
 
@@ -470,6 +500,157 @@ describe('validateTopology node config validation', () => {
         expect.objectContaining({ path: expect.stringContaining('routingRules[0].matchField') }),
         expect.objectContaining({ path: expect.stringContaining('routingRules[0].matchValue') }),
         expect.objectContaining({ path: expect.stringContaining('routingRules[0].targetNodeId') })
+      ])
+    )
+  })
+})
+
+describe('validateTopology advanced trait validation', () => {
+  it('preserves request-distribution metadata', () => {
+    const topology = cloneMockArchitecture()
+    topology.workload = {
+      ...topology.workload!,
+      requestDistribution: [
+        { type: 'lookup', weight: 1, sizeBytes: 256, metadata: { shardKey: 'tenant-a' } }
+      ]
+    }
+
+    const result = validateTopology(topology)
+
+    expect(result.valid).toBe(true)
+    expect(result.data?.workload?.requestDistribution[0]?.metadata).toEqual({
+      shardKey: 'tenant-a'
+    })
+  })
+
+  it('accepts cold-start config fields on serverless nodes', () => {
+    const source = makeSourceNode('client', 'Client')
+    const lambda: ComponentNode = {
+      id: 'lambda',
+      type: 'serverless-function',
+      category: 'compute',
+      role: 'processor',
+      label: 'Lambda',
+      position: { x: 0, y: 0 },
+      queue: { workers: 2, capacity: 10, discipline: 'fifo' },
+      processing: {
+        distribution: { type: 'constant', value: 10 },
+        timeout: 1_000
+      },
+      config: {
+        coldStartLatency: { type: 'constant', value: 200 },
+        idleTimeoutMs: 15_000,
+        maxConcurrency: 4
+      }
+    }
+
+    const result = validateTopology(
+      makeTopology({
+        nodes: [source, lambda],
+        edges: [makeEdge('client-lambda', source.id, lambda.id)],
+        sourceNodeId: source.id
+      })
+    )
+
+    expect(result.valid).toBe(true)
+  })
+
+  it('accepts dns, routing-key, and circuit-breaker config fields', () => {
+    const source = makeSourceNode('client', 'Client')
+    const dns: ComponentNode = {
+      ...makeProcessorNode('dns', 'Resolver'),
+      type: 'internal-dns',
+      category: 'dns-and-certs',
+      role: 'router',
+      config: {
+        dnsRoutingPolicy: 'weighted',
+        dnsCacheTtlSeconds: 30,
+        dnsGeoTargets: [{ origin: 'eu-west', targetNodeId: 'router' }]
+      }
+    }
+    const router: ComponentNode = {
+      ...makeProcessorNode('router', 'Shard Router'),
+      type: 'sharding',
+      category: 'auxiliary',
+      role: 'router',
+      config: { routingKeyField: 'tenantId' }
+    }
+    const sidecar: ComponentNode = {
+      ...makeProcessorNode('sidecar', 'Sidecar'),
+      type: 'sidecar',
+      category: 'compute',
+      role: 'processor',
+      config: {
+        circuitBreaker: {
+          failureThreshold: 0.5,
+          failureCount: 4,
+          recoveryTimeout: 2_000,
+          halfOpenRequests: 1
+        }
+      }
+    }
+
+    const result = validateTopology(
+      makeTopology({
+        nodes: [source, dns, router, sidecar],
+        edges: [
+          makeEdge('client-dns', source.id, dns.id),
+          makeEdge('dns-router', dns.id, router.id),
+          makeEdge('router-sidecar', router.id, sidecar.id)
+        ],
+        sourceNodeId: source.id
+      })
+    )
+
+    expect(result.valid).toBe(true)
+  })
+
+  it('rejects conditional edges without a condition', () => {
+    const source = makeSourceNode('client', 'Client')
+    const service = makeProcessorNode('service', 'Service')
+
+    const result = validateTopology(
+      makeTopology({
+        nodes: [source, service],
+        edges: [{ ...makeEdge('client-service', source.id, service.id), mode: 'conditional' }],
+        sourceNodeId: source.id
+      })
+    )
+
+    expect(result.valid).toBe(false)
+    expect(result.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: 'edges[0].condition',
+          message: 'Conditional edges must define a condition expression.'
+        })
+      ])
+    )
+  })
+
+  it('rejects purely synchronous cycles without an exit', () => {
+    const source = makeSourceNode('client', 'Client')
+    const a = makeProcessorNode('service-a', 'Service A')
+    const b = makeProcessorNode('service-b', 'Service B')
+
+    const result = validateTopology(
+      makeTopology({
+        nodes: [source, a, b],
+        edges: [
+          makeEdge('client-a', source.id, a.id),
+          makeEdge('a-b', a.id, b.id),
+          makeEdge('b-a', b.id, a.id)
+        ],
+        sourceNodeId: source.id
+      })
+    )
+
+    expect(result.valid).toBe(false)
+    expect(result.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          message: expect.stringContaining('Purely synchronous cycle without an exit detected')
+        })
       ])
     )
   })

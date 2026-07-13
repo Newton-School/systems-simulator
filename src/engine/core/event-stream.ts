@@ -13,7 +13,9 @@ export const CANONICAL_EVENT_TYPES = [
   'request-rejected',
   'node-failed',
   'node-recovered',
-  'health-probed'
+  'health-probed',
+  'circuit-breaker-open',
+  'circuit-breaker-close'
 ] as const
 
 export type CanonicalEventType = (typeof CANONICAL_EVENT_TYPES)[number]
@@ -210,6 +212,10 @@ export function toCanonicalEventType(type: EventType): CanonicalEventType | null
       return 'node-recovered'
     case 'health-check':
       return 'health-probed'
+    case 'circuit-breaker-open':
+      return 'circuit-breaker-open'
+    case 'circuit-breaker-close':
+      return 'circuit-breaker-close'
     default:
       return null
   }
@@ -265,6 +271,8 @@ function deriveDebugStatus(type: CanonicalEventType): DebugEventStatus {
       return 'rejected'
     case 'node-failed':
       return 'failure'
+    case 'circuit-breaker-open':
+      return 'failure'
     default:
       return 'info'
   }
@@ -310,6 +318,10 @@ function buildDebugMessage(record: CanonicalEventRecord): string {
       const probedHealthy = record.payload.probedHealthy === true
       return `health probe of ${record.nodeId ?? 'unknown'} reported ${probedHealthy ? 'healthy' : 'unhealthy'}`
     }
+    case 'circuit-breaker-open':
+      return `circuit breaker opened at ${record.nodeId ?? 'unknown'}`
+    case 'circuit-breaker-close':
+      return `circuit breaker closed at ${record.nodeId ?? 'unknown'}`
   }
 }
 

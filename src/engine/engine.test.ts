@@ -946,11 +946,11 @@ describe('SimulationEngine', () => {
     expect(output.debuggedLifecycle?.path).toEqual(['worker'])
     expect(output.debuggedLifecycle?.events.map((event) => event.type)).toEqual([
       'request-generated',
+      'request-forwarded',
       'request-arrived',
       'processing-started',
       'processing-completed',
-      'request-completed',
-      'request-forwarded'
+      'request-completed'
     ])
     expect(output.debuggedLifecycle?.startedAtMs).toBeGreaterThanOrEqual(0)
     expect(output.debuggedLifecycle?.completedAtMs).toBeGreaterThanOrEqual(
@@ -958,13 +958,13 @@ describe('SimulationEngine', () => {
     )
   })
 
-  it('schedules packet-loss timeout at request deadline, not immediately', () => {
+  it('keeps udp packet-loss timeouts deferred to the request deadline', () => {
     const topology = makeTopology({
       global: { simulationDuration: 100, defaultTimeout: 1_000, traceSampleRate: 1 },
       nodes: [makeNode('source'), makeNode('mid'), makeNode('dst')],
       edges: [
         makeEdge('source-to-mid', 'source', 'mid'),
-        makeEdge('mid-to-dst', 'mid', 'dst', { packetLossRate: 1 })
+        makeEdge('mid-to-dst', 'mid', 'dst', { protocol: 'udp', packetLossRate: 1 })
       ],
       workload: {
         sourceNodeId: 'source',
@@ -981,6 +981,89 @@ describe('SimulationEngine', () => {
     expect(engine.hasPendingEvents()).toBe(false)
     expect(output.summary.totalRequests).toBe(0)
     expect(output.summary.timedOutRequests).toBe(0)
+  })
+
+  it('retransmits reliable edges instead of dropping on packet loss', () => {
+    const topology = makeTopology({
+      global: { simulationDuration: 50, defaultTimeout: 1_000, traceSampleRate: 1 },
+      nodes: [makeNode('source'), makeNode('dst')],
+      edges: [
+        makeEdge('source-to-dst', 'source', 'dst', {
+          protocol: 'tcp',
+          packetLossRate: 1,
+          latency: { distribution: { type: 'constant', value: 5 }, pathType: 'same-dc' }
+        })
+      ],
+      workload: {
+        sourceNodeId: 'source',
+        pattern: 'constant',
+        baseRps: 1,
+        requestDistribution: [{ type: 'GET', weight: 1, sizeBytes: 100 }]
+      }
+    })
+
+    const output = new SimulationEngine(topology).run()
+    const arrivalEvent = output.eventStream.find((event) => event.type === 'request-arrived')
+
+    expect(output.summary.successfulRequests).toBe(1)
+    expect(output.summary.rejectedRequests).toBe(0)
+    expect(output.summary.timedOutRequests).toBe(0)
+    expect(arrivalEvent?.edgeId).toBe('source-to-dst')
+    expect(Number(arrivalEvent?.timestampUs)).toBeGreaterThan(10_000)
+    expect(Number(arrivalEvent?.timestampUs)).toBeLessThan(10_100)
+  })
+
+  it('uses path-type-derived latency profiles when the edge is still on defaults', () => {
+    const makeDerivedEdge = (id: string, pathType: EdgeDefinition['latency']['pathType']) =>
+      makeEdge(id, 'source', 'dst', {
+        latency: {
+          distribution: { type: 'constant', value: 0 },
+          pathType,
+          derivedFromPathType: true
+        }
+      })
+
+    const sameRackOutput = new SimulationEngine(
+      makeTopology({
+        global: { simulationDuration: 500, defaultTimeout: 5_000, traceSampleRate: 1, seed: 'same-seed' },
+        nodes: [makeNode('source'), makeNode('dst')],
+        edges: [makeDerivedEdge('same-rack-edge', 'same-rack')],
+        workload: {
+          sourceNodeId: 'source',
+          pattern: 'constant',
+          baseRps: 1,
+          requestDistribution: [{ type: 'GET', weight: 1, sizeBytes: 100 }]
+        }
+      })
+    ).run()
+
+    const crossRegionOutput = new SimulationEngine(
+      makeTopology({
+        global: {
+          simulationDuration: 500,
+          defaultTimeout: 5_000,
+          traceSampleRate: 1,
+          seed: 'same-seed'
+        },
+        nodes: [makeNode('source'), makeNode('dst')],
+        edges: [makeDerivedEdge('cross-region-edge', 'cross-region')],
+        workload: {
+          sourceNodeId: 'source',
+          pattern: 'constant',
+          baseRps: 1,
+          requestDistribution: [{ type: 'GET', weight: 1, sizeBytes: 100 }]
+        }
+      })
+    ).run()
+
+    const sameRackArrival = Number(
+      sameRackOutput.eventStream.find((event) => event.type === 'request-arrived')?.timestampUs
+    )
+    const crossRegionArrival = Number(
+      crossRegionOutput.eventStream.find((event) => event.type === 'request-arrived')?.timestampUs
+    )
+
+    expect(crossRegionArrival).toBeGreaterThan(sameRackArrival)
   })
 
   it('forks requests on async fan-out so each branch has a distinct request id', () => {
@@ -1082,5 +1165,55 @@ describe('SimulationEngine', () => {
       targetNodeId: 'dst',
       reasonCode: 'edge_error_rate'
     })
+  })
+
+  it('enforces maxConcurrentRequests as a connection limit on edges', () => {
+    const topology = makeTopology({
+      global: { simulationDuration: 100, defaultTimeout: 1_000, traceSampleRate: 1 },
+      nodes: [makeNode('source'), makeNode('dst')],
+      edges: [
+        makeEdge('source-to-dst', 'source', 'dst', {
+          maxConcurrentRequests: 1,
+          latency: { distribution: { type: 'constant', value: 50 }, pathType: 'same-dc' }
+        })
+      ],
+      workload: {
+        sourceNodeId: 'source',
+        pattern: 'constant',
+        baseRps: 100,
+        requestDistribution: [{ type: 'GET', weight: 1, sizeBytes: 100 }]
+      }
+    })
+
+    const output = new SimulationEngine(topology).run()
+    const rejectionReasons = output.eventStream
+      .filter((event) => event.type === 'request-rejected')
+      .map((event) => event.reasonCode)
+
+    expect(rejectionReasons).toContain('connection_refused')
+  })
+
+  it('adds transmission latency from edge bandwidth', () => {
+    const topology = makeTopology({
+      global: { simulationDuration: 300, defaultTimeout: 1_000, traceSampleRate: 1 },
+      nodes: [makeNode('source'), makeNode('dst')],
+      edges: [
+        makeEdge('source-to-dst', 'source', 'dst', {
+          bandwidth: 1,
+          latency: { distribution: { type: 'constant', value: 0 }, pathType: 'same-dc' }
+        })
+      ],
+      workload: {
+        sourceNodeId: 'source',
+        pattern: 'constant',
+        baseRps: 1,
+        requestDistribution: [{ type: 'GET', weight: 1, sizeBytes: 12_500 }]
+      }
+    })
+
+    const output = new SimulationEngine(topology).run()
+    const arrivalEvent = output.eventStream.find((event) => event.type === 'request-arrived')
+
+    expect(Number(arrivalEvent?.timestampUs)).toBe(100_200)
   })
 })

@@ -24,6 +24,12 @@ import {
 } from './core/events'
 import { microToMs, msToMicro, secToMicro } from './core/time'
 import { ComponentNode, EdgeDefinition, EventScheduler, TopologyJSON } from './core/types'
+import {
+  getPathTypeLatencyProfile,
+  getProtocolLatencyOverheadMs,
+  isReliableProtocol,
+  protocolSupportsConnectionLimits
+} from './defaults/edgeDefaults'
 import { MetricsCollector } from './metrics'
 import { GGcKNode } from './nodes/GGcKNode'
 import { RoutingTable } from './routing'
@@ -31,6 +37,13 @@ import { MinHeap } from './scheduler/min-heap'
 import { Distributions } from './stochastic/distribution'
 import { createRandom } from './stochastic/random'
 import { RequestTracer } from './tracer'
+import {
+  attachCircuitBreakerTracking,
+  clearCircuitBreakerTracking,
+  readCircuitBreakerConfig,
+  readCircuitBreakerTracking,
+  recordCircuitBreakerOutcome
+} from './traits/circuitBreaker'
 import {
   createInitialProbeState,
   evaluateProbe,
@@ -89,6 +102,7 @@ export class SimulationEngine {
   private readonly probedNodeIds = new Set<string>()
   private readonly probeStateByNodeId = new Map<string, ProbeState>()
   private readonly traitStateByNodeId = new Map<string, Map<string, unknown>>()
+  private readonly activeTransfersByEdgeId = new Map<string, number>()
   private readonly workload?: WorkloadGenerator
 
   private readonly requestById = new Map<string, Request>()
@@ -510,6 +524,7 @@ export class SimulationEngine {
     if (!node || !request) {
       return
     }
+    this.releaseEdgeTransfer(event.data.edgeId)
     this.appendNodeToPath(request, event.nodeId)
     this.recordSimulationEvent(event, this.createNodeSnapshot(event.nodeId))
 
@@ -699,10 +714,22 @@ export class SimulationEngine {
       return
     }
 
+    this.maybeRecordCircuitBreakerOutcome(request, event.nodeId, true)
+
     const routingTraitDecision = this.runBeforeRoutingTraits(event.nodeId, request)
     if (routingTraitDecision.action === 'complete') {
       this.eventQueue.insert(
         createEvent('request-complete', event.nodeId, request.id, { request }, this.clock)
+      )
+      return
+    }
+
+    if (routingTraitDecision.action === 'rejected') {
+      this.rejectRequestAtNode(
+        event.nodeId,
+        request,
+        routingTraitDecision.reason,
+        completion.completedSpan.arrivalTime
       )
       return
     }
@@ -712,6 +739,7 @@ export class SimulationEngine {
         ? this.resolveReroutedTarget(event.nodeId, routingTraitDecision.targetNodeId)
         : this.resolveRoutes(event.nodeId, request)
     if (routeResult.rejectionReason) {
+      this.maybeRecordCircuitBreakerOutcomeAtNode(event.nodeId, request, false)
       this.rejectRequestAtNode(
         event.nodeId,
         request,
@@ -723,6 +751,7 @@ export class SimulationEngine {
 
     const routes = routeResult.routes
     if (routes.length === 0) {
+      this.maybeRecordCircuitBreakerOutcomeAtNode(event.nodeId, request, true)
       this.eventQueue.insert(
         createEvent('request-complete', event.nodeId, request.id, { request }, this.clock)
       )
@@ -772,6 +801,7 @@ export class SimulationEngine {
     }
 
     this.recordSimulationEvent(event)
+    this.maybeTrackCircuitBreakerRequest(request, edge.source, targetNodeId)
     this.enqueueEdgeTransfer(request, edge, targetNodeId)
   }
 
@@ -807,6 +837,9 @@ export class SimulationEngine {
     }
 
     const scope = typeof event.data.scope === 'string' ? event.data.scope : undefined
+    if (scope === 'in-flight') {
+      this.releaseEdgeTransfer(event.data.edgeId)
+    }
     if (scope === 'node') {
       const arrivalTime = this.nodes.get(event.nodeId)?.cancelRequest(request.id, this.clock)
       if (arrivalTime === null || arrivalTime === undefined) {
@@ -816,6 +849,7 @@ export class SimulationEngine {
       this.markNodeTemporarilyUnhealthy(event.nodeId)
     }
     this.recordSimulationEvent(event, this.createNodeSnapshot(event.nodeId))
+    this.maybeRecordCircuitBreakerOutcome(request, event.nodeId, false)
 
     for (const span of request.spans) {
       this.tracer.recordSpan(request.id, span)
@@ -837,8 +871,10 @@ export class SimulationEngine {
     if (!request) {
       return
     }
+    this.releaseEdgeTransfer(event.data.edgeId)
     this.markNodeUnhealthyForReason(event.nodeId, reason)
     this.recordSimulationEvent(event, this.createNodeSnapshot(event.nodeId))
+    this.maybeRecordCircuitBreakerOutcome(request, event.nodeId, false)
 
     const nodeArrivalTime =
       typeof event.data.nodeArrivalTime === 'bigint' ? event.data.nodeArrivalTime : undefined
@@ -854,9 +890,25 @@ export class SimulationEngine {
     this.markRequestTerminal(request, 'rejected')
   }
 
-  private sampleEdgeLatencyUs(edge: EdgeDefinition): bigint {
-    const latencyMs = Math.max(0, this.distributions.fromConfig(edge.latency.distribution))
-    return msToMicro(latencyMs)
+  private sampleEdgeLatencyUs(
+    edge: EdgeDefinition,
+    request: Request,
+    activeTransfers: number
+  ): bigint {
+    const latencyDistribution = edge.latency.derivedFromPathType
+      ? getPathTypeLatencyProfile(edge.latency.pathType)
+      : edge.latency.distribution
+    const propagationMs = Math.max(0, this.distributions.fromConfig(latencyDistribution))
+    const transmissionMs = request.sizeBytes / (edge.bandwidth * 125)
+    const protocolOverheadMs = getProtocolLatencyOverheadMs(edge.protocol)
+    const utilization =
+      edge.maxConcurrentRequests > 0
+        ? Math.min(0.98, activeTransfers / edge.maxConcurrentRequests)
+        : 0
+    const delayMultiplier = Math.min(50, 1 / Math.max(0.02, 1 - utilization))
+    const totalLatencyMs =
+      Math.max(0, propagationMs * delayMultiplier) + transmissionMs + protocolOverheadMs
+    return msToMicro(totalLatencyMs)
   }
 
   private getRequest(event: SimulationEvent, hydrate = true): Request | undefined {
@@ -955,6 +1007,7 @@ export class SimulationEngine {
       nodes[nodeId] = {
         queueLength: state.queueLength,
         activeWorkers: state.activeWorkers,
+        totalInSystem: state.totalInSystem,
         utilization: state.utilization,
         status: state.status
       }
@@ -1184,11 +1237,13 @@ export class SimulationEngine {
       clock: this.clock,
       isTargetHealthy: (nodeId) => this.isNodeHealthy(nodeId),
       isEdgeHealthy: (edge) => this.isEdgeHealthy(edge),
-      onTraitDecision: (decision) =>
+      onTraitDecision: (decision) => {
+        this.recordTraitPayloadMetrics(decision.nodeId, decision.payload)
         this.recordTraitDecision(decision.nodeId, request.id, decision.traitName, decision.hook, {
           decision: decision.decision,
           ...(decision.payload ?? {})
         })
+      }
     })
   }
 
@@ -1214,6 +1269,107 @@ export class SimulationEngine {
 
   private markNodeTemporarilyUnhealthy(nodeId: string): void {
     this.nodeUnhealthyUntilUs.set(nodeId, this.clock + LOAD_BALANCER_UNHEALTHY_COOLDOWN_US)
+  }
+
+  private releaseEdgeTransfer(edgeId: unknown): void {
+    if (typeof edgeId !== 'string') {
+      return
+    }
+
+    const activeTransfers = this.activeTransfersByEdgeId.get(edgeId)
+    if (!activeTransfers) {
+      return
+    }
+
+    if (activeTransfers <= 1) {
+      this.activeTransfersByEdgeId.delete(edgeId)
+      return
+    }
+
+    this.activeTransfersByEdgeId.set(edgeId, activeTransfers - 1)
+  }
+
+  private maybeTrackCircuitBreakerRequest(
+    request: Request,
+    sourceNodeId: string,
+    targetNodeId: string
+  ): void {
+    const sourceNode = this.nodeDefinitionsById.get(sourceNodeId)
+    if (!sourceNode || !readCircuitBreakerConfig(sourceNode)) {
+      return
+    }
+
+    attachCircuitBreakerTracking(request, sourceNodeId, targetNodeId)
+  }
+
+  private maybeRecordCircuitBreakerOutcome(
+    request: Request,
+    observedNodeId: string,
+    success: boolean
+  ): void {
+    const tracking = readCircuitBreakerTracking(request)
+    if (!tracking || tracking.targetNodeId !== observedNodeId) {
+      return
+    }
+
+    clearCircuitBreakerTracking(request)
+
+    const trackerNode = this.nodeDefinitionsById.get(tracking.trackerNodeId)
+    if (!trackerNode) {
+      return
+    }
+
+    const outcome = recordCircuitBreakerOutcome(
+      this.getTraitStateStore(tracking.trackerNodeId),
+      trackerNode,
+      success,
+      this.clock
+    )
+
+    if (!outcome.transition) {
+      return
+    }
+
+    this.recordCanonicalEvent({
+      timestampUs: this.clock,
+      type: outcome.transition === 'open' ? 'circuit-breaker-open' : 'circuit-breaker-close',
+      priority: EventPriority.SYSTEM,
+      requestId: request.id,
+      nodeId: tracking.trackerNodeId,
+      payload: {
+        targetNodeId: observedNodeId,
+        outcome: success ? 'success' : 'failure'
+      },
+      nodeSnapshot: this.createNodeSnapshot(tracking.trackerNodeId)
+    })
+  }
+
+  private maybeRecordCircuitBreakerOutcomeAtNode(
+    nodeId: string,
+    request: Request,
+    success: boolean
+  ): void {
+    const node = this.nodeDefinitionsById.get(nodeId)
+    if (!node || !readCircuitBreakerConfig(node)) {
+      return
+    }
+
+    const outcome = recordCircuitBreakerOutcome(this.getTraitStateStore(nodeId), node, success, this.clock)
+    if (!outcome.transition) {
+      return
+    }
+
+    this.recordCanonicalEvent({
+      timestampUs: this.clock,
+      type: outcome.transition === 'open' ? 'circuit-breaker-open' : 'circuit-breaker-close',
+      priority: EventPriority.SYSTEM,
+      requestId: request.id,
+      nodeId,
+      payload: {
+        outcome: success ? 'success' : 'failure'
+      },
+      nodeSnapshot: this.createNodeSnapshot(nodeId)
+    })
   }
 
   private rejectRequestAtNode(
@@ -1272,12 +1428,15 @@ export class SimulationEngine {
       })
     }
 
-    if (this.distributions.random() < edge.packetLossRate) {
-      const timeoutAt = request.deadline > this.clock ? request.deadline : this.clock
-      emitEdgeFlowEvent('packet-loss', timeoutAt, timeoutAt - this.clock)
+    const currentLoad = this.activeTransfersByEdgeId.get(edge.id) ?? 0
+    if (
+      protocolSupportsConnectionLimits(edge.protocol) &&
+      currentLoad >= edge.maxConcurrentRequests
+    ) {
+      emitEdgeFlowEvent('edge-error', this.clock, 0n)
       this.eventQueue.insert(
         createEvent(
-          'request-timeout',
+          'request-rejected',
           targetNodeId,
           request.id,
           {
@@ -1286,13 +1445,41 @@ export class SimulationEngine {
             edgeId: edge.id,
             sourceNodeId: edge.source,
             targetNodeId,
-            nodeArrivalTime: this.clock,
-            scope: 'in-flight'
+            reason: 'connection_refused',
+            nodeArrivalTime: this.clock
           },
-          timeoutAt
+          this.clock
         )
       )
       return
+    }
+
+    let edgeLatencyUs = this.sampleEdgeLatencyUs(edge, request, currentLoad + 1)
+    if (this.distributions.random() < edge.packetLossRate) {
+      if (isReliableProtocol(edge.protocol)) {
+        edgeLatencyUs += edgeLatencyUs
+      } else {
+        const timeoutAt = request.deadline > this.clock ? request.deadline : this.clock
+        emitEdgeFlowEvent('packet-loss', timeoutAt, timeoutAt - this.clock)
+        this.eventQueue.insert(
+          createEvent(
+            'request-timeout',
+            targetNodeId,
+            request.id,
+            {
+              request,
+              edge,
+              edgeId: edge.id,
+              sourceNodeId: edge.source,
+              targetNodeId,
+              nodeArrivalTime: this.clock,
+              scope: 'in-flight'
+            },
+            timeoutAt
+          )
+        )
+        return
+      }
     }
 
     if (this.distributions.random() < edge.errorRate) {
@@ -1317,10 +1504,11 @@ export class SimulationEngine {
       return
     }
 
-    const edgeLatencyUs = this.sampleEdgeLatencyUs(edge)
+    this.activeTransfersByEdgeId.set(edge.id, currentLoad + 1)
     const arrivalTime = this.clock + edgeLatencyUs
     if (request.deadline <= arrivalTime) {
-      emitEdgeFlowEvent('timeout', request.deadline, request.deadline - this.clock)
+      const timeoutAt = request.deadline > this.clock ? request.deadline : this.clock
+      emitEdgeFlowEvent('timeout', timeoutAt, timeoutAt - this.clock)
       this.eventQueue.insert(
         createEvent(
           'request-timeout',
@@ -1335,7 +1523,7 @@ export class SimulationEngine {
             nodeArrivalTime: this.clock,
             scope: 'in-flight'
           },
-          request.deadline
+          timeoutAt
         )
       )
       return
@@ -1347,7 +1535,7 @@ export class SimulationEngine {
         'request-arrival',
         targetNodeId,
         request.id,
-        { request, edge, sourceNodeId: edge.source },
+        { request, edge, edgeId: edge.id, sourceNodeId: edge.source },
         arrivalTime
       )
     )
@@ -1369,7 +1557,8 @@ export class SimulationEngine {
         request,
         clock: this.clock,
         random: () => this.distributions.random(),
-        state: this.getTraitStateStore(nodeId)
+        state: this.getTraitStateStore(nodeId),
+        nodeState: this.nodes.get(nodeId)?.getState()
       })
       this.recordTraitPayloadMetrics(nodeId, decision.payload)
       this.recordTraitDecision(nodeId, request.id, trait.name, 'beforeArrival', {
@@ -1403,11 +1592,14 @@ export class SimulationEngine {
         request,
         clock: this.clock,
         random: () => this.distributions.random(),
-        state: this.getTraitStateStore(nodeId)
+        state: this.getTraitStateStore(nodeId),
+        nodeState: this.nodes.get(nodeId)?.getState()
       })
+      this.recordTraitPayloadMetrics(nodeId, decision.payload)
       this.recordTraitDecision(nodeId, request.id, trait.name, 'beforeRouting', {
         decision: decision.action,
         ...(decision.action === 'reroute' ? { targetNodeId: decision.targetNodeId } : {}),
+        ...(decision.action === 'rejected' ? { reason: decision.reason } : {}),
         ...(decision.payload ?? {})
       })
 

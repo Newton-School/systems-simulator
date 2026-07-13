@@ -1,6 +1,6 @@
 import type { Request } from '../core/events'
 import type { CanvasNodeDataV2 } from '../catalog/nodeSpecTypes'
-import type { ComponentNode, ComponentType, EdgeDefinition } from '../core/types'
+import type { ComponentNode, ComponentType, EdgeDefinition, NodeState } from '../core/types'
 import type { ResolveRoute } from '../routing'
 
 export type TraitHookName = 'beforeArrival' | 'beforeRouting' | 'filterRoutes'
@@ -118,6 +118,7 @@ export interface TraitContext {
   clock: bigint
   random?: () => number
   state?: TraitStateStore
+  nodeState?: NodeState
 }
 
 export interface TraitFilterRoutesContext extends TraitContext {
@@ -134,6 +135,7 @@ export type BeforeArrivalDecision =
 export type BeforeRoutingDecision =
   | { action: 'route'; payload?: Record<string, unknown> }
   | { action: 'complete'; payload?: Record<string, unknown> }
+  | { action: 'rejected'; reason: string; payload?: Record<string, unknown> }
   | { action: 'reroute'; targetNodeId: string; payload?: Record<string, unknown> }
 
 export type FilterRoutesDecision =

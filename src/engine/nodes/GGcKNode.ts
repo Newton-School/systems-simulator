@@ -1,5 +1,8 @@
 import { createEvent, Request, RequestSpan } from '../core/events'
-import { readServiceTimeDistributionOverride } from '../traits/serviceTimeOverride'
+import {
+  readServiceTimeDistributionOverride,
+  readServiceTimeLatencyPenaltyMs
+} from '../traits/serviceTimeOverride'
 import {
   ComponentNode,
   DistributionConfig,
@@ -233,7 +236,7 @@ export class GGcKNode {
         `Invalid service time generated for node ${this.id}: ${String(rawServiceTimeMs)}`
       )
     }
-    const serviceTimeMs = Math.max(0, rawServiceTimeMs)
+    const serviceTimeMs = Math.max(0, rawServiceTimeMs) + readServiceTimeLatencyPenaltyMs(request)
     const serviceTimeMicro = BigInt(Math.round(serviceTimeMs * 1000))
 
     this.scheduler.schedule(

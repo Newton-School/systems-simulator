@@ -16,6 +16,7 @@ export interface TimeSeriesSnapshot {
     {
       queueLength: number
       activeWorkers: number
+      totalInSystem: number
       utilization: number
       status: string
     }

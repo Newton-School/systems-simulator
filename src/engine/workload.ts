@@ -166,7 +166,10 @@ export class WorkloadGenerator {
       path: [],
       spans: [],
       retryCount: 0,
-      metadata: {}
+      metadata:
+        requestType.metadata && typeof requestType.metadata === 'object'
+          ? { ...requestType.metadata }
+          : {}
     }
   }
 

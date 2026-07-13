@@ -56,6 +56,19 @@ export interface NodeSimulationConfig {
   routingRules?: ContentRoutingRule[]
   maxTokens?: number
   refillRatePerSecond?: number
+  coldStartLatency?: DistributionConfig
+  coldStartLatencyMs?: number
+  idleTimeoutMs?: number
+  maxConcurrency?: number
+  routingKeyField?: string
+  dnsRoutingPolicy?: 'simple' | 'weighted' | 'failover' | 'latency-based' | 'geolocation'
+  dnsCacheTtlSeconds?: number
+  circuitBreaker?: {
+    failureThreshold: number
+    failureCount: number
+    recoveryTimeout: number
+    halfOpenRequests: number
+  }
   replicationRole?: 'primary' | 'replica'
   readLatency?: DistributionConfig
   writeLatency?: DistributionConfig
