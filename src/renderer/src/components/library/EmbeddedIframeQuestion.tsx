@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { EmbeddedIframeQuestion } from './embeddedIframeQuestion'
+import type { EmbeddedIframeQuestion } from './embeddedIframeQuestionSchema'
 
 type FrameStatus = 'idle' | 'loading' | 'ready' | 'error'
 

@@ -9,7 +9,7 @@ import {
 import { CATALOG_CONFIG } from '../../config/catalogConfig'
 import { CURATED_SCENARIOS } from '../../../../scenarios/curatedScenarios'
 import { EmbeddedIframeQuestionPreview } from './EmbeddedIframeQuestion'
-import { parseEmbeddedIframeQuestion } from './embeddedIframeQuestion'
+import { parseEmbeddedIframeQuestion } from './embeddedIframeQuestionSchema'
 import { LibraryItem } from './LibraryItem'
 
 type Filter = 'all' | 'common'
