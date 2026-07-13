@@ -20,6 +20,8 @@ import {
 } from '../library/LibrarySidebar'
 import { FlowCanvas } from '../canvas/FlowCanvas'
 import { Header } from './Header'
+import { SampleScenarioPicker } from '../samples/SampleScenarioPicker'
+import { SAMPLE_SCENARIOS, type SampleScenario } from '@renderer/config/sampleScenarios'
 
 // Atoms
 import { ResizeHandle } from '../ui/ResizeHandle'
@@ -57,7 +59,10 @@ function titleCaseField(field: string): string {
   }
 }
 
-function formatValidationIssue(error: ValidationError, nodes: ReturnType<typeof useStore.getState>['nodes']): string {
+function formatValidationIssue(
+  error: ValidationError,
+  nodes: ReturnType<typeof useStore.getState>['nodes']
+): string {
   if (error.path === 'workload.sourceNodeId') {
     return error.message
   }
@@ -94,6 +99,7 @@ export const WorkspaceLayout = () => {
   const [leftSidebarTab, setLeftSidebarTab] = useState<LibrarySidebarTab>('library')
   const [isRightOpen, setIsRightOpen] = useState(false)
   const [showResults, setShowResults] = useState(false)
+  const [showSamples, setShowSamples] = useState(false)
   const [runIssues, setRunIssues] = useState<{ messages: string[]; tone: RunIssueTone }>({
     messages: [],
     tone: 'warning'
@@ -137,7 +143,7 @@ export const WorkspaceLayout = () => {
     [confirm]
   )
 
-  const { handleSave, handleOpen } = useFlowPersistence(confirmDiscardChanges)
+  const { handleSave, handleOpen, handleLoadSample } = useFlowPersistence(confirmDiscardChanges)
 
   const selectedNodeId = nodes.find((n) => n.selected)?.id
   const hasElectronCloseBridge = typeof window.nssimulator?.onCloseRequest === 'function'
@@ -170,6 +176,21 @@ export const WorkspaceLayout = () => {
   }, [])
 
   useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const isMod = event.metaKey || event.ctrlKey
+      if (!isMod || !event.shiftKey || event.key.toLowerCase() !== 'o') {
+        return
+      }
+
+      event.preventDefault()
+      setShowSamples(true)
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [])
+
+  useEffect(() => {
     if (!selectedNodeId) {
       setIsRightOpen(false)
     }
@@ -177,6 +198,7 @@ export const WorkspaceLayout = () => {
 
   // Simulation
   const sim = useSimulation()
+  const { reset: resetSimulation } = sim
   const { serialize } = useTopologySerializer()
 
   useEffect(() => {
@@ -233,9 +255,9 @@ export const WorkspaceLayout = () => {
 
     const validation = validateTopology(topology)
     if (!validation.valid) {
-      const validationErrors = validation.errors?.map((error) => formatValidationIssue(error, nodes)) ?? [
-        'Topology validation failed.'
-      ]
+      const validationErrors = validation.errors?.map((error) =>
+        formatValidationIssue(error, nodes)
+      ) ?? ['Topology validation failed.']
       setRunIssues({ messages: validationErrors, tone: 'error' })
       return
     }
@@ -258,6 +280,21 @@ export const WorkspaceLayout = () => {
   function handleRun() {
     startSimulation()
   }
+
+  const handleSampleLoad = useCallback(
+    async (sample: SampleScenario) => {
+      const loaded = await handleLoadSample(sample.raw, `${sample.id}.json`)
+      if (!loaded) return
+
+      resetSimulation()
+      clearSimulationMetrics()
+      setShowResults(false)
+      setLastRunContext(null)
+      setRunIssues({ messages: [], tone: 'warning' })
+      setShowSamples(false)
+    },
+    [clearSimulationMetrics, handleLoadSample, resetSimulation]
+  )
 
   const isRunning = sim.status === 'running'
   const isPaused = sim.status === 'paused' && !sim.stopped
@@ -288,6 +325,7 @@ export const WorkspaceLayout = () => {
         isRightOpen={isRightOpen}
         onSave={handleSave}
         onOpen={handleOpen}
+        onSamples={() => setShowSamples(true)}
         fileName={fileName}
         isUnsaved={isUnsaved}
         onRun={handleRun}
@@ -401,6 +439,14 @@ export const WorkspaceLayout = () => {
           </Panel>
         </PanelGroup>
       </div>
+
+      {showSamples && (
+        <SampleScenarioPicker
+          samples={SAMPLE_SCENARIOS}
+          onLoad={handleSampleLoad}
+          onClose={() => setShowSamples(false)}
+        />
+      )}
 
       {dialog}
     </div>

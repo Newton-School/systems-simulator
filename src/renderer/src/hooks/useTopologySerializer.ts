@@ -24,6 +24,7 @@ type EdgeRuntimeData = {
   maxConcurrentRequests?: number
   packetLossRate?: number
   errorRate?: number
+  condition?: string
 }
 
 const EDGE_DEFAULTS = {
@@ -51,6 +52,13 @@ function asProbabilityFromPercent(value: unknown): number | null {
   }
 
   return value / 100
+}
+
+function asNonEmptyString(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined
+
+  const trimmed = value.trim()
+  return trimmed.length > 0 ? trimmed : undefined
 }
 
 function normalizePercentToRatio(value: unknown, defaultPercent: number): number {
@@ -148,6 +156,7 @@ function serializeEdge(
   const mode =
     asEdgeMode(edgeData.mode) ??
     (targetTemplate?.asyncBoundary || targetSpec?.asyncBoundary ? 'asynchronous' : 'synchronous')
+  const condition = asNonEmptyString(edgeData.condition)
 
   return {
     id: id || `${source}->${target}`,
@@ -171,7 +180,8 @@ function serializeEdge(
       edgeData.packetLossRate,
       EDGE_DEFAULTS.packetLossRatePercent
     ),
-    errorRate: normalizePercentToRatio(edgeData.errorRate, EDGE_DEFAULTS.errorRatePercent)
+    errorRate: normalizePercentToRatio(edgeData.errorRate, EDGE_DEFAULTS.errorRatePercent),
+    ...(condition ? { condition } : {})
   }
 }
 
