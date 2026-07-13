@@ -14,6 +14,7 @@ import ReactFlow, {
 } from 'reactflow'
 import 'reactflow/dist/style.css'
 import { EdgeSimulationData } from '@renderer/types/ui'
+import type { CanvasNodeDataV2 } from '../../../../engine/catalog/nodeSpecTypes'
 
 import EmptyFlowState from '../ui/EmptyFlowState'
 import { MetricLensSwitcher } from './MetricLensSwitcher'
@@ -170,6 +171,12 @@ const FlowCanvasInternal = ({
 
       {selectedEdge && (
         <EdgePropertiesPanel
+          sourceNodeData={nodes.find((node) => node.id === selectedEdge.source)?.data as
+            | CanvasNodeDataV2
+            | undefined}
+          targetNodeData={nodes.find((node) => node.id === selectedEdge.target)?.data as
+            | CanvasNodeDataV2
+            | undefined}
           value={{
             label: (selectedEdge.label as string) || '',
             ...(((selectedEdge.data as EdgeSimulationData | undefined) ?? {}) as EdgeSimulationData)

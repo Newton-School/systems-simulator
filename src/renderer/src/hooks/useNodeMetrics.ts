@@ -22,6 +22,8 @@ export function useNodeMetrics(id: string) {
     traitCounters: runtime?.traitCounters,
     totalArrived: runtime?.totalArrived,
     totalRejected: runtime?.totalRejected,
+    peakInSystem: runtime?.peakInSystem,
+    finalInSystem: runtime?.finalInSystem,
     postWarmupArrived: runtime?.postWarmupArrived,
     postWarmupProcessed: runtime?.postWarmupProcessed,
     postWarmupRejected: runtime?.postWarmupRejected,

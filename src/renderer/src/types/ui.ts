@@ -36,6 +36,8 @@ export interface NodeSimulationMetrics {
   traitCounters?: Record<string, number>
   totalArrived?: number
   totalRejected?: number
+  peakInSystem?: number
+  finalInSystem?: number
 }
 
 export interface EdgeSimulationData {
@@ -48,6 +50,7 @@ export interface EdgeSimulationData {
   maxConcurrentRequests?: number
   packetLossRate?: number
   errorRate?: number
+  condition?: string
 }
 
 export type NodeType = RendererNodeType

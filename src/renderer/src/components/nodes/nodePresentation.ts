@@ -229,9 +229,13 @@ export function getLensCard(
         return null
       }
       const why =
-        metrics.cacheHitRatio !== undefined && metrics.cacheHitRatio > 0
-          ? `${metrics.cacheHitRatio.toFixed(0)}% served from cache`
-          : 'click for detail'
+        data.componentType === 'stream' &&
+        metrics.finalInSystem !== undefined &&
+        metrics.peakInSystem !== undefined
+          ? `${metrics.finalInSystem.toFixed(0)} lag at end · peak ${metrics.peakInSystem.toFixed(0)}`
+          : metrics.cacheHitRatio !== undefined && metrics.cacheHitRatio > 0
+            ? `${metrics.cacheHitRatio.toFixed(0)}% served from cache`
+            : 'click for detail'
       return {
         value: metrics.throughput.toFixed(1),
         limit: 'req/s',

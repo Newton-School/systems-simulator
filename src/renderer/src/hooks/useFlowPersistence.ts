@@ -6,6 +6,7 @@ import {
   convertNestedToFlat,
   NestedFileData
 } from '@renderer/utils/nodeTransformers'
+import { isTopologyJsonLike, topologyToCanvasFileData } from '@renderer/utils/topologyCanvasAdapter'
 import { migrateCanvasNodes } from '../../../engine/catalog/legacyCanvasMigration'
 import { normalizeScenarioState } from '@renderer/types/ui'
 
@@ -65,9 +66,11 @@ export const useFlowPersistence = (confirmDiscardChanges: () => Promise<boolean>
   const handleLoadFileData = useCallback(
     (fileContent: string | object, fileName?: string) => {
       try {
-        const data = (
+        const parsedData =
           typeof fileContent === 'string' ? JSON.parse(fileContent) : fileContent
-        ) as NestedFileData
+        const data = isTopologyJsonLike(parsedData)
+          ? topologyToCanvasFileData(parsedData)
+          : (parsedData as NestedFileData)
 
         if (!data?.nodes) throw new Error('Invalid file format')
 
@@ -133,6 +136,17 @@ export const useFlowPersistence = (confirmDiscardChanges: () => Promise<boolean>
     await handleOpen()
   }, [confirmIfUnsaved, handleOpen])
 
+  const loadFromData = useCallback(
+    async (fileContent: string | object, fileName?: string) => {
+      const ok = await confirmIfUnsaved()
+      if (!ok) return false
+
+      handleLoadFileData(fileContent, fileName)
+      return true
+    },
+    [confirmIfUnsaved, handleLoadFileData]
+  )
+
   const handleSaveWrapper = useCallback(async () => {
     const savedFile = await innerSave(normalizeSuggestedFileName(useStore.getState().fileName))
 
@@ -158,5 +172,5 @@ export const useFlowPersistence = (confirmDiscardChanges: () => Promise<boolean>
     setUnsaved(currentSnapshot !== lastPersistedContentRef.current)
   }, [edges, handleGetFileData, nodes, scenario, setUnsaved])
 
-  return { handleSave: handleSaveWrapper, handleOpen: handleOpenWithCheckIfSaved }
+  return { handleSave: handleSaveWrapper, handleOpen: handleOpenWithCheckIfSaved, loadFromData }
 }
