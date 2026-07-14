@@ -45,6 +45,7 @@ describe('generateSimulationOutput', () => {
     const metrics = new MetricsCollector({ warmupDuration: 0 })
     const tracer = new RequestTracer({ sampleRate: 0 })
 
+    metrics.recordNodeArrival('node-a', 0n)
     metrics.recordRequest(
       makeCompletedRequest({
         id: 'req-little',
@@ -205,17 +206,20 @@ describe('generateSimulationOutput', () => {
 
     // 100 arrived, 80 processed, 5 rejected, 5 timed out → 10 in-flight (10% > 5% threshold)
     for (let i = 0; i < 80; i++) {
+      const ts = BigInt(i) * 1_000n
+      metrics.recordNodeArrival('node-x', ts)
       metrics.recordRequest(
         makeCompletedRequest({
           id: `ok-${i}`,
           status: 'success',
-          createdAt: BigInt(i) * 1_000n,
-          spans: [makeSpan('node-x', BigInt(i) * 1_000n, 0n, 1_000n)]
+          createdAt: ts,
+          spans: [makeSpan('node-x', ts, 0n, 1_000n)]
         })
       )
     }
     for (let i = 0; i < 5; i++) {
       const ts = BigInt(i) * 1_000n
+      metrics.recordNodeArrival('node-x', ts)
       metrics.recordRejection('node-x', 'capacity', {
         requestCreatedAt: ts,
         nodeArrivalTime: ts
@@ -223,6 +227,7 @@ describe('generateSimulationOutput', () => {
     }
     for (let i = 0; i < 5; i++) {
       const ts = BigInt(i) * 1_000n
+      metrics.recordNodeArrival('node-x', ts)
       metrics.recordTimeout(`t-${i}`, 'node-x', {
         requestCreatedAt: ts,
         nodeArrivalTime: ts
@@ -230,15 +235,7 @@ describe('generateSimulationOutput', () => {
     }
     // 10 more arrivals that were never completed (in-flight)
     for (let i = 0; i < 10; i++) {
-      metrics.recordRequest(
-        makeCompletedRequest({
-          id: `inflight-${i}`,
-          status: 'error',
-          createdAt: BigInt(i) * 1_000n,
-          path: ['node-x'],
-          spans: []
-        })
-      )
+      metrics.recordNodeArrival('node-x', BigInt(i) * 1_000n)
     }
 
     const config: GlobalConfig = {
@@ -261,6 +258,7 @@ describe('generateSimulationOutput', () => {
     const tracer = new RequestTracer({ sampleRate: 0 })
 
     // One post-warmup request with 200ms latency → recommendedWarmup = 10×200 = 2000ms
+    metrics.recordNodeArrival('node-a', 200_000n)
     metrics.recordRequest(
       makeCompletedRequest({
         id: 'req-1',

@@ -3,6 +3,7 @@ import { BaseEdge, getSmoothStepPath, EdgeProps, EdgeLabelRenderer } from 'react
 import useStore, { type EdgeFlowRunConfig, type EdgeFlowState } from '@renderer/store/useStore'
 import { getRoutingPreviewSnapshot } from '@renderer/utils/routingStrategyPreview'
 import { failureRateLevelFromRatio } from '@renderer/utils/failureRatePresentation'
+import type { EdgeFailureCause } from '../../../../engine/core/events'
 
 const EDGE_VISUAL_WINDOW_MS = 3_000
 const FAILED_PULSE_MS = 650
@@ -21,7 +22,31 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 function fmtFailureRate(ratio: number): string {
-  return `${(clamp(ratio, 0, 1) * 100).toFixed(1)}% fail`
+  const percent = clamp(ratio, 0, 1) * 100
+  if (percent > 0 && percent < 0.1) {
+    return '<0.1% fail'
+  }
+  return `${percent.toFixed(1)}% fail`
+}
+
+function fmtPercent(percent: number): string {
+  if (percent > 0 && percent < 0.1) {
+    return '<0.1%'
+  }
+  return `${percent.toFixed(1)}%`
+}
+
+function labelForFailureCause(cause: EdgeFailureCause): string {
+  switch (cause) {
+    case 'connection_refused':
+      return 'saturation'
+    case 'deadline_exceeded':
+      return 'deadline'
+    case 'edge_error_rate':
+      return 'edge error'
+    case 'packet_loss':
+      return 'packet loss'
+  }
 }
 
 function compressedPacketCount(arrivalRate: number): number {
@@ -301,6 +326,34 @@ export const PacketEdge = ({
   const postRunFailureRatio =
     postWarmupAttemptedCount > 0 ? (flow?.totalPostWarmupFailed ?? 0) / postWarmupAttemptedCount : 0
   const failureRatio = isComplete ? postRunFailureRatio : liveFailureRatio
+  const failureBreakdown = useMemo(() => {
+    const attempted = isComplete ? postWarmupAttemptedCount : (flow?.totalAttempted ?? 0)
+    const counts = isComplete
+      ? (flow?.totalPostWarmupFailedByCause ?? {})
+      : (flow?.totalFailedByCause ?? {})
+
+    if (attempted <= 0) {
+      return []
+    }
+
+    return Object.entries(counts)
+      .filter((entry): entry is [EdgeFailureCause, number] => entry[1] > 0)
+      .sort((a, b) => b[1] - a[1])
+      .map(([cause, count]) => ({
+        cause,
+        label: labelForFailureCause(cause),
+        percent: (count / attempted) * 100
+      }))
+  }, [
+    flow?.totalAttempted,
+    flow?.totalFailedByCause,
+    flow?.totalPostWarmupFailedByCause,
+    isComplete,
+    postWarmupAttemptedCount
+  ])
+  const failureBreakdownText = failureBreakdown
+    .map((entry) => `${entry.label} ${fmtPercent(entry.percent)}`)
+    .join(' • ')
   const visualMultiplier = patternMultiplier(runConfig, playback, now, id)
   const steadyRequestRate = isComplete ? postRunPacketRate : liveSuccessRate
   const previewShare =
@@ -349,6 +402,10 @@ export const PacketEdge = ({
     : isInactiveAfterRun
       ? 'inactive'
       : [phaseLabel, fmtFailureRate(failureRatio)].filter(Boolean).join(' / ')
+  const flowLabelTitle =
+    failureBreakdownText.length > 0 && !isRoutingPreviewEdge
+      ? `${flowLabelText} (${failureBreakdownText})`
+      : flowLabelText
   const flowLabelClassName = [
     'bg-nss-bg px-2 py-0.5 text-[18px] font-bold leading-none tracking-wide',
     isRoutingPreviewEdge
@@ -501,7 +558,14 @@ export const PacketEdge = ({
                 </span>
               )}
               {(isRoutingPreviewEdge || flowStatus === 'complete' || flow) && (
-                <span className={flowLabelClassName}>{flowLabelText}</span>
+                <span className={flowLabelClassName} title={flowLabelTitle}>
+                  {flowLabelText}
+                </span>
+              )}
+              {!isRoutingPreviewEdge && selected && failureBreakdownText.length > 0 && (
+                <span className="bg-nss-bg px-2 py-0.5 text-[11px] font-semibold leading-none tracking-wide text-nss-muted">
+                  {failureBreakdownText}
+                </span>
               )}
             </div>
           </div>

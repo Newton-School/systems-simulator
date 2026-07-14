@@ -66,6 +66,11 @@ export interface Request {
 }
 
 export type EdgeFlowStatus = 'success' | 'edge-error' | 'packet-loss' | 'timeout'
+export type EdgeFailureCause =
+  | 'connection_refused'
+  | 'edge_error_rate'
+  | 'packet_loss'
+  | 'deadline_exceeded'
 
 export interface EdgeFlowEvent {
   sequence: number
@@ -77,6 +82,7 @@ export interface EdgeFlowEvent {
   completedAtMs: number
   latencyMs: number
   status: EdgeFlowStatus
+  failureCause?: EdgeFailureCause
 }
 
 /**

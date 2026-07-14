@@ -1,5 +1,5 @@
 import { memo } from 'react'
-import { Sidebar, Save, FolderOpen } from 'lucide-react'
+import { FolderOpen, Save, Sidebar } from 'lucide-react'
 
 import { Divider } from '../ui/Divider'
 import { IconButton } from '../ui/IconButton'

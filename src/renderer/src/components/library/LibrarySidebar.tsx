@@ -7,7 +7,7 @@ import {
   type LucideIcon
 } from 'lucide-react'
 import { CATALOG_CONFIG } from '../../config/catalogConfig'
-import { CURATED_SCENARIOS } from '../../../../scenarios/curatedScenarios'
+import { SAMPLE_SCENARIOS } from '../../config/sampleScenarios'
 import { EmbeddedIframeQuestionPreview } from './EmbeddedIframeQuestion'
 import { parseEmbeddedIframeQuestion } from './embeddedIframeQuestionSchema'
 import { LibraryItem } from './LibraryItem'
@@ -40,6 +40,28 @@ const ACTIVITY_TABS: ActivityTab[] = [
   { id: 'library', label: 'Component Library', icon: LibraryIcon },
   { id: 'scenarios', label: 'Scenarios', icon: FlaskConical }
 ]
+
+interface SidebarScenario {
+  id: string
+  title: string
+  description: string
+  badge: string
+  subtitle: string
+  diagram: string
+  focusLabel: string
+  focusText: string
+}
+
+const ALL_SIDEBAR_SCENARIOS: SidebarScenario[] = SAMPLE_SCENARIOS.map((scenario) => ({
+  id: `sample:${scenario.id}`,
+  title: scenario.name,
+  description: scenario.primaryUseCase,
+  badge: scenario.difficulty,
+  subtitle: scenario.subtitle,
+  diagram: scenario.diagram,
+  focusLabel: 'Why Run It',
+  focusText: scenario.simulatorValue
+}))
 
 interface LibraryActivityRailProps {
   activeTab: LibrarySidebarTab
@@ -243,88 +265,97 @@ function ComponentLibraryPanel({
   )
 }
 
+function ScenarioCard({
+  scenario,
+  isExpanded,
+  onToggle,
+  onLoadScenario
+}: {
+  scenario: SidebarScenario
+  isExpanded: boolean
+  onToggle: () => void
+  onLoadScenario: (scenarioId: string) => Promise<void>
+}) {
+  return (
+    <div
+      className={[
+        'rounded-lg border transition-colors',
+        isExpanded
+          ? 'border-nss-primary bg-nss-surface'
+          : 'border-nss-border bg-nss-panel hover:border-nss-primary/50'
+      ].join(' ')}
+    >
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={isExpanded}
+        className="w-full p-3 text-left"
+      >
+        <div className="flex items-center justify-between gap-2">
+          <h4 className="text-xs font-semibold text-nss-text">{scenario.title}</h4>
+          <span className="shrink-0 rounded border border-nss-border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-nss-muted">
+            {scenario.badge}
+          </span>
+        </div>
+        <p className="mt-1 text-[11px] leading-relaxed text-nss-muted">{scenario.description}</p>
+      </button>
+
+      {isExpanded && (
+        <div className="px-3 pb-3 space-y-2">
+          <div className="rounded-md border border-nss-border bg-nss-panel px-3 py-2">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-nss-muted">
+              {scenario.subtitle}
+            </p>
+            <p className="mt-1 whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-nss-text">
+              {scenario.diagram}
+            </p>
+          </div>
+
+          <div className="rounded-md border border-nss-primary/20 bg-nss-primary/10 px-3 py-2">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-nss-primary">
+              {scenario.focusLabel}
+            </p>
+            <p className="mt-1 text-[11px] leading-relaxed text-nss-text">{scenario.focusText}</p>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => void onLoadScenario(scenario.id)}
+            className="w-full rounded-md bg-nss-primary px-3 py-2 text-xs font-semibold text-white transition-colors hover:opacity-90"
+          >
+            Load Scenario
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function ScenarioPanel({
   selectedScenarioId,
   onSelectScenario,
   onLoadScenario
 }: ScenarioPanelProps) {
-  const selectedScenario =
-    CURATED_SCENARIOS.find((scenario) => scenario.id === selectedScenarioId) ?? CURATED_SCENARIOS[0]
-
   return (
     <>
       <div className="p-4 pb-3 border-b border-nss-border shrink-0 space-y-1">
         <h2 className="text-xs font-bold text-nss-muted uppercase tracking-widest">Scenarios</h2>
         <p className="text-[11px] leading-relaxed text-nss-muted">
-          Curated topologies that demonstrate one simulator behaviour clearly.
+          Pre-built systems you can load onto the canvas. Click one to see what it demonstrates,
+          then load it and press play.
         </p>
       </div>
 
-      <div className="flex-1 min-h-0 overflow-y-auto p-3 space-y-3">
-        <div className="space-y-2">
-          {CURATED_SCENARIOS.map((scenario) => (
-            <button
-              key={scenario.id}
-              type="button"
-              onClick={() => onSelectScenario(scenario.id)}
-              className={[
-                'w-full rounded-lg border p-3 text-left transition-colors',
-                selectedScenario.id === scenario.id
-                  ? 'border-nss-primary bg-nss-surface'
-                  : 'border-nss-border bg-nss-panel hover:border-nss-primary/50'
-              ].join(' ')}
-            >
-              <div className="flex items-center justify-between gap-2">
-                <h3 className="text-xs font-semibold text-nss-text">{scenario.title}</h3>
-                <span className="text-[10px] uppercase tracking-wide text-nss-muted">
-                  {scenario.difficulty}
-                </span>
-              </div>
-              <p className="mt-1 text-[11px] leading-relaxed text-nss-muted">
-                {scenario.description}
-              </p>
-            </button>
-          ))}
-        </div>
-
-        {selectedScenario && (
-          <div className="rounded-lg border border-nss-border bg-nss-surface p-3 space-y-3">
-            <div className="space-y-1">
-              <h3 className="text-xs font-semibold text-nss-text">{selectedScenario.title}</h3>
-              <p className="text-[11px] leading-relaxed text-nss-muted">
-                {selectedScenario.description}
-              </p>
-            </div>
-
-            <div className="flex flex-wrap gap-1">
-              {selectedScenario.concepts.map((concept) => (
-                <span
-                  key={concept}
-                  className="rounded bg-nss-bg px-2 py-1 text-[10px] font-medium text-nss-muted"
-                >
-                  {concept}
-                </span>
-              ))}
-            </div>
-
-            <div className="rounded-md border border-nss-primary/20 bg-nss-primary/10 px-3 py-2">
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-nss-primary">
-                What To Look At
-              </p>
-              <p className="mt-1 text-[11px] leading-relaxed text-nss-text">
-                {selectedScenario.whatToLookAt}
-              </p>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => void onLoadScenario(selectedScenario.id)}
-              className="w-full rounded-md bg-nss-primary px-3 py-2 text-xs font-semibold text-white transition-colors hover:opacity-90"
-            >
-              Load Scenario
-            </button>
-          </div>
-        )}
+      <div className="flex-1 min-h-0 overflow-y-auto p-3 space-y-2">
+        {ALL_SIDEBAR_SCENARIOS.map((scenario) => (
+          <ScenarioCard
+            key={scenario.id}
+            scenario={scenario}
+            isExpanded={selectedScenarioId === scenario.id}
+            onToggle={() => onSelectScenario(selectedScenarioId === scenario.id ? '' : scenario.id)}
+            onLoadScenario={onLoadScenario}
+          />
+        ))}
       </div>
     </>
   )
@@ -334,7 +365,7 @@ export function LibrarySidebarContent({ activeTab, onLoadScenario }: LibrarySide
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<Filter>('all')
   const [questionText, setQuestionText] = useState('')
-  const [selectedScenarioId, setSelectedScenarioId] = useState(CURATED_SCENARIOS[0]?.id ?? '')
+  const [selectedScenarioId, setSelectedScenarioId] = useState('')
 
   return (
     <aside className="h-full w-full min-w-0 bg-nss-panel border-r border-nss-border flex flex-col transition-colors duration-200">

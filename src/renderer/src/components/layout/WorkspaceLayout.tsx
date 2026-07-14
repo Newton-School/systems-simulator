@@ -20,7 +20,8 @@ import {
 } from '../library/LibrarySidebar'
 import { FlowCanvas } from '../canvas/FlowCanvas'
 import { Header } from './Header'
-import { CURATED_SCENARIOS } from '../../../../scenarios/curatedScenarios'
+import { SampleScenarioPicker } from '../samples/SampleScenarioPicker'
+import { SAMPLE_SCENARIOS, type SampleScenario } from '@renderer/config/sampleScenarios'
 
 // Atoms
 import { ResizeHandle } from '../ui/ResizeHandle'
@@ -123,6 +124,7 @@ export const WorkspaceLayout = () => {
   const [leftSidebarTab, setLeftSidebarTab] = useState<LibrarySidebarTab>('library')
   const [isRightOpen, setIsRightOpen] = useState(false)
   const [showResults, setShowResults] = useState(false)
+  const [showSamples, setShowSamples] = useState(false)
   const [runIssues, setRunIssues] = useState<{ messages: string[]; tone: RunIssueTone }>({
     messages: [],
     tone: 'warning'
@@ -147,6 +149,7 @@ export const WorkspaceLayout = () => {
   const fileName = useStore((s) => s.fileName)
   const isUnsaved = useStore((s) => s.isUnsaved)
   const nodes = useStore((s) => s.nodes)
+  const edges = useStore((s) => s.edges)
   const scenario = useStore((s) => s.scenario)
   const updateScenario = useStore((s) => s.updateScenario)
   const setSimulationMetrics = useStore((s) => s.setSimulationMetrics)
@@ -199,6 +202,21 @@ export const WorkspaceLayout = () => {
   }, [])
 
   useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const isMod = event.metaKey || event.ctrlKey
+      if (!isMod || !event.shiftKey || event.key.toLowerCase() !== 'o') {
+        return
+      }
+
+      event.preventDefault()
+      setShowSamples(true)
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [])
+
+  useEffect(() => {
     if (!selectedNodeId) {
       setIsRightOpen(false)
     }
@@ -209,17 +227,18 @@ export const WorkspaceLayout = () => {
   const { serialize } = useTopologySerializer()
   const handleLoadScenario = useCallback(
     async (scenarioId: string) => {
-      const scenarioDefinition = CURATED_SCENARIOS.find((entry) => entry.id === scenarioId)
-      if (!scenarioDefinition) {
+      const sampleId = scenarioId.startsWith('sample:') ? scenarioId.slice('sample:'.length) : ''
+
+      const sampleScenario = SAMPLE_SCENARIOS.find(
+        (entry) => entry.id === sampleId || entry.id === scenarioId
+      )
+
+      if (!sampleScenario) {
         setRunIssues({ messages: [`Unknown scenario '${scenarioId}'.`], tone: 'error' })
         return
       }
 
-      const loaded = await loadFromData(
-        scenarioDefinition.topology,
-        `${scenarioDefinition.id}.json`
-      )
-
+      const loaded = await loadFromData(sampleScenario.raw, `${sampleScenario.id}.json`)
       if (!loaded) {
         return
       }
@@ -239,6 +258,10 @@ export const WorkspaceLayout = () => {
   useEffect(() => {
     if (!sim.results) return
 
+    const inFlightByNode = new Map(
+      sim.results.conservationCheck.map((result) => [result.nodeId, result.inFlight])
+    )
+
     const metricsByNode = Object.fromEntries(
       Object.entries(sim.results.perNode).map(([nodeId, metrics]) => [
         nodeId,
@@ -248,6 +271,7 @@ export const WorkspaceLayout = () => {
           postWarmupProcessed: metrics.postWarmupProcessed,
           postWarmupRejected: metrics.postWarmupRejected,
           postWarmupTimedOut: metrics.postWarmupTimedOut,
+          postWarmupInFlight: inFlightByNode.get(nodeId) ?? 0,
           queueDepth: Math.round(metrics.avgQueueLength * 10) / 10,
           utilization: Math.round(metrics.utilization * 1000) / 10,
           errorRate: Math.round(metrics.errorRate * 10000) / 100,
@@ -293,7 +317,7 @@ export const WorkspaceLayout = () => {
     const validation = validateTopology(topology)
     if (!validation.valid) {
       const validationErrors = validation.errors?.map((error) =>
-        formatValidationIssue(error, nodes, useStore.getState().edges)
+        formatValidationIssue(error, nodes, edges)
       ) ?? ['Topology validation failed.']
       setRunIssues({ messages: validationErrors, tone: 'error' })
       return
@@ -317,6 +341,21 @@ export const WorkspaceLayout = () => {
   function handleRun() {
     startSimulation()
   }
+
+  const handleSampleLoad = useCallback(
+    async (sample: SampleScenario) => {
+      const loaded = await loadFromData(sample.raw, `${sample.id}.json`)
+      if (!loaded) return
+
+      sim.reset()
+      clearSimulationMetrics()
+      setShowResults(false)
+      setLastRunContext(null)
+      setRunIssues({ messages: [], tone: 'warning' })
+      setShowSamples(false)
+    },
+    [clearSimulationMetrics, loadFromData, sim]
+  )
 
   const isRunning = sim.status === 'running'
   const isPaused = sim.status === 'paused' && !sim.stopped
@@ -460,6 +499,14 @@ export const WorkspaceLayout = () => {
           </Panel>
         </PanelGroup>
       </div>
+
+      {showSamples && (
+        <SampleScenarioPicker
+          samples={SAMPLE_SCENARIOS}
+          onLoad={handleSampleLoad}
+          onClose={() => setShowSamples(false)}
+        />
+      )}
 
       {dialog}
     </div>

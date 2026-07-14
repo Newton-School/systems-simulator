@@ -2,6 +2,8 @@ import { RequestSpan } from './core/events'
 import { microToMs, msToMicro } from './core/time'
 import { ComponentNode, NodeState, SLOConfig } from './core/types'
 
+export type FailureObservationPoint = 'node' | 'edge'
+
 export interface CompletedRequest {
   id: string
   status: 'success' | 'timeout' | 'rejected' | 'error'
@@ -123,6 +125,8 @@ export interface NodeMetadata {
 interface FailureMetricsContext {
   requestCreatedAt?: bigint
   nodeArrivalTime?: bigint
+  observationPoint?: FailureObservationPoint
+  completedSpans?: RequestSpan[]
 }
 
 export class MetricsCollector {
@@ -179,41 +183,33 @@ export class MetricsCollector {
       }
     }
 
-    for (const span of request.spans) {
-      const node = this.ensureNodeMetrics(span.nodeId)
-      // Per-node post-warmup gate uses span.arrivalTime — the moment this request
-      // actually reached this node in simulation time. Using request.createdAt
-      // instead would miscount: a request created just before warmup ends but
-      // processed entirely post-warmup would be excluded, inflating L relative to λW.
-      const isSpanPostWarmup = span.arrivalTime >= this.warmupDurationUs
+    this.recordCompletedSpans(request.spans)
+  }
 
-      node.totalArrived++
-      if (isSpanPostWarmup) {
-        node.postWarmupArrived++
-      }
-      node.totalProcessed++
-      node.queueWaitSumMs += microToMs(span.queueWait)
-      node.serviceTimeSumMs += microToMs(span.serviceTime)
-      node.latencySamplesMs.push(microToMs(span.queueWait + span.serviceTime))
-
-      if (isSpanPostWarmup) {
-        node.postWarmupProcessed++
-        node.postWarmupQueueWaitSumMs += microToMs(span.queueWait)
-        node.postWarmupServiceTimeSumMs += microToMs(span.serviceTime)
-      }
+  /**
+   * Record that a request actually reached a node.
+   *
+   * This is the source of truth for per-node arrival counts. Terminal outcome
+   * handlers must not backfill arrivals from spans or paths because a request
+   * can arrive at a node and then fail later on a downstream edge.
+   */
+  recordNodeArrival(nodeId: string, arrivalTime: bigint): void {
+    const node = this.ensureNodeMetrics(nodeId)
+    node.totalArrived++
+    if (this.isPostWarmup(arrivalTime)) {
+      node.postWarmupArrived++
     }
+  }
 
-    // If spans are unavailable, path still gives visibility into arrivals.
-    if (request.spans.length === 0 && request.path.length > 0) {
-      const isPostWarmupByCreation = request.createdAt >= this.warmupDurationUs
-      for (const nodeId of request.path) {
-        const node = this.ensureNodeMetrics(nodeId)
-        node.totalArrived++
-        if (isPostWarmupByCreation) {
-          node.postWarmupArrived++
-        }
-      }
-    }
+  /**
+   * Record spans that already finished locally for a request that never
+   * reached a terminal global outcome before the simulation stopped.
+   *
+   * This lets upstream nodes keep their processed counts when a request is
+   * still queued, processing, or in-flight farther downstream at cutoff.
+   */
+  recordInFlightCompletedSpans(spans: RequestSpan[]): void {
+    this.recordCompletedSpans(spans)
   }
 
   /**
@@ -227,6 +223,7 @@ export class MetricsCollector {
    */
   recordRejection(nodeId: string, reason: string, context: FailureMetricsContext = {}): void {
     const arrivalTime = context.nodeArrivalTime ?? context.requestCreatedAt
+    const observationPoint = context.observationPoint ?? 'node'
 
     this.totalRequests++
     this.failedRequests++
@@ -235,12 +232,18 @@ export class MetricsCollector {
       this.postWarmupTotalRequests++
     }
 
+    this.recordCompletedSpans(context.completedSpans ?? [], {
+      excludeLastSpanAtNodeId: observationPoint === 'node' ? nodeId : undefined
+    })
+
+    if (observationPoint !== 'node') {
+      return
+    }
+
     const node = this.ensureNodeMetrics(nodeId)
-    node.totalArrived++
     node.totalRejected++
     node.rejectionsByReason[reason] = (node.rejectionsByReason[reason] ?? 0) + 1
     if (this.isPostWarmup(arrivalTime)) {
-      node.postWarmupArrived++
       node.postWarmupRejected++
     }
   }
@@ -254,6 +257,7 @@ export class MetricsCollector {
    */
   recordTimeout(_requestId: string, nodeId: string, context: FailureMetricsContext = {}): void {
     const arrivalTime = context.nodeArrivalTime ?? context.requestCreatedAt
+    const observationPoint = context.observationPoint ?? 'node'
 
     this.totalRequests++
     this.failedRequests++
@@ -262,11 +266,17 @@ export class MetricsCollector {
       this.postWarmupTotalRequests++
     }
 
+    this.recordCompletedSpans(context.completedSpans ?? [], {
+      excludeLastSpanAtNodeId: observationPoint === 'node' ? nodeId : undefined
+    })
+
+    if (observationPoint !== 'node') {
+      return
+    }
+
     const node = this.ensureNodeMetrics(nodeId)
-    node.totalArrived++
     node.totalTimedOut++
     if (this.isPostWarmup(arrivalTime)) {
-      node.postWarmupArrived++
       node.postWarmupTimedOut++
     }
   }
@@ -476,6 +486,38 @@ export class MetricsCollector {
 
   private isPostWarmup(eventTime?: bigint): boolean {
     return eventTime !== undefined && eventTime >= this.warmupDurationUs
+  }
+
+  private recordCompletedSpans(
+    spans: RequestSpan[],
+    options: { excludeLastSpanAtNodeId?: string } = {}
+  ): void {
+    const { excludeLastSpanAtNodeId } = options
+    const lastSpan = spans[spans.length - 1]
+    const limit =
+      excludeLastSpanAtNodeId && lastSpan?.nodeId === excludeLastSpanAtNodeId
+        ? spans.length - 1
+        : spans.length
+
+    for (let i = 0; i < limit; i++) {
+      const span = spans[i]
+      const node = this.ensureNodeMetrics(span.nodeId)
+      // Per-node post-warmup gate uses span.arrivalTime — the moment this request
+      // reached this node in simulation time. Using request.createdAt instead
+      // would miscount requests that straddle the warmup boundary.
+      const isSpanPostWarmup = span.arrivalTime >= this.warmupDurationUs
+
+      node.totalProcessed++
+      node.queueWaitSumMs += microToMs(span.queueWait)
+      node.serviceTimeSumMs += microToMs(span.serviceTime)
+      node.latencySamplesMs.push(microToMs(span.queueWait + span.serviceTime))
+
+      if (isSpanPostWarmup) {
+        node.postWarmupProcessed++
+        node.postWarmupQueueWaitSumMs += microToMs(span.queueWait)
+        node.postWarmupServiceTimeSumMs += microToMs(span.serviceTime)
+      }
+    }
   }
 
   private ensureNodeMetrics(nodeId: string): InternalNodeMetrics {

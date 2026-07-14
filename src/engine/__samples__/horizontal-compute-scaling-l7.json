@@ -1,0 +1,335 @@
+{
+  "version": "2.0.0",
+  "nodes": [
+    {
+      "id": "client",
+      "type": "serviceNode",
+      "position": {
+        "x": 80,
+        "y": 340
+      },
+      "data": {
+        "schemaVersion": 2,
+        "templateId": "client-user",
+        "componentType": "api-endpoint",
+        "structuralRole": "source",
+        "profile": "source",
+        "rendererType": "serviceNode",
+        "label": "Client App",
+        "subLabel": "HTTP Clients",
+        "iconKey": "monitor",
+        "source": {
+          "requestDistribution": [
+            {
+              "type": "GET",
+              "weight": 1,
+              "sizeBytes": 1024
+            }
+          ],
+          "defaultWorkload": {
+            "pattern": "poisson",
+            "baseRps": 180,
+            "bursty": {
+              "burstRps": 700,
+              "burstDuration": 2000,
+              "normalDuration": 8000
+            },
+            "spike": {
+              "spikeTime": 30000,
+              "spikeRps": 1200,
+              "spikeDuration": 5000
+            },
+            "sawtooth": {
+              "peakRps": 420,
+              "rampDuration": 10000
+            }
+          }
+        }
+      },
+      "zIndex": 0,
+      "expandParent": false,
+      "selected": false,
+      "width": 256,
+      "height": 117,
+      "nodes": []
+    },
+    {
+      "id": "l7-lb",
+      "type": "serviceNode",
+      "position": {
+        "x": 620,
+        "y": 317.2437586807738
+      },
+      "data": {
+        "schemaVersion": 2,
+        "templateId": "load-balancer-l7",
+        "componentType": "load-balancer-l7",
+        "structuralRole": "router",
+        "profile": "router",
+        "rendererType": "serviceNode",
+        "label": "Load Balancer L7",
+        "subLabel": "HTTP / gRPC Routing",
+        "iconKey": "load-balancer-l7",
+        "routingStrategy": "round-robin",
+        "sim": {
+          "queue": {
+            "workers": 16,
+            "capacity": 128,
+            "discipline": "fifo"
+          },
+          "processing": {
+            "distribution": {
+              "type": "constant",
+              "value": 2
+            },
+            "timeout": 100
+          }
+        }
+      },
+      "zIndex": 0,
+      "expandParent": false,
+      "selected": true,
+      "width": 256,
+      "height": 164,
+      "positionAbsolute": {
+        "x": 620,
+        "y": 317.2437586807738
+      },
+      "dragging": false,
+      "nodes": []
+    },
+    {
+      "id": "api-a",
+      "type": "computeNode",
+      "position": {
+        "x": 1160,
+        "y": 120
+      },
+      "data": {
+        "schemaVersion": 2,
+        "templateId": "backend-server",
+        "componentType": "microservice",
+        "structuralRole": "processor",
+        "profile": "compute-service",
+        "rendererType": "computeNode",
+        "label": "API Server A",
+        "subLabel": "Stateless Instance",
+        "iconKey": "SERVER",
+        "sim": {
+          "queue": {
+            "workers": 6,
+            "capacity": 40,
+            "discipline": "fifo"
+          },
+          "processing": {
+            "distribution": {
+              "type": "constant",
+              "value": 7
+            },
+            "timeout": 300
+          }
+        }
+      },
+      "zIndex": 0,
+      "expandParent": false,
+      "selected": false,
+      "width": 190,
+      "height": 115,
+      "nodes": []
+    },
+    {
+      "id": "api-b",
+      "type": "computeNode",
+      "position": {
+        "x": 1160,
+        "y": 560
+      },
+      "data": {
+        "schemaVersion": 2,
+        "templateId": "backend-server",
+        "componentType": "microservice",
+        "structuralRole": "processor",
+        "profile": "compute-service",
+        "rendererType": "computeNode",
+        "label": "API Server B",
+        "subLabel": "Stateless Instance",
+        "iconKey": "SERVER",
+        "sim": {
+          "queue": {
+            "workers": 6,
+            "capacity": 40,
+            "discipline": "fifo"
+          },
+          "processing": {
+            "distribution": {
+              "type": "constant",
+              "value": 7
+            },
+            "timeout": 300
+          }
+        }
+      },
+      "zIndex": 0,
+      "expandParent": false,
+      "selected": false,
+      "width": 190,
+      "height": 115,
+      "nodes": []
+    },
+    {
+      "id": "primary-db",
+      "type": "serviceNode",
+      "position": {
+        "x": 1700,
+        "y": 340
+      },
+      "data": {
+        "schemaVersion": 2,
+        "templateId": "primary-db",
+        "componentType": "relational-db",
+        "structuralRole": "storage",
+        "profile": "datastore",
+        "rendererType": "serviceNode",
+        "label": "Primary DB",
+        "subLabel": "Shared Storage",
+        "iconKey": "database",
+        "sim": {
+          "queue": {
+            "workers": 8,
+            "capacity": 80,
+            "discipline": "fifo"
+          },
+          "processing": {
+            "distribution": {
+              "type": "constant",
+              "value": 5
+            },
+            "timeout": 500
+          }
+        }
+      },
+      "zIndex": 0,
+      "expandParent": false,
+      "selected": false,
+      "width": 256,
+      "height": 117,
+      "nodes": []
+    }
+  ],
+  "edges": [
+    {
+      "id": "client-to-l7-lb",
+      "type": "packet",
+      "source": "client",
+      "target": "l7-lb",
+      "sourceHandle": "right-1-source",
+      "targetHandle": "left-1-target",
+      "animated": true,
+      "data": {
+        "protocol": "https",
+        "mode": "synchronous",
+        "latencyMu": 2.2,
+        "latencySigma": 0.35,
+        "bandwidth": 1000,
+        "maxConcurrentRequests": 800,
+        "packetLossRate": 0,
+        "errorRate": 0
+      },
+      "selected": false
+    },
+    {
+      "id": "l7-lb-to-api-a",
+      "type": "packet",
+      "source": "l7-lb",
+      "target": "api-a",
+      "sourceHandle": "right-0-source",
+      "targetHandle": "left-1-target",
+      "animated": true,
+      "data": {
+        "protocol": "https",
+        "mode": "synchronous",
+        "latencyMu": 1.7,
+        "latencySigma": 0.3,
+        "bandwidth": 1000,
+        "maxConcurrentRequests": 400,
+        "packetLossRate": 0,
+        "errorRate": 0
+      },
+      "selected": false
+    },
+    {
+      "id": "l7-lb-to-api-b",
+      "type": "packet",
+      "source": "l7-lb",
+      "target": "api-b",
+      "sourceHandle": "right-2-source",
+      "targetHandle": "left-1-target",
+      "animated": true,
+      "data": {
+        "protocol": "https",
+        "mode": "synchronous",
+        "latencyMu": 1.7,
+        "latencySigma": 0.3,
+        "bandwidth": 1000,
+        "maxConcurrentRequests": 400,
+        "packetLossRate": 0,
+        "errorRate": 0
+      },
+      "selected": false
+    },
+    {
+      "id": "api-a-to-primary-db",
+      "type": "packet",
+      "source": "api-a",
+      "target": "primary-db",
+      "sourceHandle": "right-1-source",
+      "targetHandle": "left-0-target",
+      "animated": true,
+      "data": {
+        "protocol": "tcp",
+        "mode": "synchronous",
+        "latencyMu": 1.5,
+        "latencySigma": 0.35,
+        "bandwidth": 1000,
+        "maxConcurrentRequests": 200,
+        "packetLossRate": 0,
+        "errorRate": 0
+      },
+      "selected": false
+    },
+    {
+      "id": "api-b-to-primary-db",
+      "type": "packet",
+      "source": "api-b",
+      "target": "primary-db",
+      "sourceHandle": "right-1-source",
+      "targetHandle": "left-2-target",
+      "animated": true,
+      "data": {
+        "protocol": "tcp",
+        "mode": "synchronous",
+        "latencyMu": 1.5,
+        "latencySigma": 0.35,
+        "bandwidth": 1000,
+        "maxConcurrentRequests": 200,
+        "packetLossRate": 0,
+        "errorRate": 0
+      },
+      "selected": false
+    }
+  ],
+  "scenario": {
+    "global": {
+      "simulationDuration": 60000,
+      "warmupDuration": 5000,
+      "seed": "sample-l7-scale-out",
+      "defaultTimeout": 1000,
+      "traceSampleRate": 0.05
+    },
+    "selectedSourceNodeId": "client",
+    "workloadOverride": {
+      "pattern": "poisson",
+      "baseRps": 180
+    }
+  }
+}

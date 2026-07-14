@@ -194,7 +194,7 @@ describe('EventStreamRecorder', () => {
 
   it('ignores simulation events outside the canonical event contract', () => {
     expect(
-      eventInputFromSimulationEvent(createEvent('circuit-breaker-open', 'worker', '', {}, 1n))
+      eventInputFromSimulationEvent(createEvent('network-partition', 'worker', '', {}, 1n))
     ).toBeNull()
   })
 

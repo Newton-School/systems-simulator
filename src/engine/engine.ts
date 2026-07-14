@@ -17,6 +17,7 @@ import {
 import {
   EventPriority,
   createEvent,
+  type EdgeFailureCause,
   type EdgeFlowEvent,
   type EdgeFlowStatus,
   type Request,
@@ -117,6 +118,7 @@ export class SimulationEngine {
   private forkCounter = 0
   private running = false
   private paused = false
+  private pendingInFlightMetricsFlushed = false
   private readonly timeSeries: TimeSeriesSnapshot[] = []
   private debugTarget: 'all' | string | null = null
   private forcedTraceRequestId: string | null = null
@@ -225,6 +227,7 @@ export class SimulationEngine {
   run(): SimulationOutput {
     this.running = true
     this.paused = false
+    this.pendingInFlightMetricsFlushed = false
     if (this.debugTarget) {
       this.debugEvents.length = 0
     }
@@ -521,6 +524,7 @@ export class SimulationEngine {
     this.releaseEdgeTransfer(event.data.edgeId)
     this.appendNodeToPath(request, event.nodeId)
     this.recordSimulationEvent(event, this.createNodeSnapshot(event.nodeId))
+    this.metrics.recordNodeArrival(event.nodeId, this.clock)
 
     if (this.applySecurityPolicy(event.nodeId, request)) {
       return
@@ -845,6 +849,7 @@ export class SimulationEngine {
     }
 
     const scope = typeof event.data.scope === 'string' ? event.data.scope : undefined
+    const observationPoint = scope === 'in-flight' ? 'edge' : 'node'
     if (scope === 'in-flight') {
       this.releaseEdgeTransfer(event.data.edgeId)
     }
@@ -857,7 +862,9 @@ export class SimulationEngine {
       this.markNodeTemporarilyUnhealthy(event.nodeId)
     }
     this.recordSimulationEvent(event, this.createNodeSnapshot(event.nodeId))
-    this.maybeRecordCircuitBreakerOutcome(request, event.nodeId, false)
+    if (observationPoint === 'node') {
+      this.maybeRecordCircuitBreakerOutcome(request, event.nodeId, false)
+    }
 
     for (const span of request.spans) {
       this.tracer.recordSpan(request.id, span)
@@ -869,26 +876,35 @@ export class SimulationEngine {
       typeof event.data.nodeArrivalTime === 'bigint' ? event.data.nodeArrivalTime : undefined
     this.metrics.recordTimeout(event.requestId, event.nodeId, {
       requestCreatedAt: request.createdAt,
-      nodeArrivalTime
+      nodeArrivalTime,
+      observationPoint,
+      completedSpans: request.spans
     })
   }
 
   private handleRequestRejected(event: SimulationEvent): void {
     const reason = (event.data.reason as string | undefined) ?? 'rejected'
+    const observationPoint = event.data.observationPoint === 'edge' ? 'edge' : ('node' as const)
     const request = this.getRequest(event, false)
     if (!request) {
       return
     }
     this.releaseEdgeTransfer(event.data.edgeId)
-    this.markNodeUnhealthyForReason(event.nodeId, reason)
+    if (observationPoint === 'node') {
+      this.markNodeUnhealthyForReason(event.nodeId, reason)
+    }
     this.recordSimulationEvent(event, this.createNodeSnapshot(event.nodeId))
-    this.maybeRecordCircuitBreakerOutcome(request, event.nodeId, false)
+    if (observationPoint === 'node') {
+      this.maybeRecordCircuitBreakerOutcome(request, event.nodeId, false)
+    }
 
     const nodeArrivalTime =
       typeof event.data.nodeArrivalTime === 'bigint' ? event.data.nodeArrivalTime : undefined
     this.metrics.recordRejection(event.nodeId, reason, {
       requestCreatedAt: request.createdAt,
-      nodeArrivalTime
+      nodeArrivalTime,
+      observationPoint,
+      completedSpans: request.spans
     })
 
     for (const span of request.spans) {
@@ -1028,6 +1044,13 @@ export class SimulationEngine {
   }
 
   private generateResults(): SimulationOutput {
+    if (!this.running && !this.pendingInFlightMetricsFlushed) {
+      for (const request of this.requestById.values()) {
+        this.metrics.recordInFlightCompletedSpans(request.spans)
+      }
+      this.pendingInFlightMetricsFlushed = true
+    }
+
     const eventStream = this.getEventStream()
     const eventCountsByType = this.getEventCountsByType()
     const eventLog = this.debugTarget ? [...this.debugEvents] : null
@@ -1426,7 +1449,8 @@ export class SimulationEngine {
     const emitEdgeFlowEvent = (
       status: EdgeFlowStatus,
       completedAt: bigint,
-      latencyUs: bigint
+      latencyUs: bigint,
+      failureCause?: EdgeFailureCause
     ): void => {
       this.onEdgeFlowEvent?.({
         sequence: ++this.edgeFlowSequence,
@@ -1437,7 +1461,8 @@ export class SimulationEngine {
         startedAtMs: microToMs(this.clock),
         completedAtMs: microToMs(completedAt),
         latencyMs: microToMs(latencyUs),
-        status
+        status,
+        failureCause
       })
     }
 
@@ -1446,7 +1471,7 @@ export class SimulationEngine {
       protocolSupportsConnectionLimits(edge.protocol) &&
       currentLoad >= edge.maxConcurrentRequests
     ) {
-      emitEdgeFlowEvent('edge-error', this.clock, 0n)
+      emitEdgeFlowEvent('edge-error', this.clock, 0n, 'connection_refused')
       this.eventQueue.insert(
         createEvent(
           'request-rejected',
@@ -1459,7 +1484,7 @@ export class SimulationEngine {
             sourceNodeId: edge.source,
             targetNodeId,
             reason: 'connection_refused',
-            nodeArrivalTime: this.clock
+            observationPoint: 'edge'
           },
           this.clock
         )
@@ -1473,7 +1498,7 @@ export class SimulationEngine {
         edgeLatencyUs += edgeLatencyUs
       } else {
         const timeoutAt = request.deadline > this.clock ? request.deadline : this.clock
-        emitEdgeFlowEvent('packet-loss', timeoutAt, timeoutAt - this.clock)
+        emitEdgeFlowEvent('packet-loss', timeoutAt, timeoutAt - this.clock, 'packet_loss')
         this.eventQueue.insert(
           createEvent(
             'request-timeout',
@@ -1485,7 +1510,7 @@ export class SimulationEngine {
               edgeId: edge.id,
               sourceNodeId: edge.source,
               targetNodeId,
-              nodeArrivalTime: this.clock,
+              reason: 'packet_loss',
               scope: 'in-flight'
             },
             timeoutAt
@@ -1496,7 +1521,7 @@ export class SimulationEngine {
     }
 
     if (this.distributions.random() < edge.errorRate) {
-      emitEdgeFlowEvent('edge-error', this.clock, 0n)
+      emitEdgeFlowEvent('edge-error', this.clock, 0n, 'edge_error_rate')
       this.eventQueue.insert(
         createEvent(
           'request-rejected',
@@ -1509,7 +1534,7 @@ export class SimulationEngine {
             sourceNodeId: edge.source,
             targetNodeId,
             reason: 'edge_error_rate',
-            nodeArrivalTime: this.clock
+            observationPoint: 'edge'
           },
           this.clock
         )
@@ -1521,7 +1546,7 @@ export class SimulationEngine {
     const arrivalTime = this.clock + edgeLatencyUs
     if (request.deadline <= arrivalTime) {
       const timeoutAt = request.deadline > this.clock ? request.deadline : this.clock
-      emitEdgeFlowEvent('timeout', timeoutAt, timeoutAt - this.clock)
+      emitEdgeFlowEvent('timeout', timeoutAt, timeoutAt - this.clock, 'deadline_exceeded')
       this.eventQueue.insert(
         createEvent(
           'request-timeout',
@@ -1533,7 +1558,7 @@ export class SimulationEngine {
             edgeId: edge.id,
             sourceNodeId: edge.source,
             targetNodeId,
-            nodeArrivalTime: this.clock,
+            reason: 'deadline_exceeded',
             scope: 'in-flight'
           },
           timeoutAt

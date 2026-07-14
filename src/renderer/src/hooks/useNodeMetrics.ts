@@ -9,6 +9,7 @@ export function useNodeMetrics(id: string) {
     throughput: runtime?.throughput,
     arrived: runtime?.postWarmupArrived,
     completed: runtime?.postWarmupProcessed,
+    inFlight: runtime?.postWarmupInFlight,
     errorRate: runtime?.errorRate,
     queueDepth: runtime?.queueDepth,
     utilization: runtime?.utilization,
@@ -30,6 +31,7 @@ export function useNodeMetrics(id: string) {
     postWarmupProcessed: runtime?.postWarmupProcessed,
     postWarmupRejected: runtime?.postWarmupRejected,
     postWarmupTimedOut: runtime?.postWarmupTimedOut,
+    postWarmupInFlight: runtime?.postWarmupInFlight,
     hasRuntime,
     active
   }

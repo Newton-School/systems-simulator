@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createEvent } from './core/events'
+import type { EdgeFlowEvent } from './core/events'
 import { msToMicro } from './core/time'
 import type { ComponentNode, EdgeDefinition, TopologyJSON } from './core/types'
 import type { AdmissionDecision, DebugEvent } from './core/event-stream'
@@ -1215,6 +1216,187 @@ describe('SimulationEngine', () => {
     })
   })
 
+  it('does not count pre-arrival edge rejections as target-node arrivals or local failures', () => {
+    const topology = makeTopology({
+      global: { simulationDuration: 20, traceSampleRate: 1 },
+      nodes: [makeNode('source'), makeNode('dst')],
+      edges: [makeEdge('source-to-dst', 'source', 'dst', { errorRate: 1 })],
+      workload: {
+        sourceNodeId: 'source',
+        pattern: 'constant',
+        baseRps: 1,
+        requestDistribution: [{ type: 'GET', weight: 1, sizeBytes: 100 }]
+      }
+    })
+
+    const edgeEvents: EdgeFlowEvent[] = []
+    const engine = new SimulationEngine(topology)
+    engine.onEdgeFlowEvent = (event) => edgeEvents.push(event)
+
+    const output = engine.run()
+    const attempted = edgeEvents.length
+    const delivered = edgeEvents.filter((event) => event.status === 'success').length
+    const failed = attempted - delivered
+
+    expect(edgeEvents).toContainEqual(
+      expect.objectContaining({
+        edgeId: 'source-to-dst',
+        status: 'edge-error',
+        failureCause: 'edge_error_rate'
+      })
+    )
+    expect(attempted).toBe(output.summary.postWarmupTotalRequests)
+    expect(failed).toBe(output.summary.failedRequests)
+    expect(delivered).toBe(0)
+    expect(output.perNode['dst']).toMatchObject({
+      postWarmupArrived: 0,
+      postWarmupRejected: 0,
+      postWarmupTimedOut: 0
+    })
+  })
+
+  it('preserves intermediate-node arrivals and completions when a downstream edge rejects requests', () => {
+    const topology = makeTopology({
+      global: {
+        simulationDuration: 1_000,
+        defaultTimeout: 1_000,
+        traceSampleRate: 1,
+        seed: 'downstream-edge-rejection'
+      },
+      nodes: [makeNode('source'), makeNode('mid'), makeNode('dst')],
+      edges: [
+        makeEdge('source-to-mid', 'source', 'mid'),
+        makeEdge('mid-to-dst', 'mid', 'dst', { errorRate: 1 })
+      ],
+      workload: {
+        sourceNodeId: 'source',
+        pattern: 'constant',
+        baseRps: 10,
+        requestDistribution: [{ type: 'GET', weight: 1, sizeBytes: 100 }]
+      }
+    })
+
+    const output = new SimulationEngine(topology).run()
+    const mid = output.perNode.mid
+    const dst = output.perNode.dst
+    const midConservation = output.conservationCheck.find((entry) => entry.nodeId === 'mid')
+
+    expect(output.summary.postWarmupTotalRequests).toBe(10)
+    expect(output.summary.failedRequests).toBe(10)
+    expect(mid).toMatchObject({
+      postWarmupArrived: 10,
+      postWarmupProcessed: 10,
+      postWarmupRejected: 0,
+      postWarmupTimedOut: 0
+    })
+    expect(dst).toMatchObject({
+      postWarmupArrived: 0,
+      postWarmupProcessed: 0,
+      postWarmupRejected: 0,
+      postWarmupTimedOut: 0
+    })
+    expect(midConservation).toMatchObject({
+      postWarmupArrived: 10,
+      postWarmupProcessed: 10,
+      postWarmupRejected: 0,
+      postWarmupTimedOut: 0,
+      inFlight: 0,
+      balanced: true
+    })
+  })
+
+  it('preserves upstream completions when a downstream node is still in-flight at cutoff', () => {
+    const mid: ComponentNode = {
+      ...makeNode('mid'),
+      processing: { distribution: { type: 'constant', value: 0 }, timeout: 1_000 }
+    }
+    const dst: ComponentNode = {
+      ...makeNode('dst'),
+      processing: { distribution: { type: 'constant', value: 100 }, timeout: 1_000 }
+    }
+
+    const topology = makeTopology({
+      global: {
+        simulationDuration: 50,
+        defaultTimeout: 1_000,
+        traceSampleRate: 1,
+        seed: 'cutoff-inflight'
+      },
+      nodes: [makeNode('source'), mid, dst],
+      edges: [makeEdge('source-to-mid', 'source', 'mid'), makeEdge('mid-to-dst', 'mid', 'dst')],
+      workload: {
+        sourceNodeId: 'source',
+        pattern: 'constant',
+        baseRps: 1,
+        requestDistribution: [{ type: 'GET', weight: 1, sizeBytes: 100 }]
+      }
+    })
+
+    const output = new SimulationEngine(topology).run()
+    const midMetrics = output.perNode.mid
+    const dstMetrics = output.perNode.dst
+    const midConservation = output.conservationCheck.find((entry) => entry.nodeId === 'mid')
+    const dstConservation = output.conservationCheck.find((entry) => entry.nodeId === 'dst')
+
+    expect(midMetrics).toMatchObject({
+      postWarmupArrived: 1,
+      postWarmupProcessed: 1,
+      postWarmupRejected: 0,
+      postWarmupTimedOut: 0
+    })
+    expect(dstMetrics).toMatchObject({
+      postWarmupArrived: 1,
+      postWarmupProcessed: 0,
+      postWarmupRejected: 0,
+      postWarmupTimedOut: 0
+    })
+    expect(midConservation).toMatchObject({
+      postWarmupArrived: 1,
+      postWarmupProcessed: 1,
+      inFlight: 0,
+      balanced: true
+    })
+    expect(dstConservation).toMatchObject({
+      postWarmupArrived: 1,
+      postWarmupProcessed: 0,
+      inFlight: 1,
+      balanced: false
+    })
+  })
+
+  it('does not count edge deadline timeouts as target-node arrivals', () => {
+    const topology = makeTopology({
+      global: { simulationDuration: 20, defaultTimeout: 10, traceSampleRate: 1 },
+      nodes: [makeNode('source'), makeNode('dst')],
+      edges: [
+        makeEdge('source-to-dst', 'source', 'dst', {
+          latency: { distribution: { type: 'constant', value: 50 }, pathType: 'same-dc' }
+        })
+      ],
+      workload: {
+        sourceNodeId: 'source',
+        pattern: 'constant',
+        baseRps: 1,
+        requestDistribution: [{ type: 'GET', weight: 1, sizeBytes: 100 }]
+      }
+    })
+
+    const output = new SimulationEngine(topology).run()
+
+    expect(output.summary.timedOutRequests).toBe(1)
+    expect(output.eventStream.find((event) => event.type === 'request-timed-out')).toMatchObject({
+      edgeId: 'source-to-dst',
+      sourceNodeId: 'source',
+      targetNodeId: 'dst',
+      reasonCode: 'deadline_exceeded'
+    })
+    expect(output.perNode['dst']).toMatchObject({
+      postWarmupArrived: 0,
+      postWarmupRejected: 0,
+      postWarmupTimedOut: 0
+    })
+  })
+
   it('enforces maxConcurrentRequests as a connection limit on edges', () => {
     const topology = makeTopology({
       global: { simulationDuration: 100, defaultTimeout: 1_000, traceSampleRate: 1 },
@@ -1239,6 +1421,30 @@ describe('SimulationEngine', () => {
       .map((event) => event.reasonCode)
 
     expect(rejectionReasons).toContain('connection_refused')
+  })
+
+  it('conserves single-hop edge deliveries into target-node arrivals', () => {
+    const topology = makeTopology({
+      global: { simulationDuration: 20, defaultTimeout: 1_000, traceSampleRate: 1 },
+      nodes: [makeNode('source'), makeNode('dst')],
+      edges: [makeEdge('source-to-dst', 'source', 'dst')],
+      workload: {
+        sourceNodeId: 'source',
+        pattern: 'constant',
+        baseRps: 1,
+        requestDistribution: [{ type: 'GET', weight: 1, sizeBytes: 100 }]
+      }
+    })
+
+    const edgeEvents: EdgeFlowEvent[] = []
+    const engine = new SimulationEngine(topology)
+    engine.onEdgeFlowEvent = (event) => edgeEvents.push(event)
+
+    const output = engine.run()
+    expect(edgeEvents).toHaveLength(output.summary.postWarmupTotalRequests)
+    expect(edgeEvents.every((event) => event.status === 'success')).toBe(true)
+    expect(output.perNode.dst.postWarmupArrived).toBe(edgeEvents.length)
+    expect(output.summary.failedRequests).toBe(0)
   })
 
   it('adds transmission latency from edge bandwidth', () => {

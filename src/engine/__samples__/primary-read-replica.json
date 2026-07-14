@@ -1,0 +1,230 @@
+{
+  "version": "2.0.0",
+  "nodes": [
+    {
+      "id": "client",
+      "type": "serviceNode",
+      "position": {
+        "x": 80,
+        "y": 340
+      },
+      "data": {
+        "schemaVersion": 2,
+        "templateId": "client-user",
+        "componentType": "api-endpoint",
+        "structuralRole": "source",
+        "profile": "source",
+        "rendererType": "serviceNode",
+        "label": "Client App",
+        "subLabel": "Read-Heavy Clients",
+        "iconKey": "monitor",
+        "source": {
+          "requestDistribution": [
+            {
+              "type": "READ",
+              "weight": 0.85,
+              "sizeBytes": 1024
+            },
+            {
+              "type": "WRITE",
+              "weight": 0.15,
+              "sizeBytes": 2048
+            }
+          ],
+          "defaultWorkload": {
+            "pattern": "poisson",
+            "baseRps": 140,
+            "bursty": {
+              "burstRps": 560,
+              "burstDuration": 2000,
+              "normalDuration": 8000
+            },
+            "spike": {
+              "spikeTime": 30000,
+              "spikeRps": 950,
+              "spikeDuration": 5000
+            },
+            "sawtooth": {
+              "peakRps": 330,
+              "rampDuration": 10000
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "api",
+      "type": "computeNode",
+      "position": {
+        "x": 680,
+        "y": 340
+      },
+      "data": {
+        "schemaVersion": 2,
+        "templateId": "backend-server",
+        "componentType": "microservice",
+        "structuralRole": "processor",
+        "profile": "compute-service",
+        "rendererType": "computeNode",
+        "label": "API Server",
+        "subLabel": "Operation Router",
+        "iconKey": "SERVER",
+        "sim": {
+          "queue": {
+            "workers": 8,
+            "capacity": 56,
+            "discipline": "fifo"
+          },
+          "processing": {
+            "distribution": {
+              "type": "constant",
+              "value": 5
+            },
+            "timeout": 300
+          }
+        }
+      }
+    },
+    {
+      "id": "primary-db",
+      "type": "serviceNode",
+      "position": {
+        "x": 1280,
+        "y": 120
+      },
+      "data": {
+        "schemaVersion": 2,
+        "templateId": "primary-db",
+        "componentType": "relational-db",
+        "structuralRole": "storage",
+        "profile": "datastore",
+        "rendererType": "serviceNode",
+        "label": "Primary DB",
+        "subLabel": "Writes Only",
+        "iconKey": "database",
+        "sim": {
+          "queue": {
+            "workers": 4,
+            "capacity": 40,
+            "discipline": "fifo"
+          },
+          "processing": {
+            "distribution": {
+              "type": "constant",
+              "value": 9
+            },
+            "timeout": 600
+          }
+        }
+      }
+    },
+    {
+      "id": "read-replica",
+      "type": "serviceNode",
+      "position": {
+        "x": 1280,
+        "y": 560
+      },
+      "data": {
+        "schemaVersion": 2,
+        "templateId": "read-replica",
+        "componentType": "relational-db",
+        "structuralRole": "storage",
+        "profile": "datastore",
+        "rendererType": "serviceNode",
+        "label": "Read Replica",
+        "subLabel": "Reads Only",
+        "iconKey": "read-replica",
+        "sim": {
+          "queue": {
+            "workers": 6,
+            "capacity": 60,
+            "discipline": "fifo"
+          },
+          "processing": {
+            "distribution": {
+              "type": "constant",
+              "value": 7
+            },
+            "timeout": 600
+          }
+        }
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "client-to-api",
+      "type": "packet",
+      "source": "client",
+      "target": "api",
+      "sourceHandle": "right-1-source",
+      "targetHandle": "left-1-target",
+      "animated": true,
+      "data": {
+        "protocol": "https",
+        "mode": "synchronous",
+        "latencyMu": 2.1,
+        "latencySigma": 0.35,
+        "bandwidth": 1000,
+        "maxConcurrentRequests": 500,
+        "packetLossRate": 0,
+        "errorRate": 0
+      }
+    },
+    {
+      "id": "api-to-primary-db",
+      "type": "packet",
+      "source": "api",
+      "target": "primary-db",
+      "sourceHandle": "right-0-source",
+      "targetHandle": "left-1-target",
+      "animated": true,
+      "data": {
+        "protocol": "tcp",
+        "mode": "conditional",
+        "condition": "request.type === \"WRITE\"",
+        "latencyMu": 1.8,
+        "latencySigma": 0.4,
+        "bandwidth": 1000,
+        "maxConcurrentRequests": 120,
+        "packetLossRate": 0,
+        "errorRate": 0
+      }
+    },
+    {
+      "id": "api-to-read-replica",
+      "type": "packet",
+      "source": "api",
+      "target": "read-replica",
+      "sourceHandle": "right-2-source",
+      "targetHandle": "left-1-target",
+      "animated": true,
+      "data": {
+        "protocol": "tcp",
+        "mode": "conditional",
+        "condition": "request.type === \"READ\"",
+        "latencyMu": 1.8,
+        "latencySigma": 0.4,
+        "bandwidth": 1000,
+        "maxConcurrentRequests": 220,
+        "packetLossRate": 0,
+        "errorRate": 0
+      }
+    }
+  ],
+  "scenario": {
+    "global": {
+      "simulationDuration": 60000,
+      "warmupDuration": 5000,
+      "seed": "sample-replica-read-split",
+      "defaultTimeout": 1000,
+      "traceSampleRate": 0.05
+    },
+    "selectedSourceNodeId": "client",
+    "workloadOverride": {
+      "pattern": "poisson",
+      "baseRps": 140
+    }
+  }
+}
