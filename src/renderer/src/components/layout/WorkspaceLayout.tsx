@@ -258,6 +258,10 @@ export const WorkspaceLayout = () => {
   useEffect(() => {
     if (!sim.results) return
 
+    const inFlightByNode = new Map(
+      sim.results.conservationCheck.map((result) => [result.nodeId, result.inFlight])
+    )
+
     const metricsByNode = Object.fromEntries(
       Object.entries(sim.results.perNode).map(([nodeId, metrics]) => [
         nodeId,
@@ -267,6 +271,7 @@ export const WorkspaceLayout = () => {
           postWarmupProcessed: metrics.postWarmupProcessed,
           postWarmupRejected: metrics.postWarmupRejected,
           postWarmupTimedOut: metrics.postWarmupTimedOut,
+          postWarmupInFlight: inFlightByNode.get(nodeId) ?? 0,
           queueDepth: Math.round(metrics.avgQueueLength * 10) / 10,
           utilization: Math.round(metrics.utilization * 1000) / 10,
           errorRate: Math.round(metrics.errorRate * 10000) / 100,

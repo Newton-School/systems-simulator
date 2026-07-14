@@ -118,6 +118,7 @@ export class SimulationEngine {
   private forkCounter = 0
   private running = false
   private paused = false
+  private pendingInFlightMetricsFlushed = false
   private readonly timeSeries: TimeSeriesSnapshot[] = []
   private debugTarget: 'all' | string | null = null
   private forcedTraceRequestId: string | null = null
@@ -226,6 +227,7 @@ export class SimulationEngine {
   run(): SimulationOutput {
     this.running = true
     this.paused = false
+    this.pendingInFlightMetricsFlushed = false
     if (this.debugTarget) {
       this.debugEvents.length = 0
     }
@@ -522,6 +524,7 @@ export class SimulationEngine {
     this.releaseEdgeTransfer(event.data.edgeId)
     this.appendNodeToPath(request, event.nodeId)
     this.recordSimulationEvent(event, this.createNodeSnapshot(event.nodeId))
+    this.metrics.recordNodeArrival(event.nodeId, this.clock)
 
     if (this.applySecurityPolicy(event.nodeId, request)) {
       return
@@ -874,7 +877,8 @@ export class SimulationEngine {
     this.metrics.recordTimeout(event.requestId, event.nodeId, {
       requestCreatedAt: request.createdAt,
       nodeArrivalTime,
-      observationPoint
+      observationPoint,
+      completedSpans: request.spans
     })
   }
 
@@ -899,7 +903,8 @@ export class SimulationEngine {
     this.metrics.recordRejection(event.nodeId, reason, {
       requestCreatedAt: request.createdAt,
       nodeArrivalTime,
-      observationPoint
+      observationPoint,
+      completedSpans: request.spans
     })
 
     for (const span of request.spans) {
@@ -1039,6 +1044,13 @@ export class SimulationEngine {
   }
 
   private generateResults(): SimulationOutput {
+    if (!this.running && !this.pendingInFlightMetricsFlushed) {
+      for (const request of this.requestById.values()) {
+        this.metrics.recordInFlightCompletedSpans(request.spans)
+      }
+      this.pendingInFlightMetricsFlushed = true
+    }
+
     const eventStream = this.getEventStream()
     const eventCountsByType = this.getEventCountsByType()
     const eventLog = this.debugTarget ? [...this.debugEvents] : null

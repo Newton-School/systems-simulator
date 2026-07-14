@@ -32,6 +32,8 @@ export const NodeMetricsDetail = ({ metrics }: NodeMetricsDetailProps) => {
   const hasCacheData =
     metrics.cacheHitRatio !== undefined &&
     ((metrics.cacheHits ?? 0) > 0 || (metrics.cacheMisses ?? 0) > 0)
+  const inFlightColour =
+    (metrics.postWarmupInFlight ?? 0) > 0 ? 'text-nss-warning' : 'text-nss-text'
 
   return (
     <div className="space-y-6">
@@ -41,6 +43,12 @@ export const NodeMetricsDetail = ({ metrics }: NodeMetricsDetailProps) => {
           <MetricItem label="Utilization" value={metrics.utilization} unit="%" />
           <MetricItem label="Arrived" value={metrics.postWarmupArrived} unit="req" />
           <MetricItem label="Completed" value={metrics.postWarmupProcessed} unit="req" />
+          <MetricItem
+            label="In Flight"
+            value={metrics.postWarmupInFlight}
+            unit="req"
+            textColor={inFlightColour}
+          />
           <MetricItem
             label="Rejected"
             value={metrics.postWarmupRejected}

@@ -1255,6 +1255,115 @@ describe('SimulationEngine', () => {
     })
   })
 
+  it('preserves intermediate-node arrivals and completions when a downstream edge rejects requests', () => {
+    const topology = makeTopology({
+      global: {
+        simulationDuration: 1_000,
+        defaultTimeout: 1_000,
+        traceSampleRate: 1,
+        seed: 'downstream-edge-rejection'
+      },
+      nodes: [makeNode('source'), makeNode('mid'), makeNode('dst')],
+      edges: [
+        makeEdge('source-to-mid', 'source', 'mid'),
+        makeEdge('mid-to-dst', 'mid', 'dst', { errorRate: 1 })
+      ],
+      workload: {
+        sourceNodeId: 'source',
+        pattern: 'constant',
+        baseRps: 10,
+        requestDistribution: [{ type: 'GET', weight: 1, sizeBytes: 100 }]
+      }
+    })
+
+    const output = new SimulationEngine(topology).run()
+    const mid = output.perNode.mid
+    const dst = output.perNode.dst
+    const midConservation = output.conservationCheck.find((entry) => entry.nodeId === 'mid')
+
+    expect(output.summary.postWarmupTotalRequests).toBe(10)
+    expect(output.summary.failedRequests).toBe(10)
+    expect(mid).toMatchObject({
+      postWarmupArrived: 10,
+      postWarmupProcessed: 10,
+      postWarmupRejected: 0,
+      postWarmupTimedOut: 0
+    })
+    expect(dst).toMatchObject({
+      postWarmupArrived: 0,
+      postWarmupProcessed: 0,
+      postWarmupRejected: 0,
+      postWarmupTimedOut: 0
+    })
+    expect(midConservation).toMatchObject({
+      postWarmupArrived: 10,
+      postWarmupProcessed: 10,
+      postWarmupRejected: 0,
+      postWarmupTimedOut: 0,
+      inFlight: 0,
+      balanced: true
+    })
+  })
+
+  it('preserves upstream completions when a downstream node is still in-flight at cutoff', () => {
+    const mid: ComponentNode = {
+      ...makeNode('mid'),
+      processing: { distribution: { type: 'constant', value: 0 }, timeout: 1_000 }
+    }
+    const dst: ComponentNode = {
+      ...makeNode('dst'),
+      processing: { distribution: { type: 'constant', value: 100 }, timeout: 1_000 }
+    }
+
+    const topology = makeTopology({
+      global: {
+        simulationDuration: 50,
+        defaultTimeout: 1_000,
+        traceSampleRate: 1,
+        seed: 'cutoff-inflight'
+      },
+      nodes: [makeNode('source'), mid, dst],
+      edges: [makeEdge('source-to-mid', 'source', 'mid'), makeEdge('mid-to-dst', 'mid', 'dst')],
+      workload: {
+        sourceNodeId: 'source',
+        pattern: 'constant',
+        baseRps: 1,
+        requestDistribution: [{ type: 'GET', weight: 1, sizeBytes: 100 }]
+      }
+    })
+
+    const output = new SimulationEngine(topology).run()
+    const midMetrics = output.perNode.mid
+    const dstMetrics = output.perNode.dst
+    const midConservation = output.conservationCheck.find((entry) => entry.nodeId === 'mid')
+    const dstConservation = output.conservationCheck.find((entry) => entry.nodeId === 'dst')
+
+    expect(midMetrics).toMatchObject({
+      postWarmupArrived: 1,
+      postWarmupProcessed: 1,
+      postWarmupRejected: 0,
+      postWarmupTimedOut: 0
+    })
+    expect(dstMetrics).toMatchObject({
+      postWarmupArrived: 1,
+      postWarmupProcessed: 0,
+      postWarmupRejected: 0,
+      postWarmupTimedOut: 0
+    })
+    expect(midConservation).toMatchObject({
+      postWarmupArrived: 1,
+      postWarmupProcessed: 1,
+      inFlight: 0,
+      balanced: true
+    })
+    expect(dstConservation).toMatchObject({
+      postWarmupArrived: 1,
+      postWarmupProcessed: 0,
+      inFlight: 1,
+      balanced: false
+    })
+  })
+
   it('does not count edge deadline timeouts as target-node arrivals', () => {
     const topology = makeTopology({
       global: { simulationDuration: 20, defaultTimeout: 10, traceSampleRate: 1 },

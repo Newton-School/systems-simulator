@@ -88,6 +88,13 @@ function isTargetHealthy(
 
 function metricInFlight(metrics: NodeSimulationMetrics | undefined): number {
   if (!metrics) return 0
+  if (
+    typeof metrics.postWarmupInFlight === 'number' &&
+    Number.isFinite(metrics.postWarmupInFlight)
+  ) {
+    return Math.max(0, Math.round(metrics.postWarmupInFlight))
+  }
+
   if (typeof metrics.queueDepth === 'number' && Number.isFinite(metrics.queueDepth)) {
     return Math.max(0, Math.round(metrics.queueDepth))
   }

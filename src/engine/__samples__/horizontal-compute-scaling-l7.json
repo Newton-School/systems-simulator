@@ -45,14 +45,20 @@
             }
           }
         }
-      }
+      },
+      "zIndex": 0,
+      "expandParent": false,
+      "selected": false,
+      "width": 256,
+      "height": 117,
+      "nodes": []
     },
     {
       "id": "l7-lb",
       "type": "serviceNode",
       "position": {
         "x": 620,
-        "y": 340
+        "y": 317.2437586807738
       },
       "data": {
         "schemaVersion": 2,
@@ -79,7 +85,18 @@
             "timeout": 100
           }
         }
-      }
+      },
+      "zIndex": 0,
+      "expandParent": false,
+      "selected": true,
+      "width": 256,
+      "height": 164,
+      "positionAbsolute": {
+        "x": 620,
+        "y": 317.2437586807738
+      },
+      "dragging": false,
+      "nodes": []
     },
     {
       "id": "api-a",
@@ -112,7 +129,13 @@
             "timeout": 300
           }
         }
-      }
+      },
+      "zIndex": 0,
+      "expandParent": false,
+      "selected": false,
+      "width": 190,
+      "height": 115,
+      "nodes": []
     },
     {
       "id": "api-b",
@@ -145,7 +168,13 @@
             "timeout": 300
           }
         }
-      }
+      },
+      "zIndex": 0,
+      "expandParent": false,
+      "selected": false,
+      "width": 190,
+      "height": 115,
+      "nodes": []
     },
     {
       "id": "primary-db",
@@ -178,7 +207,13 @@
             "timeout": 500
           }
         }
-      }
+      },
+      "zIndex": 0,
+      "expandParent": false,
+      "selected": false,
+      "width": 256,
+      "height": 117,
+      "nodes": []
     }
   ],
   "edges": [
@@ -199,7 +234,8 @@
         "maxConcurrentRequests": 800,
         "packetLossRate": 0,
         "errorRate": 0
-      }
+      },
+      "selected": false
     },
     {
       "id": "l7-lb-to-api-a",
@@ -218,7 +254,8 @@
         "maxConcurrentRequests": 400,
         "packetLossRate": 0,
         "errorRate": 0
-      }
+      },
+      "selected": false
     },
     {
       "id": "l7-lb-to-api-b",
@@ -237,7 +274,8 @@
         "maxConcurrentRequests": 400,
         "packetLossRate": 0,
         "errorRate": 0
-      }
+      },
+      "selected": false
     },
     {
       "id": "api-a-to-primary-db",
@@ -256,7 +294,8 @@
         "maxConcurrentRequests": 200,
         "packetLossRate": 0,
         "errorRate": 0
-      }
+      },
+      "selected": false
     },
     {
       "id": "api-b-to-primary-db",
@@ -275,7 +314,8 @@
         "maxConcurrentRequests": 200,
         "packetLossRate": 0,
         "errorRate": 0
-      }
+      },
+      "selected": false
     }
   ],
   "scenario": {

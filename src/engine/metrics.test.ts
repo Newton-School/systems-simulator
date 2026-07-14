@@ -83,6 +83,7 @@ describe('MetricsCollector', () => {
   it('tracks per-node arrivals and warmup gating for rejections/timeouts', () => {
     const metrics = new MetricsCollector({ warmupDuration: 100 })
 
+    metrics.recordNodeArrival('node-a', 150_000n)
     metrics.recordRequest(
       makeRequest({
         id: 'success-post',
@@ -92,6 +93,7 @@ describe('MetricsCollector', () => {
         spans: [makeSpan('node-a', 150_000n, 2_000n, 3_000n)]
       })
     )
+    metrics.recordNodeArrival('node-a', 50_000n)
     metrics.recordRequest(
       makeRequest({
         id: 'success-pre',
@@ -102,10 +104,12 @@ describe('MetricsCollector', () => {
       })
     )
 
+    metrics.recordNodeArrival('node-a', 150_000n)
     metrics.recordRejection('node-a', 'capacity', {
       requestCreatedAt: 150_000n,
       nodeArrivalTime: 150_000n
     })
+    metrics.recordNodeArrival('node-a', 50_000n)
     metrics.recordTimeout('req-timeout', 'node-a', {
       requestCreatedAt: 50_000n,
       nodeArrivalTime: 50_000n
@@ -149,10 +153,12 @@ describe('MetricsCollector', () => {
   it('uses requestCreatedAt for summary gating and nodeArrivalTime for per-node post-warmup gating', () => {
     const metrics = new MetricsCollector({ warmupDuration: 100 })
 
+    metrics.recordNodeArrival('node-a', 90_000n)
     metrics.recordRejection('node-a', 'node_error_rate', {
       requestCreatedAt: 50_000n,
       nodeArrivalTime: 90_000n
     })
+    metrics.recordNodeArrival('node-a', 90_000n)
     metrics.recordTimeout('req-timeout', 'node-a', {
       requestCreatedAt: 50_000n,
       nodeArrivalTime: 90_000n
@@ -193,22 +199,60 @@ describe('MetricsCollector', () => {
     expect(summary.timedOutRequests).toBe(1)
   })
 
-  it('counts post-warmup arrivals when only path data is available', () => {
+  it('counts in-flight arrivals directly from request-arrival events', () => {
     const metrics = new MetricsCollector({ warmupDuration: 100 })
-    metrics.recordRequest(
-      makeRequest({
-        id: 'path-only',
-        status: 'error',
-        createdAt: 200_000n,
-        path: ['node-a'],
-        spans: []
-      })
-    )
+    metrics.recordNodeArrival('node-a', 200_000n)
 
     const perNode = metrics.getPerNodeMetrics(1_000).get('node-a')
     expect(perNode).toBeDefined()
     expect(perNode?.totalArrived).toBe(1)
     expect(perNode?.postWarmupArrived).toBe(1)
+  })
+
+  it('preserves upstream processed spans for edge-observed failures', () => {
+    const metrics = new MetricsCollector({ warmupDuration: 0 })
+
+    metrics.recordNodeArrival('lb', 0n)
+    metrics.recordRejection('dst', 'edge_error_rate', {
+      requestCreatedAt: 0n,
+      observationPoint: 'edge',
+      completedSpans: [makeSpan('lb', 0n, 0n, 1_000n)]
+    })
+
+    const lb = metrics.getPerNodeMetrics(1_000).get('lb')
+    expect(lb).toBeDefined()
+    expect(lb).toMatchObject({
+      totalArrived: 1,
+      postWarmupArrived: 1,
+      totalProcessed: 1,
+      postWarmupProcessed: 1,
+      totalRejected: 0,
+      totalTimedOut: 0
+    })
+    expect(metrics.getPerNodeMetrics(1_000).get('dst')).toBeUndefined()
+  })
+
+  it('does not count the terminal node span as processed for node-observed failures', () => {
+    const metrics = new MetricsCollector({ warmupDuration: 0 })
+
+    metrics.recordNodeArrival('node-a', 0n)
+    metrics.recordRejection('node-a', 'node_error_rate', {
+      requestCreatedAt: 0n,
+      nodeArrivalTime: 0n,
+      observationPoint: 'node',
+      completedSpans: [makeSpan('node-a', 0n, 0n, 1_000n)]
+    })
+
+    const node = metrics.getPerNodeMetrics(1_000).get('node-a')
+    expect(node).toBeDefined()
+    expect(node).toMatchObject({
+      totalArrived: 1,
+      postWarmupArrived: 1,
+      totalProcessed: 0,
+      postWarmupProcessed: 0,
+      totalRejected: 1,
+      postWarmupRejected: 1
+    })
   })
 
   it('tracks cache hit and miss counters per node', () => {
@@ -226,8 +270,11 @@ describe('MetricsCollector', () => {
   it('keeps rejections distinguishable by reason instead of collapsing them into one count', () => {
     const metrics = new MetricsCollector({ warmupDuration: 0 })
 
+    metrics.recordNodeArrival('gw', 0n)
     metrics.recordRejection('gw', 'rate_limited', { requestCreatedAt: 0n, nodeArrivalTime: 0n })
+    metrics.recordNodeArrival('gw', 0n)
     metrics.recordRejection('gw', 'rate_limited', { requestCreatedAt: 0n, nodeArrivalTime: 0n })
+    metrics.recordNodeArrival('gw', 0n)
     metrics.recordRejection('gw', 'capacity_exceeded', {
       requestCreatedAt: 0n,
       nodeArrivalTime: 0n

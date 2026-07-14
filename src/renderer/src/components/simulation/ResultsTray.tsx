@@ -108,16 +108,18 @@ const HEALTH_CHECK_TOOLTIPS = {
   littlesLaw:
     "Little's Law (L = λ·W) is a queueing-theory identity that must hold in steady state. Violations usually indicate either measurement noise at low utilization, or that the simulation never reached steady state. At very low L (<0.1), relative errors can be large while absolute differences are sub-request — treat these as noise.",
   conservation:
-    "Verifies that for every node: arrived = processed + rejected + timed out. If this fails, there's a request-accounting bug in the simulator.",
+    'Verifies that for every node: arrived = processed + rejected + timed out + in-flight at cutoff. Small non-zero in-flight counts are expected when the run ends with requests still being processed.',
   warmup:
     "Checks that warmup duration is at least 10× the max observed p99. If it isn't, post-warmup metrics may still be contaminated by startup transients."
 } as const
 
 const PER_NODE_COLUMN_TOOLTIPS = {
   arrived: 'Requests that reached this node during the post-warmup window.',
-  done: 'Requests this node finished processing (post-warmup).',
+  done: 'Requests this node finished processing before the simulation cutoff (post-warmup).',
   reject: "Requests turned away because the node's queue was full.",
   timedOut: "Requests that exceeded this node's processing timeout.",
+  inFlight:
+    'Requests that had arrived at this node but were still queued or processing when the simulation ended.',
   avgQueue: 'Time-averaged queue depth (requests waiting, not yet being processed).',
   util: 'Fraction of workers busy on average. Below 70% is comfortable; above 80% queueing grows sharply; near 100% the node is saturated.',
   p50: 'Median service + queue time at this node only. Does not include network/link latency.',
@@ -344,6 +346,10 @@ function SummaryPanel({ output }: { output: SimulationOutput }) {
   const { summary } = output
   const l = summary.latency
   const throughputDisplay = summary.postWarmupTotalRequests > 0 ? fmtRps(summary.throughput) : '—'
+  const totalInFlightAtCutoff = output.conservationCheck.reduce(
+    (sum, result) => sum + result.inFlight,
+    0
+  )
 
   const windowStart = output.warmupDuration / 1000
   const windowEnd = output.simulationDuration / 1000
@@ -383,7 +389,21 @@ function SummaryPanel({ output }: { output: SimulationOutput }) {
           value={summary.timedOutRequests.toLocaleString()}
           tooltip="Requests that exceeded a node's processing timeout. Zero timeouts usually means either the system has headroom or the timeout is set too high."
         />
+        <StatCard
+          label="In Flight at Cutoff"
+          value={totalInFlightAtCutoff.toLocaleString()}
+          highlight={totalInFlightAtCutoff > 0 ? 'warn' : 'ok'}
+          tooltip="Requests that had entered at least one node after warmup, but had not yet completed, timed out, or been rejected when the simulation stopped."
+        />
       </div>
+
+      {totalInFlightAtCutoff > 0 && (
+        <div className="rounded-md border border-nss-warning/20 bg-nss-warning/10 px-3 py-2 text-xs text-nss-warning">
+          {totalInFlightAtCutoff.toLocaleString()} request
+          {totalInFlightAtCutoff === 1 ? '' : 's'} were still in flight when the simulation hit its
+          duration limit. They are not counted as completed, rejected, or timed out.
+        </div>
+      )}
 
       <div className="flex items-baseline justify-between pt-1">
         <h3 className={SECTION_TITLE}>End-to-end Latency</h3>
@@ -489,6 +509,8 @@ function SimulationHealth({ output }: { output: SimulationOutput }) {
   const llLevel: HealthLevel = llViolations.length === 0 ? 'healthy' : 'warnings'
 
   const imbalanced = output.conservationCheck.filter((c) => !c.balanced)
+  const inFlightAtCutoff = output.conservationCheck.filter((c) => c.inFlight > 0)
+  const totalInFlightAtCutoff = inFlightAtCutoff.reduce((sum, result) => sum + result.inFlight, 0)
   const conservationLevel: HealthLevel = imbalanced.length === 0 ? 'healthy' : 'warnings'
 
   const warmupLevel: HealthLevel = output.warmupAdequacy.adequate ? 'healthy' : 'warnings'
@@ -631,16 +653,35 @@ function SimulationHealth({ output }: { output: SimulationOutput }) {
       <CollapsibleCheck
         title={
           conservationLevel === 'healthy'
-            ? 'Conservation — Balanced'
+            ? totalInFlightAtCutoff > 0
+              ? `Conservation — Balanced (${totalInFlightAtCutoff} in-flight at cutoff)`
+              : 'Conservation — Balanced'
             : `Conservation — ${imbalanced.length} node${imbalanced.length !== 1 ? 's' : ''} with in-flight requests`
         }
         level={conservationLevel}
         tooltip={HEALTH_CHECK_TOOLTIPS.conservation}
       >
         {conservationLevel === 'healthy' ? (
-          <p className="text-xs text-nss-muted">
-            All nodes: arrived ≈ processed + rejected + timed-out.
-          </p>
+          totalInFlightAtCutoff === 0 ? (
+            <p className="text-xs text-nss-muted">
+              All nodes closed cleanly: arrived = processed + rejected + timed-out.
+            </p>
+          ) : (
+            <div className="space-y-1">
+              <p className="text-xs text-nss-muted">
+                All nodes balance once you include requests that were still in flight at cutoff.
+              </p>
+              {inFlightAtCutoff.map((c, i) => (
+                <div
+                  key={i}
+                  className="text-xs text-nss-muted bg-nss-surface border border-nss-border rounded px-2 py-1"
+                >
+                  {c.nodeLabel ?? c.nodeId}: {c.inFlight} in-flight at cutoff (
+                  {((c.inFlight / Math.max(c.postWarmupArrived, 1)) * 100).toFixed(1)}% of arrivals)
+                </div>
+              ))}
+            </div>
+          )
         ) : (
           imbalanced.map((c, i) => (
             <div
@@ -686,6 +727,9 @@ function PerNodeTable({ output }: { output: SimulationOutput }) {
   if (entries.length === 0) return null
 
   const llByNode = new Map(output.littlesLawCheck.map((r) => [r.nodeId, r]))
+  const conservationByNode = new Map(
+    output.conservationCheck.map((result) => [result.nodeId, result])
+  )
 
   const activeEntries = entries.filter(([, m]) => m.postWarmupArrived > 0)
   const inactiveEntries = entries.filter(([, m]) => m.postWarmupArrived === 0)
@@ -709,6 +753,9 @@ function PerNodeTable({ output }: { output: SimulationOutput }) {
               </th>
               <th className="text-right pb-1 pr-2" title={PER_NODE_COLUMN_TOOLTIPS.timedOut}>
                 T.O.
+              </th>
+              <th className="text-right pb-1 pr-2" title={PER_NODE_COLUMN_TOOLTIPS.inFlight}>
+                In Flight
               </th>
               <th className="text-right pb-1 pr-2" title={PER_NODE_COLUMN_TOOLTIPS.avgQueue}>
                 Avg Q
@@ -739,6 +786,8 @@ function PerNodeTable({ output }: { output: SimulationOutput }) {
           <tbody>
             {activeEntries.map(([nodeId, m]) => {
               const ll = llByNode.get(nodeId)
+              const conservation = conservationByNode.get(nodeId)
+              const inFlight = conservation?.inFlight ?? 0
               const utilPct = (m.utilization * 100).toFixed(1)
               const utilColour =
                 m.utilization > 0.9
@@ -764,6 +813,11 @@ function PerNodeTable({ output }: { output: SimulationOutput }) {
                   </td>
                   <td className="text-right pr-2 text-nss-muted">
                     {m.postWarmupTimedOut.toLocaleString()}
+                  </td>
+                  <td
+                    className={`text-right pr-2 ${inFlight > 0 ? 'text-nss-warning' : 'text-nss-muted'}`}
+                  >
+                    {inFlight.toLocaleString()}
                   </td>
                   <td className="text-right pr-2 text-nss-muted">{m.avgQueueLength.toFixed(1)}</td>
                   <td className={`text-right pr-2 ${utilColour}`}>{utilPct}%</td>
@@ -805,7 +859,7 @@ function PerNodeTable({ output }: { output: SimulationOutput }) {
                 {inactiveEntries.map(([nodeId, m]) => (
                   <tr key={nodeId} className="border-b border-nss-border">
                     <td className="py-0.5 pr-2 text-nss-muted">{m.nodeLabel ?? nodeId}</td>
-                    <td className="text-right text-nss-muted text-[10px] italic" colSpan={12}>
+                    <td className="text-right text-nss-muted text-[10px] italic" colSpan={13}>
                       no post-warmup traffic
                     </td>
                   </tr>

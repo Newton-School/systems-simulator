@@ -19,6 +19,7 @@ export interface NodeSimulationMetrics {
   postWarmupProcessed?: number
   postWarmupRejected?: number
   postWarmupTimedOut?: number
+  postWarmupInFlight?: number
   queueDepth?: number
   utilization?: number
   errorRate?: number
