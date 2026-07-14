@@ -82,6 +82,7 @@ const ComputeNode = ({ id, data, selected }: NodeProps<ComputeNodeData>) => {
               <InlineEditableLabel
                 value={data.label || 'Compute'}
                 onSave={handleLabelChange}
+                wrapLines={2}
                 textClassName="text-xs font-bold uppercase tracking-wide w-full"
                 inputClassName="text-xs font-bold uppercase tracking-wide w-full"
               />

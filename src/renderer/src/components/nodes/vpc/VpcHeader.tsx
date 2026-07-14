@@ -14,7 +14,7 @@ export const VpcHeader = memo(
     return (
       <div
         className={`
-      absolute top-0 left-0 right-0 px-4 py-2 border-b border-dashed flex items-center gap-2
+      absolute top-0 left-0 right-0 px-4 py-2 border-b border-dashed flex items-start gap-2
       ${isSuccessState ? 'border-[rgb(var(--nss-success))]/30' : 'border-[var(--nss-vpc-border)]'}
         `}
       >
@@ -25,16 +25,25 @@ export const VpcHeader = memo(
           />
         </div>
 
-        <div className="flex-1 overflow-hidden flex items-center">
+        <div className="flex min-w-0 flex-1 items-center overflow-hidden">
           {onLabelChange ? (
             <InlineEditableLabel
               value={label || 'VPC Region'}
               onSave={(newLabel) => onLabelChange(newLabel)}
-              textClassName="text-xs font-bold text-nss-muted uppercase tracking-wider truncate"
+              wrapLines={2}
+              textClassName="min-w-0 w-full text-xs font-bold text-nss-muted uppercase tracking-wider"
               inputClassName="text-xs font-bold text-nss-text uppercase tracking-wider w-full min-w-[100px]"
             />
           ) : (
-            <span className="text-xs font-bold text-nss-muted uppercase tracking-wider truncate">
+            <span
+              style={{
+                display: '-webkit-box',
+                WebkitBoxOrient: 'vertical',
+                WebkitLineClamp: 2,
+                overflow: 'hidden'
+              }}
+              className="min-w-0 break-words text-xs font-bold text-nss-muted uppercase tracking-wider leading-tight"
+            >
               {label || 'VPC Region'}
             </span>
           )}

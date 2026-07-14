@@ -29,8 +29,8 @@ export const NodeHeader = memo(
     const SafeIcon = Icon || HelpCircle
 
     return (
-      <div className="bg-nss-panel p-3 border-b border-nss-border flex justify-between items-center rounded-t-lg">
-        <div className="flex items-center gap-3 overflow-hidden">
+      <div className="bg-nss-panel p-3 border-b border-nss-border flex items-center justify-between gap-3 rounded-t-lg">
+        <div className="flex min-w-0 flex-1 items-center gap-3 overflow-hidden">
           <div
             className={`p-1.5 rounded bg-opacity-50 ${safeBg} shrink-0 flex items-center justify-center`}
           >
@@ -41,11 +41,22 @@ export const NodeHeader = memo(
             <InlineEditableLabel
               value={label}
               onSave={(newLabel) => onLabelChange(newLabel)}
-              textClassName="font-bold text-sm max-w-[120px]"
-              inputClassName="font-bold text-sm w-24"
+              wrapLines={2}
+              textClassName="min-w-0 flex-1 w-full font-bold text-sm"
+              inputClassName="min-w-0 flex-1 w-full font-bold text-sm"
             />
           ) : (
-            <span className="font-bold text-sm max-w-[120px] truncate">{label}</span>
+            <span
+              style={{
+                display: '-webkit-box',
+                WebkitBoxOrient: 'vertical',
+                WebkitLineClamp: 2,
+                overflow: 'hidden'
+              }}
+              className="min-w-0 flex-1 break-words font-bold text-sm leading-tight"
+            >
+              {label}
+            </span>
           )}
         </div>
 

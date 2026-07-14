@@ -5,10 +5,17 @@ interface InlineEditableLabelProps {
   onSave: (newValue: string) => void
   textClassName?: string
   inputClassName?: string
+  wrapLines?: number
 }
 
 export const InlineEditableLabel = memo(
-  ({ value, onSave, textClassName = '', inputClassName = '' }: InlineEditableLabelProps) => {
+  ({
+    value,
+    onSave,
+    textClassName = '',
+    inputClassName = '',
+    wrapLines
+  }: InlineEditableLabelProps) => {
     const [isEditing, setIsEditing] = useState(false)
     const [editValue, setEditValue] = useState(value)
     const inputRef = useRef<HTMLInputElement>(null)
@@ -57,6 +64,19 @@ export const InlineEditableLabel = memo(
       )
     }
 
+    const multiLineStyle =
+      wrapLines && wrapLines > 1
+        ? {
+            display: '-webkit-box',
+            WebkitBoxOrient: 'vertical' as const,
+            WebkitLineClamp: wrapLines,
+            overflow: 'hidden'
+          }
+        : undefined
+
+    const textBehaviorClassName =
+      wrapLines && wrapLines > 1 ? 'whitespace-normal break-words leading-tight' : 'truncate'
+
     return (
       <span
         role="button"
@@ -73,7 +93,8 @@ export const InlineEditableLabel = memo(
           }
         }}
         title="Double click or press Enter to rename"
-        className={`cursor-text text-nss-text hover:bg-nss-surface px-1 -ml-1 rounded transition-all truncate focus:outline-none focus:ring-1 focus:ring-nss-primary ${textClassName}`}
+        style={multiLineStyle}
+        className={`cursor-text text-nss-text hover:bg-nss-surface px-1 -ml-1 rounded transition-all focus:outline-none focus:ring-1 focus:ring-nss-primary ${textBehaviorClassName} ${textClassName}`}
       >
         {value}
       </span>
