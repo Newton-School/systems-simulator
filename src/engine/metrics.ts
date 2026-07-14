@@ -2,6 +2,8 @@ import { RequestSpan } from './core/events'
 import { microToMs, msToMicro } from './core/time'
 import { ComponentNode, NodeState, SLOConfig } from './core/types'
 
+export type FailureObservationPoint = 'node' | 'edge'
+
 export interface CompletedRequest {
   id: string
   status: 'success' | 'timeout' | 'rejected' | 'error'
@@ -123,6 +125,7 @@ export interface NodeMetadata {
 interface FailureMetricsContext {
   requestCreatedAt?: bigint
   nodeArrivalTime?: bigint
+  observationPoint?: FailureObservationPoint
 }
 
 export class MetricsCollector {
@@ -227,12 +230,17 @@ export class MetricsCollector {
    */
   recordRejection(nodeId: string, reason: string, context: FailureMetricsContext = {}): void {
     const arrivalTime = context.nodeArrivalTime ?? context.requestCreatedAt
+    const observationPoint = context.observationPoint ?? 'node'
 
     this.totalRequests++
     this.failedRequests++
     this.rejectedRequests++
     if (this.isPostWarmup(context.requestCreatedAt)) {
       this.postWarmupTotalRequests++
+    }
+
+    if (observationPoint !== 'node') {
+      return
     }
 
     const node = this.ensureNodeMetrics(nodeId)
@@ -254,12 +262,17 @@ export class MetricsCollector {
    */
   recordTimeout(_requestId: string, nodeId: string, context: FailureMetricsContext = {}): void {
     const arrivalTime = context.nodeArrivalTime ?? context.requestCreatedAt
+    const observationPoint = context.observationPoint ?? 'node'
 
     this.totalRequests++
     this.failedRequests++
     this.timedOutRequests++
     if (this.isPostWarmup(context.requestCreatedAt)) {
       this.postWarmupTotalRequests++
+    }
+
+    if (observationPoint !== 'node') {
+      return
     }
 
     const node = this.ensureNodeMetrics(nodeId)

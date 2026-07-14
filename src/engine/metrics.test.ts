@@ -170,6 +170,29 @@ describe('MetricsCollector', () => {
     expect(summary.postWarmupTotalRequests).toBe(0)
   })
 
+  it('does not count edge-observed failures as node arrivals', () => {
+    const metrics = new MetricsCollector({ warmupDuration: 100 })
+
+    metrics.recordRejection('node-a', 'edge_error_rate', {
+      requestCreatedAt: 150_000n,
+      observationPoint: 'edge'
+    })
+    metrics.recordTimeout('req-timeout', 'node-a', {
+      requestCreatedAt: 150_000n,
+      observationPoint: 'edge'
+    })
+
+    const perNode = metrics.getPerNodeMetrics(1_000).get('node-a')
+    expect(perNode).toBeUndefined()
+
+    const summary = metrics.generateSummary(1_000)
+    expect(summary.totalRequests).toBe(2)
+    expect(summary.postWarmupTotalRequests).toBe(2)
+    expect(summary.failedRequests).toBe(2)
+    expect(summary.rejectedRequests).toBe(1)
+    expect(summary.timedOutRequests).toBe(1)
+  })
+
   it('counts post-warmup arrivals when only path data is available', () => {
     const metrics = new MetricsCollector({ warmupDuration: 100 })
     metrics.recordRequest(

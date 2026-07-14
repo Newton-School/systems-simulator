@@ -1,0 +1,250 @@
+{
+  "version": "2.0.0",
+  "nodes": [
+    {
+      "id": "client",
+      "type": "serviceNode",
+      "position": {
+        "x": 774.4462362422744,
+        "y": -494.6972896812895
+      },
+      "data": {
+        "schemaVersion": 2,
+        "templateId": "client-user",
+        "componentType": "api-endpoint",
+        "structuralRole": "source",
+        "profile": "source",
+        "rendererType": "serviceNode",
+        "label": "Client",
+        "subLabel": "Browser / Mobile",
+        "iconKey": "monitor",
+        "source": {
+          "requestDistribution": [
+            {
+              "type": "resolve",
+              "weight": 1,
+              "sizeBytes": 256,
+              "metadata": {
+                "host": "catalog.internal",
+                "origin": "us"
+              }
+            }
+          ],
+          "defaultWorkload": {
+            "pattern": "constant",
+            "baseRps": 40
+          }
+        }
+      },
+      "zIndex": 0,
+      "expandParent": false,
+      "selected": false,
+      "width": 256,
+      "height": 118,
+      "positionAbsolute": {
+        "x": 774.4462362422744,
+        "y": -494.6972896812895
+      },
+      "dragging": false,
+      "nodes": []
+    },
+    {
+      "id": "dns",
+      "type": "serviceNode",
+      "position": {
+        "x": 521.2437808730153,
+        "y": -295.55397179041904
+      },
+      "data": {
+        "schemaVersion": 2,
+        "templateId": "dns-server",
+        "componentType": "internal-dns",
+        "structuralRole": "router",
+        "profile": "router",
+        "rendererType": "serviceNode",
+        "label": "Resolver",
+        "subLabel": "Internal DNS / Authoritative",
+        "iconKey": "server-cog",
+        "sim": {
+          "queue": {
+            "workers": 8,
+            "capacity": 16,
+            "discipline": "fifo"
+          },
+          "processing": {
+            "distribution": {
+              "type": "exponential",
+              "lambda": 1.6666666666666667
+            },
+            "timeout": 100
+          },
+          "dnsRoutingPolicy": "weighted",
+          "dnsCacheTtlSeconds": 30
+        }
+      },
+      "zIndex": 0,
+      "expandParent": false,
+      "selected": true,
+      "width": 256,
+      "height": 129,
+      "positionAbsolute": {
+        "x": 521.2437808730153,
+        "y": -295.55397179041904
+      },
+      "dragging": false,
+      "nodes": []
+    },
+    {
+      "id": "stable",
+      "type": "computeNode",
+      "position": {
+        "x": 185.47999793426015,
+        "y": 99.14331789087055
+      },
+      "data": {
+        "schemaVersion": 2,
+        "templateId": "backend-server",
+        "componentType": "microservice",
+        "structuralRole": "processor",
+        "profile": "compute-service",
+        "rendererType": "computeNode",
+        "label": "Stable API",
+        "subLabel": "Long-running Process",
+        "iconKey": "SERVER",
+        "sim": {
+          "queue": {
+            "workers": 8,
+            "capacity": 64,
+            "discipline": "fifo"
+          },
+          "processing": {
+            "distribution": {
+              "type": "exponential",
+              "lambda": 0.125
+            },
+            "timeout": 800
+          }
+        }
+      },
+      "zIndex": 0,
+      "expandParent": false,
+      "selected": false,
+      "width": 274,
+      "height": 115,
+      "positionAbsolute": {
+        "x": 185.47999793426015,
+        "y": 99.14331789087055
+      },
+      "dragging": false,
+      "nodes": []
+    },
+    {
+      "id": "canary",
+      "type": "computeNode",
+      "position": {
+        "x": 790.8124642215887,
+        "y": 36.77989908226331
+      },
+      "data": {
+        "schemaVersion": 2,
+        "templateId": "backend-server",
+        "componentType": "microservice",
+        "structuralRole": "processor",
+        "profile": "compute-service",
+        "rendererType": "computeNode",
+        "label": "Canary API",
+        "subLabel": "Long-running Process",
+        "iconKey": "SERVER",
+        "sim": {
+          "queue": {
+            "workers": 8,
+            "capacity": 64,
+            "discipline": "fifo"
+          },
+          "processing": {
+            "distribution": {
+              "type": "exponential",
+              "lambda": 0.125
+            },
+            "timeout": 800
+          }
+        }
+      },
+      "zIndex": 0,
+      "expandParent": false,
+      "selected": false,
+      "width": 274,
+      "height": 115,
+      "positionAbsolute": {
+        "x": 790.8124642215887,
+        "y": 36.77989908226331
+      },
+      "dragging": false,
+      "nodes": []
+    }
+  ],
+  "edges": [
+    {
+      "id": "client-dns",
+      "source": "client",
+      "target": "dns",
+      "data": {
+        "protocol": "udp",
+        "mode": "synchronous",
+        "latencyMu": 0,
+        "latencySigma": 0.3,
+        "pathType": "same-dc",
+        "bandwidth": 100,
+        "maxConcurrentRequests": 100,
+        "packetLossRate": 0,
+        "errorRate": 0
+      },
+      "selected": false
+    },
+    {
+      "id": "dns-stable",
+      "source": "dns",
+      "target": "stable",
+      "data": {
+        "protocol": "https",
+        "mode": "synchronous",
+        "latencyMu": 0,
+        "latencySigma": 0.35,
+        "pathType": "same-dc",
+        "bandwidth": 100,
+        "maxConcurrentRequests": 100,
+        "packetLossRate": 0,
+        "errorRate": 0
+      },
+      "selected": false
+    },
+    {
+      "id": "dns-canary",
+      "source": "dns",
+      "target": "canary",
+      "data": {
+        "protocol": "https",
+        "mode": "synchronous",
+        "latencyMu": 0,
+        "latencySigma": 0.35,
+        "pathType": "same-dc",
+        "bandwidth": 100,
+        "maxConcurrentRequests": 100,
+        "packetLossRate": 0,
+        "errorRate": 0
+      },
+      "selected": false
+    }
+  ],
+  "scenario": {
+    "global": {
+      "simulationDuration": 20000,
+      "warmupDuration": 2000,
+      "seed": "dns-weighted-seed",
+      "defaultTimeout": 5000,
+      "traceSampleRate": 0.01
+    },
+    "selectedSourceNodeId": "client",
+    "workloadOverride": {}
+  }
+}

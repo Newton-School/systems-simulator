@@ -22,7 +22,6 @@ import { FlowCanvas } from '../canvas/FlowCanvas'
 import { Header } from './Header'
 import { SampleScenarioPicker } from '../samples/SampleScenarioPicker'
 import { SAMPLE_SCENARIOS, type SampleScenario } from '@renderer/config/sampleScenarios'
-import { CURATED_SCENARIOS } from '../../../../scenarios/curatedScenarios'
 
 // Atoms
 import { ResizeHandle } from '../ui/ResizeHandle'
@@ -228,17 +227,18 @@ export const WorkspaceLayout = () => {
   const { serialize } = useTopologySerializer()
   const handleLoadScenario = useCallback(
     async (scenarioId: string) => {
-      const scenarioDefinition = CURATED_SCENARIOS.find((entry) => entry.id === scenarioId)
-      if (!scenarioDefinition) {
+      const sampleId = scenarioId.startsWith('sample:') ? scenarioId.slice('sample:'.length) : ''
+
+      const sampleScenario = SAMPLE_SCENARIOS.find(
+        (entry) => entry.id === sampleId || entry.id === scenarioId
+      )
+
+      if (!sampleScenario) {
         setRunIssues({ messages: [`Unknown scenario '${scenarioId}'.`], tone: 'error' })
         return
       }
 
-      const loaded = await loadFromData(
-        scenarioDefinition.topology,
-        `${scenarioDefinition.id}.json`
-      )
-
+      const loaded = await loadFromData(sampleScenario.raw, `${sampleScenario.id}.json`)
       if (!loaded) {
         return
       }
@@ -381,7 +381,6 @@ export const WorkspaceLayout = () => {
         isRightOpen={isRightOpen}
         onSave={handleSave}
         onOpen={handleOpen}
-        onSamples={() => setShowSamples(true)}
         fileName={fileName}
         isUnsaved={isUnsaved}
         onRun={handleRun}

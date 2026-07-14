@@ -80,7 +80,6 @@ export function useSimulation(): SimulationState & SimulationControls {
           break
 
         case 'complete':
-          useStore.getState().reconcileEdgeFlowArrivals(msg.payload.output.perNode)
           useStore.getState().setEdgeFlowStatus('complete')
           setState((s) => ({
             ...s,

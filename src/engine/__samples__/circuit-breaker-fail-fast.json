@@ -1,0 +1,132 @@
+{
+  "version": "2.0.0",
+  "nodes": [
+    {
+      "id": "client",
+      "type": "serviceNode",
+      "position": {
+        "x": 80,
+        "y": 260
+      },
+      "data": {
+        "schemaVersion": 2,
+        "templateId": "client-user",
+        "componentType": "api-endpoint",
+        "structuralRole": "source",
+        "profile": "source",
+        "rendererType": "serviceNode",
+        "label": "Client App",
+        "subLabel": "Browser / Mobile",
+        "iconKey": "monitor",
+        "source": {
+          "requestDistribution": [
+            {
+              "type": "GET",
+              "weight": 1,
+              "sizeBytes": 1024
+            }
+          ],
+          "defaultWorkload": {
+            "pattern": "poisson",
+            "baseRps": 120,
+            "bursty": {
+              "burstRps": 500,
+              "burstDuration": 2000,
+              "normalDuration": 8000
+            },
+            "spike": {
+              "spikeTime": 30000,
+              "spikeRps": 900,
+              "spikeDuration": 5000
+            },
+            "sawtooth": {
+              "peakRps": 300,
+              "rampDuration": 10000
+            }
+          }
+        }
+      },
+      "zIndex": 0,
+      "expandParent": false,
+      "selected": false,
+      "width": 256,
+      "height": 117,
+      "nodes": []
+    },
+    {
+      "id": "api",
+      "type": "computeNode",
+      "position": {
+        "x": 680,
+        "y": 260
+      },
+      "data": {
+        "schemaVersion": 2,
+        "templateId": "backend-server",
+        "componentType": "microservice",
+        "structuralRole": "processor",
+        "profile": "compute-service",
+        "rendererType": "computeNode",
+        "label": "API Server",
+        "subLabel": "Single Instance",
+        "iconKey": "SERVER",
+        "sim": {
+          "queue": {
+            "workers": 4,
+            "capacity": 24,
+            "discipline": "fifo"
+          },
+          "processing": {
+            "distribution": {
+              "type": "constant",
+              "value": 8
+            },
+            "timeout": 250
+          }
+        }
+      },
+      "zIndex": 0,
+      "expandParent": false,
+      "selected": false,
+      "width": 190,
+      "height": 115,
+      "nodes": []
+    }
+  ],
+  "edges": [
+    {
+      "id": "client-to-api",
+      "type": "packet",
+      "source": "client",
+      "target": "api",
+      "sourceHandle": "right-1-source",
+      "targetHandle": "left-1-target",
+      "animated": true,
+      "data": {
+        "protocol": "https",
+        "mode": "synchronous",
+        "latencyMu": 2.1,
+        "latencySigma": 0.35,
+        "bandwidth": 1000,
+        "maxConcurrentRequests": 200,
+        "packetLossRate": 0,
+        "errorRate": 0
+      },
+      "selected": false
+    }
+  ],
+  "scenario": {
+    "global": {
+      "simulationDuration": 60000,
+      "warmupDuration": 5000,
+      "seed": "sample-direct-client-server",
+      "defaultTimeout": 1000,
+      "traceSampleRate": 0.05
+    },
+    "selectedSourceNodeId": "client",
+    "workloadOverride": {
+      "pattern": "poisson",
+      "baseRps": 120
+    }
+  }
+}

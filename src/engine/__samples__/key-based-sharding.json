@@ -1,0 +1,122 @@
+{
+  "version": "2.0.0",
+  "nodes": [
+    {
+      "id": "producer",
+      "type": "serviceNode",
+      "position": {
+        "x": 410.47060205104196,
+        "y": -407.5069153936337
+      },
+      "data": {
+        "schemaVersion": 2,
+        "templateId": "client-user",
+        "componentType": "api-endpoint",
+        "structuralRole": "source",
+        "profile": "source",
+        "rendererType": "serviceNode",
+        "label": "Producer",
+        "subLabel": "Browser / Mobile",
+        "iconKey": "monitor",
+        "source": {
+          "requestDistribution": [
+            {
+              "type": "publish",
+              "weight": 1,
+              "sizeBytes": 2048
+            }
+          ],
+          "defaultWorkload": {
+            "pattern": "constant",
+            "baseRps": 100
+          }
+        }
+      },
+      "zIndex": 0,
+      "expandParent": false,
+      "selected": true,
+      "width": 256,
+      "height": 116,
+      "positionAbsolute": {
+        "x": 410.47060205104196,
+        "y": -407.5069153936337
+      },
+      "dragging": false,
+      "nodes": []
+    },
+    {
+      "id": "stream",
+      "type": "serviceNode",
+      "position": {
+        "x": 240.73603672684635,
+        "y": -14.818433287041216
+      },
+      "data": {
+        "schemaVersion": 2,
+        "templateId": "stream",
+        "componentType": "stream",
+        "structuralRole": "storage",
+        "profile": "broker",
+        "rendererType": "serviceNode",
+        "label": "Kafka Topic",
+        "subLabel": "Ordered Event Log",
+        "iconKey": "stream",
+        "sim": {
+          "queue": {
+            "workers": 1,
+            "capacity": 1000,
+            "discipline": "fifo"
+          },
+          "processing": {
+            "distribution": {
+              "type": "exponential",
+              "lambda": 0.05
+            },
+            "timeout": 2000
+          }
+        }
+      },
+      "zIndex": 0,
+      "expandParent": false,
+      "selected": false,
+      "width": 256,
+      "height": 129,
+      "positionAbsolute": {
+        "x": 240.73603672684635,
+        "y": -14.818433287041216
+      },
+      "dragging": false,
+      "nodes": []
+    }
+  ],
+  "edges": [
+    {
+      "id": "producer-stream",
+      "source": "producer",
+      "target": "stream",
+      "data": {
+        "protocol": "kafka",
+        "mode": "asynchronous",
+        "latencyMu": 0,
+        "latencySigma": 0.35,
+        "pathType": "same-dc",
+        "bandwidth": 1000,
+        "maxConcurrentRequests": 500,
+        "packetLossRate": 0,
+        "errorRate": 0
+      },
+      "selected": false
+    }
+  ],
+  "scenario": {
+    "global": {
+      "simulationDuration": 20000,
+      "warmupDuration": 2000,
+      "seed": "consumer-lag-seed",
+      "defaultTimeout": 5000,
+      "traceSampleRate": 0.01
+    },
+    "selectedSourceNodeId": "producer",
+    "workloadOverride": {}
+  }
+}

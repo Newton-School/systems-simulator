@@ -4,7 +4,10 @@ import type {
   NodeSimulationMetrics,
   PreRunMetricLens
 } from '@renderer/types/ui'
-import { failureRateLevelFromPercent } from '@renderer/utils/failureRatePresentation'
+import {
+  failureRateLevelFromPercent,
+  formatFailurePercentLabel
+} from '@renderer/utils/failureRatePresentation'
 import { ACK_AND_RELEASE_COMPONENT_TYPES } from '../../../../engine/traits/ackAndRelease'
 import { HEALTH_AWARE_COMPONENT_TYPES } from '../../../../engine/traits/healthAwareRouting'
 
@@ -371,7 +374,7 @@ export function getLensCard(
           ? `${reasons[0][1]} rejected: ${reasons[0][0]} · click for detail`
           : 'no rejections'
       return {
-        value: `${metrics.errorRate.toFixed(1)}%`,
+        value: formatFailurePercentLabel(metrics.errorRate),
         limit: `${metrics.totalRejected ?? 0} rejected`,
         glyph: GLYPH_BY_TONE[tone],
         why,

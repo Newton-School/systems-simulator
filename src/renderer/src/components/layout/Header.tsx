@@ -1,5 +1,5 @@
-import { memo, type ReactNode, useEffect, useRef, useState } from 'react'
-import { ChevronDown, FileText, FolderKanban, FolderOpen, Save, Sidebar } from 'lucide-react'
+import { memo } from 'react'
+import { FolderOpen, Save, Sidebar } from 'lucide-react'
 
 import { Divider } from '../ui/Divider'
 import { IconButton } from '../ui/IconButton'
@@ -20,7 +20,6 @@ interface HeaderProps {
   // File
   onSave: () => void
   onOpen: () => void
-  onSamples: () => void
   fileName: string | null
   isUnsaved: boolean
 
@@ -45,7 +44,6 @@ export const Header = memo(
     isRightOpen,
     onSave,
     onOpen,
-    onSamples,
     fileName,
     isUnsaved,
     onRun,
@@ -59,37 +57,6 @@ export const Header = memo(
     onScenarioChange,
     simulationDisabled
   }: HeaderProps) => {
-    const [isFileMenuOpen, setFileMenuOpen] = useState(false)
-    const fileMenuRef = useRef<HTMLDivElement>(null)
-
-    useEffect(() => {
-      if (!isFileMenuOpen) return
-
-      const handlePointerDown = (event: MouseEvent) => {
-        if (!fileMenuRef.current?.contains(event.target as Node)) {
-          setFileMenuOpen(false)
-        }
-      }
-
-      const handleKeyDown = (event: KeyboardEvent) => {
-        if (event.key === 'Escape') {
-          setFileMenuOpen(false)
-        }
-      }
-
-      document.addEventListener('mousedown', handlePointerDown)
-      document.addEventListener('keydown', handleKeyDown)
-      return () => {
-        document.removeEventListener('mousedown', handlePointerDown)
-        document.removeEventListener('keydown', handleKeyDown)
-      }
-    }, [isFileMenuOpen])
-
-    const runFileAction = (action: () => void) => {
-      setFileMenuOpen(false)
-      action()
-    }
-
     return (
       <header className="h-12 bg-nss-panel text-nss-text flex items-center justify-between px-4 shrink-0 border-b border-nss-border transition-colors duration-200 overflow-visible">
         {/* LEFT: Branding & left sidebar toggle */}
@@ -102,48 +69,6 @@ export const Header = memo(
             label="Toggle left sidebar"
             icon={<Sidebar size={18} />}
           />
-          <div ref={fileMenuRef} className="relative">
-            <button
-              type="button"
-              onClick={() => setFileMenuOpen((prev) => !prev)}
-              aria-haspopup="menu"
-              aria-expanded={isFileMenuOpen}
-              className="ml-1 inline-flex h-8 items-center gap-1 rounded-md px-2 text-xs font-medium text-nss-muted transition-colors hover:bg-nss-text/5 hover:text-nss-text focus:outline-none focus:ring-1 focus:ring-nss-primary"
-            >
-              <FileText size={15} />
-              File
-              <ChevronDown
-                size={14}
-                className={`transition-transform ${isFileMenuOpen ? 'rotate-180' : ''}`}
-              />
-            </button>
-
-            {isFileMenuOpen && (
-              <div
-                role="menu"
-                className="absolute left-1 top-9 z-50 w-56 overflow-hidden rounded-md border border-nss-border bg-nss-panel py-1 shadow-xl shadow-black/20"
-              >
-                <FileMenuItem
-                  icon={<FolderOpen size={16} />}
-                  label="Open"
-                  shortcut="Ctrl+O"
-                  onClick={() => runFileAction(onOpen)}
-                />
-                <FileMenuItem
-                  icon={<FolderKanban size={16} />}
-                  label="Open Samples"
-                  shortcut="Ctrl+Shift+O"
-                  onClick={() => runFileAction(onSamples)}
-                />
-                <FileMenuItem
-                  icon={<Save size={16} />}
-                  label="Save"
-                  shortcut="Ctrl+S"
-                  onClick={() => runFileAction(onSave)}
-                />
-              </div>
-            )}
-          </div>
         </div>
 
         {/* CENTER: File status + simulation controls */}
@@ -188,27 +113,3 @@ export const Header = memo(
 )
 
 Header.displayName = 'Header'
-
-interface FileMenuItemProps {
-  icon: ReactNode
-  label: string
-  shortcut: string
-  onClick: () => void
-}
-
-function FileMenuItem({ icon, label, shortcut, onClick }: FileMenuItemProps) {
-  return (
-    <button
-      type="button"
-      role="menuitem"
-      onClick={onClick}
-      className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-nss-text transition-colors hover:bg-nss-text/5 focus:bg-nss-text/5 focus:outline-none"
-    >
-      <span aria-hidden="true" className="text-nss-muted">
-        {icon}
-      </span>
-      <span className="flex-1">{label}</span>
-      <span className="text-[10px] uppercase tracking-wide text-nss-muted">{shortcut}</span>
-    </button>
-  )
-}
