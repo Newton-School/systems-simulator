@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { AnyNodeData } from '@renderer/types/ui'
 import type { RoutingStrategy } from '../../../../engine/catalog/nodeSpecTypes'
 import {
@@ -7,6 +7,13 @@ import {
   type ResolvedFieldDefinition
 } from '@renderer/config/fieldConfig'
 import useStore from '@renderer/store/useStore'
+import {
+  isSourceWorkloadFieldPath,
+  resolveEffectiveSelectedSourceNodeId,
+  updateWorkloadOverrideForField,
+  useEffectiveSourceWorkload,
+  withDisplayedSourceWorkload
+} from '@renderer/hooks/useEffectiveSourceWorkload'
 import { Input } from '../ui/Input'
 import { Label } from '../ui/Label'
 import { Select } from '../ui/Select'
@@ -110,9 +117,26 @@ function NodeHealthField({
 }
 
 export const PropertiesForm = ({ nodeId, data, onUpdate }: PropertiesFormProps) => {
-  const sections = getNodeConfigSections(data)
+  const effectiveSourceWorkload = useEffectiveSourceWorkload(nodeId, data)
+  const effectiveSelectedSourceNodeId = useStore((state) =>
+    resolveEffectiveSelectedSourceNodeId(
+      state.nodes as { id: string; data: Pick<AnyNodeData, 'profile'> }[],
+      state.scenario.selectedSourceNodeId
+    )
+  )
   const routingVisualization = useStore((state) => state.routingStrategyVisualization)
   const setRoutingStrategyVisualization = useStore((state) => state.setRoutingStrategyVisualization)
+  const updateScenario = useStore((state) => state.updateScenario)
+  const isScenarioManagedSourceNode =
+    data.profile === 'source' && nodeId === effectiveSelectedSourceNodeId
+  const formData = useMemo(
+    () =>
+      isScenarioManagedSourceNode
+        ? withDisplayedSourceWorkload(data, effectiveSourceWorkload)
+        : data,
+    [data, effectiveSourceWorkload, isScenarioManagedSourceNode]
+  )
+  const sections = getNodeConfigSections(formData)
   const routingStrategy = getRoutingStrategy(data)
   const isRoutingVisualizationActive = routingVisualization?.sourceNodeId === nodeId
   const [expandedOptionalFields, setExpandedOptionalFields] = useState<Set<FieldPath>>(new Set())
@@ -162,7 +186,7 @@ export const PropertiesForm = ({ nodeId, data, onUpdate }: PropertiesFormProps) 
   }
 
   const renderField = (field: ResolvedFieldDefinition) => {
-    const value = getPathValue(data, field.path)
+    const value = getPathValue(formData, field.path)
     const isOptionalHidden =
       field.optional && value === undefined && !expandedOptionalFields.has(field.path)
 
@@ -217,7 +241,20 @@ export const PropertiesForm = ({ nodeId, data, onUpdate }: PropertiesFormProps) 
           label={field.label}
           why={field.why}
           value={value}
-          onChange={(nextValue) => onUpdate(field.path, nextValue)}
+          onChange={(nextValue) => {
+            if (isScenarioManagedSourceNode && isSourceWorkloadFieldPath(field.path)) {
+              updateScenario((current) => ({
+                ...current,
+                workloadOverride: updateWorkloadOverrideForField(
+                  current.workloadOverride,
+                  field.path,
+                  nextValue
+                )
+              }))
+              return
+            }
+            onUpdate(field.path, nextValue)
+          }}
         />
       )
     }
@@ -241,9 +278,23 @@ export const PropertiesForm = ({ nodeId, data, onUpdate }: PropertiesFormProps) 
         key={field.path}
         fieldPath={field.path}
         config={field}
-        data={data}
+        data={formData}
         value={value}
-        onChange={(nextValue) => onUpdate(field.path, nextValue)}
+        onChange={(nextValue) => {
+          if (isScenarioManagedSourceNode && isSourceWorkloadFieldPath(field.path)) {
+            updateScenario((current) => ({
+              ...current,
+              workloadOverride: updateWorkloadOverrideForField(
+                current.workloadOverride,
+                field.path,
+                nextValue
+              )
+            }))
+            return
+          }
+
+          onUpdate(field.path, nextValue)
+        }}
         controlRight={controlRight.length > 0 ? <>{controlRight}</> : undefined}
       />
     )

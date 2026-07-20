@@ -3,6 +3,7 @@ import { NodeProps } from 'reactflow'
 import { ComputeNodeData } from '@renderer/types/ui'
 import { resolveNodeConfig } from '@renderer/config/nodeRegistry'
 import { useNodeMetrics } from '@renderer/hooks/useNodeMetrics'
+import { useEffectiveSourceWorkload } from '@renderer/hooks/useEffectiveSourceWorkload'
 import { useMetricLens } from '@renderer/hooks/useMetricLens'
 import BaseNode from '@renderer/components/nodes/BaseNode'
 import { InlineEditableLabel } from '@renderer/components/properties/InlineEditable'
@@ -21,7 +22,8 @@ import {
 const ComputeNode = ({ id, data, selected }: NodeProps<ComputeNodeData>) => {
   const { updateNodeData } = useFlowStore()
   const { icon: Icon, theme } = resolveNodeConfig(data.templateId || data.iconKey)
-  const identityChip = getIdentityChip(data)
+  const effectiveSourceWorkload = useEffectiveSourceWorkload(id, data)
+  const identityChip = getIdentityChip(data, effectiveSourceWorkload)
 
   const handleLabelChange = useCallback(
     (newLabel: string) => {

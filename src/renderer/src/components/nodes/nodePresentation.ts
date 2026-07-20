@@ -13,6 +13,7 @@ import {
   ERROR_CAUSE_LABELS,
   dominantTimeToErrorCause
 } from '@renderer/utils/errorCausePresentation'
+import type { WorkloadWithoutRuntimeFields } from '@renderer/utils/workloadDefaults'
 import { ACK_AND_RELEASE_COMPONENT_TYPES } from '../../../../engine/traits/ackAndRelease'
 import { HEALTH_AWARE_COMPONENT_TYPES } from '../../../../engine/traits/healthAwareRouting'
 
@@ -120,10 +121,14 @@ export interface IdentityChip {
  * depends on it — everything else lives in the properties panel (with
  * provenance), never echoed as a bare number on the card.
  */
-export function getIdentityChip(data: AnyNodeData): IdentityChip | null {
+export function getIdentityChip(
+  data: AnyNodeData,
+  sourceWorkload?: WorkloadWithoutRuntimeFields
+): IdentityChip | null {
   if (data.profile === 'source') {
-    const pattern = data.source?.defaultWorkload.pattern
-    const baseRps = data.source?.defaultWorkload.baseRps
+    const workload = sourceWorkload ?? data.source?.defaultWorkload
+    const pattern = workload?.pattern
+    const baseRps = workload?.baseRps
     if (!pattern || baseRps === undefined) {
       return null
     }
