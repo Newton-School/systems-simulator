@@ -1,12 +1,13 @@
 import { useEffect, useId, useMemo, useState } from 'react'
 import type { CSSProperties, KeyboardEvent } from 'react'
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react'
-import type { SimulationOutput } from '../../../../engine/analysis/output'
+import type { SimulationOutput, StatusWindow } from '../../../../engine/analysis/output'
 import type { DebugEvent } from '../../../../engine/core/event-stream'
 import { projectToDebugEvent } from '../../../../engine/core/event-stream'
 import type { SimulationStatus } from '../../hooks/useSimulation'
 import useStore from '../../store/useStore'
 import type { EdgeSimulationData, ScenarioRunContext } from '@renderer/types/ui'
+import { ERROR_CAUSE_LABELS, dominantTimeToErrorCause } from '@renderer/utils/errorCausePresentation'
 import { failureRateLevelFromRatio } from '@renderer/utils/failureRatePresentation'
 
 // ─── Props ────────────────────────────────────────────────────────────────────
@@ -36,13 +37,16 @@ interface EventGraphLookup {
 }
 
 type ResultsTab = 'overview' | 'bottlenecks' | 'nodes' | 'traffic'
+type SelectedComponent = { kind: 'node'; id: string } | { kind: 'edge'; id: string }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function fmtMs(ms: number): string {
+function fmtMs(ms: number | null): string {
+  // `null` means no successful samples in this population/window — show N/A, never a fake 0.
+  if (ms === null) return 'N/A'
   if (ms === 0) return '—'
   if (ms < 1) return `${(ms * 1000).toFixed(0)}µs`
-  if (ms < 1000) return `${ms.toFixed(1)}ms`
+  if (ms < 1000) return `${ms.toFixed(2)}ms`
   return `${(ms / 1000).toFixed(2)}s`
 }
 
@@ -56,6 +60,10 @@ function fmtSeconds(ms: number): string {
 
 function fmtRps(rps: number | null): string {
   return rps === null ? '—' : `${rps.toFixed(1)} rps`
+}
+
+function fmtCv(value: number | null): string {
+  return value === null ? 'N/A' : value.toFixed(2)
 }
 
 function fmtLambda(lambda: number): string {
@@ -104,11 +112,11 @@ const E2E_PERCENTILE_TOOLTIPS: Record<'p50' | 'p90' | 'p95' | 'p99' | 'max', str
 const HEALTH_CHECK_TOOLTIPS = {
   slo: "Compares each node's measured p99 latency and availability against the SLO targets you configured on the node.",
   errorRate:
-    "Breakdown of rejected and timed-out requests by node. Rejections happen when the queue is full; timeouts happen when processing exceeds the node's configured timeout.",
+    'Breakdown of rejected, timed-out, and connection-reset requests by node. Rejections happen when the queue is full; timeouts happen when the client waits too long; connection resets happen when in-flight work is explicitly dropped.',
   littlesLaw:
     "Little's Law (L = λ·W) is a queueing-theory identity that must hold in steady state. Violations usually indicate either measurement noise at low utilization, or that the simulation never reached steady state. At very low L (<0.1), relative errors can be large while absolute differences are sub-request — treat these as noise.",
   conservation:
-    'Verifies that for every node: arrived = processed + rejected + timed out + in-flight at cutoff. Small non-zero in-flight counts are expected when the run ends with requests still being processed.',
+    'Verifies that for every node: arrived = processed + rejected + timed out + connection reset + in-flight at cutoff. Small non-zero in-flight counts are expected when the run ends with requests still being processed.',
   warmup:
     "Checks that warmup duration is at least 10× the max observed p99. If it isn't, post-warmup metrics may still be contaminated by startup transients."
 } as const
@@ -118,6 +126,12 @@ const PER_NODE_COLUMN_TOOLTIPS = {
   done: 'Requests this node finished processing before the simulation cutoff (post-warmup).',
   reject: "Requests turned away because the node's queue was full.",
   timedOut: "Requests that exceeded this node's processing timeout.",
+  reset:
+    'Requests explicitly terminated with connection_reset while queued, in service, or released from a hung recovery path.',
+  errorRate:
+    'Rejected + timed out + connection reset, divided by post-warmup arrivals at this node. Read the latency columns with this value, never by themselves.',
+  arrivalCV:
+    'Coefficient of variation of inter-arrival gaps at this node. 0 = perfectly even; ≈1 = Poisson. If this is higher than the offered CV, upstream jitter or contention bunched requests before this node.',
   inFlight:
     'Requests that had arrived at this node but were still queued or processing when the simulation ended.',
   avgQueue: 'Time-averaged queue depth (requests waiting, not yet being processed).',
@@ -340,11 +354,97 @@ function StatCard({
   )
 }
 
+function LatencyPopulationSection({
+  title,
+  subtitle,
+  sampleCount,
+  errorRate,
+  children
+}: {
+  title: string
+  subtitle: string
+  sampleCount: number
+  errorRate: number
+  children: React.ReactNode
+}) {
+  return (
+    <div className="space-y-2">
+      <div className="flex items-baseline justify-between gap-3">
+        <div>
+          <h3 className={SECTION_TITLE}>{title}</h3>
+          <p className="text-[10px] text-nss-muted">{subtitle}</p>
+        </div>
+        <div className="text-right text-[10px] text-nss-muted tabular-nums">
+          <div>{sampleCount.toLocaleString()} samples</div>
+          <div>Error rate: {fmtPct(errorRate)}</div>
+        </div>
+      </div>
+      {children}
+    </div>
+  )
+}
+
+function TimeToErrorCard({
+  title,
+  count,
+  errorRate,
+  shareOfErrors,
+  p50,
+  p95,
+  p99
+}: {
+  title: string
+  count: number
+  errorRate: number
+  shareOfErrors: number
+  p50: number | null
+  p95: number | null
+  p99: number | null
+}) {
+  return (
+    <div className={`${SURFACE_CARD} p-2 space-y-2`}>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-xs font-medium text-nss-text">{title}</div>
+          <div className="text-[10px] text-nss-muted">
+            {count.toLocaleString()} failures • {fmtPct(shareOfErrors)} of errors
+          </div>
+        </div>
+        <div className="text-right text-[10px] text-nss-muted tabular-nums">
+          <div>{fmtPct(errorRate)} of requests</div>
+        </div>
+      </div>
+      <div className="grid grid-cols-3 gap-1 text-xs text-center">
+        {[
+          { key: 'p50', value: p50 },
+          { key: 'p95', value: p95 },
+          { key: 'p99', value: p99 }
+        ].map((metric) => (
+          <div key={metric.key} className="rounded border border-nss-border bg-nss-panel p-1.5">
+            <div className="text-nss-muted">{metric.key}</div>
+            <div className="font-medium tabular-nums text-nss-text">{fmtMs(metric.value)}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 // ─── Summary Panel ────────────────────────────────────────────────────────────
 
 function SummaryPanel({ output }: { output: SimulationOutput }) {
   const { summary } = output
   const l = summary.latency
+  // Only show causes that actually fired — a "Node Failed" card appearing while
+  // "Queue Full" stays absent is exactly the dead-vs-overloaded discriminator.
+  const timeToErrorEntries = (
+    Object.entries(summary.timeToErrorByCause) as Array<
+      [
+        keyof typeof summary.timeToErrorByCause,
+        (typeof summary.timeToErrorByCause)[keyof typeof summary.timeToErrorByCause]
+      ]
+    >
+  ).filter(([, metrics]) => metrics.count > 0)
   const throughputDisplay = summary.postWarmupTotalRequests > 0 ? fmtRps(summary.throughput) : '—'
   const totalInFlightAtCutoff = output.conservationCheck.reduce(
     (sum, result) => sum + result.inFlight,
@@ -367,11 +467,16 @@ function SummaryPanel({ output }: { output: SimulationOutput }) {
         </span>
       </div>
 
-      <div className="grid grid-cols-2 gap-2 text-sm">
+      <div className="grid grid-cols-2 gap-2 text-sm md:grid-cols-3">
         <StatCard
           label="Requests (post-warmup)"
           value={summary.postWarmupTotalRequests.toLocaleString()}
           tooltip="Total requests that entered the system after warmup ended. Warmup samples are excluded so transient startup behavior doesn't skew the metrics."
+        />
+        <StatCard
+          label="Successful"
+          value={summary.postWarmupSuccessfulRequests.toLocaleString()}
+          tooltip="Requests that both entered after warmup and eventually completed successfully."
         />
         <StatCard
           label="Throughput"
@@ -382,12 +487,7 @@ function SummaryPanel({ output }: { output: SimulationOutput }) {
           label="Error Rate"
           value={fmtPct(summary.errorRate)}
           highlight={errorHighlight}
-          tooltip="Fraction of requests that were rejected or timed out. >1% turns yellow, >5% turns red."
-        />
-        <StatCard
-          label="Timed Out"
-          value={summary.timedOutRequests.toLocaleString()}
-          tooltip="Requests that exceeded a node's processing timeout. Zero timeouts usually means either the system has headroom or the timeout is set too high."
+          tooltip="Fraction of post-warmup requests that failed. This includes instant rejects, timeout walls, and connection resets."
         />
         <StatCard
           label="In Flight at Cutoff"
@@ -395,33 +495,66 @@ function SummaryPanel({ output }: { output: SimulationOutput }) {
           highlight={totalInFlightAtCutoff > 0 ? 'warn' : 'ok'}
           tooltip="Requests that had entered at least one node after warmup, but had not yet completed, timed out, or been rejected when the simulation stopped."
         />
+        <StatCard
+          label="Offered Arrival CV"
+          value={fmtCv(summary.offeredArrivalCV)}
+          tooltip="Coefficient of variation of source-generated inter-arrival gaps after warmup. 0 means perfectly even; ≈1 is Poisson."
+        />
       </div>
 
       {totalInFlightAtCutoff > 0 && (
         <div className="rounded-md border border-nss-warning/20 bg-nss-warning/10 px-3 py-2 text-xs text-nss-warning">
           {totalInFlightAtCutoff.toLocaleString()} request
           {totalInFlightAtCutoff === 1 ? '' : 's'} were still in flight when the simulation hit its
-          duration limit. They are not counted as completed, rejected, or timed out.
+          duration limit. They are not counted as completed or failed.
         </div>
       )}
 
-      <div className="flex items-baseline justify-between pt-1">
-        <h3 className={SECTION_TITLE}>End-to-end Latency</h3>
-        <span
-          className="text-[10px] text-nss-muted"
-          title="Percentiles don't compose — E2E p99 ≠ sum of per-hop p99s. Use per-node mean (W) for additive decomposition."
-        >
-          ⓘ percentiles do not sum across hops
-        </span>
-      </div>
-      <div className="grid grid-cols-5 gap-1 text-xs text-center">
-        {(['p50', 'p90', 'p95', 'p99', 'max'] as const).map((k) => (
-          <div key={k} className={`${SURFACE_CARD} p-1.5`} title={E2E_PERCENTILE_TOOLTIPS[k]}>
-            <div className="text-nss-muted">{k}</div>
-            <div className="font-medium tabular-nums text-nss-text">{fmtMs(l[k])}</div>
-          </div>
-        ))}
-      </div>
+      <LatencyPopulationSection
+        title="Success Latency"
+        subtitle="Successful requests only. Read these percentiles together with the paired error rate for the same steady-state window."
+        sampleCount={summary.successLatencySamples}
+        errorRate={summary.latencyWindowErrorRate}
+      >
+        <div className="flex items-baseline justify-between gap-3">
+          <span
+            className="text-[10px] text-nss-muted"
+            title="Percentiles don't compose — E2E p99 ≠ sum of per-hop p99s. Use per-node mean (W) for additive decomposition."
+          >
+            ⓘ percentiles do not sum across hops
+          </span>
+        </div>
+        <div className="grid grid-cols-5 gap-1 text-xs text-center">
+          {(['p50', 'p90', 'p95', 'p99', 'max'] as const).map((k) => (
+            <div key={k} className={`${SURFACE_CARD} p-1.5`} title={E2E_PERCENTILE_TOOLTIPS[k]}>
+              <div className="text-nss-muted">{k}</div>
+              <div className="font-medium tabular-nums text-nss-text">{fmtMs(l[k])}</div>
+            </div>
+          ))}
+        </div>
+      </LatencyPopulationSection>
+
+      <LatencyPopulationSection
+        title="Time-to-Error"
+        subtitle="Failed requests only, split by cause so instant rejects, silent timeouts, and connection resets do not blend into one fake latency distribution."
+        sampleCount={summary.timeToErrorSamples}
+        errorRate={summary.latencyWindowErrorRate}
+      >
+        <div className="grid gap-2 md:grid-cols-3">
+          {timeToErrorEntries.map(([cause, metrics]) => (
+            <TimeToErrorCard
+              key={cause}
+              title={ERROR_CAUSE_LABELS[cause]}
+              count={metrics.count}
+              errorRate={metrics.errorRate}
+              shareOfErrors={metrics.shareOfErrors}
+              p50={metrics.p50}
+              p95={metrics.p95}
+              p99={metrics.p99}
+            />
+          ))}
+        </div>
+      </LatencyPopulationSection>
     </div>
   )
 }
@@ -497,6 +630,1212 @@ function CollapsibleCheck({
   )
 }
 
+type NodeMetric = SimulationOutput['perNode'][string]
+type EdgeMetric = SimulationOutput['perEdge'][string]
+type ErrorCauseKey = keyof typeof ERROR_CAUSE_LABELS
+
+/** Node-local success samples below this render latency as "low sample", grayed. */
+const LOW_SAMPLE_FLOOR = 50
+
+const CONDITION_CLASSES: Record<'ok' | 'warn' | 'crit', string> = {
+  ok: 'text-nss-success border-nss-success/30 bg-nss-success/10',
+  warn: 'text-nss-warning border-nss-warning/30 bg-nss-warning/10',
+  crit: 'text-nss-danger border-nss-danger/30 bg-nss-danger/10'
+}
+
+function dominantCause(tte: NodeMetric['timeToErrorByCause']): ErrorCauseKey | null {
+  return dominantTimeToErrorCause(tte)
+}
+
+/**
+ * A node's condition, derived from its own scoped metrics. Status is the
+ * headline; latency is subordinate to it. A dead node (no successful node-local
+ * passes) never renders as healthy, and the dominant failure cause separates
+ * "overloaded" (queue_full) from "dead" (node_failed) from "silent" (timeout).
+ */
+function nodeCondition(m: NodeMetric): { label: string; level: 'ok' | 'warn' | 'crit' } {
+  const hasWindowSamples = m.successLatencySamples + m.timeToErrorSamples > 0
+  if (m.postWarmupArrived === 0 && !hasWindowSamples) return { label: 'Idle', level: 'ok' }
+  const served = m.successLatencySamples > 0
+  const dominant = dominantCause(m.timeToErrorByCause)
+
+  if (!served && m.latencyWindowErrorRate > 0.5) {
+    if (dominant === 'timeout') return { label: 'Silent (timing out)', level: 'crit' }
+    return { label: 'Down', level: 'crit' }
+  }
+  if (m.latencyWindowErrorRate > 0.05) {
+    switch (dominant) {
+      case 'node_failed':
+        return { label: 'Failing', level: 'crit' }
+      case 'queue_full':
+        return { label: 'Overloaded', level: 'warn' }
+      case 'timeout':
+        return { label: 'Timing out', level: 'warn' }
+      case 'network_error':
+        return { label: 'Network errors', level: 'warn' }
+      default:
+        return { label: 'Degraded', level: 'warn' }
+    }
+  }
+  return { label: 'Healthy', level: 'ok' }
+}
+
+/**
+ * State-aware node card. Every number declares its population, window, and locus
+ * inline (node-local, over the served count) — a bare "8ms" is a different,
+ * wrong claim. The card never puts an approving mark next to a latency when the
+ * node is down: the survivor-bias 8ms is only over requests that succeeded.
+ */
+function NodeConditionCard({ nodeId, m }: { nodeId: string; m: NodeMetric }) {
+  const condition = nodeCondition(m)
+  const served = m.successLatencySamples
+  const lowSample = served > 0 && served < LOW_SAMPLE_FLOOR
+  const p95 = m.latencyNodeLocal.p95
+  const dominant = dominantCause(m.timeToErrorByCause)
+
+  return (
+    <div className={`${SURFACE_CARD} p-2.5 space-y-2`}>
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs font-medium text-nss-text truncate">{m.nodeLabel ?? nodeId}</span>
+        <span
+          className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border ${CONDITION_CLASSES[condition.level]}`}
+        >
+          {condition.label}
+        </span>
+      </div>
+
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="text-[10px] text-nss-muted uppercase tracking-wide">p95 latency</span>
+        <span
+          className={`text-sm font-medium tabular-nums ${lowSample ? 'text-nss-muted' : 'text-nss-text'}`}
+        >
+          {fmtMs(p95)}
+        </span>
+      </div>
+      <div className="text-[10px] text-nss-muted">
+        node-local · {served.toLocaleString()} successes{lowSample ? ' · low sample' : ''}
+        {p95 === null ? ' · no successful passes in this window' : ''}
+      </div>
+
+      <div className="flex items-baseline justify-between gap-2 border-t border-nss-border pt-1.5">
+        <span className="text-[10px] text-nss-muted uppercase tracking-wide">error rate</span>
+        <span
+          className={`text-sm font-medium tabular-nums ${
+            m.latencyWindowErrorRate > 0.05
+              ? 'text-nss-danger'
+              : m.latencyWindowErrorRate > 0.01
+                ? 'text-nss-warning'
+                : 'text-nss-muted'
+          }`}
+        >
+          {fmtPct(m.latencyWindowErrorRate)}
+        </span>
+      </div>
+      <div className="text-[10px] text-nss-muted">
+        {dominant ? `mostly ${ERROR_CAUSE_LABELS[dominant]}` : 'no failures at this node'}
+        {' · same window as latency'}
+      </div>
+    </div>
+  )
+}
+
+function conditionRank(level: 'ok' | 'warn' | 'crit'): number {
+  return level === 'crit' ? 2 : level === 'warn' ? 1 : 0
+}
+
+function NodeConditionCards({ output }: { output: SimulationOutput }) {
+  const active = Object.entries(output.perNode)
+    .filter(
+      ([, m]) => m.postWarmupArrived > 0 || m.successLatencySamples > 0 || m.timeToErrorSamples > 0
+    )
+    .sort(([, a], [, b]) => {
+      const aCondition = nodeCondition(a)
+      const bCondition = nodeCondition(b)
+      return (
+        conditionRank(bCondition.level) - conditionRank(aCondition.level) ||
+        b.latencyWindowErrorRate - a.latencyWindowErrorRate ||
+        b.timeToErrorSamples - a.timeToErrorSamples ||
+        b.successLatencySamples - a.successLatencySamples
+      )
+    })
+  if (active.length === 0) return null
+  return (
+    <div className="space-y-2">
+      <h3 className={SECTION_TITLE}>Node Health</h3>
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        {active.map(([nodeId, m]) => (
+          <NodeConditionCard key={nodeId} nodeId={nodeId} m={m} />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/**
+ * The two one-line verdicts an operator actually wants: where time goes, and
+ * where requests die. Computed from the phase-timeline decomposition and the
+ * failure-by-locus Pareto — the same data every other panel projects from.
+ */
+function BottleneckVerdicts({
+  output,
+  onSelectComponent
+}: {
+  output: SimulationOutput
+  onSelectComponent?: (selection: SelectedComponent) => void
+}) {
+  const { latencyDecomposition, failuresByLocus } = output.summary
+  const latTop = latencyDecomposition[0]
+  const failTop = failuresByLocus[0]
+  const latencySelection =
+    latTop && latTop.kind !== 'unattributed'
+      ? ({
+          kind: latTop.kind === 'edge' ? 'edge' : 'node',
+          id: latTop.component
+        } satisfies SelectedComponent)
+      : null
+  const failureSelection = failTop
+    ? ({
+        kind: failTop.locusKind,
+        id: failTop.locus
+      } satisfies SelectedComponent)
+    : null
+  const latencyLabel =
+    latTop && latTop.kind !== 'edge' && latTop.component !== 'unattributed'
+      ? (output.perNode[latTop.component]?.nodeLabel ?? latTop.label)
+      : latTop?.kind === 'edge'
+        ? (output.perEdge[latTop.component]?.edgeLabel ?? latTop.label)
+        : latTop?.label
+  const failureLabel =
+    failTop?.locusKind === 'node'
+      ? (output.perNode[failTop.locus]?.nodeLabel ?? failTop.locus)
+      : (output.perEdge[failTop?.locus ?? '']?.edgeLabel ?? failTop?.locus)
+  const rowClass =
+    'w-full text-left rounded border border-transparent px-1.5 py-1 -mx-1.5 hover:border-nss-border hover:bg-nss-panel transition-colors'
+
+  return (
+    <div className="space-y-2">
+      <h3 className={SECTION_TITLE}>Bottlenecks</h3>
+      <div className={`${SURFACE_CARD} p-2.5 space-y-2`}>
+        <div>
+          <div className="text-[10px] text-nss-muted uppercase tracking-wide">
+            Latency bottleneck
+          </div>
+          {latTop ? (
+            <button
+              type="button"
+              className={rowClass}
+              onClick={() => latencySelection && onSelectComponent?.(latencySelection)}
+              disabled={!latencySelection}
+            >
+              <div className="text-xs text-nss-text">
+                <span className="font-medium">{latencyLabel}</span>{' '}
+                <span className="text-nss-muted">
+                  — {fmtMs(latTop.meanMs)} ({fmtPct(latTop.shareOfEndToEnd)} of end-to-end,{' '}
+                  {latTop.kind})
+                </span>
+              </div>
+            </button>
+          ) : (
+            <div className="text-xs text-nss-muted">No completed requests to decompose.</div>
+          )}
+        </div>
+        <div className="border-t border-nss-border pt-2">
+          <div className="text-[10px] text-nss-muted uppercase tracking-wide">
+            Failure bottleneck
+          </div>
+          {failTop ? (
+            <button
+              type="button"
+              className={rowClass}
+              onClick={() => failureSelection && onSelectComponent?.(failureSelection)}
+              disabled={!failureSelection}
+            >
+              <div className="text-xs text-nss-text">
+                <span className="font-medium">{failureLabel}</span>{' '}
+                <span className="text-nss-muted">
+                  — {failTop.total.toLocaleString()} killed (
+                  {ERROR_CAUSE_LABELS[failTop.dominantCause]}, {fmtPct(failTop.shareOfFailures)} of
+                  failures)
+                </span>
+              </div>
+            </button>
+          ) : (
+            <div className="text-xs text-nss-success">No failures — nothing to locate.</div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * The status timeline: each component's failure windows shaded over the run's
+ * time axis. Partitions the run into before / during / after at a glance, and
+ * makes the survivor-bias trap self-evident — success samples all live outside
+ * the red bands.
+ */
+function StatusTimelineStrip({ output }: { output: SimulationOutput }) {
+  const windows = output.statusTimeline
+  if (windows.length === 0) return null
+
+  const totalMs = output.simulationDuration || 1
+  const warmupMs = output.warmupDuration
+  const pct = (ms: number): number => Math.max(0, Math.min(100, (ms / totalMs) * 100))
+
+  const byComponent = new Map<string, typeof windows>()
+  for (const w of windows) {
+    const list = byComponent.get(w.componentId) ?? []
+    list.push(w)
+    byComponent.set(w.componentId, list)
+  }
+
+  return (
+    <div className="space-y-2">
+      <h3 className={SECTION_TITLE}>Status Timeline</h3>
+      <div className={`${SURFACE_CARD} p-2.5 space-y-2`}>
+        {[...byComponent].map(([componentId, comp]) => (
+          <div key={componentId}>
+            <div className="text-[10px] text-nss-muted mb-0.5">
+              {output.perNode[componentId]?.nodeLabel ??
+                output.perEdge[componentId]?.edgeLabel ??
+                componentId}
+            </div>
+            <div className="relative h-4 rounded bg-nss-panel overflow-hidden">
+              {warmupMs > 0 && (
+                <div
+                  className="absolute inset-y-0 left-0 bg-nss-border/40"
+                  style={{ width: `${pct(warmupMs)}%` }}
+                  title={`warmup ${(warmupMs / 1000).toFixed(0)}s (excluded from metrics)`}
+                />
+              )}
+              {comp.map((w, i) => (
+                <div
+                  key={i}
+                  className="absolute inset-y-0 bg-nss-danger/40 border-x border-nss-danger/70"
+                  style={{
+                    left: `${pct(w.startMs)}%`,
+                    width: `${Math.max(0.5, pct(w.endMs) - pct(w.startMs))}%`
+                  }}
+                  title={`${w.mode} · ${(w.startMs / 1000).toFixed(1)}s → ${(w.endMs / 1000).toFixed(1)}s`}
+                />
+              ))}
+            </div>
+          </div>
+        ))}
+        <div className="flex justify-between text-[9px] text-nss-muted tabular-nums">
+          <span>t=0</span>
+          <span className="text-nss-danger">▮ failure window</span>
+          <span>t={(totalMs / 1000).toFixed(0)}s</span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+type ChartPoint = { xMs: number; y: number | null }
+type ChartSeries = { label: string; color: string; points: ChartPoint[] }
+
+function edgeCondition(m: EdgeMetric): { label: string; level: 'ok' | 'warn' | 'crit' } {
+  const total = m.successLatencySamples + m.timeToErrorSamples
+  if (total === 0) return { label: 'Idle', level: 'ok' }
+  const dominant = dominantCause(m.timeToErrorByCause)
+  if (m.successLatencySamples === 0 && m.latencyWindowErrorRate > 0.5) {
+    return { label: 'Broken', level: 'crit' }
+  }
+  if (m.latencyWindowErrorRate > 0.05) {
+    switch (dominant) {
+      case 'timeout':
+        return { label: 'Timing out', level: 'warn' }
+      case 'network_error':
+        return { label: 'Dropping', level: 'warn' }
+      default:
+        return { label: 'Degraded', level: 'warn' }
+    }
+  }
+  return { label: 'Healthy', level: 'ok' }
+}
+
+function componentLabel(output: SimulationOutput, selection: SelectedComponent): string {
+  if (selection.kind === 'node') {
+    return output.perNode[selection.id]?.nodeLabel ?? selection.id
+  }
+  return output.perEdge[selection.id]?.edgeLabel ?? selection.id
+}
+
+function defaultSelectedComponent(output: SimulationOutput): SelectedComponent | null {
+  const failureTop = output.summary.failuresByLocus[0]
+  if (failureTop) {
+    return { kind: failureTop.locusKind, id: failureTop.locus }
+  }
+
+  const latencyTop = output.summary.latencyDecomposition.find(
+    (entry) => entry.kind !== 'unattributed'
+  )
+  if (latencyTop) {
+    return { kind: latencyTop.kind === 'edge' ? 'edge' : 'node', id: latencyTop.component }
+  }
+
+  const firstNode = Object.entries(output.perNode).find(
+    ([, metric]) =>
+      metric.postWarmupArrived > 0 ||
+      metric.successLatencySamples > 0 ||
+      metric.timeToErrorSamples > 0
+  )
+  if (firstNode) {
+    return { kind: 'node', id: firstNode[0] }
+  }
+
+  const firstEdge = Object.entries(output.perEdge).find(
+    ([, metric]) => metric.successLatencySamples > 0 || metric.timeToErrorSamples > 0
+  )
+  if (firstEdge) {
+    return { kind: 'edge', id: firstEdge[0] }
+  }
+
+  return null
+}
+
+function statusWindowsForSelection(
+  output: SimulationOutput,
+  selection: SelectedComponent
+): StatusWindow[] {
+  const scoped = output.statusTimeline.filter((window) => window.componentId === selection.id)
+  return scoped.length > 0 ? scoped : output.statusTimeline
+}
+
+function latencyWindowPointSeries(
+  windows: SimulationOutput['summary']['latencyWindows'],
+  metric: 'p95' | 'p99' | 'errorRate'
+): ChartPoint[] {
+  return windows.map((window) => ({
+    xMs: (window.windowStartMs + window.windowEndMs) / 2,
+    y: metric === 'errorRate' ? window.errorRate * 100 : window[metric]
+  }))
+}
+
+function nodeTimeSeries(
+  output: SimulationOutput,
+  nodeId: string,
+  metric: 'queueLength' | 'utilization'
+): ChartPoint[] {
+  return output.timeSeries.map((snapshot) => {
+    const node = snapshot.node[nodeId]
+    if (!node) {
+      return { xMs: snapshot.timestamp, y: null }
+    }
+    return {
+      xMs: snapshot.timestamp,
+      y: metric === 'queueLength' ? node.queueLength : node.utilization * 100
+    }
+  })
+}
+
+function linePath(
+  points: ChartPoint[],
+  xAt: (xMs: number) => number,
+  yAt: (y: number) => number
+): string | null {
+  const defined = points.filter((point) => point.y !== null) as Array<{ xMs: number; y: number }>
+  if (defined.length < 2) {
+    return null
+  }
+
+  return defined
+    .map((point, index) => `${index === 0 ? 'M' : 'L'}${xAt(point.xMs)},${yAt(point.y)}`)
+    .join(' ')
+}
+
+function TimelineChart({
+  title,
+  subtitle,
+  totalDurationMs,
+  warmupDurationMs,
+  statusWindows,
+  series,
+  yFormatter
+}: {
+  title: string
+  subtitle: string
+  totalDurationMs: number
+  warmupDurationMs: number
+  statusWindows: StatusWindow[]
+  series: ChartSeries[]
+  yFormatter: (value: number | null) => string
+}) {
+  const width = 640
+  const height = 180
+  const margin = { top: 12, right: 12, bottom: 24, left: 36 }
+  const plotWidth = width - margin.left - margin.right
+  const plotHeight = height - margin.top - margin.bottom
+  const duration = Math.max(1, totalDurationMs)
+  const values = series.flatMap((item) =>
+    item.points.map((point) => point.y).filter((value): value is number => value !== null)
+  )
+  const yMax = values.length > 0 ? Math.max(1, ...values) : 1
+  const xAt = (xMs: number) =>
+    margin.left + (Math.max(0, Math.min(duration, xMs)) / duration) * plotWidth
+  const yAt = (value: number) => margin.top + plotHeight - (Math.max(0, value) / yMax) * plotHeight
+
+  return (
+    <div className={`${SURFACE_CARD} p-2.5 space-y-2`}>
+      <div className="flex items-baseline justify-between gap-3">
+        <div>
+          <div className="text-xs font-medium text-nss-text">{title}</div>
+          <div className="text-[10px] text-nss-muted">{subtitle}</div>
+        </div>
+        <div className="text-[10px] text-nss-muted tabular-nums">
+          max {yFormatter(values.length > 0 ? yMax : null)}
+        </div>
+      </div>
+
+      {values.length === 0 ? (
+        <div className="rounded border border-dashed border-nss-border bg-nss-panel px-3 py-6 text-center text-xs text-nss-muted">
+          No windowed samples for this chart.
+        </div>
+      ) : (
+        <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-44 rounded bg-nss-panel">
+          <rect x={0} y={0} width={width} height={height} rx={8} fill="transparent" />
+          {warmupDurationMs > 0 && (
+            <rect
+              x={margin.left}
+              y={margin.top}
+              width={(Math.min(duration, warmupDurationMs) / duration) * plotWidth}
+              height={plotHeight}
+              fill="rgba(148, 163, 184, 0.12)"
+            />
+          )}
+          {statusWindows.map((window, index) => (
+            <rect
+              key={`${window.componentId}-${window.startMs}-${index}`}
+              x={xAt(window.startMs)}
+              y={margin.top}
+              width={Math.max(2, xAt(window.endMs) - xAt(window.startMs))}
+              height={plotHeight}
+              fill="rgba(239, 68, 68, 0.16)"
+            />
+          ))}
+          {[0.25, 0.5, 0.75, 1].map((fraction) => (
+            <line
+              key={fraction}
+              x1={margin.left}
+              x2={width - margin.right}
+              y1={margin.top + plotHeight - plotHeight * fraction}
+              y2={margin.top + plotHeight - plotHeight * fraction}
+              stroke="rgba(148, 163, 184, 0.18)"
+              strokeWidth={1}
+            />
+          ))}
+          {series.map((item) => {
+            const path = linePath(item.points, xAt, yAt)
+            return (
+              <g key={item.label}>
+                {path && (
+                  <path
+                    d={path}
+                    fill="none"
+                    stroke={item.color}
+                    strokeWidth={2}
+                    strokeLinejoin="round"
+                    strokeLinecap="round"
+                  />
+                )}
+                {item.points
+                  .filter((point) => point.y !== null)
+                  .map((point, index) => (
+                    <circle
+                      key={`${item.label}-${index}`}
+                      cx={xAt(point.xMs)}
+                      cy={yAt(point.y as number)}
+                      r={2.4}
+                      fill={item.color}
+                    />
+                  ))}
+              </g>
+            )
+          })}
+          <text x={margin.left} y={height - 6} fill="rgba(148, 163, 184, 0.8)" fontSize="10">
+            t=0
+          </text>
+          <text
+            x={width - margin.right}
+            y={height - 6}
+            textAnchor="end"
+            fill="rgba(148, 163, 184, 0.8)"
+            fontSize="10"
+          >
+            t={(duration / 1000).toFixed(0)}s
+          </text>
+        </svg>
+      )}
+
+      <div className="flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-nss-muted">
+        {series.map((item) => (
+          <span key={item.label} className="inline-flex items-center gap-1">
+            <span
+              className="inline-block h-2 w-2 rounded-full"
+              style={{ backgroundColor: item.color }}
+            />
+            {item.label}
+          </span>
+        ))}
+        <span className="text-nss-danger">failure windows shaded</span>
+      </div>
+    </div>
+  )
+}
+
+function SystemWindowCharts({ output }: { output: SimulationOutput }) {
+  if (output.summary.latencyWindows.length === 0) {
+    return null
+  }
+
+  return (
+    <div className="space-y-2">
+      <h3 className={SECTION_TITLE}>Windowed System View</h3>
+      <div className="grid gap-3 lg:grid-cols-2">
+        <TimelineChart
+          title="System Success p95"
+          subtitle="Successful requests only; end-to-end latency in 1s termination windows."
+          totalDurationMs={output.simulationDuration}
+          warmupDurationMs={output.warmupDuration}
+          statusWindows={output.statusTimeline}
+          series={[
+            {
+              label: 'p95 latency',
+              color: '#60a5fa',
+              points: latencyWindowPointSeries(output.summary.latencyWindows, 'p95')
+            }
+          ]}
+          yFormatter={fmtMs}
+        />
+        <TimelineChart
+          title="System Error Rate"
+          subtitle="Failed terminals divided by all terminals over the same 1s windows."
+          totalDurationMs={output.simulationDuration}
+          warmupDurationMs={output.warmupDuration}
+          statusWindows={output.statusTimeline}
+          series={[
+            {
+              label: 'error rate',
+              color: '#f97316',
+              points: latencyWindowPointSeries(output.summary.latencyWindows, 'errorRate')
+            }
+          ]}
+          yFormatter={(value) => (value === null ? 'N/A' : `${value.toFixed(1)}%`)}
+        />
+      </div>
+    </div>
+  )
+}
+
+function traceTouchesComponent(
+  trace: SimulationOutput['traces'][number],
+  selection: SelectedComponent
+): boolean {
+  if (selection.kind === 'node') {
+    return (
+      trace.phaseRecord?.nodes.some((phase) => phase.nodeId === selection.id) ??
+      trace.spans.some((span) => span.nodeId === selection.id)
+    )
+  }
+
+  return (
+    trace.phaseRecord?.edges.some((phase) => phase.edgeId === selection.id) ??
+    (trace.phaseRecord?.terminal?.locusKind === 'edge' &&
+      trace.phaseRecord.terminal.locus === selection.id)
+  )
+}
+
+function traceComponentDetail(
+  trace: SimulationOutput['traces'][number],
+  selection: SelectedComponent
+): string | null {
+  if (selection.kind === 'node') {
+    const phases = trace.phaseRecord?.nodes.filter((phase) => phase.nodeId === selection.id) ?? []
+    if (phases.length > 0) {
+      let queueUs = 0
+      let serviceUs = 0
+      for (const phase of phases) {
+        if (phase.serviceStartUs !== undefined) {
+          queueUs += Number(phase.serviceStartUs - phase.nodeArrivalUs)
+        }
+        if (phase.serviceStartUs !== undefined && phase.departureUs !== undefined) {
+          serviceUs += Number(phase.departureUs - phase.serviceStartUs)
+        }
+      }
+      const terminalAtNode =
+        trace.phaseRecord?.terminal?.locusKind === 'node' &&
+        trace.phaseRecord.terminal.locus === selection.id
+      const timeToErrorMs =
+        terminalAtNode && trace.phaseRecord?.terminal
+          ? Number(trace.phaseRecord.terminal.timeUs - phases[phases.length - 1].nodeArrivalUs) /
+            1000
+          : null
+      return [
+        `${phases.length} visit${phases.length === 1 ? '' : 's'}`,
+        `queue ${fmtMs(queueUs / 1000)}`,
+        `service ${fmtMs(serviceUs / 1000)}`,
+        timeToErrorMs !== null ? `time-to-error ${fmtMs(timeToErrorMs)}` : null
+      ]
+        .filter(Boolean)
+        .join(' • ')
+    }
+
+    const spans = trace.spans.filter((span) => span.nodeId === selection.id)
+    if (spans.length === 0) {
+      return null
+    }
+    const queueMs = spans.reduce((sum, span) => sum + span.queueWait, 0)
+    const serviceMs = spans.reduce((sum, span) => sum + span.serviceTime, 0)
+    return [
+      `${spans.length} visit${spans.length === 1 ? '' : 's'}`,
+      `queue ${fmtMs(queueMs)}`,
+      `service ${fmtMs(serviceMs)}`
+    ].join(' • ')
+  }
+
+  const phases = trace.phaseRecord?.edges.filter((phase) => phase.edgeId === selection.id) ?? []
+  if (phases.length === 0) {
+    return null
+  }
+  const transitUs = phases.reduce(
+    (sum, phase) =>
+      sum + (phase.edgeOutUs !== undefined ? Number(phase.edgeOutUs - phase.edgeInUs) : 0),
+    0
+  )
+  const terminalAtEdge =
+    trace.phaseRecord?.terminal?.locusKind === 'edge' &&
+    trace.phaseRecord.terminal.locus === selection.id
+  const timeToErrorMs =
+    terminalAtEdge && trace.phaseRecord?.terminal
+      ? Number(trace.phaseRecord.terminal.timeUs - phases[phases.length - 1].edgeInUs) / 1000
+      : null
+  return [
+    `${phases.length} attempt${phases.length === 1 ? '' : 's'}`,
+    transitUs > 0 ? `transit ${fmtMs(transitUs / 1000)}` : null,
+    timeToErrorMs !== null ? `time-to-error ${fmtMs(timeToErrorMs)}` : null
+  ]
+    .filter(Boolean)
+    .join(' • ')
+}
+
+function ComponentSelectorPanel({
+  output,
+  selected,
+  onSelect
+}: {
+  output: SimulationOutput
+  selected: SelectedComponent | null
+  onSelect: (selection: SelectedComponent) => void
+}) {
+  const nodeEntries = Object.entries(output.perNode)
+    .filter(
+      ([, metric]) =>
+        metric.postWarmupArrived > 0 ||
+        metric.successLatencySamples > 0 ||
+        metric.timeToErrorSamples > 0
+    )
+    .sort(([, a], [, b]) => {
+      const aCondition = nodeCondition(a)
+      const bCondition = nodeCondition(b)
+      return (
+        conditionRank(bCondition.level) - conditionRank(aCondition.level) ||
+        b.latencyWindowErrorRate - a.latencyWindowErrorRate
+      )
+    })
+  const edgeEntries = Object.entries(output.perEdge)
+    .filter(([, metric]) => metric.successLatencySamples > 0 || metric.timeToErrorSamples > 0)
+    .sort(([, a], [, b]) => {
+      const aCondition = edgeCondition(a)
+      const bCondition = edgeCondition(b)
+      return (
+        conditionRank(bCondition.level) - conditionRank(aCondition.level) ||
+        b.latencyWindowErrorRate - a.latencyWindowErrorRate
+      )
+    })
+
+  return (
+    <div className="space-y-2">
+      <h3 className={SECTION_TITLE}>Component Selector</h3>
+      <div className="grid gap-2 lg:grid-cols-2">
+        {nodeEntries.map(([nodeId, metric]) => {
+          const condition = nodeCondition(metric)
+          const isSelected = selected?.kind === 'node' && selected.id === nodeId
+          return (
+            <button
+              key={`node-${nodeId}`}
+              type="button"
+              onClick={() => onSelect({ kind: 'node', id: nodeId })}
+              className={`${SURFACE_CARD} p-2.5 text-left transition-colors ${
+                isSelected
+                  ? 'ring-1 ring-inset ring-nss-primary border-nss-primary/40'
+                  : 'hover:bg-nss-surface/80'
+              }`}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="truncate text-xs font-medium text-nss-text">
+                    {metric.nodeLabel ?? nodeId}
+                  </div>
+                  <div className="text-[10px] text-nss-muted">node-local scope</div>
+                </div>
+                <span
+                  className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border ${CONDITION_CLASSES[condition.level]}`}
+                >
+                  {condition.label}
+                </span>
+              </div>
+              <div className="mt-2 grid grid-cols-2 gap-2 text-[10px] text-nss-muted tabular-nums">
+                <div>p95 {fmtMs(metric.latencyNodeLocal.p95)}</div>
+                <div className="text-right">Err {fmtPct(metric.latencyWindowErrorRate)}</div>
+              </div>
+            </button>
+          )
+        })}
+        {edgeEntries.map(([edgeId, metric]) => {
+          const condition = edgeCondition(metric)
+          const isSelected = selected?.kind === 'edge' && selected.id === edgeId
+          return (
+            <button
+              key={`edge-${edgeId}`}
+              type="button"
+              onClick={() => onSelect({ kind: 'edge', id: edgeId })}
+              className={`${SURFACE_CARD} p-2.5 text-left transition-colors ${
+                isSelected
+                  ? 'ring-1 ring-inset ring-nss-primary border-nss-primary/40'
+                  : 'hover:bg-nss-surface/80'
+              }`}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="truncate text-xs font-medium text-nss-text">
+                    {metric.edgeLabel}
+                  </div>
+                  <div className="text-[10px] text-nss-muted">
+                    {metric.sourceNodeId} → {metric.targetNodeId}
+                  </div>
+                </div>
+                <span
+                  className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border ${CONDITION_CLASSES[condition.level]}`}
+                >
+                  {condition.label}
+                </span>
+              </div>
+              <div className="mt-2 grid grid-cols-2 gap-2 text-[10px] text-nss-muted tabular-nums">
+                <div>p95 {fmtMs(metric.transitLatency.p95)}</div>
+                <div className="text-right">Err {fmtPct(metric.latencyWindowErrorRate)}</div>
+              </div>
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function ComponentDrilldown({
+  output,
+  selected,
+  onSelect
+}: {
+  output: SimulationOutput
+  selected: SelectedComponent | null
+  onSelect: (selection: SelectedComponent) => void
+}) {
+  if (!selected) {
+    return (
+      <div className="space-y-2">
+        <ComponentSelectorPanel output={output} selected={selected} onSelect={onSelect} />
+      </div>
+    )
+  }
+
+  const traces = output.traces
+    .filter((trace) => traceTouchesComponent(trace, selected))
+    .sort((a, b) => {
+      if (a.status !== b.status) {
+        return a.status === 'success' ? 1 : -1
+      }
+      return b.totalLatency - a.totalLatency
+    })
+    .slice(0, 6)
+
+  const statusWindows = statusWindowsForSelection(output, selected)
+
+  if (selected.kind === 'node') {
+    const metric = output.perNode[selected.id]
+    if (!metric) {
+      return (
+        <div className="space-y-2">
+          <ComponentSelectorPanel output={output} selected={selected} onSelect={onSelect} />
+        </div>
+      )
+    }
+
+    const windows = metric.latencyWindows
+    const condition = nodeCondition(metric)
+    const label = componentLabel(output, selected)
+    const timeToErrorEntries = (
+      Object.entries(metric.timeToErrorByCause) as Array<
+        [ErrorCauseKey, (typeof metric.timeToErrorByCause)[ErrorCauseKey]]
+      >
+    ).filter(([, summary]) => summary.count > 0)
+
+    return (
+      <div className="space-y-3">
+        <ComponentSelectorPanel output={output} selected={selected} onSelect={onSelect} />
+
+        <div className="space-y-2">
+          <div className="flex items-baseline justify-between gap-3">
+            <h3 className={SECTION_TITLE}>Component Drill-down</h3>
+            <span className="text-[10px] text-nss-muted">
+              node-local queue + service · 1s windows
+            </span>
+          </div>
+
+          <div className={`${SURFACE_CARD} p-3 space-y-3`}>
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold text-nss-text">{label}</div>
+                <div className="text-[10px] text-nss-muted">
+                  Latency is scoped to successful passes at this node only; failures are only
+                  terminals that died here.
+                </div>
+              </div>
+              <span
+                className={`text-[10px] font-semibold px-2 py-0.5 rounded border ${CONDITION_CLASSES[condition.level]}`}
+              >
+                {condition.label}
+              </span>
+            </div>
+
+            <div className="grid gap-2 text-sm md:grid-cols-3 xl:grid-cols-6">
+              <StatCard label="Kind" value={selected.kind} />
+              <StatCard
+                label="Success Samples"
+                value={`${metric.successLatencySamples.toLocaleString()}`}
+              />
+              <StatCard
+                label="Failure Samples"
+                value={`${metric.timeToErrorSamples.toLocaleString()}`}
+              />
+              <StatCard
+                label="Error Rate"
+                value={fmtPct(metric.latencyWindowErrorRate)}
+                highlight={failureRateLevelFromRatio(metric.latencyWindowErrorRate)}
+              />
+              <StatCard
+                label="Offered CV"
+                value={fmtCv(output.summary.offeredArrivalCV)}
+                tooltip="Source-generated inter-arrival CV after warmup. Compare against this node's arrival CV to see how much variance the network added."
+              />
+              <StatCard
+                label="Arrival CV"
+                value={fmtCv(metric.arrivalCV)}
+                highlight={
+                  metric.arrivalCV !== null &&
+                  output.summary.offeredArrivalCV !== null &&
+                  metric.arrivalCV > output.summary.offeredArrivalCV + 0.05
+                    ? 'warn'
+                    : undefined
+                }
+                tooltip="Delivered inter-arrival CV at this node after warmup. 0 = perfectly even; ≈1 = Poisson."
+              />
+            </div>
+
+            <div className="text-[10px] text-nss-muted">
+              CV 0 means perfectly even spacing; CV ≈ 1 looks Poisson. When this node's arrival
+              CV exceeds the offered CV, upstream edge jitter or congestion bunched requests
+              before they hit this queue.
+            </div>
+
+            <div className="grid gap-3 lg:grid-cols-2">
+              <TimelineChart
+                title="Success p95"
+                subtitle="Successful requests only; node-local latency over 1s windows."
+                totalDurationMs={output.simulationDuration}
+                warmupDurationMs={output.warmupDuration}
+                statusWindows={statusWindows}
+                series={[
+                  {
+                    label: 'p95 latency',
+                    color: '#60a5fa',
+                    points: latencyWindowPointSeries(windows, 'p95')
+                  }
+                ]}
+                yFormatter={fmtMs}
+              />
+              <TimelineChart
+                title="Error Rate"
+                subtitle="Terminals in the same 1s windows, scoped to this node."
+                totalDurationMs={output.simulationDuration}
+                warmupDurationMs={output.warmupDuration}
+                statusWindows={statusWindows}
+                series={[
+                  {
+                    label: 'error rate',
+                    color: '#f97316',
+                    points: latencyWindowPointSeries(windows, 'errorRate')
+                  }
+                ]}
+                yFormatter={(value) => (value === null ? 'N/A' : `${value.toFixed(1)}%`)}
+              />
+            </div>
+
+            <div className="grid gap-3 lg:grid-cols-2">
+              <TimelineChart
+                title="Queue Depth"
+                subtitle="Observed queue length snapshots for this node."
+                totalDurationMs={output.simulationDuration}
+                warmupDurationMs={output.warmupDuration}
+                statusWindows={statusWindows}
+                series={[
+                  {
+                    label: 'queue length',
+                    color: '#a78bfa',
+                    points: nodeTimeSeries(output, selected.id, 'queueLength')
+                  }
+                ]}
+                yFormatter={(value) => (value === null ? 'N/A' : value.toFixed(1))}
+              />
+              <TimelineChart
+                title="Utilization"
+                subtitle="Observed worker utilization snapshots for this node."
+                totalDurationMs={output.simulationDuration}
+                warmupDurationMs={output.warmupDuration}
+                statusWindows={statusWindows}
+                series={[
+                  {
+                    label: 'utilization',
+                    color: '#34d399',
+                    points: nodeTimeSeries(output, selected.id, 'utilization')
+                  }
+                ]}
+                yFormatter={(value) => (value === null ? 'N/A' : `${value.toFixed(1)}%`)}
+              />
+            </div>
+
+            {timeToErrorEntries.length > 0 && (
+              <div className="space-y-2">
+                <div className="text-xs font-medium text-nss-text">Per-cause Time-to-Error</div>
+                <div className="grid gap-2 md:grid-cols-3">
+                  {timeToErrorEntries.map(([cause, summary]) => (
+                    <TimeToErrorCard
+                      key={`${selected.kind}-${selected.id}-${cause}`}
+                      title={ERROR_CAUSE_LABELS[cause]}
+                      count={summary.count}
+                      errorRate={summary.errorRate}
+                      shareOfErrors={summary.shareOfErrors}
+                      p50={summary.p50}
+                      p95={summary.p95}
+                      p99={summary.p99}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <div className="text-xs font-medium text-nss-text">Traced Requests</div>
+              {traces.length === 0 ? (
+                <div className="rounded border border-dashed border-nss-border bg-nss-panel px-3 py-4 text-xs text-nss-muted">
+                  No retained traces touched this component.
+                </div>
+              ) : (
+                <div className="grid gap-2 md:grid-cols-2">
+                  {traces.map((trace) => (
+                    <div key={trace.requestId} className={`${SURFACE_CARD} p-2 space-y-1`}>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-medium text-nss-text truncate">
+                          {trace.requestId}
+                        </span>
+                        <span
+                          className={`px-1.5 py-0.5 rounded border text-[10px] ${eventStatusClass(
+                            trace.status === 'success'
+                              ? 'success'
+                              : trace.status === 'timeout'
+                                ? 'timeout'
+                                : 'rejected'
+                          )}`}
+                        >
+                          {trace.status}
+                        </span>
+                      </div>
+                      <div className="text-[10px] text-nss-muted">
+                        total {fmtMs(trace.totalLatency)}
+                      </div>
+                      <div className="text-[10px] text-nss-muted">
+                        {traceComponentDetail(trace, selected) ??
+                          'No component-local phase detail retained.'}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  const metric = output.perEdge[selected.id]
+  if (!metric) {
+    return (
+      <div className="space-y-2">
+        <ComponentSelectorPanel output={output} selected={selected} onSelect={onSelect} />
+      </div>
+    )
+  }
+
+  const timeToErrorEntries = (
+    Object.entries(metric.timeToErrorByCause) as Array<
+      [ErrorCauseKey, (typeof metric.timeToErrorByCause)[ErrorCauseKey]]
+    >
+  ).filter(([, summary]) => summary.count > 0)
+  const condition = edgeCondition(metric)
+  const label = componentLabel(output, selected)
+
+  return (
+    <div className="space-y-3">
+      <ComponentSelectorPanel output={output} selected={selected} onSelect={onSelect} />
+
+      <div className="space-y-2">
+        <div className="flex items-baseline justify-between gap-3">
+          <h3 className={SECTION_TITLE}>Component Drill-down</h3>
+          <span className="text-[10px] text-nss-muted">edge transit · 1s windows</span>
+        </div>
+
+        <div className={`${SURFACE_CARD} p-3 space-y-3`}>
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <div className="text-sm font-semibold text-nss-text">{label}</div>
+              <div className="text-[10px] text-nss-muted">
+                Latency is scoped to successful transits on this edge only; failures are only
+                terminals attributed to this edge.
+              </div>
+            </div>
+            <span
+              className={`text-[10px] font-semibold px-2 py-0.5 rounded border ${CONDITION_CLASSES[condition.level]}`}
+            >
+              {condition.label}
+            </span>
+          </div>
+
+          <div className="grid gap-2 text-sm md:grid-cols-4">
+            <StatCard label="Kind" value={selected.kind} />
+            <StatCard
+              label="Success Samples"
+              value={`${metric.successLatencySamples.toLocaleString()}`}
+            />
+            <StatCard
+              label="Failure Samples"
+              value={`${metric.timeToErrorSamples.toLocaleString()}`}
+            />
+            <StatCard
+              label="Error Rate"
+              value={fmtPct(metric.latencyWindowErrorRate)}
+              highlight={failureRateLevelFromRatio(metric.latencyWindowErrorRate)}
+            />
+          </div>
+
+          <div className="grid gap-3 lg:grid-cols-2">
+            <TimelineChart
+              title="Transit p95"
+              subtitle="Successful hops only; edge transit latency over 1s windows."
+              totalDurationMs={output.simulationDuration}
+              warmupDurationMs={output.warmupDuration}
+              statusWindows={statusWindows}
+              series={[
+                {
+                  label: 'p95 latency',
+                  color: '#60a5fa',
+                  points: latencyWindowPointSeries(metric.latencyWindows, 'p95')
+                }
+              ]}
+              yFormatter={fmtMs}
+            />
+            <TimelineChart
+              title="Error Rate"
+              subtitle="Terminals in the same 1s windows, scoped to this component."
+              totalDurationMs={output.simulationDuration}
+              warmupDurationMs={output.warmupDuration}
+              statusWindows={statusWindows}
+              series={[
+                {
+                  label: 'error rate',
+                  color: '#f97316',
+                  points: latencyWindowPointSeries(metric.latencyWindows, 'errorRate')
+                }
+              ]}
+              yFormatter={(value) => (value === null ? 'N/A' : `${value.toFixed(1)}%`)}
+            />
+          </div>
+
+          {timeToErrorEntries.length > 0 && (
+            <div className="space-y-2">
+              <div className="text-xs font-medium text-nss-text">Per-cause Time-to-Error</div>
+              <div className="grid gap-2 md:grid-cols-3">
+                {timeToErrorEntries.map(([cause, summary]) => (
+                  <TimeToErrorCard
+                    key={`${selected.kind}-${selected.id}-${cause}`}
+                    title={ERROR_CAUSE_LABELS[cause]}
+                    count={summary.count}
+                    errorRate={summary.errorRate}
+                    shareOfErrors={summary.shareOfErrors}
+                    p50={summary.p50}
+                    p95={summary.p95}
+                    p99={summary.p99}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="space-y-2">
+            <div className="text-xs font-medium text-nss-text">Traced Requests</div>
+            {traces.length === 0 ? (
+              <div className="rounded border border-dashed border-nss-border bg-nss-panel px-3 py-4 text-xs text-nss-muted">
+                No retained traces touched this component.
+              </div>
+            ) : (
+              <div className="grid gap-2 md:grid-cols-2">
+                {traces.map((trace) => (
+                  <div key={trace.requestId} className={`${SURFACE_CARD} p-2 space-y-1`}>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-medium text-nss-text truncate">
+                        {trace.requestId}
+                      </span>
+                      <span
+                        className={`px-1.5 py-0.5 rounded border text-[10px] ${eventStatusClass(
+                          trace.status === 'success'
+                            ? 'success'
+                            : trace.status === 'timeout'
+                              ? 'timeout'
+                              : 'rejected'
+                        )}`}
+                      >
+                        {trace.status}
+                      </span>
+                    </div>
+                    <div className="text-[10px] text-nss-muted">
+                      total {fmtMs(trace.totalLatency)}
+                    </div>
+                    <div className="text-[10px] text-nss-muted">
+                      {traceComponentDetail(trace, selected) ??
+                        'No component-local phase detail retained.'}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function SimulationHealth({ output }: { output: SimulationOutput }) {
   const sloLevel: HealthLevel =
     output.sloBreaches.length === 0
@@ -515,12 +1854,18 @@ function SimulationHealth({ output }: { output: SimulationOutput }) {
 
   const warmupLevel: HealthLevel = output.warmupAdequacy.adequate ? 'healthy' : 'warnings'
 
-  // Error breakdown: nodes with post-warmup rejects or timeouts
+  // Error breakdown: nodes with post-warmup rejects, timeouts, or connection resets.
   const errorNodes = Object.entries(output.perNode)
-    .filter(([, m]) => m.postWarmupRejected > 0 || m.postWarmupTimedOut > 0)
+    .filter(
+      ([, m]) =>
+        m.postWarmupRejected > 0 || m.postWarmupTimedOut > 0 || m.postWarmupConnectionReset > 0
+    )
     .sort(
       ([, a], [, b]) =>
-        b.postWarmupRejected + b.postWarmupTimedOut - (a.postWarmupRejected + a.postWarmupTimedOut)
+        b.postWarmupRejected +
+        b.postWarmupTimedOut +
+        b.postWarmupConnectionReset -
+        (a.postWarmupRejected + a.postWarmupTimedOut + a.postWarmupConnectionReset)
     )
   const summaryFailureLevel = failureRateLevelFromRatio(output.summary.errorRate)
   const errorLevel: HealthLevel =
@@ -583,23 +1928,26 @@ function SimulationHealth({ output }: { output: SimulationOutput }) {
         title={
           errorLevel === 'healthy'
             ? 'Error Rate — None'
-            : `Error Rate — ${fmtPct(output.summary.errorRate)} (${(output.summary.rejectedRequests + output.summary.timedOutRequests).toLocaleString()} errors)`
+            : `Error Rate — ${fmtPct(output.summary.errorRate)} (${output.summary.postWarmupFailedRequests.toLocaleString()} errors)`
         }
         level={errorLevel}
         tooltip={HEALTH_CHECK_TOOLTIPS.errorRate}
       >
         {errorLevel === 'healthy' ? (
-          <p className="text-xs text-nss-muted">No rejected or timed-out requests.</p>
+          <p className="text-xs text-nss-muted">
+            No rejected, timed-out, or connection-reset requests.
+          </p>
         ) : (
           <div className="space-y-1">
-            <div className="grid grid-cols-4 gap-1 text-[10px] text-nss-muted font-medium pb-0.5 border-b border-nss-border">
+            <div className="grid grid-cols-5 gap-1 text-[10px] text-nss-muted font-medium pb-0.5 border-b border-nss-border">
               <span>Node</span>
               <span className="text-right">Rejected</span>
               <span className="text-right">Timed Out</span>
+              <span className="text-right">Reset</span>
               <span className="text-right">Total</span>
             </div>
             {errorNodes.map(([nodeId, m]) => (
-              <div key={nodeId} className="grid grid-cols-4 gap-1 text-[10px] tabular-nums">
+              <div key={nodeId} className="grid grid-cols-5 gap-1 text-[10px] tabular-nums">
                 <span className="text-nss-text truncate">{m.nodeLabel ?? nodeId}</span>
                 <span
                   className={`text-right ${m.postWarmupRejected > 0 ? 'text-nss-warning' : 'text-nss-muted'}`}
@@ -611,8 +1959,17 @@ function SimulationHealth({ output }: { output: SimulationOutput }) {
                 >
                   {m.postWarmupTimedOut.toLocaleString()}
                 </span>
+                <span
+                  className={`text-right ${m.postWarmupConnectionReset > 0 ? 'text-nss-danger' : 'text-nss-muted'}`}
+                >
+                  {m.postWarmupConnectionReset.toLocaleString()}
+                </span>
                 <span className="text-right text-nss-text">
-                  {(m.postWarmupRejected + m.postWarmupTimedOut).toLocaleString()}
+                  {(
+                    m.postWarmupRejected +
+                    m.postWarmupTimedOut +
+                    m.postWarmupConnectionReset
+                  ).toLocaleString()}
                 </span>
               </div>
             ))}
@@ -664,7 +2021,7 @@ function SimulationHealth({ output }: { output: SimulationOutput }) {
         {conservationLevel === 'healthy' ? (
           totalInFlightAtCutoff === 0 ? (
             <p className="text-xs text-nss-muted">
-              All nodes closed cleanly: arrived = processed + rejected + timed-out.
+              All nodes closed cleanly: arrived = processed + rejected + timed-out + reset.
             </p>
           ) : (
             <div className="space-y-1">
@@ -754,6 +2111,9 @@ function PerNodeTable({ output }: { output: SimulationOutput }) {
               <th className="text-right pb-1 pr-2" title={PER_NODE_COLUMN_TOOLTIPS.timedOut}>
                 T.O.
               </th>
+              <th className="text-right pb-1 pr-2" title={PER_NODE_COLUMN_TOOLTIPS.reset}>
+                Reset
+              </th>
               <th className="text-right pb-1 pr-2" title={PER_NODE_COLUMN_TOOLTIPS.inFlight}>
                 In Flight
               </th>
@@ -762,6 +2122,12 @@ function PerNodeTable({ output }: { output: SimulationOutput }) {
               </th>
               <th className="text-right pb-1 pr-2" title={PER_NODE_COLUMN_TOOLTIPS.util}>
                 Util
+              </th>
+              <th className="text-right pb-1 pr-2" title={PER_NODE_COLUMN_TOOLTIPS.errorRate}>
+                Err %
+              </th>
+              <th className="text-right pb-1 pr-2" title={PER_NODE_COLUMN_TOOLTIPS.arrivalCV}>
+                Arr CV
               </th>
               <th className="text-right pb-1 pr-2" title={PER_NODE_COLUMN_TOOLTIPS.p50}>
                 p50
@@ -795,6 +2161,10 @@ function PerNodeTable({ output }: { output: SimulationOutput }) {
                   : m.utilization > 0.7
                     ? 'text-nss-warning'
                     : 'text-nss-success'
+              const arrivalCvWarn =
+                m.arrivalCV !== null &&
+                output.summary.offeredArrivalCV !== null &&
+                m.arrivalCV > output.summary.offeredArrivalCV + 0.05
               const llViolation = ll && !ll.withinTolerance
 
               return (
@@ -814,6 +2184,9 @@ function PerNodeTable({ output }: { output: SimulationOutput }) {
                   <td className="text-right pr-2 text-nss-muted">
                     {m.postWarmupTimedOut.toLocaleString()}
                   </td>
+                  <td className="text-right pr-2 text-nss-muted">
+                    {m.postWarmupConnectionReset.toLocaleString()}
+                  </td>
                   <td
                     className={`text-right pr-2 ${inFlight > 0 ? 'text-nss-warning' : 'text-nss-muted'}`}
                   >
@@ -821,6 +2194,24 @@ function PerNodeTable({ output }: { output: SimulationOutput }) {
                   </td>
                   <td className="text-right pr-2 text-nss-muted">{m.avgQueueLength.toFixed(1)}</td>
                   <td className={`text-right pr-2 ${utilColour}`}>{utilPct}%</td>
+                  <td
+                    className={`text-right pr-2 ${
+                      m.errorRate > 0.05
+                        ? 'text-nss-danger'
+                        : m.errorRate > 0.01
+                          ? 'text-nss-warning'
+                          : 'text-nss-muted'
+                    }`}
+                  >
+                    {fmtPct(m.errorRate)}
+                  </td>
+                  <td
+                    className={`text-right pr-2 ${
+                      arrivalCvWarn ? 'text-nss-warning' : 'text-nss-muted'
+                    }`}
+                  >
+                    {fmtCv(m.arrivalCV)}
+                  </td>
                   <td className="text-right pr-2 text-nss-text">{fmtMs(m.latencyP50)}</td>
                   <td className="text-right pr-2 text-nss-text">{fmtMs(m.latencyP95)}</td>
                   <td className="text-right pr-2 text-nss-text">{fmtMs(m.latencyP99)}</td>
@@ -859,7 +2250,7 @@ function PerNodeTable({ output }: { output: SimulationOutput }) {
                 {inactiveEntries.map(([nodeId, m]) => (
                   <tr key={nodeId} className="border-b border-nss-border">
                     <td className="py-0.5 pr-2 text-nss-muted">{m.nodeLabel ?? nodeId}</td>
-                    <td className="text-right text-nss-muted text-[10px] italic" colSpan={13}>
+                    <td className="text-right text-nss-muted text-[10px] italic" colSpan={16}>
                       no post-warmup traffic
                     </td>
                   </tr>
@@ -1293,8 +2684,10 @@ export function ResultsTray({
   onClose
 }: ResultsTrayProps) {
   const [activeTab, setActiveTab] = useState<ResultsTab>('overview')
+  const [selectedComponent, setSelectedComponent] = useState<SelectedComponent | null>(null)
   const nodes = useStore((state) => state.nodes)
   const edges = useStore((state) => state.edges)
+  const selectGraphElements = useStore((state) => state.selectGraphElements)
   const graphLookup = useMemo<EventGraphLookup>(() => {
     const nodeLabelById = new Map<string, string>()
     const edgeById = new Map<string, EventEdgeDisplayInfo>()
@@ -1323,8 +2716,20 @@ export function ResultsTray({
   useEffect(() => {
     if (results) {
       setActiveTab('overview')
+      setSelectedComponent(defaultSelectedComponent(results))
     }
   }, [results])
+
+  useEffect(() => {
+    if (!results) {
+      return
+    }
+
+    selectGraphElements({
+      nodeId: selectedComponent?.kind === 'node' ? selectedComponent.id : undefined,
+      edgeId: selectedComponent?.kind === 'edge' ? selectedComponent.id : undefined
+    })
+  }, [results, selectedComponent, selectGraphElements])
 
   const retainedReplayEventCount = results ? results.eventStream.length : 0
   const totalCapturedReplayEvents = results ? totalReplayEventCount(results) : 0
@@ -1398,12 +2803,32 @@ export function ResultsTray({
               <>
                 {runContext && <RunContextPanel runContext={runContext} />}
                 <SummaryPanel output={results} />
+                <SystemWindowCharts output={results} />
               </>
             )}
 
-            {activeTab === 'bottlenecks' && <SimulationHealth output={results} />}
+            {activeTab === 'bottlenecks' && (
+              <div className="space-y-4">
+                <BottleneckVerdicts
+                  output={results}
+                  onSelectComponent={(selection) => setSelectedComponent(selection)}
+                />
+                <StatusTimelineStrip output={results} />
+                <ComponentDrilldown
+                  output={results}
+                  selected={selectedComponent}
+                  onSelect={(selection) => setSelectedComponent(selection)}
+                />
+                <SimulationHealth output={results} />
+              </div>
+            )}
 
-            {activeTab === 'nodes' && <PerNodeTable output={results} />}
+            {activeTab === 'nodes' && (
+              <div className="space-y-4">
+                <NodeConditionCards output={results} />
+                <PerNodeTable output={results} />
+              </div>
+            )}
 
             {activeTab === 'traffic' && (
               <>

@@ -6,8 +6,10 @@ import type {
 } from '@renderer/types/ui'
 import {
   failureRateLevelFromPercent,
+  failureRateLevelFromRatio,
   formatFailurePercentLabel
 } from '@renderer/utils/failureRatePresentation'
+import { ERROR_CAUSE_LABELS, dominantTimeToErrorCause } from '@renderer/utils/errorCausePresentation'
 import { ACK_AND_RELEASE_COMPONENT_TYPES } from '../../../../engine/traits/ackAndRelease'
 import { HEALTH_AWARE_COMPONENT_TYPES } from '../../../../engine/traits/healthAwareRouting'
 
@@ -303,6 +305,115 @@ const GLYPH_BY_TONE: Record<NodeHealthStatus, LensCardData['glyph']> = {
   critical: '✕'
 }
 
+const TONE_RANK: Record<NodeHealthStatus, number> = { healthy: 0, degraded: 1, critical: 2 }
+
+/** The more severe of two tones — so a healthy-looking metric can't outvote a real problem. */
+function worseTone(a: NodeHealthStatus, b: NodeHealthStatus): NodeHealthStatus {
+  return TONE_RANK[a] >= TONE_RANK[b] ? a : b
+}
+
+function formatLatencyMetric(value: number | null | undefined): string {
+  return value === null || value === undefined ? 'N/A' : `${value.toFixed(2)}ms`
+}
+
+function toneFromFailureRatio(value: number): NodeHealthStatus {
+  const level = failureRateLevelFromRatio(value)
+  if (level === 'crit') return 'critical'
+  if (level === 'warn') return 'degraded'
+  return 'healthy'
+}
+
+type LatencyLensMetrics = Pick<
+  NodeSimulationMetrics,
+  | 'latencyP50'
+  | 'latencyP95'
+  | 'latencyP99'
+  | 'latencyNodeLocal'
+  | 'successLatencySamples'
+  | 'latencyWindowErrorRate'
+  | 'errorRate'
+  | 'timeToErrorByCause'
+>
+
+function scopedLatencyValue(
+  metrics: LatencyLensMetrics,
+  bucket: 'p50' | 'p95' | 'p99'
+): number | null | undefined {
+  if (metrics.latencyNodeLocal) {
+    return metrics.latencyNodeLocal[bucket]
+  }
+
+  switch (bucket) {
+    case 'p50':
+      return metrics.latencyP50
+    case 'p95':
+      return metrics.latencyP95
+    case 'p99':
+      return metrics.latencyP99
+  }
+}
+
+export function buildLatencyLensCard(
+  sloP99: number | undefined,
+  metrics: LatencyLensMetrics
+): LensCardData | null {
+  const successP50 = scopedLatencyValue(metrics, 'p50')
+  const successP95 = scopedLatencyValue(metrics, 'p95')
+  const successP99 = scopedLatencyValue(metrics, 'p99')
+  const successLatencySamples = metrics.successLatencySamples ?? 0
+  const failureRateRatio = metrics.latencyWindowErrorRate ?? (metrics.errorRate ?? 0) / 100
+  const failureRateText = formatFailurePercentLabel(failureRateRatio * 100)
+  const dominantFailure = dominantTimeToErrorCause(metrics.timeToErrorByCause)
+  const dominantFailureText = dominantFailure
+    ? `, mostly ${ERROR_CAUSE_LABELS[dominantFailure]}`
+    : ''
+  const hasLatencyContext =
+    successP95 !== undefined ||
+    metrics.latencyNodeLocal !== undefined ||
+    metrics.successLatencySamples !== undefined ||
+    metrics.latencyWindowErrorRate !== undefined
+
+  if (!hasLatencyContext) {
+    return null
+  }
+
+  let sloTone: NodeHealthStatus = 'healthy'
+  let sloText = 'no SLO set'
+  if (typeof sloP99 === 'number' && sloP99 > 0 && successP99 !== undefined && successP99 !== null) {
+    if (successP99 > sloP99 * 1.5) {
+      sloTone = 'critical'
+    } else if (successP99 > sloP99) {
+      sloTone = 'degraded'
+    }
+    sloText = sloTone === 'healthy' ? `within ${sloP99}ms p99 SLO` : `above ${sloP99}ms p99 SLO`
+  }
+
+  const errorTone =
+    successLatencySamples === 0 && failureRateRatio > 0
+      ? 'critical'
+      : toneFromFailureRatio(failureRateRatio)
+  const tone = worseTone(sloTone, errorTone)
+
+  let why = `p50 ${formatLatencyMetric(successP50)} · ${sloText} · click for detail`
+  if (successLatencySamples === 0 && failureRateRatio > 0) {
+    why = `no successful requests · ${failureRateText} failed${dominantFailureText} · click for detail`
+  } else if (successLatencySamples === 0) {
+    why = 'no successful requests in this window · click for detail'
+  } else if (failureRateRatio >= 0.5) {
+    why = `p50 ${formatLatencyMetric(successP50)} · success-only latency, ${failureRateText} failed${dominantFailureText} · click for detail`
+  } else if (failureRateRatio > 0) {
+    why = `p50 ${formatLatencyMetric(successP50)} · over ${successLatencySamples.toLocaleString()} successes only, ${failureRateText} failed${dominantFailureText} · click for detail`
+  }
+
+  return {
+    value: formatLatencyMetric(successP95),
+    limit: 'p95',
+    glyph: GLYPH_BY_TONE[tone],
+    why,
+    tone
+  }
+}
+
 /**
  * One metric family, driven by the active lens — the value/limit card. Never
  * shows more than one family at once; deep detail lives behind selection.
@@ -340,27 +451,8 @@ export function getLensCard(
       }
     }
     case 'latency': {
-      if (metrics.latencyP95 === undefined) {
-        return null
-      }
       const sloP99 = data.sim?.slo?.latencyP99
-      let tone: NodeHealthStatus = 'healthy'
-      let sloText = 'no SLO set'
-      if (typeof sloP99 === 'number' && sloP99 > 0 && metrics.latencyP99 !== undefined) {
-        if (metrics.latencyP99 > sloP99 * 1.5) {
-          tone = 'critical'
-        } else if (metrics.latencyP99 > sloP99) {
-          tone = 'degraded'
-        }
-        sloText = tone === 'healthy' ? `within ${sloP99}ms p99 SLO` : `above ${sloP99}ms p99 SLO`
-      }
-      return {
-        value: `${metrics.latencyP95.toFixed(1)}ms`,
-        limit: 'p95',
-        glyph: GLYPH_BY_TONE[tone],
-        why: `p50 ${(metrics.latencyP50 ?? 0).toFixed(1)}ms · ${sloText} · click for detail`,
-        tone
-      }
+      return buildLatencyLensCard(sloP99, metrics)
     }
     case 'errors': {
       if (metrics.errorRate === undefined) {
