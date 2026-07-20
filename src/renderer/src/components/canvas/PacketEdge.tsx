@@ -3,13 +3,13 @@ import { BaseEdge, getSmoothStepPath, EdgeProps, EdgeLabelRenderer } from 'react
 import useStore, { type EdgeFlowRunConfig, type EdgeFlowState } from '@renderer/store/useStore'
 import { getRoutingPreviewSnapshot } from '@renderer/utils/routingStrategyPreview'
 import { failureRateLevelFromRatio } from '@renderer/utils/failureRatePresentation'
+import { patternMultiplier, patternPhaseLabel } from './edgeFlowPatterns'
 import type { EdgeFailureCause } from '../../../../engine/core/events'
 
 const EDGE_VISUAL_WINDOW_MS = 3_000
 const FAILED_PULSE_MS = 650
 const MIN_STREAM_DURATION_MS = 2_200
 const MAX_STREAM_DURATION_MS = 5_200
-const PATTERN_VISUAL_SPEED = 4
 const FLOW_SUCCESS_COLOR = 'rgb(var(--nss-success))'
 const FLOW_WARNING_COLOR = 'rgb(var(--nss-warning))'
 const FLOW_DANGER_COLOR = 'rgb(var(--nss-danger))'
@@ -75,137 +75,6 @@ function hash01(input: string): number {
     hash = Math.imul(hash, 16777619)
   }
   return (hash >>> 0) / 4294967295
-}
-
-function patternElapsedMs(
-  runConfig: EdgeFlowRunConfig | null,
-  playback: { wallStartMs: number; simStartMs: number } | null,
-  now: number
-): number {
-  if (!runConfig || !playback) return 0
-
-  const duration = Math.max(1, runConfig.simulationDurationMs)
-  const elapsed = playback.simStartMs + (now - playback.wallStartMs) * PATTERN_VISUAL_SPEED
-  return ((elapsed % duration) + duration) % duration
-}
-
-function patternMultiplier(
-  runConfig: EdgeFlowRunConfig | null,
-  playback: { wallStartMs: number; simStartMs: number } | null,
-  now: number,
-  edgeId: string
-): number {
-  if (!runConfig) return 1
-
-  const workload = runConfig.workload
-  const elapsed = patternElapsedMs(runConfig, playback, now)
-  const baseRps = Math.max(1, workload.baseRps)
-
-  switch (workload.pattern) {
-    case 'constant':
-    case 'replay':
-      return 1
-
-    case 'poisson': {
-      const bucket = Math.floor(elapsed / 900)
-      return 0.45 + hash01(`${edgeId}:poisson:${bucket}`) * 1.25
-    }
-
-    case 'bursty': {
-      const burst = workload.bursty
-      if (!burst) return 1
-      const burstDuration = Math.max(1, burst.burstDuration)
-      const normalDuration = Math.max(1, burst.normalDuration)
-      const cycle = burstDuration + normalDuration
-      const inBurst = elapsed % cycle < burstDuration
-      return inBurst ? clamp(burst.burstRps / baseRps, 1.5, 4) : 1
-    }
-
-    case 'spike': {
-      const spike = workload.spike
-      if (!spike) return 1
-      const inSpike = elapsed >= spike.spikeTime && elapsed < spike.spikeTime + spike.spikeDuration
-      return inSpike ? clamp(spike.spikeRps / baseRps, 1.75, 5) : 1
-    }
-
-    case 'sawtooth': {
-      const sawtooth = workload.sawtooth
-      if (!sawtooth) return 1
-      const rampDuration = Math.max(1, sawtooth.rampDuration)
-      const t = (elapsed % rampDuration) / rampDuration
-      const currentRps = baseRps + (sawtooth.peakRps - baseRps) * t
-      return clamp(currentRps / baseRps, 0.45, 5)
-    }
-
-    case 'diurnal': {
-      const multipliers = workload.diurnal?.hourlyMultipliers
-      if (!multipliers) return 1
-      const progress = elapsed / Math.max(1, runConfig.simulationDurationMs)
-      const hourPosition = progress * 24
-      const hour = Math.floor(hourPosition) % 24
-      const nextHour = (hour + 1) % 24
-      const localT = hourPosition - Math.floor(hourPosition)
-      const current = multipliers[hour] ?? 1
-      const next = multipliers[nextHour] ?? current
-      return clamp(current + (next - current) * localT, 0.35, 2.5)
-    }
-
-    default:
-      return 1
-  }
-}
-
-function patternPhaseLabel(
-  runConfig: EdgeFlowRunConfig | null,
-  playback: { wallStartMs: number; simStartMs: number } | null,
-  now: number
-): string | null {
-  if (!runConfig) return null
-
-  const workload = runConfig.workload
-  const elapsed = patternElapsedMs(runConfig, playback, now)
-
-  switch (workload.pattern) {
-    case 'bursty': {
-      const burst = workload.bursty
-      if (!burst) return null
-      const burstDuration = Math.max(1, burst.burstDuration)
-      const normalDuration = Math.max(1, burst.normalDuration)
-      const cycle = burstDuration + normalDuration
-      return elapsed % cycle < burstDuration ? 'burst' : 'base'
-    }
-
-    case 'spike': {
-      const spike = workload.spike
-      if (!spike) return null
-      return elapsed >= spike.spikeTime && elapsed < spike.spikeTime + spike.spikeDuration
-        ? 'spike'
-        : 'base'
-    }
-
-    case 'sawtooth': {
-      const sawtooth = workload.sawtooth
-      if (!sawtooth) return null
-      const rampDuration = Math.max(1, sawtooth.rampDuration)
-      const progress = (elapsed % rampDuration) / rampDuration
-      if (progress > 0.66) return 'ramp high'
-      if (progress > 0.33) return 'ramp mid'
-      return 'ramp low'
-    }
-
-    case 'diurnal': {
-      const multiplier = patternMultiplier(runConfig, playback, now, 'diurnal-label')
-      if (multiplier > 1.1) return 'peak'
-      if (multiplier < 0.8) return 'low'
-      return 'normal'
-    }
-
-    case 'poisson':
-      return 'jitter'
-
-    default:
-      return null
-  }
 }
 
 function packetOffset(
@@ -354,7 +223,7 @@ export const PacketEdge = ({
   const failureBreakdownText = failureBreakdown
     .map((entry) => `${entry.label} ${fmtPercent(entry.percent)}`)
     .join(' • ')
-  const visualMultiplier = patternMultiplier(runConfig, playback, now, id)
+  const visualMultiplier = patternMultiplier(runConfig, playback, now, id, hash01)
   const steadyRequestRate = isComplete ? postRunPacketRate : liveSuccessRate
   const previewShare =
     routingPreview && routingPreview.totalCount > 0
@@ -373,7 +242,11 @@ export const PacketEdge = ({
     : patternPacketCount(basePacketCount, visualMultiplier)
   const isInactiveAfterRun = flowStatus === 'complete' && !flow
   const phaseLabel =
-    isRoutingPreviewEdge || isInactiveAfterRun ? null : patternPhaseLabel(runConfig, playback, now)
+    isRoutingPreviewEdge || isInactiveAfterRun
+      ? null
+      : patternPhaseLabel(runConfig, playback, now, (config, player, currentTime, edgeId) =>
+          patternMultiplier(config, player, currentTime, edgeId, hash01)
+        )
   const hasFlow = isRoutingPreviewEdge
     ? Boolean(routingPreview?.isSelected)
     : isComplete
@@ -407,7 +280,7 @@ export const PacketEdge = ({
       ? `${flowLabelText} (${failureBreakdownText})`
       : flowLabelText
   const flowLabelClassName = [
-    'bg-nss-bg px-2 py-0.5 text-[18px] font-bold leading-none tracking-wide',
+    'bg-nss-bg px-2 py-0.5 text-[16px] leading-none tracking-wide',
     isRoutingPreviewEdge
       ? routingPreview?.isSelected
         ? 'text-nss-success'

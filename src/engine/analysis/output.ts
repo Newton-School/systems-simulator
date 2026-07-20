@@ -6,7 +6,7 @@ import type {
   RequestLifecycle
 } from '../core/event-stream'
 import { createEmptyEventCounts } from '../core/event-stream'
-import { MetricsCollector, PerNodeMetrics, SimulationSummary } from '../metrics'
+import { MetricsCollector, PerEdgeMetrics, PerNodeMetrics, SimulationSummary } from '../metrics'
 import { RequestTrace, RequestTracer } from '../tracer'
 
 export interface TimeSeriesSnapshot {
@@ -90,7 +90,12 @@ export interface WarmupAdequacy {
 
 /**
  * Per-node conservation check using the post-warmup window only.
- * postWarmupArrived == postWarmupProcessed + postWarmupRejected + postWarmupTimedOut + inFlight
+ * postWarmupArrived
+ *   == postWarmupProcessed
+ *    + postWarmupRejected
+ *    + postWarmupTimedOut
+ *    + postWarmupConnectionReset
+ *    + inFlight
  *
  * All four counters use the same time domain (node-level event time ≥ warmup),
  * so an `inFlight` > 5% of arrivals is a genuine imbalance — typically requests
@@ -103,16 +108,35 @@ export interface ConservationResult {
   postWarmupProcessed: number
   postWarmupRejected: number
   postWarmupTimedOut: number
-  /** postWarmupArrived − processed − rejected − timedOut */
+  postWarmupConnectionReset: number
+  /** postWarmupArrived − processed − rejected − timedOut − connectionReset */
   inFlight: number
   /** True when inFlight / postWarmupArrived < 5% (or postWarmupArrived == 0). */
   balanced: boolean
 }
 
+/**
+ * A component's failure/recovery interval — a first-class run artifact. A
+ * `node-failure` opens the window; the matching `node-recovery` closes it;
+ * windows still open at cutoff close at the simulation horizon. Shading these
+ * on a time axis partitions every metric into before / during / after and makes
+ * the survivor-bias trap self-evident (successes cluster left of the band).
+ */
+export interface StatusWindow {
+  componentId: string
+  /** Failure mode active during the window (reject | blackhole | hang | degraded). */
+  mode: string
+  startMs: number
+  endMs: number
+}
+
 export interface SimulationOutput {
   summary: SimulationSummary
   perNode: Record<string, PerNodeMetrics>
+  perEdge: Record<string, PerEdgeMetrics>
   timeSeries: TimeSeriesSnapshot[]
+  /** Component failure/recovery intervals (ms), for shading outage windows. */
+  statusTimeline: StatusWindow[]
   traces: RequestTrace[]
   causalGraph: CausalGraph | null
   sloBreaches: SLOBreach[]
@@ -150,12 +174,14 @@ export function generateSimulationOutput(
   debugData?: {
     eventLog?: DebugEvent[] | null
     debuggedLifecycle?: RequestLifecycle | null
+    statusTimeline?: StatusWindow[]
   }
 ): SimulationOutput {
   const summary = metrics.generateSummary(config.simulationDuration)
   const perNode = Object.fromEntries(
     metrics.getPerNodeMetrics(config.simulationDuration)
   ) as Record<string, PerNodeMetrics>
+  const perEdge = Object.fromEntries(metrics.getPerEdgeMetrics()) as Record<string, PerEdgeMetrics>
   const littlesLawCheck = calculateLittlesLaw(perNode, config)
   const sloBreaches = detectSLOBreaches(metrics, perNode)
   const warmupAdequacy = assessWarmupAdequacy(perNode, config)
@@ -164,7 +190,9 @@ export function generateSimulationOutput(
   return {
     summary,
     perNode,
+    perEdge,
     timeSeries: [...timeSeries],
+    statusTimeline: debugData?.statusTimeline ?? [],
     traces: tracer.getTraces(),
     causalGraph,
     sloBreaches,
@@ -318,7 +346,12 @@ function assessWarmupAdequacy(
 
 /**
  * Verify conservation over the post-warmup window:
- *   postWarmupArrived == postWarmupProcessed + postWarmupRejected + postWarmupTimedOut + inFlight
+ *   postWarmupArrived
+ *     == postWarmupProcessed
+ *      + postWarmupRejected
+ *      + postWarmupTimedOut
+ *      + postWarmupConnectionReset
+ *      + inFlight
  *
  * All counters use the same node-level event-time gate so the identity must hold.
  * Large in-flight counts indicate requests were still queued at simulation cutoff.
@@ -327,7 +360,11 @@ function buildConservationCheck(perNode: Record<string, PerNodeMetrics>): Conser
   return Object.entries(perNode).map(([nodeId, m]) => {
     const inFlight = Math.max(
       0,
-      m.postWarmupArrived - m.postWarmupProcessed - m.postWarmupRejected - m.postWarmupTimedOut
+      m.postWarmupArrived -
+        m.postWarmupProcessed -
+        m.postWarmupRejected -
+        m.postWarmupTimedOut -
+        m.postWarmupConnectionReset
     )
     const balanced = m.postWarmupArrived === 0 || inFlight / m.postWarmupArrived < 0.05
     return {
@@ -337,6 +374,7 @@ function buildConservationCheck(perNode: Record<string, PerNodeMetrics>): Conser
       postWarmupProcessed: m.postWarmupProcessed,
       postWarmupRejected: m.postWarmupRejected,
       postWarmupTimedOut: m.postWarmupTimedOut,
+      postWarmupConnectionReset: m.postWarmupConnectionReset,
       inFlight,
       balanced
     }

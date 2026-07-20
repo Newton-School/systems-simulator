@@ -8,7 +8,7 @@ import { Branding } from './Branding'
 import { FileStatus } from './FileStatus'
 import { ThemeToggle } from './ThemeToggle'
 import { SimulationControls } from '../simulation/SimulationControls'
-import type { ScenarioState, SourceNodeOption } from '@renderer/types/ui'
+import type { FaultTargetOption, ScenarioState, SourceNodeOption } from '@renderer/types/ui'
 
 interface HeaderProps {
   // Layout
@@ -31,6 +31,7 @@ interface HeaderProps {
   isRunning: boolean
   isPaused: boolean
   sourceNodes: SourceNodeOption[]
+  faultTargets: FaultTargetOption[]
   scenario: ScenarioState
   onScenarioChange: (updater: (current: ScenarioState) => ScenarioState) => void
   simulationDisabled?: boolean
@@ -53,6 +54,7 @@ export const Header = memo(
     isRunning,
     isPaused,
     sourceNodes,
+    faultTargets,
     scenario,
     onScenarioChange,
     simulationDisabled
@@ -90,6 +92,7 @@ export const Header = memo(
             isRunning={isRunning}
             isPaused={isPaused}
             sourceNodes={sourceNodes}
+            faultTargets={faultTargets}
             scenario={scenario}
             onScenarioChange={onScenarioChange}
             disabled={simulationDisabled}

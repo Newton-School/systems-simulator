@@ -1,10 +1,27 @@
 import type { useNodeMetrics } from '@renderer/hooks/useNodeMetrics'
+import {
+  ERROR_CAUSE_LABELS,
+  dominantTimeToErrorCause
+} from '@renderer/utils/errorCausePresentation'
 import { MetricItem } from './MetricItem'
 
 type NodeMetrics = ReturnType<typeof useNodeMetrics>
 
 interface NodeMetricsDetailProps {
   metrics: NodeMetrics
+}
+
+function latencyMetricItem(value: number | null | undefined): {
+  value?: string | number
+  unit?: string
+} {
+  if (value === undefined) return {}
+  if (value === null) return { value: 'N/A' }
+  return { value, unit: 'ms' }
+}
+
+function fmtRatioPercent(value?: number): string {
+  return `${((value ?? 0) * 100).toFixed(1)}%`
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -34,6 +51,32 @@ export const NodeMetricsDetail = ({ metrics }: NodeMetricsDetailProps) => {
     ((metrics.cacheHits ?? 0) > 0 || (metrics.cacheMisses ?? 0) > 0)
   const inFlightColour =
     (metrics.postWarmupInFlight ?? 0) > 0 ? 'text-nss-warning' : 'text-nss-text'
+  const successLatencySamples = metrics.successLatencySamples ?? 0
+  const latencyWindowErrorRate = metrics.latencyWindowErrorRate ?? 0
+  const dominantFailure = dominantTimeToErrorCause(metrics.timeToErrorByCause)
+  const latencyNote =
+    successLatencySamples === 0 && latencyWindowErrorRate > 0
+      ? `No successful requests in this window. Success latency is unavailable; ${fmtRatioPercent(
+          latencyWindowErrorRate
+        )} failed${dominantFailure ? `, mostly ${ERROR_CAUSE_LABELS[dominantFailure]}` : ''}.`
+      : latencyWindowErrorRate >= 0.5
+        ? `Latency is over ${successLatencySamples.toLocaleString()} successful requests only; ${fmtRatioPercent(
+            latencyWindowErrorRate
+          )} failed${dominantFailure ? `, mostly ${ERROR_CAUSE_LABELS[dominantFailure]}` : ''}.`
+        : latencyWindowErrorRate > 0.05
+          ? `Read latency together with failures: ${fmtRatioPercent(
+              latencyWindowErrorRate
+            )} failed${dominantFailure ? `, mostly ${ERROR_CAUSE_LABELS[dominantFailure]}` : ''}.`
+          : null
+  const latencyNoteClass =
+    successLatencySamples === 0 && latencyWindowErrorRate > 0
+      ? 'text-nss-danger'
+      : latencyWindowErrorRate >= 0.5
+        ? 'text-nss-danger'
+        : 'text-nss-warning'
+  const p50Metric = latencyMetricItem(metrics.latencyNodeLocal?.p50)
+  const p95Metric = latencyMetricItem(metrics.latencyNodeLocal?.p95)
+  const p99Metric = latencyMetricItem(metrics.latencyNodeLocal?.p99)
 
   return (
     <div className="space-y-6">
@@ -66,10 +109,11 @@ export const NodeMetricsDetail = ({ metrics }: NodeMetricsDetailProps) => {
 
       <Section title="Latency">
         <div className="grid grid-cols-3 gap-4">
-          <MetricItem label="p50" value={metrics.latencyP50} unit="ms" />
-          <MetricItem label="p95" value={metrics.latencyP95} unit="ms" />
-          <MetricItem label="p99" value={metrics.latencyP99} unit="ms" />
+          <MetricItem label="p50" value={p50Metric.value} unit={p50Metric.unit} />
+          <MetricItem label="p95" value={p95Metric.value} unit={p95Metric.unit} />
+          <MetricItem label="p99" value={p99Metric.value} unit={p99Metric.unit} />
         </div>
+        {latencyNote && <div className={`mt-3 text-xs ${latencyNoteClass}`}>{latencyNote}</div>}
       </Section>
 
       <Section title="Availability">

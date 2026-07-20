@@ -1,6 +1,8 @@
 import { useCallback } from 'react'
 import type { Edge } from 'reactflow'
 import type {
+  BaseDistributionConfig,
+  DistributionConfig,
   EdgeDefinition,
   GlobalConfig,
   TopologyJSON,
@@ -18,6 +20,8 @@ import { mergeWorkloadDefaults } from '@renderer/utils/workloadDefaults'
 type EdgeRuntimeData = {
   protocol?: EdgeDefinition['protocol']
   mode?: EdgeDefinition['mode']
+  latencyDistributionType?: 'log-normal' | 'constant'
+  latencyValue?: number
   latencyMu?: number
   latencySigma?: number
   pathType?: EdgeDefinition['latency']['pathType']
@@ -30,6 +34,14 @@ type EdgeRuntimeData = {
 
 function asPositiveNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null
+}
+
+function asFiniteNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+function asNonNegativeNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null
 }
 
 function asPositiveInt(value: unknown): number | null {
@@ -93,6 +105,53 @@ function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value))
 }
 
+type EdgeLatencyDistribution = Extract<BaseDistributionConfig, { type: 'constant' | 'log-normal' }>
+
+export function resolveEdgeLatencyDistribution(
+  edgeData: Pick<
+    EdgeRuntimeData,
+    'latencyDistributionType' | 'latencyValue' | 'latencyMu' | 'latencySigma'
+  >,
+  pathLatencyProfile: Extract<DistributionConfig, { type: 'log-normal' }>
+): {
+  distribution: EdgeLatencyDistribution
+  derivedFromPathType: boolean
+} {
+  const explicitLatencyValue = asNonNegativeNumber(edgeData.latencyValue)
+  const explicitLatencyMu = asFiniteNumber(edgeData.latencyMu)
+  const explicitLatencySigma = asPositiveNumber(edgeData.latencySigma)
+  const distributionType =
+    edgeData.latencyDistributionType === 'constant'
+      ? 'constant'
+      : edgeData.latencyDistributionType === 'log-normal'
+        ? 'log-normal'
+        : explicitLatencyValue !== null &&
+            explicitLatencyMu === null &&
+            explicitLatencySigma === null
+          ? 'constant'
+          : 'log-normal'
+
+  if (distributionType === 'constant') {
+    return {
+      distribution: {
+        type: 'constant',
+        value: explicitLatencyValue ?? Math.exp(pathLatencyProfile.mu)
+      },
+      derivedFromPathType: false
+    }
+  }
+
+  const hasExplicitLogNormal = explicitLatencyMu !== null || explicitLatencySigma !== null
+  return {
+    distribution: {
+      type: 'log-normal',
+      mu: explicitLatencyMu ?? pathLatencyProfile.mu,
+      sigma: explicitLatencySigma ?? pathLatencyProfile.sigma
+    },
+    derivedFromPathType: !hasExplicitLogNormal
+  }
+}
+
 function buildScenarioGlobal(global: ScenarioState['global']): GlobalConfig {
   return {
     simulationDuration: global.simulationDuration,
@@ -122,9 +181,10 @@ function serializeEdge(
   const inferredDefaults = inferEdgeDefaults(sourceData, targetData)
   const pathType = asPathType(edgeData.pathType) ?? inferredDefaults.pathType
   const pathLatencyProfile = getPathTypeLatencyProfile(pathType)
-  const explicitLatencyMu = asPositiveNumber(edgeData.latencyMu)
-  const explicitLatencySigma = asPositiveNumber(edgeData.latencySigma)
-  const hasExplicitLatency = explicitLatencyMu !== null || explicitLatencySigma !== null
+  const { distribution, derivedFromPathType } = resolveEdgeLatencyDistribution(
+    edgeData,
+    pathLatencyProfile
+  )
 
   const mode =
     asEdgeMode(edgeData.mode) ??
@@ -138,13 +198,9 @@ function serializeEdge(
     mode,
     protocol: asProtocol(edgeData.protocol) ?? inferredDefaults.protocol,
     latency: {
-      distribution: {
-        type: 'log-normal',
-        mu: explicitLatencyMu ?? pathLatencyProfile.mu,
-        sigma: explicitLatencySigma ?? pathLatencyProfile.sigma
-      },
+      distribution,
       pathType,
-      derivedFromPathType: !hasExplicitLatency
+      derivedFromPathType
     },
     bandwidth: asPositiveNumber(edgeData.bandwidth) ?? inferredDefaults.bandwidth,
     maxConcurrentRequests:
@@ -259,6 +315,11 @@ export function useTopologySerializer() {
         .map((edge) => serializeEdge(edge, serializedNodeIds, dataByNodeId))
         .filter((edge): edge is EdgeDefinition => edge !== null)
 
+      // Only forward faults that target a serializable node in this topology.
+      const faults = (resolvedScenario.faults ?? []).filter((fault) =>
+        serializedNodeIds.has(fault.targetId)
+      )
+
       const topology: TopologyJSON = {
         id: 'canvas-topology',
         name: 'Canvas Topology',
@@ -266,7 +327,8 @@ export function useTopologySerializer() {
         global: buildScenarioGlobal(resolvedScenario.global),
         nodes: engineNodes,
         edges: engineEdges,
-        workload
+        workload,
+        ...(faults.length > 0 ? { faults } : {})
       }
 
       return {

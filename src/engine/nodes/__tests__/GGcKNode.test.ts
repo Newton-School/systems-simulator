@@ -252,30 +252,81 @@ describe('GGcKNode', () => {
   })
 
   describe('failure and recovery', () => {
-    it('fail() drops queue, rejects all future arrivals, counts dropped as rejections', () => {
+    const rejectSpec = { mode: 'reject', inFlightPolicy: 'reset', recoveryPolicy: 'reset' } as const
+    const blackholeSpec = {
+      mode: 'blackhole',
+      inFlightPolicy: 'hang',
+      recoveryPolicy: 'reset'
+    } as const
+    const hangSpec = { mode: 'hang', inFlightPolicy: 'hang', recoveryPolicy: 'resume' } as const
+
+    it('reject/reset failure resets in-flight (as connection resets) and rejects new arrivals', () => {
       const scheduler = makeScheduler()
       const node = new GGcKNode(makeConfig(1, 3), makeDist(), scheduler)
 
-      node.handleArrival(makeRequest('r1'), 0n)
-      node.handleArrival(makeRequest('r2'), 1n)
-      node.handleArrival(makeRequest('r3'), 2n)
+      node.handleArrival(makeRequest('r1'), 0n) // in service
+      node.handleArrival(makeRequest('r2'), 1n) // queued
+      node.handleArrival(makeRequest('r3'), 2n) // queued
 
-      node.fail(10n)
+      const onset = node.fail(rejectSpec, 10n)
 
       expect(node.getState().status).toBe('failed')
       expect(node.getState().queueLength).toBe(0)
-      expect(node.getMetrics().totalRejections).toBe(2)
+      expect(node.getState().totalInSystem).toBe(0)
+      // In-flight requests become connection resets (engine-recorded terminals),
+      // not node-level rejections.
+      expect(onset.connectionResets.map((r) => r.request.id).sort()).toEqual(['r1', 'r2', 'r3'])
+      node.debugAssertInvariants()
 
       const r4 = node.handleArrival(makeRequest('r4'), 20n)
       expect(r4.status).toBe('rejected')
-      expect(node.getMetrics().totalRejections).toBe(3)
+      if (r4.status === 'rejected') {
+        expect(r4.reason).toBe('node_failed')
+      }
+    })
+
+    it('blackhole holds new arrivals without consuming a K slot', () => {
+      const scheduler = makeScheduler()
+      const node = new GGcKNode(makeConfig(1, 3), makeDist(), scheduler)
+      node.fail(blackholeSpec, 10n)
+
+      const r1 = node.handleArrival(makeRequest('r1'), 11n)
+      const r2 = node.handleArrival(makeRequest('r2'), 12n)
+      expect(r1).toEqual({ status: 'held', heldKind: 'blackhole' })
+      expect(r2).toEqual({ status: 'held', heldKind: 'blackhole' })
+      // A dead NIC does no K bookkeeping — blackhole holds never count toward inSystem.
+      expect(node.getState().totalInSystem).toBe(0)
+      node.debugAssertInvariants()
+
+      // Timeout fires: the held request departs with its arrival time, no slot to free.
+      expect(node.cancelRequest('r1', 260n)).toEqual({ arrivalTime: 11n, nextRequest: null })
+      expect(node.getState().totalInSystem).toBe(0)
+    })
+
+    it('hang fills the accept backlog to K then overflows to blackhole', () => {
+      const scheduler = makeScheduler()
+      const node = new GGcKNode(makeConfig(1, 2), makeDist(), scheduler) // K = 2
+      node.fail(hangSpec, 10n)
+
+      const r1 = node.handleArrival(makeRequest('r1'), 11n)
+      const r2 = node.handleArrival(makeRequest('r2'), 12n)
+      const r3 = node.handleArrival(makeRequest('r3'), 13n) // overflow
+      expect(r1).toEqual({ status: 'held', heldKind: 'hang' })
+      expect(r2).toEqual({ status: 'held', heldKind: 'hang' })
+      expect(r3).toEqual({ status: 'held', heldKind: 'blackhole' })
+      expect(node.getState().totalInSystem).toBe(2) // exactly K zombies
+      node.debugAssertInvariants()
+
+      // One zombie times out → its slot frees, backlog can accept one more.
+      expect(node.cancelRequest('r1', 261n)).toEqual({ arrivalTime: 11n, nextRequest: null })
+      expect(node.getState().totalInSystem).toBe(1)
     })
 
     it('recover() accepts new arrivals again', () => {
       const scheduler = makeScheduler()
       const node = new GGcKNode(makeConfig(1, 2), makeDist(), scheduler)
 
-      node.fail(10n)
+      node.fail(rejectSpec, 10n)
       node.recover(20n)
 
       expect(node.getState().status).toBe('idle')
@@ -289,7 +340,7 @@ describe('GGcKNode', () => {
       const r1 = makeRequest('r1')
       node.handleArrival(r1, 0n) // r1 is processing
 
-      node.fail(10n) // clears queue & tracking
+      node.fail(rejectSpec, 10n) // resets in-flight & clears tracking
       node.recover(20n)
 
       expect(node.getState().status).toBe('idle')

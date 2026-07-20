@@ -10,6 +10,7 @@ import { useConfirmDialog } from '@renderer/hooks/useConfirmDialog'
 import { useSimulation } from '@renderer/hooks/useSimulation'
 import { useTopologySerializer } from '@renderer/hooks/useTopologySerializer'
 import { validateTopology } from '../../../../engine/validation/validator'
+import type { LatencyPercentiles } from '../../../../engine/metrics'
 import type { ValidationError } from '../../../../engine/validation/validator'
 
 // Organisms
@@ -28,7 +29,7 @@ import { ResizeHandle } from '../ui/ResizeHandle'
 import { RunToast } from '../ui/RunToast'
 import { RoutingVisualizationToast } from '../ui/RoutingVisualizationToast'
 import type { CanvasNodeDataV2 } from '../../../../engine/catalog/nodeSpecTypes'
-import type { ScenarioRunContext, SourceNodeOption } from '@renderer/types/ui'
+import type { FaultTargetOption, ScenarioRunContext, SourceNodeOption } from '@renderer/types/ui'
 
 type RunIssueTone = 'warning' | 'error'
 
@@ -116,6 +117,22 @@ function PanelFallback({ label }: { label: string }) {
       {label}
     </div>
   )
+}
+
+function roundNullable(value: number | null): number | null {
+  return value === null ? null : Math.round(value * 100) / 100
+}
+
+function roundLatencyPercentiles(latency: LatencyPercentiles): LatencyPercentiles {
+  return {
+    p50: roundNullable(latency.p50),
+    p90: roundNullable(latency.p90),
+    p95: roundNullable(latency.p95),
+    p99: roundNullable(latency.p99),
+    min: roundNullable(latency.min),
+    max: roundNullable(latency.max),
+    mean: roundNullable(latency.mean)
+  }
 }
 
 export const WorkspaceLayout = () => {
@@ -271,6 +288,7 @@ export const WorkspaceLayout = () => {
           postWarmupProcessed: metrics.postWarmupProcessed,
           postWarmupRejected: metrics.postWarmupRejected,
           postWarmupTimedOut: metrics.postWarmupTimedOut,
+          postWarmupConnectionReset: metrics.postWarmupConnectionReset,
           postWarmupInFlight: inFlightByNode.get(nodeId) ?? 0,
           queueDepth: Math.round(metrics.avgQueueLength * 10) / 10,
           utilization: Math.round(metrics.utilization * 1000) / 10,
@@ -280,6 +298,11 @@ export const WorkspaceLayout = () => {
           latencyP50: Math.round(metrics.latencyP50 * 100) / 100,
           latencyP95: Math.round(metrics.latencyP95 * 100) / 100,
           latencyP99: Math.round(metrics.latencyP99 * 100) / 100,
+          successLatencySamples: metrics.successLatencySamples,
+          timeToErrorSamples: metrics.timeToErrorSamples,
+          latencyWindowErrorRate: metrics.latencyWindowErrorRate,
+          latencyNodeLocal: roundLatencyPercentiles(metrics.latencyNodeLocal),
+          timeToErrorByCause: metrics.timeToErrorByCause,
           availability: Math.round(metrics.availability * 1000) / 10,
           cacheHits: metrics.cacheHits,
           cacheMisses: metrics.cacheMisses,
@@ -376,6 +399,20 @@ export const WorkspaceLayout = () => {
       }
     })
 
+  // Non-source components can be targeted with an injected fault.
+  const faultTargets: FaultTargetOption[] = nodes
+    .filter((node) => {
+      const data = node.data as CanvasNodeDataV2
+      return data.profile !== 'source' && data.structuralRole !== 'composite'
+    })
+    .map((node) => {
+      const data = node.data as CanvasNodeDataV2
+      return {
+        id: node.id,
+        label: data.label && data.label.trim().length > 0 ? `${data.label} (${node.id})` : node.id
+      }
+    })
+
   return (
     <div className="h-screen w-screen flex flex-col overflow-hidden bg-nss-bg text-nss-text">
       {/* Header */}
@@ -398,6 +435,7 @@ export const WorkspaceLayout = () => {
         isRunning={isRunning}
         isPaused={isPaused}
         sourceNodes={sourceNodes}
+        faultTargets={faultTargets}
         scenario={scenario}
         onScenarioChange={updateScenario}
       />

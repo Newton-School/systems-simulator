@@ -98,4 +98,24 @@ describe('topologyCanvasAdapter', () => {
       })
     })
   })
+
+  it('preserves explicit constant edge latency when converting topology data', () => {
+    const canvas = topologyToCanvasFileData({
+      ...SERVERLESS_COLD_START,
+      edges: [
+        {
+          ...SERVERLESS_COLD_START.edges[0],
+          latency: {
+            distribution: { type: 'constant', value: 12 },
+            pathType: 'same-dc'
+          }
+        }
+      ]
+    })
+
+    expect(canvas.edges[0]?.data).toMatchObject({
+      latencyDistributionType: 'constant',
+      latencyValue: 12
+    })
+  })
 })

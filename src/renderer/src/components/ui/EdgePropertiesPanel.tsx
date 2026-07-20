@@ -35,6 +35,10 @@ const EDGE_MODE_OPTIONS: NonNullable<EdgeSimulationData['mode']>[] = [
   'conditional'
 ]
 
+function logNormalJitterCv(sigma: number): number {
+  return Math.sqrt(Math.max(0, Math.exp(sigma * sigma) - 1))
+}
+
 export const EdgePropertiesPanel = ({
   value,
   sourceNodeData,
@@ -50,12 +54,23 @@ export const EdgePropertiesPanel = ({
   const selectedProtocol = value.protocol ?? defaults.protocol
   const selectedMode = value.mode ?? 'synchronous'
   const selectedCondition = value.condition ?? ''
+  const selectedLatencyDistributionType =
+    value.latencyDistributionType ?? (value.latencyValue !== undefined ? 'constant' : 'log-normal')
+  const selectedLatencyMu = value.latencyMu ?? defaults.latencyDistribution.mu
+  const selectedLatencySigma = value.latencySigma ?? defaults.latencyDistribution.sigma
+  const defaultConstantLatencyMs = Number(Math.exp(defaults.latencyDistribution.mu).toFixed(2))
+  const selectedLatencyValue = value.latencyValue ?? defaultConstantLatencyMs
+  const jitterCv = logNormalJitterCv(selectedLatencySigma)
   const protocolWarning = !constraints.allowedProtocols.includes(selectedProtocol)
     ? constraints.reasons.protocol[selectedProtocol]
     : null
   const modeWarning = !constraints.allowedModes.includes(selectedMode)
     ? constraints.reasons.mode[selectedMode]
     : null
+  const latencySummary =
+    selectedLatencyDistributionType === 'constant'
+      ? `Constant transit: ${selectedLatencyValue.toFixed(2)}ms on every hop. Use this for a clean, no-jitter edge.`
+      : `Log-normal transit: median hop ≈ ${Math.exp(selectedLatencyMu).toFixed(2)}ms, jitter CV ≈ ${jitterCv.toFixed(2)}. Mu is log-space; sigma controls spread.`
 
   return (
     <div className="absolute top-4 right-4 z-10 w-72 p-4 rounded shadow-xl border border-nss-border bg-nss-panel transition-colors duration-200">
@@ -168,30 +183,65 @@ export const EdgePropertiesPanel = ({
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-2">
-          <div className="space-y-1">
-            <label className="text-[11px] text-nss-muted font-medium">Latency Mu</label>
-            <input
-              type="number"
-              min={0.01}
-              step={0.01}
-              value={value.latencyMu ?? defaults.latencyDistribution.mu}
-              onChange={(e) => onChange({ latencyMu: Number(e.target.value) })}
-              className={CONTROL_CLASS}
-            />
-          </div>
-          <div className="space-y-1">
-            <label className="text-[11px] text-nss-muted font-medium">Latency Sigma</label>
-            <input
-              type="number"
-              min={0.01}
-              step={0.01}
-              value={value.latencySigma ?? defaults.latencyDistribution.sigma}
-              onChange={(e) => onChange({ latencySigma: Number(e.target.value) })}
-              className={CONTROL_CLASS}
-            />
-          </div>
+        <div className="space-y-1">
+          <label className="text-[11px] text-nss-muted font-medium">Latency Model</label>
+          <select
+            value={selectedLatencyDistributionType}
+            onChange={(e) =>
+              onChange({
+                latencyDistributionType: e.target
+                  .value as EdgeSimulationData['latencyDistributionType'],
+                ...(e.target.value === 'constant' && value.latencyValue === undefined
+                  ? { latencyValue: defaultConstantLatencyMs }
+                  : {})
+              })
+            }
+            className={CONTROL_CLASS}
+          >
+            <option value="log-normal">Log-normal (jittered)</option>
+            <option value="constant">Constant (no jitter)</option>
+          </select>
         </div>
+
+        {selectedLatencyDistributionType === 'constant' ? (
+          <div className="space-y-1">
+            <label className="text-[11px] text-nss-muted font-medium">Latency (ms)</label>
+            <input
+              type="number"
+              min={0}
+              step={0.01}
+              value={selectedLatencyValue}
+              onChange={(e) => onChange({ latencyValue: Number(e.target.value) })}
+              className={CONTROL_CLASS}
+            />
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1">
+              <label className="text-[11px] text-nss-muted font-medium">
+                Latency Mu (log-space)
+              </label>
+              <input
+                type="number"
+                step={0.01}
+                value={selectedLatencyMu}
+                onChange={(e) => onChange({ latencyMu: Number(e.target.value) })}
+                className={CONTROL_CLASS}
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-[11px] text-nss-muted font-medium">Jitter Sigma</label>
+              <input
+                type="number"
+                min={0.01}
+                step={0.01}
+                value={selectedLatencySigma}
+                onChange={(e) => onChange({ latencySigma: Number(e.target.value) })}
+                className={CONTROL_CLASS}
+              />
+            </div>
+          </div>
+        )}
 
         <div className="grid grid-cols-2 gap-2">
           <div className="space-y-1">
@@ -246,7 +296,8 @@ export const EdgePropertiesPanel = ({
         </div>
 
         <div className="rounded border border-nss-border bg-nss-surface px-2 py-2 text-[10px] leading-relaxed text-nss-muted">
-          {constraints.reliabilityText}
+          <div>{latencySummary}</div>
+          <div className="mt-1">{constraints.reliabilityText}</div>
         </div>
       </div>
     </div>

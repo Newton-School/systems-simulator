@@ -270,6 +270,14 @@ function edgeDataFromTopology(edge: EdgeDefinition): EdgeSimulationData {
   return {
     protocol: edge.protocol,
     mode: edge.mode,
+    latencyDistributionType:
+      distribution.type === 'constant' || distribution.type === 'deterministic'
+        ? 'constant'
+        : 'log-normal',
+    latencyValue:
+      distribution.type === 'constant' || distribution.type === 'deterministic'
+        ? distribution.value
+        : undefined,
     latencyMu: distribution.type === 'log-normal' ? distribution.mu : undefined,
     latencySigma: distribution.type === 'log-normal' ? distribution.sigma : undefined,
     pathType: edge.latency.pathType,
