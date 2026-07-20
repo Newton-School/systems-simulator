@@ -52,6 +52,65 @@ export interface RequestSpan {
   departureTime: bigint
 }
 
+/** One node visit in a request's first-class phase record. */
+export interface RequestNodePhase {
+  nodeId: string
+  nodeArrivalUs: bigint
+  serviceStartUs?: bigint
+  departureUs?: bigint
+}
+
+/**
+ * One successful edge traversal in a request's phase timeline. `edgeIn` is when
+ * the request entered the edge (left the upstream component); `edgeOut` is when
+ * it arrived downstream. `edgeOut − edgeIn` is that hop's transit latency —
+ * the piece of end-to-end latency that lives on the network rather than a node.
+ */
+export interface EdgeHop {
+  edgeId: string
+  source: string
+  target: string
+  edgeInUs: bigint
+  edgeOutUs: bigint
+}
+
+/** One edge attempt in a request's first-class phase record. */
+export interface RequestEdgePhase {
+  edgeId: string
+  source: string
+  target: string
+  edgeInUs: bigint
+  edgeOutUs?: bigint
+}
+
+export type RequestTerminalCause =
+  | 'completed'
+  | 'queue_full'
+  | 'node_failed'
+  | 'network_error'
+  | 'timeout'
+  | 'connection_reset'
+  | 'rejected'
+
+/** Terminal truth for a request — who ended it, when, and why. */
+export interface RequestTerminalPhase {
+  timeUs: bigint
+  cause: RequestTerminalCause
+  locus: string
+  locusKind: 'node' | 'edge'
+}
+
+/**
+ * First-class per-request microsecond timeline. Every projected latency in the
+ * engine/UI is a subtraction over this one structure.
+ */
+export interface RequestPhaseRecord {
+  bornAtUs: bigint
+  nodes: RequestNodePhase[]
+  edges: RequestEdgePhase[]
+  terminal?: RequestTerminalPhase
+}
+
 export interface Request {
   id: string
   type: string // e.g., "GET", "POST", "DB_QUERY"
@@ -61,8 +120,24 @@ export interface Request {
   deadline: bigint // absolute timeout timestamp
   path: string[] // nodeIds visited so far
   spans: RequestSpan[] // tracing data per node
+  hops?: EdgeHop[] // successful edge traversals, for phase-timeline decomposition
+  phaseRecord?: RequestPhaseRecord
   retryCount: number
   metadata: Record<string, unknown>
+  /**
+   * Lazy-tombstone generation for this request's SERVICE_COMPLETE
+   * (`processing-complete`) events. Every such event snapshots this value at
+   * schedule time; on pop, a mismatch means the event was superseded (e.g. by a
+   * failure transition) and must be discarded silently. Separate from
+   * `timeoutSeq` so failure onset can cancel a completion without touching the
+   * request's live timeout, and vice versa. Defaults to 0 on creation.
+   */
+  completionSeq?: number
+  /**
+   * Lazy-tombstone generation for this request's TIMEOUT_FIRE
+   * (`request-timeout`) events. See {@link Request.completionSeq}. Defaults to 0.
+   */
+  timeoutSeq?: number
 }
 
 export type EdgeFlowStatus = 'success' | 'edge-error' | 'packet-loss' | 'timeout'
@@ -124,6 +199,21 @@ function getDefaultPriority(type: EventType): number {
       const _exhaustiveCheck: never = type
       throw new Error(`Unhandled event type in getDefaultPriority: ${_exhaustiveCheck}`)
     }
+  }
+}
+
+export function cloneRequestPhaseRecord(
+  phaseRecord: RequestPhaseRecord | undefined
+): RequestPhaseRecord | undefined {
+  if (!phaseRecord) {
+    return undefined
+  }
+
+  return {
+    bornAtUs: phaseRecord.bornAtUs,
+    nodes: phaseRecord.nodes.map((phase) => ({ ...phase })),
+    edges: phaseRecord.edges.map((phase) => ({ ...phase })),
+    terminal: phaseRecord.terminal ? { ...phaseRecord.terminal } : undefined
   }
 }
 

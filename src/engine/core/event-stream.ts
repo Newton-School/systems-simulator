@@ -20,7 +20,7 @@ export const CANONICAL_EVENT_TYPES = [
 
 export type CanonicalEventType = (typeof CANONICAL_EVENT_TYPES)[number]
 
-export type TerminalRequestStatus = 'success' | 'timeout' | 'rejected'
+export type TerminalRequestStatus = 'success' | 'timeout' | 'rejected' | 'connection_reset'
 export type AdmissionDecisionStatus = 'accepted' | 'queued' | 'rejected' | 'timed-out'
 export type DebugEventStatus = 'info' | 'success' | 'timeout' | 'rejected' | 'failure'
 

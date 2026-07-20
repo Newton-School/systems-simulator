@@ -138,6 +138,31 @@ function printResults(output: SimulationOutput, wallMs: number): void {
       `max ${fmtMs(l.max)}`
   )
 
+  // Where the time goes: mean end-to-end latency decomposed per component.
+  if (summary.latencyDecomposition.length > 0) {
+    console.log(`\n${BOLD}Latency Decomposition${RESET} ${DIM}(mean per completed request)${RESET}`)
+    for (const entry of summary.latencyDecomposition) {
+      const share = `${(entry.shareOfEndToEnd * 100).toFixed(0)}%`.padStart(4)
+      console.log(
+        `  ${share}  ${fmtMs(entry.meanMs).padEnd(10)}${entry.label} ${DIM}(${entry.kind})${RESET}`
+      )
+    }
+  }
+
+  // Where requests die: failures grouped by the component that terminated them.
+  if (summary.failuresByLocus.length > 0) {
+    console.log(`\n${BOLD}Failure Locus${RESET} ${DIM}(who killed my request)${RESET}`)
+    for (const entry of summary.failuresByLocus) {
+      const share = `${(entry.shareOfFailures * 100).toFixed(0)}%`.padStart(4)
+      const causes = Object.entries(entry.byCause)
+        .map(([cause, count]) => `${cause} ${count}`)
+        .join(', ')
+      console.log(
+        `  ${share}  ${String(entry.total).padStart(7)} ${entry.locus} ${DIM}(${entry.locusKind}: ${causes})${RESET}`
+      )
+    }
+  }
+
   // Per-node table
   console.log(`\n${BOLD}Per-node Metrics${RESET}`)
   const entries = Object.entries(perNode)
@@ -209,7 +234,9 @@ function printResults(output: SimulationOutput, wallMs: number): void {
 }
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
-function fmtMs(ms: number): string {
+function fmtMs(ms: number | null): string {
+  // `null` means no successful samples — show N/A, never a fabricated 0.
+  if (ms === null) return 'N/A'
   if (ms === 0) return '—'
   if (ms < 1) return `${(ms * 1000).toFixed(0)}µs`
   if (ms < 1000) return `${ms.toFixed(1)}ms`
