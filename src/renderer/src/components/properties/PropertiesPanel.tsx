@@ -157,7 +157,34 @@ function getNodeLabel(node: { id: string; data: unknown }): string {
 
 function getNodeSubtitle(node: { data: unknown }): string {
   const data = node.data as Partial<CanvasNodeDataV2>
+  // A source is a traffic generator; its componentType ("api-endpoint") mislabels
+  // it, so describe it by role. Every other node shows its real component type
+  // from the catalog taxonomy (microservice, database, cache, load-balancer, …).
+  if (isSourceNode(node)) return 'source'
   return data.componentType || data.profile || 'node'
+}
+
+function isSourceNode(node: { data: unknown }): boolean {
+  const data = node.data as Partial<CanvasNodeDataV2>
+  return data.structuralRole === 'source' || data.profile === 'source'
+}
+
+// A source doesn't process requests, it emits them. Its real output is the
+// number of requests it pushed onto its outgoing edges.
+function sourceEmittedCount(
+  nodeId: string,
+  edges: ReturnType<typeof useStore.getState>['edges'],
+  edgeFlowById: Record<string, EdgeFlowState>
+): number {
+  return edges
+    .filter((edge) => edge.source === nodeId)
+    .reduce((sum, edge) => sum + (edgeFlowById[edge.id]?.totalAttempted ?? 0), 0)
+}
+
+// Neutral, non-health tint so a source is never mistaken for an "Idle" processor.
+const SOURCE_BADGE = {
+  label: 'Source',
+  className: 'border-nss-primary/30 bg-nss-primary/10 text-nss-primary'
 }
 
 function getEdgeLabel(
@@ -390,8 +417,13 @@ function RunInspector({
         {activeTab === 'nodes' ? (
           <div className="space-y-2">
             {runtimeNodes.map(({ node, metrics }) => {
-              const health = nodeHealth(metrics)
+              const source = isSourceNode(node)
+              const health = source ? SOURCE_BADGE : nodeHealth(metrics)
               const errorRate = metrics.errorRate ?? 0
+              const workload = (node.data as Partial<CanvasNodeDataV2>).source?.defaultWorkload
+              const offeredRps = workload?.baseRps
+              const pattern = workload?.pattern
+              const emitted = source ? sourceEmittedCount(node.id, edges, edgeFlowById) : 0
 
               return (
                 <button
@@ -417,19 +449,34 @@ function RunInspector({
                         <CardBadge label={health.label} className={health.className} />
                       </div>
                       <div className="mt-3 grid grid-cols-3 gap-3">
-                        <MiniMetric
-                          label="Throughput"
-                          value={`${formatRate(metrics.throughput ?? 0)} rps`}
-                        />
-                        <MiniMetric
-                          label="p95"
-                          value={formatMs(metrics.latencyNodeLocal?.p95 ?? metrics.latencyP95)}
-                        />
-                        <MiniMetric
-                          label="Errors"
-                          value={formatPercentValue(errorRate)}
-                          tone={errorRate > 0 ? 'text-nss-danger' : 'text-nss-text'}
-                        />
+                        {source ? (
+                          <>
+                            <MiniMetric
+                              label="Offered"
+                              value={
+                                offeredRps === undefined ? 'N/A' : `${formatRate(offeredRps)} rps`
+                              }
+                            />
+                            <MiniMetric label="Pattern" value={pattern ?? 'N/A'} />
+                            <MiniMetric label="Emitted" value={formatNumber(emitted)} />
+                          </>
+                        ) : (
+                          <>
+                            <MiniMetric
+                              label="Throughput"
+                              value={`${formatRate(metrics.throughput ?? 0)} rps`}
+                            />
+                            <MiniMetric
+                              label="p95"
+                              value={formatMs(metrics.latencyNodeLocal?.p95 ?? metrics.latencyP95)}
+                            />
+                            <MiniMetric
+                              label="Errors"
+                              value={formatPercentValue(errorRate)}
+                              tone={errorRate > 0 ? 'text-nss-danger' : 'text-nss-text'}
+                            />
+                          </>
+                        )}
                       </div>
                     </div>
                   </div>
