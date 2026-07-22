@@ -69,6 +69,7 @@ export interface EdgeFlowRunConfig {
 
 const EDGE_FLOW_WINDOW_MS = 6_000
 const EDGE_FLOW_MAX_EVENTS = 25_000
+const EDGE_FLOW_HISTORY_MAX_EVENTS = 100_000
 const EDGE_FLOW_PLAYBACK_SPEED = 10
 
 const EMPTY_EDGE_FLOW_STATE: EdgeFlowState = {
@@ -138,6 +139,7 @@ type RFState = {
   simulationMetricsByNode: Record<string, NodeSimulationMetrics>
   metricLens: MetricLens
   edgeFlowById: Record<string, EdgeFlowState>
+  edgeFlowHistory: EdgeFlowRenderEvent[]
   edgeFlowPlayback: { wallStartMs: number; simStartMs: number } | null
   edgeFlowStatus: EdgeFlowStatus
   edgeFlowRunConfig: EdgeFlowRunConfig | null
@@ -183,6 +185,7 @@ const useStore = create<RFState>((set, get) => ({
   simulationMetricsByNode: {},
   metricLens: 'concurrency',
   edgeFlowById: {},
+  edgeFlowHistory: [],
   edgeFlowPlayback: null,
   edgeFlowStatus: 'idle',
   edgeFlowRunConfig: null,
@@ -321,19 +324,19 @@ const useStore = create<RFState>((set, get) => ({
       simStartMs: event.startedAtMs
     }
     const edgeFlowById = get().edgeFlowById
+    const edgeFlowHistory = get().edgeFlowHistory
     const previous = edgeFlowById[event.edgeId] ?? EMPTY_EDGE_FLOW_STATE
     const displayAtMs =
       playback.wallStartMs + (event.startedAtMs - playback.simStartMs) / EDGE_FLOW_PLAYBACK_SPEED
-    const recent = [
-      ...previous.recent,
-      {
-        ...event,
-        receivedAtMs: now,
-        displayAtMs
-      }
-    ]
+    const renderedEvent: EdgeFlowRenderEvent = {
+      ...event,
+      receivedAtMs: now,
+      displayAtMs
+    }
+    const recent = [...previous.recent, renderedEvent]
       .filter((item) => displayAtMs - item.displayAtMs <= EDGE_FLOW_WINDOW_MS * 2)
       .slice(-EDGE_FLOW_MAX_EVENTS)
+    const nextHistory = [...edgeFlowHistory, renderedEvent].slice(-EDGE_FLOW_HISTORY_MAX_EVENTS)
     const warmupDurationMs = get().edgeFlowRunConfig?.warmupDurationMs ?? 0
     const isPostWarmupEvent = event.completedAtMs >= warmupDurationMs
     const isPostWarmupSuccess = event.status === 'success' && isPostWarmupEvent
@@ -363,6 +366,7 @@ const useStore = create<RFState>((set, get) => ({
     set({
       edgeFlowStatus: 'running',
       edgeFlowPlayback: playback,
+      edgeFlowHistory: nextHistory,
       edgeFlowById: {
         ...edgeFlowById,
         [event.edgeId]: {
@@ -398,6 +402,7 @@ const useStore = create<RFState>((set, get) => ({
   clearEdgeFlow: () => {
     set({
       edgeFlowById: {},
+      edgeFlowHistory: [],
       edgeFlowPlayback: null,
       edgeFlowStatus: 'idle',
       edgeFlowRunConfig: null

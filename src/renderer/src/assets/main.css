@@ -328,3 +328,33 @@ body.react-flow-connecting .custom-target-handle.magnetic-snap-winner {
 .connection-snap-ring {
   animation: connection-snap-ring 0.75s ease-out infinite;
 }
+
+/* Busiest-node cards: grow/collapse their own height so neighbours slide up to
+   fill a departing card instead of leaving a hole. The resting state is visible,
+   so a dropped/throttled frame can never leave a card stuck invisible or collapsed. */
+@keyframes nss-node-card-enter {
+  from {
+    opacity: 0;
+    max-height: 0;
+    margin-bottom: 0;
+  }
+  to {
+    opacity: 1;
+    max-height: 3.25rem;
+    margin-bottom: 0.5rem;
+  }
+}
+
+.nss-node-card-enter {
+  animation: nss-node-card-enter 220ms ease-out;
+}
+
+.nss-node-card-exit {
+  opacity: 0 !important;
+  max-height: 0 !important;
+  margin-bottom: 0 !important;
+  transition:
+    opacity 180ms ease-out,
+    max-height 220ms ease-out,
+    margin-bottom 220ms ease-out;
+}
