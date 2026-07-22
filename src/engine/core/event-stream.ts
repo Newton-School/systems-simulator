@@ -24,6 +24,36 @@ export type TerminalRequestStatus = 'success' | 'timeout' | 'rejected' | 'connec
 export type AdmissionDecisionStatus = 'accepted' | 'queued' | 'rejected' | 'timed-out'
 export type DebugEventStatus = 'info' | 'success' | 'timeout' | 'rejected' | 'failure'
 
+/**
+ * Per-request final fate. `in-flight` is not a terminal status — it marks a
+ * request that had not finished (neither completed nor failed) when the run hit
+ * its cutoff. It exists so the outcome log can account for every generated
+ * request explicitly instead of letting unfinished ones silently vanish.
+ */
+export type RequestOutcomeStatus = TerminalRequestStatus | 'in-flight'
+
+/**
+ * A complete, unsampled ledger row for one request's outcome. Sourced from the
+ * engine's terminal funnel (`markRequestTerminal`) plus the in-flight survivors
+ * at cutoff, so `Σ(records by status) === requests generated`. This is the
+ * canonical source for the results-tray Event Log: one row per request, keyed on
+ * terminal fate, carrying attempt count so the retry signal survives the collapse.
+ */
+export interface RequestOutcomeRecord {
+  requestId: string
+  status: RequestOutcomeStatus
+  /** Wall-clock-independent sim time (ms) the request was generated. */
+  createdAtMs: number
+  /** Sim time (ms) the request reached its terminal status; null while in flight. */
+  terminalAtMs: number | null
+  /** Node the request terminated at, or the last node it reached if still in flight. */
+  nodeId: string | null
+  /** Total processing attempts for this request (retries + 1). */
+  attempts: number
+  /** End-to-end latency (ms) for terminal requests; null while in flight. */
+  latencyMs: number | null
+}
+
 export type JsonSafeValue =
   | string
   | number

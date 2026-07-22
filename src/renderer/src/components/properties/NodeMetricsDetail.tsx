@@ -133,8 +133,8 @@ export const NodeMetricsDetail = ({ metrics }: NodeMetricsDetailProps) => {
           <div className="space-y-1.5">
             {rejectionEntries.map(([reason, count]) => (
               <div key={reason} className="flex items-center justify-between text-xs">
-                <span className="font-mono text-nss-muted">{reason}</span>
-                <span className="font-mono font-semibold text-nss-warning">{count}</span>
+                <span className="text-nss-muted">{reason}</span>
+                <span className="font-semibold text-nss-warning tabular-nums">{count}</span>
               </div>
             ))}
           </div>
@@ -156,8 +156,8 @@ export const NodeMetricsDetail = ({ metrics }: NodeMetricsDetailProps) => {
           <div className="space-y-1.5">
             {traitCounterEntries.map(([key, value]) => (
               <div key={key} className="flex items-center justify-between text-xs">
-                <span className="font-mono text-nss-muted">{key}</span>
-                <span className="font-mono font-semibold text-nss-text">{value}</span>
+                <span className="text-nss-muted">{key}</span>
+                <span className="font-semibold text-nss-text tabular-nums">{value}</span>
               </div>
             ))}
           </div>

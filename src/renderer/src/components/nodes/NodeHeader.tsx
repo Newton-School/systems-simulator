@@ -63,7 +63,7 @@ export const NodeHeader = memo(
         <div className="flex items-center gap-3 shrink-0">
           <div
             className={`w-2 h-2 rounded-full transition-colors duration-300 ${NODE_HEALTH_STYLES[status].dot}`}
-            title={`Status: ${status}`}
+            title={`Reliability: ${status}`}
           />
           {children}
         </div>

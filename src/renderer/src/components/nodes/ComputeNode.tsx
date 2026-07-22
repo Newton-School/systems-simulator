@@ -11,7 +11,8 @@ import { useFlowStore } from '@renderer/components/canvas/hooks/useFlowStore'
 import { NodeMetricContent } from './NodeMetricContent'
 import {
   NODE_HEALTH_STYLES,
-  getEffectiveNodeStatus,
+  getRuntimeCapacityStyle,
+  getRuntimeReliabilityStatus,
   getIdentityChip,
   getLensCard,
   getPreRunMetric,
@@ -39,6 +40,11 @@ const ComputeNode = ({ id, data, selected }: NodeProps<ComputeNodeData>) => {
     utilization,
     queueDepth,
     errorRate,
+    postWarmupArrived,
+    successLatencySamples,
+    timeToErrorSamples,
+    latencyWindowErrorRate,
+    timeToErrorByCause,
     postWarmupRejected,
     postWarmupTimedOut,
     hasRuntime,
@@ -47,20 +53,30 @@ const ComputeNode = ({ id, data, selected }: NodeProps<ComputeNodeData>) => {
   const lens = useMetricLens()
   const lensCard = hasRuntime && lens !== 'traffic' ? getLensCard(lens, data, metrics) : null
   const preRunMetric = isPreRunMetricLens(lens) ? getPreRunMetric(lens, data) : null
-  const status = getEffectiveNodeStatus(data, { utilization, errorRate, queueDepth }, hasRuntime)
-  const isOverloaded = status === 'critical'
+  const reliabilityStatus = getRuntimeReliabilityStatus(
+    'healthy',
+    {
+      postWarmupArrived,
+      successLatencySamples,
+      timeToErrorSamples,
+      latencyWindowErrorRate,
+      timeToErrorByCause,
+      errorRate
+    },
+    hasRuntime
+  )
+  const capacityStyle = getRuntimeCapacityStyle({ utilization, queueDepth }, hasRuntime)
   const isInactive = isRuntimeNodeInactive(hasRuntime, active)
   const safeColor = theme.bg || 'bg-nss-primary'
 
   const containerClassName = useMemo(() => {
     const base = 'group relative min-w-[180px] bg-nss-surface rounded-lg border-2'
-    const statusStyle = NODE_HEALTH_STYLES[status]
     if (isInactive) return `${base} border-nss-border opacity-40 grayscale`
     if (selected) {
-      return `${base} ${statusStyle.border} ring-2 ${statusStyle.ring} ${statusStyle.shadow}`
+      return `${base} ${capacityStyle.border} ring-2 ${capacityStyle.ring} ${capacityStyle.shadow}`
     }
-    return `${base} ${statusStyle.border} ${statusStyle.shadow}`
-  }, [isInactive, selected, status])
+    return `${base} ${capacityStyle.border} ${capacityStyle.shadow}`
+  }, [capacityStyle, isInactive, selected])
 
   return (
     <BaseNode id={id} selected={selected} containerClassName={containerClassName}>
@@ -70,11 +86,7 @@ const ComputeNode = ({ id, data, selected }: NodeProps<ComputeNodeData>) => {
             <div
               className={`
                 p-2 rounded-md flex items-center justify-center shrink-0
-                ${
-                  isOverloaded
-                    ? 'bg-nss-danger/10 border-nss-danger/30 text-nss-danger'
-                    : `bg-opacity-50 ${safeColor}`
-                }
+                ${hasRuntime ? capacityStyle.iconAccent : `bg-opacity-50 ${safeColor}`}
               `}
             >
               <Icon size={16} />
@@ -88,11 +100,11 @@ const ComputeNode = ({ id, data, selected }: NodeProps<ComputeNodeData>) => {
                 textClassName="text-xs font-bold uppercase tracking-wide w-full"
                 inputClassName="text-xs font-bold uppercase tracking-wide w-full"
               />
-              <span className="text-[10px] text-nss-muted font-mono px-1">{data.profile}</span>
+              <span className="text-[10px] text-nss-muted px-1">{data.profile}</span>
             </div>
             <div
-              className={`w-2 h-2 rounded-full transition-colors duration-300 shrink-0 ${NODE_HEALTH_STYLES[status].dot}`}
-              title={`Status: ${status}`}
+              className={`w-2 h-2 rounded-full transition-colors duration-300 shrink-0 ${NODE_HEALTH_STYLES[reliabilityStatus].dot}`}
+              title={`Reliability: ${reliabilityStatus}`}
             />
           </div>
 

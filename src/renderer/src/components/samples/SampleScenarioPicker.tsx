@@ -45,7 +45,7 @@ export function SampleScenarioPicker({ samples, onLoad, onClose }: SampleScenari
                   <p className="mt-0.5 text-xs text-nss-muted">{sample.subtitle}</p>
                 </div>
 
-                <p className="mt-3 rounded border border-nss-border bg-nss-panel px-3 py-2 font-mono text-xs text-nss-text">
+                <p className="mt-3 rounded border border-nss-border bg-nss-panel px-3 py-2 text-xs text-nss-text">
                   {sample.diagram}
                 </p>
 

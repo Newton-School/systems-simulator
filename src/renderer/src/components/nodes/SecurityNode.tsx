@@ -1,4 +1,4 @@
-import { memo, useCallback } from 'react'
+import { memo, useCallback, useMemo } from 'react'
 import { NodeProps } from 'reactflow'
 import { NodeHeader } from '@renderer/components/nodes/NodeHeader'
 import { NodeSettingsMenu } from '@renderer/components/nodes/NodeSettingsMenu'
@@ -11,7 +11,8 @@ import BaseNode from '@renderer/components/nodes/BaseNode'
 import { useFlowStore } from '@renderer/components/canvas/hooks/useFlowStore'
 import { NodeMetricContent } from './NodeMetricContent'
 import {
-  getEffectiveNodeStatus,
+  getRuntimeCapacityStyle,
+  getRuntimeReliabilityStatus,
   getIdentityChip,
   getLensCard,
   getPreRunMetric,
@@ -39,6 +40,11 @@ const SecurityNode = ({ id, data, selected }: NodeProps<SecurityNodeData>) => {
     errorRate,
     queueDepth,
     utilization,
+    postWarmupArrived,
+    successLatencySamples,
+    timeToErrorSamples,
+    latencyWindowErrorRate,
+    timeToErrorByCause,
     postWarmupRejected,
     postWarmupTimedOut,
     hasRuntime,
@@ -47,22 +53,43 @@ const SecurityNode = ({ id, data, selected }: NodeProps<SecurityNodeData>) => {
   const lens = useMetricLens()
   const lensCard = hasRuntime && lens !== 'traffic' ? getLensCard(lens, data, metrics) : null
   const preRunMetric = isPreRunMetricLens(lens) ? getPreRunMetric(lens, data) : null
-  const status = getEffectiveNodeStatus(data, { utilization, errorRate, queueDepth }, hasRuntime)
+  const reliabilityStatus = getRuntimeReliabilityStatus(
+    'healthy',
+    {
+      postWarmupArrived,
+      successLatencySamples,
+      timeToErrorSamples,
+      latencyWindowErrorRate,
+      timeToErrorByCause,
+      errorRate
+    },
+    hasRuntime
+  )
+  const capacityStyle = getRuntimeCapacityStyle({ utilization, queueDepth }, hasRuntime)
   const isInactive = isRuntimeNodeInactive(hasRuntime, active)
+  const containerClassName = useMemo(() => {
+    const base =
+      'group relative w-64 bg-nss-surface rounded-lg border transition-all duration-200 overflow-visible'
+    if (isInactive) return `${base} border-nss-border`
+    if (selected) {
+      return `${base} ${capacityStyle.border} ring-2 ${capacityStyle.ring} ${capacityStyle.shadow}`
+    }
+    return `${base} ${capacityStyle.border} ${capacityStyle.hoverBorder} ${capacityStyle.shadow}`
+  }, [capacityStyle, isInactive, selected])
 
   return (
     <BaseNode
       id={id}
       selected={selected}
       selectionVariant="warning"
-      healthStatus={isInactive ? undefined : status}
+      containerClassName={containerClassName}
     >
       {({ isMenuOpen, onMenuClose, onMenuToggle }) => (
         <div className={isInactive ? 'opacity-40 grayscale' : undefined}>
           <NodeHeader
             label={data.label || 'Security Element'}
             icon={IconComponent}
-            status={status}
+            status={reliabilityStatus}
             color={theme}
             onLabelChange={handleLabelChange}
           >

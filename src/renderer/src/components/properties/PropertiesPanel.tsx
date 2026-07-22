@@ -2,12 +2,14 @@ import { useEffect, useState } from 'react'
 import { clsx } from 'clsx'
 import { Settings } from 'lucide-react'
 import type { FieldPath } from '@renderer/config/fieldConfig'
-import type { AnyNodeData } from '@renderer/types/ui'
+import type { AnyNodeData, EdgeSimulationData } from '@renderer/types/ui'
 import { useNodeMetrics } from '@renderer/hooks/useNodeMetrics'
+import type { CanvasNodeDataV2 } from '../../../../engine/catalog/nodeSpecTypes'
 import useStore from '../../store/useStore'
 import { PropertiesHeader } from './PropertiesHeader'
 import { PropertiesForm } from './PropertiesForm'
 import { NodeMetricsDetail } from './NodeMetricsDetail'
+import { EdgePropertiesPanel, type EdgePropertiesPanelValue } from '../ui/EdgePropertiesPanel'
 
 const EmptyState = () => (
   <div className="h-full bg-nss-panel border-l border-nss-border flex flex-col items-center justify-center text-nss-muted gap-2">
@@ -76,9 +78,13 @@ type PanelTab = 'metrics' | 'config'
 
 export const PropertiesPanel = () => {
   const nodes = useStore((state) => state.nodes)
+  const edges = useStore((state) => state.edges)
   const updateNodeData = useStore((state) => state.updateNodeData)
+  const updateEdgeData = useStore((state) => state.updateEdgeData)
+  const selectGraphElements = useStore((state) => state.selectGraphElements)
 
   const selectedNode = nodes.find((node) => node.selected)
+  const selectedEdge = edges.find((edge) => edge.selected)
   const metrics = useNodeMetrics(selectedNode?.id ?? '')
   const [tab, setTab] = useState<PanelTab>('metrics')
 
@@ -89,45 +95,80 @@ export const PropertiesPanel = () => {
     setTab(metrics.hasRuntime ? 'metrics' : 'config')
   }, [selectedNode?.id, metrics.hasRuntime])
 
-  if (!selectedNode) return <EmptyState />
+  // A selected node takes precedence over an edge in the shared inspector.
+  if (selectedNode) {
+    const data = selectedNode.data as AnyNodeData
 
-  const data = selectedNode.data as AnyNodeData
+    const handleUpdate = (path: FieldPath, value: unknown) => {
+      updateNodeData(selectedNode.id, setPathValue(data, path, value))
+    }
 
-  const handleUpdate = (path: FieldPath, value: unknown) => {
-    updateNodeData(selectedNode.id, setPathValue(data, path, value))
+    return (
+      <div className="h-full w-full bg-nss-panel border-l border-nss-border flex flex-col text-nss-text font-sans shadow-xl">
+        <PropertiesHeader data={data} />
+
+        {metrics.hasRuntime && (
+          <div className="flex gap-1 border-b border-nss-border px-3 pt-3">
+            {(['metrics', 'config'] as const).map((option) => (
+              <button
+                key={option}
+                type="button"
+                onClick={() => setTab(option)}
+                className={clsx(
+                  'rounded-t px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide transition-colors',
+                  tab === option
+                    ? 'bg-nss-surface text-nss-text border border-b-0 border-nss-border'
+                    : 'text-nss-muted hover:text-nss-text'
+                )}
+              >
+                {option === 'metrics' ? 'Results' : 'Config'}
+              </button>
+            ))}
+          </div>
+        )}
+
+        <div className="flex-1 overflow-y-auto custom-scrollbar p-5 bg-nss-panel">
+          {metrics.hasRuntime && tab === 'metrics' ? (
+            <NodeMetricsDetail metrics={metrics} />
+          ) : (
+            <PropertiesForm nodeId={selectedNode.id} data={data} onUpdate={handleUpdate} />
+          )}
+        </div>
+      </div>
+    )
   }
 
-  return (
-    <div className="h-full w-full bg-nss-panel border-l border-nss-border flex flex-col text-nss-text font-sans shadow-xl">
-      <PropertiesHeader data={data} />
+  if (selectedEdge) {
+    const sourceNodeData = nodes.find((node) => node.id === selectedEdge.source)?.data as
+      | CanvasNodeDataV2
+      | undefined
+    const targetNodeData = nodes.find((node) => node.id === selectedEdge.target)?.data as
+      | CanvasNodeDataV2
+      | undefined
 
-      {metrics.hasRuntime && (
-        <div className="flex gap-1 border-b border-nss-border px-3 pt-3">
-          {(['metrics', 'config'] as const).map((option) => (
-            <button
-              key={option}
-              type="button"
-              onClick={() => setTab(option)}
-              className={clsx(
-                'rounded-t px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide transition-colors',
-                tab === option
-                  ? 'bg-nss-surface text-nss-text border border-b-0 border-nss-border'
-                  : 'text-nss-muted hover:text-nss-text'
-              )}
-            >
-              {option === 'metrics' ? 'Results' : 'Config'}
-            </button>
-          ))}
-        </div>
-      )}
+    const handleEdgeChange = (patch: Partial<EdgePropertiesPanelValue>) => {
+      const { label, ...dataPatch } = patch
+      const hasDataPatch = Object.keys(dataPatch).length > 0
 
-      <div className="flex-1 overflow-y-auto custom-scrollbar p-5 bg-nss-panel">
-        {metrics.hasRuntime && tab === 'metrics' ? (
-          <NodeMetricsDetail metrics={metrics} />
-        ) : (
-          <PropertiesForm nodeId={selectedNode.id} data={data} onUpdate={handleUpdate} />
-        )}
-      </div>
-    </div>
-  )
+      updateEdgeData(selectedEdge.id, {
+        ...(label !== undefined ? { label } : {}),
+        ...(hasDataPatch ? { data: dataPatch as Partial<EdgeSimulationData> } : {})
+      })
+    }
+
+    return (
+      <EdgePropertiesPanel
+        sourceNodeData={sourceNodeData}
+        targetNodeData={targetNodeData}
+        value={{
+          label: (selectedEdge.label as string) || '',
+          ...(((selectedEdge.data as EdgeSimulationData | undefined) ?? {}) as EdgeSimulationData)
+        }}
+        onChange={handleEdgeChange}
+        onClose={() => selectGraphElements({})}
+      />
+    )
+  }
+
+  return <EmptyState />
 }

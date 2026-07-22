@@ -5,7 +5,6 @@ import type {
   PreRunMetricLens
 } from '@renderer/types/ui'
 import {
-  failureRateLevelFromPercent,
   failureRateLevelFromRatio,
   formatFailurePercentLabel
 } from '@renderer/utils/failureRatePresentation'
@@ -13,6 +12,11 @@ import {
   ERROR_CAUSE_LABELS,
   dominantTimeToErrorCause
 } from '@renderer/utils/errorCausePresentation'
+import {
+  deriveCapacityStatus,
+  deriveCombinedRuntimeTone,
+  deriveReliabilityStatus
+} from '@renderer/utils/nodeHealthThresholds'
 import type { WorkloadWithoutRuntimeFields } from '@renderer/utils/workloadDefaults'
 import { ACK_AND_RELEASE_COMPONENT_TYPES } from '../../../../engine/traits/ackAndRelease'
 import { HEALTH_AWARE_COMPONENT_TYPES } from '../../../../engine/traits/healthAwareRouting'
@@ -54,6 +58,47 @@ export const NODE_HEALTH_STYLES = {
   }
 } satisfies Record<NodeHealthStatus, NodeHealthStyle>
 
+export type NodeCapacityVisualBand = 'headroom' | 'steady' | 'tight' | 'saturated'
+
+export interface NodeCapacityStyle {
+  border: string
+  ring: string
+  hoverBorder: string
+  shadow: string
+  iconAccent: string
+}
+
+export const NODE_CAPACITY_STYLES = {
+  headroom: {
+    border: 'border-nss-success/70',
+    ring: 'ring-nss-success',
+    hoverBorder: 'hover:border-nss-success',
+    shadow: 'shadow-[0_0_14px_rgba(16,185,129,0.18)]',
+    iconAccent: 'bg-nss-success/10 border border-nss-success/30 text-nss-success'
+  },
+  steady: {
+    border: 'border-nss-primary/60',
+    ring: 'ring-nss-primary',
+    hoverBorder: 'hover:border-nss-primary/80',
+    shadow: 'shadow-[0_0_14px_rgba(59,130,246,0.22)]',
+    iconAccent: 'bg-nss-primary/10 border border-nss-primary/30 text-nss-primary'
+  },
+  tight: {
+    border: 'border-nss-warning',
+    ring: 'ring-nss-warning',
+    hoverBorder: 'hover:border-nss-warning',
+    shadow: 'shadow-[0_0_18px_rgba(245,158,11,0.28)]',
+    iconAccent: 'bg-nss-warning/10 border border-nss-warning/30 text-nss-warning'
+  },
+  saturated: {
+    border: 'border-orange-400',
+    ring: 'ring-orange-400',
+    hoverBorder: 'hover:border-orange-300',
+    shadow: 'shadow-[0_0_20px_rgba(251,146,60,0.34)]',
+    iconAccent: 'bg-orange-400/10 border border-orange-300/40 text-orange-300'
+  }
+} satisfies Record<NodeCapacityVisualBand, NodeCapacityStyle>
+
 export interface SummaryMetric {
   label: string
   value?: string | number
@@ -84,15 +129,17 @@ export function getRuntimeNodeStatus(
 ): NodeHealthStatus {
   if (!hasRuntime) return fallbackStatus
 
-  const utilization = metrics.utilization ?? 0
-  const queueDepth = metrics.queueDepth ?? 0
-  const failureLevel = failureRateLevelFromPercent(metrics.errorRate)
+  const tone = deriveCombinedRuntimeTone({
+    utilization: metrics.utilization ?? 0,
+    queueDepth: metrics.queueDepth ?? 0,
+    errorRatePercent: metrics.errorRate ?? 0
+  })
 
-  if (failureLevel === 'crit' || utilization >= 90) {
+  if (tone === 'crit') {
     return 'critical'
   }
 
-  if (failureLevel === 'warn' || utilization >= 75 || queueDepth >= 1) {
+  if (tone === 'warn') {
     return 'degraded'
   }
 
@@ -105,6 +152,61 @@ export function getEffectiveNodeStatus(
   hasRuntime: boolean
 ): NodeHealthStatus {
   return getRuntimeNodeStatus(getNodeStatus(data), metrics, hasRuntime)
+}
+
+export function getRuntimeReliabilityStatus(
+  fallbackStatus: NodeHealthStatus,
+  metrics: Pick<
+    NodeSimulationMetrics,
+    | 'postWarmupArrived'
+    | 'successLatencySamples'
+    | 'timeToErrorSamples'
+    | 'latencyWindowErrorRate'
+    | 'timeToErrorByCause'
+    | 'errorRate'
+  >,
+  hasRuntime: boolean
+): NodeHealthStatus {
+  if (!hasRuntime) return fallbackStatus
+
+  const reliability = deriveReliabilityStatus({
+    postWarmupArrived: metrics.postWarmupArrived ?? 0,
+    successLatencySamples: metrics.successLatencySamples ?? 0,
+    timeToErrorSamples: metrics.timeToErrorSamples ?? 0,
+    latencyWindowErrorRate: metrics.latencyWindowErrorRate ?? (metrics.errorRate ?? 0) / 100,
+    timeToErrorByCause: metrics.timeToErrorByCause
+  })
+
+  if (reliability.tone === 'crit') return 'critical'
+  if (reliability.tone === 'warn') return 'degraded'
+  return 'healthy'
+}
+
+export function getRuntimeCapacityVisualBand(
+  metrics: Pick<NodeSimulationMetrics, 'utilization' | 'queueDepth'>,
+  hasRuntime: boolean
+): NodeCapacityVisualBand {
+  if (!hasRuntime) return 'headroom'
+
+  const utilization = metrics.utilization ?? 0
+  const queueDepth = metrics.queueDepth ?? 0
+  const capacity = deriveCapacityStatus({
+    utilization,
+    queueDepth,
+    utilizationUnit: 'percent'
+  })
+
+  if (capacity.level === 'saturated') return 'saturated'
+  if (capacity.level === 'tight') return 'tight'
+  if (utilization >= 40) return 'steady'
+  return 'headroom'
+}
+
+export function getRuntimeCapacityStyle(
+  metrics: Pick<NodeSimulationMetrics, 'utilization' | 'queueDepth'>,
+  hasRuntime: boolean
+): NodeCapacityStyle {
+  return NODE_CAPACITY_STYLES[getRuntimeCapacityVisualBand(metrics, hasRuntime)]
 }
 
 export function isRuntimeNodeInactive(hasRuntime: boolean, active?: boolean): boolean {
@@ -324,6 +426,18 @@ function formatLatencyMetric(value: number | null | undefined): string {
   return value === null || value === undefined ? 'N/A' : `${value.toFixed(2)}ms`
 }
 
+function formatWorkerUsage(activeWorkers: number, workers: number): string {
+  if (workers <= 1) {
+    return activeWorkers.toFixed(2)
+  }
+
+  return activeWorkers.toFixed(1)
+}
+
+function formatWorkerLimit(workers: number): string {
+  return `/ ${workers} worker${workers === 1 ? '' : 's'} avg`
+}
+
 function toneFromFailureRatio(value: number): NodeHealthStatus {
   const level = failureRateLevelFromRatio(value)
   if (level === 'crit') return 'critical'
@@ -439,22 +553,18 @@ export function getLensCard(
       }
       const utilization = metrics.utilization
       const activeWorkers = Math.min(workers, (utilization / 100) * workers)
-      const tone = getRuntimeNodeStatus(
-        'healthy',
-        { utilization, errorRate: metrics.errorRate, queueDepth: metrics.queueDepth },
-        true
-      )
-      const verdict =
-        tone === 'critical'
-          ? 'saturated'
-          : tone === 'degraded'
-            ? 'approaching saturation'
-            : 'healthy'
+      const capacity = deriveCapacityStatus({
+        utilization,
+        queueDepth: metrics.queueDepth,
+        workers,
+        utilizationUnit: 'percent'
+      })
+      const tone: NodeHealthStatus = capacity.level === 'headroom' ? 'healthy' : 'degraded'
       return {
-        value: activeWorkers.toFixed(1),
-        limit: `/ ${workers} workers`,
-        glyph: GLYPH_BY_TONE[tone],
-        why: `${utilization.toFixed(0)}% utilized — ${verdict} · click for detail`,
+        value: formatWorkerUsage(activeWorkers, workers),
+        limit: formatWorkerLimit(workers),
+        glyph: capacity.level === 'headroom' ? '✓' : '⚠',
+        why: `${capacity.utilizationPercent.toFixed(1)}% average utilization - ${capacity.label.toLowerCase()} · click for detail`,
         tone
       }
     }

@@ -236,6 +236,63 @@ describe('SimulationEngine', () => {
     expect(engine.getEventCountsByType()['request-rejected']).toBeGreaterThan(0)
   })
 
+  it('emits a complete per-request outcome ledger that conserves against generated requests', () => {
+    // Fast service so requests actually complete within the window, but arrival
+    // rate well above throughput so the tiny queue also rejects — a mix of fates.
+    const worker: ComponentNode = {
+      ...makeNode('worker'),
+      queue: { workers: 1, capacity: 1, discipline: 'fifo' },
+      processing: { distribution: { type: 'constant', value: 1 }, timeout: 1_000 }
+    }
+    const topology = makeTopology({
+      global: { simulationDuration: 40, defaultTimeout: 1_000, traceSampleRate: 1 },
+      nodes: [makeNode('source'), worker],
+      edges: [makeEdge('source-to-worker', 'source', 'worker')],
+      workload: {
+        sourceNodeId: 'source',
+        pattern: 'constant',
+        baseRps: 2_000,
+        requestDistribution: [{ type: 'GET', weight: 1, sizeBytes: 100 }]
+      }
+    })
+    const output = new SimulationEngine(topology).run()
+
+    const generated = output.eventStream.filter(
+      (event) => event.type === 'request-generated'
+    ).length
+    expect(generated).toBeGreaterThan(0)
+
+    // Every generated request appears exactly once, with a unique id.
+    const ids = new Set(output.requestOutcomes.map((row) => row.requestId))
+    expect(ids.size).toBe(output.requestOutcomes.length)
+    expect(output.requestOutcomes.length).toBe(generated)
+
+    // This saturating run must actually exercise both success and rejection.
+    const byStatus = output.requestOutcomes.reduce<Record<string, number>>((acc, row) => {
+      acc[row.status] = (acc[row.status] ?? 0) + 1
+      return acc
+    }, {})
+    expect(byStatus.success ?? 0).toBeGreaterThan(0)
+    expect(byStatus.rejected ?? 0).toBeGreaterThan(0)
+
+    // Conservation: Σ(rows by status, including in-flight) === generated.
+    const summed = Object.values(byStatus).reduce((sum, count) => sum + count, 0)
+    expect(summed).toBe(generated)
+
+    // Terminal rows carry a latency and a resolved node; in-flight rows carry neither.
+    for (const row of output.requestOutcomes) {
+      expect(row.attempts).toBeGreaterThanOrEqual(1)
+      if (row.status === 'in-flight') {
+        expect(row.terminalAtMs).toBeNull()
+        expect(row.latencyMs).toBeNull()
+      } else {
+        expect(row.terminalAtMs).not.toBeNull()
+        expect(row.latencyMs).not.toBeNull()
+        expect(row.latencyMs ?? -1).toBeGreaterThanOrEqual(0)
+      }
+    }
+  })
+
   it('records trait decisions and rejects requests when a beforeArrival trait rejects them', () => {
     const rejectAllTrait: NodeBehaviourTrait = {
       name: 'test.reject-all',
@@ -1055,6 +1112,40 @@ describe('SimulationEngine', () => {
     expect(arrivalEvent?.edgeId).toBe('source-to-dst')
     expect(Number(arrivalEvent?.timestampUs)).toBeGreaterThan(10_000)
     expect(Number(arrivalEvent?.timestampUs)).toBeLessThan(10_100)
+  })
+
+  it('amortizes protocol overhead for streaming edges', () => {
+    const makeOutput = (mode: EdgeDefinition['mode']) =>
+      new SimulationEngine(
+        makeTopology({
+          global: { simulationDuration: 20, defaultTimeout: 1_000, traceSampleRate: 1 },
+          nodes: [makeNode('source'), makeNode('dst')],
+          edges: [
+            makeEdge('source-to-dst', 'source', 'dst', {
+              mode,
+              protocol: 'websocket',
+              latency: { distribution: { type: 'constant', value: 0 }, pathType: 'same-dc' }
+            })
+          ],
+          workload: {
+            sourceNodeId: 'source',
+            pattern: 'constant',
+            baseRps: 1,
+            requestDistribution: [{ type: 'GET', weight: 1, sizeBytes: 100 }]
+          }
+        })
+      ).run()
+
+    const syncArrival = makeOutput('synchronous').eventStream.find(
+      (event) => event.type === 'request-arrived'
+    )
+    const streamingArrival = makeOutput('streaming').eventStream.find(
+      (event) => event.type === 'request-arrived'
+    )
+
+    expect(Number(syncArrival?.timestampUs)).toBeGreaterThan(90)
+    expect(Number(streamingArrival?.timestampUs)).toBeLessThan(40)
+    expect(Number(streamingArrival?.timestampUs)).toBeLessThan(Number(syncArrival?.timestampUs))
   })
 
   it('uses path-type-derived latency profiles when the edge is still on defaults', () => {

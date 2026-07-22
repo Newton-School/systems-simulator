@@ -306,7 +306,7 @@ function ScenarioCard({
             <p className="text-[10px] font-semibold uppercase tracking-wide text-nss-muted">
               {scenario.subtitle}
             </p>
-            <p className="mt-1 whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-nss-text">
+            <p className="mt-1 whitespace-pre-wrap text-[11px] leading-relaxed text-nss-text">
               {scenario.diagram}
             </p>
           </div>

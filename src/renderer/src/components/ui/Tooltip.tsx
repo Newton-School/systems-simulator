@@ -1,5 +1,5 @@
-import type { MouseEvent, ReactNode } from 'react'
-import { useEffect, useRef, useState } from 'react'
+import type { FocusEvent, MouseEvent, ReactNode } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { clsx } from 'clsx'
 
 interface TooltipPosition {
@@ -12,6 +12,9 @@ export interface TooltipTriggerProps {
   onMouseLeave: () => void
   onMouseDown: () => void
   onDragStart: () => void
+  onFocus: (event: FocusEvent<HTMLElement>) => void
+  onBlur: () => void
+  'aria-describedby'?: string
 }
 
 interface HoverTooltipProps {
@@ -34,6 +37,7 @@ export function HoverTooltip({
   className
 }: HoverTooltipProps) {
   const [position, setPosition] = useState<TooltipPosition | null>(null)
+  const tooltipId = useId()
   const showTimer = useRef<ReturnType<typeof window.setTimeout> | null>(null)
 
   const clearShowTimer = () => {
@@ -48,10 +52,10 @@ export function HoverTooltip({
     setPosition(null)
   }
 
-  const scheduleShow = (event: MouseEvent<HTMLElement>) => {
+  const scheduleShowFromElement = (element: HTMLElement) => {
     clearShowTimer()
 
-    const rect = event.currentTarget.getBoundingClientRect()
+    const rect = element.getBoundingClientRect()
     const nextLeft = Math.min(rect.right + offset, window.innerWidth - width - offset)
     const nextTop = Math.min(rect.top - 4, window.innerHeight - estimatedHeight)
     const nextPosition = {
@@ -65,6 +69,14 @@ export function HoverTooltip({
     }, delayMs)
   }
 
+  const scheduleShow = (event: MouseEvent<HTMLElement>) => {
+    scheduleShowFromElement(event.currentTarget)
+  }
+
+  const scheduleShowOnFocus = (event: FocusEvent<HTMLElement>) => {
+    scheduleShowFromElement(event.currentTarget)
+  }
+
   useEffect(() => clearShowTimer, [])
 
   return (
@@ -73,11 +85,15 @@ export function HoverTooltip({
         onMouseEnter: scheduleShow,
         onMouseLeave: hide,
         onMouseDown: hide,
-        onDragStart: hide
+        onDragStart: hide,
+        onFocus: scheduleShowOnFocus,
+        onBlur: hide,
+        'aria-describedby': position ? tooltipId : undefined
       })}
 
       {position && (
         <div
+          id={tooltipId}
           role="tooltip"
           style={{ top: position.top, left: position.left, width }}
           className={clsx(
@@ -89,5 +105,32 @@ export function HoverTooltip({
         </div>
       )}
     </>
+  )
+}
+
+interface TooltipInfoProps {
+  label: string
+  content: ReactNode
+  width?: number
+  className?: string
+}
+
+export function TooltipInfo({ label, content, width = 260, className }: TooltipInfoProps) {
+  return (
+    <HoverTooltip content={content} width={width}>
+      {(triggerProps) => (
+        <button
+          type="button"
+          aria-label={label}
+          className={clsx(
+            'inline-flex h-3.5 w-3.5 items-center justify-center rounded-full border border-nss-border text-[9px] font-semibold leading-none text-nss-muted transition-colors hover:text-nss-text focus:outline-none focus:ring-2 focus:ring-nss-primary/50 focus:ring-offset-1 focus:ring-offset-nss-surface',
+            className
+          )}
+          {...triggerProps}
+        >
+          i
+        </button>
+      )}
+    </HoverTooltip>
   )
 }

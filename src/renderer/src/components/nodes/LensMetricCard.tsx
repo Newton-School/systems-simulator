@@ -18,7 +18,7 @@ interface LensMetricCardProps {
  */
 export const LensMetricCard = ({ card }: LensMetricCardProps) => (
   <div>
-    <div className="flex items-baseline gap-1.5 font-mono">
+    <div className="flex items-baseline gap-1.5 tabular-nums">
       <span className="text-lg font-bold text-nss-text">{card.value}</span>
       <span className="text-xs text-nss-muted">{card.limit}</span>
       <span className={clsx('ml-auto text-sm', GLYPH_COLOR[card.tone])}>{card.glyph}</span>

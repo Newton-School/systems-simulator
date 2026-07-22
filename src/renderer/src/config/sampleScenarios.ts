@@ -1,4 +1,6 @@
 import directClientServerRaw from '../../../engine/__samples__/direct-client-server.json?raw'
+import directClientServerCleanRaw from '../../../engine/__samples__/direct-client-server-clean.json?raw'
+import directClientServerJitterRaw from '../../../engine/__samples__/direct-client-server-jitter.json?raw'
 import monolithStackRaw from '../../../engine/__samples__/traditional-single-instance-stack.json?raw'
 import proxyEdgeRaw from '../../../engine/__samples__/proxy-edge.json?raw'
 import l7ScaleOutRaw from '../../../engine/__samples__/horizontal-compute-scaling-l7.json?raw'
@@ -33,6 +35,28 @@ export const SAMPLE_SCENARIOS: SampleScenario[] = [
     simulatorValue: 'Show how quickly one node gets overwhelmed by high RPS or concurrency.',
     difficulty: 'starter',
     raw: directClientServerRaw
+  },
+  {
+    id: 'direct-client-server-clean',
+    name: 'Even Arrivals (D/D/1)',
+    subtitle: 'Constant edge, no jitter',
+    diagram: 'Client App --(constant edge)--> API Server',
+    primaryUseCase: 'A constant source over a constant-latency edge: perfectly even arrivals.',
+    simulatorValue:
+      'The clean baseline - one worker near capacity never queues, so there are zero rejects. Pair it with "Jittered Arrivals" to see what variance adds.',
+    difficulty: 'starter',
+    raw: directClientServerCleanRaw
+  },
+  {
+    id: 'direct-client-server-jitter',
+    name: 'Jittered Arrivals',
+    subtitle: 'Log-normal edge adds variance',
+    diagram: 'Client App --(jittery edge)--> API Server',
+    primaryUseCase: 'The same server, but the edge varies each hop so arrivals bunch.',
+    simulatorValue:
+      'Identical to the clean baseline except the edge is log-normal - now capacity_exceeded rejects appear below nominal capacity. Compare offered vs arrival CV to see why.',
+    difficulty: 'starter',
+    raw: directClientServerJitterRaw
   },
   {
     id: 'traditional-single-instance-stack',

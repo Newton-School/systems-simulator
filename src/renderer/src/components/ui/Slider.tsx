@@ -40,7 +40,7 @@ export const Slider = ({
           onChange={handleInputChange}
           style={{ width: dynamicWidth }}
           className="
-            text-center text-xs font-mono 
+            text-center text-xs tabular-nums
             bg-nss-primary/10 text-nss-primary 
             border border-nss-primary/20 rounded px-1 py-0.5
             focus:outline-none focus:border-nss-primary focus:ring-1 focus:ring-nss-primary/50

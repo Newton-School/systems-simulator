@@ -1,8 +1,6 @@
 import type { Edge, Node } from 'reactflow'
-import type { EdgeDefinition } from '../../../engine/core/types'
-import { getComponentSpec } from '../../../engine/catalog/componentSpecs'
-import { getPaletteTemplate } from '../../../engine/catalog/paletteTemplates'
 import type { AnyNodeData, NodeSimulationMetrics } from '@renderer/types/ui'
+import { inferCanvasEdgeMode } from '@renderer/config/edgeSemantics'
 import type { RoutingVisualizationTarget } from './routingStrategyVisualization'
 
 type EdgeDataRecord = Record<string, unknown>
@@ -31,19 +29,6 @@ function readString(...values: unknown[]): string | undefined {
   return undefined
 }
 
-function asEdgeMode(value: unknown): EdgeDefinition['mode'] | undefined {
-  if (
-    value === 'synchronous' ||
-    value === 'asynchronous' ||
-    value === 'streaming' ||
-    value === 'conditional'
-  ) {
-    return value
-  }
-
-  return undefined
-}
-
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value))
 }
@@ -57,15 +42,6 @@ function edgeLabel(edge: Edge, fallback: string): string {
   return typeof edge.label === 'string' && edge.label.trim().length > 0
     ? edge.label.trim()
     : fallback
-}
-
-function inferEdgeMode(edgeData: EdgeDataRecord, targetData: AnyNodeData | undefined) {
-  const explicitMode = asEdgeMode(edgeData.mode)
-  if (explicitMode) return explicitMode
-
-  const targetTemplate = getPaletteTemplate(targetData?.templateId)
-  const targetSpec = getComponentSpec(targetData?.componentType)
-  return targetTemplate?.asyncBoundary || targetSpec?.asyncBoundary ? 'asynchronous' : 'synchronous'
 }
 
 function edgeSuccessRatio(edgeData: EdgeDataRecord): number {
@@ -170,7 +146,28 @@ export function buildRoutingVisualizationTargets({
         inFlight: metricInFlight(targetMetrics),
         healthy: isTargetHealthy(targetData, targetMetrics, edgeData),
         condition: readString(edgeData.condition),
-        mode: inferEdgeMode(edgeData, targetData),
+        mode: inferCanvasEdgeMode(
+          {
+            mode:
+              edgeData.mode === 'synchronous' ||
+              edgeData.mode === 'asynchronous' ||
+              edgeData.mode === 'streaming' ||
+              edgeData.mode === 'conditional'
+                ? edgeData.mode
+                : undefined,
+            protocol:
+              edgeData.protocol === 'https' ||
+              edgeData.protocol === 'grpc' ||
+              edgeData.protocol === 'tcp' ||
+              edgeData.protocol === 'udp' ||
+              edgeData.protocol === 'websocket' ||
+              edgeData.protocol === 'amqp' ||
+              edgeData.protocol === 'kafka'
+                ? edgeData.protocol
+                : undefined
+          },
+          targetData
+        ),
         successRatio: edgeSuccessRatio(edgeData)
       }
     })

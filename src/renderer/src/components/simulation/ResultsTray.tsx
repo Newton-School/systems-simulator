@@ -1,17 +1,52 @@
-import { useEffect, useId, useMemo, useState } from 'react'
-import type { CSSProperties, KeyboardEvent } from 'react'
-import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react'
-import type { SimulationOutput, StatusWindow } from '../../../../engine/analysis/output'
-import type { DebugEvent } from '../../../../engine/core/event-stream'
-import { projectToDebugEvent } from '../../../../engine/core/event-stream'
+import { Fragment, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
+import type { ButtonHTMLAttributes, CSSProperties, HTMLAttributes } from 'react'
+import {
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
+  Pause,
+  Play,
+  Search,
+  X
+} from 'lucide-react'
+import type {
+  SimulationOutput,
+  StatusWindow,
+  TimeSeriesSnapshot
+} from '../../../../engine/analysis/output'
+import type {
+  CanonicalEventRecord,
+  CanonicalEventType,
+  DebugEvent,
+  RequestOutcomeRecord
+} from '../../../../engine/core/event-stream'
 import type { SimulationStatus } from '../../hooks/useSimulation'
-import useStore from '../../store/useStore'
+import useStore, { type EdgeFlowRenderEvent } from '../../store/useStore'
+import { HoverTooltip, TooltipInfo } from '@renderer/components/ui/Tooltip'
+import {
+  RESULTS_CONTEXTUAL_TOOLTIPS,
+  RESULTS_E2E_PERCENTILE_TOOLTIPS,
+  RESULTS_HEALTH_CHECK_TOOLTIPS,
+  RESULTS_PER_NODE_COLUMN_TOOLTIPS,
+  RESULTS_SUMMARY_TOOLTIPS,
+  formatInFlightAtCutoffBanner
+} from '@renderer/config/tooltipCatalog'
 import type { EdgeSimulationData, ScenarioRunContext } from '@renderer/types/ui'
 import {
   ERROR_CAUSE_LABELS,
   dominantTimeToErrorCause
 } from '@renderer/utils/errorCausePresentation'
 import { failureRateLevelFromRatio } from '@renderer/utils/failureRatePresentation'
+import {
+  capacityRank,
+  deriveCapacityStatus,
+  deriveReliabilityStatus,
+  reliabilityRank,
+  toneRank,
+  type CapacityStatus,
+  type ReliabilityStatus
+} from '@renderer/utils/nodeHealthThresholds'
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
@@ -20,6 +55,8 @@ interface ResultsTrayProps {
   stopped: boolean
   progress: number
   eventsProcessed: number
+  runStartedAtMs: number | null
+  snapshot: TimeSeriesSnapshot | null
   results: SimulationOutput | null
   error: string | null
   runContext: ScenarioRunContext | null
@@ -47,8 +84,8 @@ type SelectedComponent = { kind: 'node'; id: string } | { kind: 'edge'; id: stri
 function fmtMs(ms: number | null): string {
   // `null` means no successful samples in this population/window — show N/A, never a fake 0.
   if (ms === null) return 'N/A'
-  if (ms === 0) return '—'
-  if (ms < 1) return `${(ms * 1000).toFixed(0)}µs`
+  if (ms === 0) return '-'
+  if (ms < 1) return `${ms.toFixed(3)}ms`
   if (ms < 1000) return `${ms.toFixed(2)}ms`
   return `${(ms / 1000).toFixed(2)}s`
 }
@@ -62,7 +99,7 @@ function fmtSeconds(ms: number): string {
 }
 
 function fmtRps(rps: number | null): string {
-  return rps === null ? '—' : `${rps.toFixed(1)} rps`
+  return rps === null ? '-' : `${rps.toFixed(1)} rps`
 }
 
 function fmtCv(value: number | null): string {
@@ -70,24 +107,15 @@ function fmtCv(value: number | null): string {
 }
 
 function fmtLambda(lambda: number): string {
-  return lambda === 0 ? '—' : `${lambda.toFixed(2)}`
+  return lambda === 0 ? '-' : `${lambda.toFixed(2)}`
 }
 
 function fmtL(l: number): string {
-  return l === 0 ? '—' : l.toFixed(3)
+  return l === 0 ? '-' : l.toFixed(3)
 }
 
 function fmtW(wSeconds: number): string {
-  return wSeconds === 0 ? '—' : fmtMs(wSeconds * 1000)
-}
-
-function fmtEventTime(timestampMs: number): string {
-  if (timestampMs < 1000) return `${timestampMs.toFixed(3)}ms`
-  return `${(timestampMs / 1000).toFixed(3)}s`
-}
-
-function clampSequence(sequence: number, maxSequence: number): number {
-  return Math.min(maxSequence, Math.max(0, sequence))
+  return wSeconds === 0 ? '-' : fmtMs(wSeconds * 1000)
 }
 
 function totalReplayEventCount(output: SimulationOutput): number {
@@ -96,7 +124,7 @@ function totalReplayEventCount(output: SimulationOutput): number {
 
 const SECTION_TITLE = 'text-[11px] font-semibold text-nss-muted uppercase tracking-wider'
 const SURFACE_CARD = 'bg-nss-surface border border-nss-border rounded-md'
-const EVENT_LOG_PAGE_SIZE = 50
+const TRAFFIC_EVENT_LOG_SIZE = 24
 const RESULTS_TABS: Array<{ id: ResultsTab; label: string }> = [
   { id: 'overview', label: 'Overview' },
   { id: 'bottlenecks', label: 'Bottlenecks' },
@@ -104,48 +132,15 @@ const RESULTS_TABS: Array<{ id: ResultsTab; label: string }> = [
   { id: 'traffic', label: 'Traffic' }
 ]
 
-const E2E_PERCENTILE_TOOLTIPS: Record<'p50' | 'p90' | 'p95' | 'p99' | 'max', string> = {
-  p50: 'Median end-to-end latency. Half of requests were faster than this, half slower.',
-  p90: '90th percentile — 10% of requests were slower than this value.',
-  p95: '95th percentile — typical SLO target for latency-sensitive services.',
-  p99: '99th percentile tail latency — 1% of requests were slower. Most user-facing SLOs live here.',
-  max: 'Slowest observed request. Useful for spotting outliers; not a reliable tail metric.'
-}
-
-const HEALTH_CHECK_TOOLTIPS = {
-  slo: "Compares each node's measured p99 latency and availability against the SLO targets you configured on the node.",
-  errorRate:
-    'Breakdown of rejected, timed-out, and connection-reset requests by node. Rejections happen when the queue is full; timeouts happen when the client waits too long; connection resets happen when in-flight work is explicitly dropped.',
-  littlesLaw:
-    "Little's Law (L = λ·W) is a queueing-theory identity that must hold in steady state. Violations usually indicate either measurement noise at low utilization, or that the simulation never reached steady state. At very low L (<0.1), relative errors can be large while absolute differences are sub-request — treat these as noise.",
-  conservation:
-    'Verifies that for every node: arrived = processed + rejected + timed out + connection reset + in-flight at cutoff. Small non-zero in-flight counts are expected when the run ends with requests still being processed.',
-  warmup:
-    "Checks that warmup duration is at least 10× the max observed p99. If it isn't, post-warmup metrics may still be contaminated by startup transients."
-} as const
-
-const PER_NODE_COLUMN_TOOLTIPS = {
-  arrived: 'Requests that reached this node during the post-warmup window.',
-  done: 'Requests this node finished processing before the simulation cutoff (post-warmup).',
-  reject: "Requests turned away because the node's queue was full.",
-  timedOut: "Requests that exceeded this node's processing timeout.",
-  reset:
-    'Requests explicitly terminated with connection_reset while queued, in service, or released from a hung recovery path.',
-  errorRate:
-    'Rejected + timed out + connection reset, divided by post-warmup arrivals at this node. Read the latency columns with this value, never by themselves.',
-  arrivalCV:
-    'Coefficient of variation of inter-arrival gaps at this node. 0 = perfectly even; ≈1 = Poisson. If this is higher than the offered CV, upstream jitter or contention bunched requests before this node.',
-  inFlight:
-    'Requests that had arrived at this node but were still queued or processing when the simulation ended.',
-  avgQueue: 'Time-averaged queue depth (requests waiting, not yet being processed).',
-  util: 'Fraction of workers busy on average. Below 70% is comfortable; above 80% queueing grows sharply; near 100% the node is saturated.',
-  p50: 'Median service + queue time at this node only. Does not include network/link latency.',
-  p95: '95th percentile per-hop latency at this node.',
-  p99: '99th percentile per-hop latency at this node. Per-hop p99s do not sum to end-to-end p99.',
-  lambda: 'Arrival rate (λ, requests per second) during the post-warmup window.',
-  w: 'Mean time a request spends at this node (W, service + queue). End-to-end latency is roughly the sum of W across the path.',
-  l: "Average number of requests concurrently at this node (L). By Little's Law, L = λ·W."
-} as const
+const LIVE_PATTERN_BAR_COUNT = 24
+type TrafficStatusFilter = 'all' | EdgeFlowRenderEvent['status']
+const TRAFFIC_STATUS_FILTERS: Array<{ id: TrafficStatusFilter; label: string }> = [
+  { id: 'all', label: 'All' },
+  { id: 'success', label: 'Success' },
+  { id: 'timeout', label: 'Timeout' },
+  { id: 'edge-error', label: 'Edge Error' },
+  { id: 'packet-loss', label: 'Packet Loss' }
+]
 
 function eventStatusClass(status: DebugEvent['status']): string {
   switch (status) {
@@ -161,120 +156,15 @@ function eventStatusClass(status: DebugEvent['status']): string {
   }
 }
 
-function includesTerm(value: string | undefined, term: string): boolean {
-  return value?.toLowerCase().includes(term) ?? false
-}
-
 function labelForNode(nodeId: string | undefined, lookup: EventGraphLookup): string | undefined {
   return nodeId ? lookup.nodeLabelById.get(nodeId) : undefined
 }
 
-function nodeDisplayName(event: DebugEvent, lookup: EventGraphLookup): string {
-  return labelForNode(event.nodeId, lookup) ?? event.nodeId ?? '—'
-}
-
-function routeDisplayName(event: DebugEvent, lookup: EventGraphLookup): string {
-  const edge = event.edgeId ? lookup.edgeById.get(event.edgeId) : undefined
-  const sourceId = event.sourceNodeId ?? edge?.source
-  const targetId = event.targetNodeId ?? edge?.target
-  const source = labelForNode(sourceId, lookup) ?? sourceId
-  const target = labelForNode(targetId, lookup) ?? targetId
-
-  return source || target ? `${source ?? '—'} → ${target ?? '—'}` : '—'
-}
-
-function edgeDisplay(
-  event: DebugEvent,
-  lookup: EventGraphLookup
-): { primary: string; secondary?: string; title?: string } {
-  const edge = event.edgeId ? lookup.edgeById.get(event.edgeId) : undefined
-  const route = routeDisplayName(event, lookup)
-  const hasRoute = route !== '—'
-  const protocolMode = [edge?.protocol, edge?.mode].filter(Boolean).join(' / ')
-  const primary = edge?.label ?? (hasRoute ? route : event.edgeId) ?? '—'
-  const secondaryParts: string[] = []
-
-  if (edge?.label && hasRoute) {
-    secondaryParts.push(route)
-  }
-  if (protocolMode) {
-    secondaryParts.push(protocolMode)
-  }
-
-  return {
-    primary,
-    secondary: secondaryParts.length > 0 ? secondaryParts.join(' • ') : undefined,
-    title: [event.edgeId, edge?.label, route, protocolMode].filter(Boolean).join(' | ')
-  }
-}
-
-function eventMatchesQuery(event: DebugEvent, query: string, lookup: EventGraphLookup): boolean {
-  const normalized = query.trim()
-  if (normalized.length === 0) {
-    return true
-  }
-
-  return normalized
-    .split(/\s+OR\s+/i)
-    .some((group) =>
-      group.split(/\s+AND\s+/i).every((term) => eventMatchesTerm(event, term, lookup))
-    )
-}
-
-function eventMatchesTerm(event: DebugEvent, rawTerm: string, lookup: EventGraphLookup): boolean {
-  const term = rawTerm.trim()
-  if (term.length === 0) {
-    return true
-  }
-
-  const edge = event.edgeId ? lookup.edgeById.get(event.edgeId) : undefined
-  const sourceId = event.sourceNodeId ?? edge?.source
-  const targetId = event.targetNodeId ?? edge?.target
-
-  const [field, ...rest] = term.split(':')
-  const value = rest.join(':').toLowerCase()
-  if (!value) {
-    return event.message.toLowerCase().includes(term.toLowerCase())
-  }
-
-  switch (field.toLowerCase()) {
-    case 'request':
-      return includesTerm(event.requestId, value)
-    case 'node':
-      return (
-        includesTerm(event.nodeId, value) ||
-        includesTerm(labelForNode(event.nodeId, lookup), value) ||
-        includesTerm(sourceId, value) ||
-        includesTerm(labelForNode(sourceId, lookup), value) ||
-        includesTerm(targetId, value) ||
-        includesTerm(labelForNode(targetId, lookup), value)
-      )
-    case 'edge':
-      return (
-        includesTerm(event.edgeId, value) ||
-        includesTerm(edge?.label, value) ||
-        includesTerm(edge?.protocol, value) ||
-        includesTerm(edge?.mode, value) ||
-        includesTerm(sourceId, value) ||
-        includesTerm(labelForNode(sourceId, lookup), value) ||
-        includesTerm(targetId, value) ||
-        includesTerm(labelForNode(targetId, lookup), value)
-      )
-    case 'status':
-      return event.status.toLowerCase() === value
-    case 'type':
-      return event.type.toLowerCase() === value
-    default:
-      return event.message.toLowerCase().includes(term.toLowerCase())
-  }
-}
-
-function RunContextPanel({ runContext }: { runContext: ScenarioRunContext }) {
-  const workload = runContext.workload
-  const patternExtras: string[] = []
+function workloadPatternDetails(workload: ScenarioRunContext['workload']): string[] {
+  const details: string[] = []
 
   if (workload.pattern === 'bursty' && workload.bursty) {
-    patternExtras.push(
+    details.push(
       `${workload.bursty.burstRps} burst rps`,
       `${workload.bursty.burstDuration}ms burst`,
       `${workload.bursty.normalDuration}ms normal`
@@ -282,7 +172,7 @@ function RunContextPanel({ runContext }: { runContext: ScenarioRunContext }) {
   }
 
   if (workload.pattern === 'spike' && workload.spike) {
-    patternExtras.push(
+    details.push(
       `${workload.spike.spikeRps} spike rps`,
       `t=${workload.spike.spikeTime}ms`,
       `${workload.spike.spikeDuration}ms duration`
@@ -290,11 +180,489 @@ function RunContextPanel({ runContext }: { runContext: ScenarioRunContext }) {
   }
 
   if (workload.pattern === 'sawtooth' && workload.sawtooth) {
-    patternExtras.push(
+    details.push(
       `${workload.sawtooth.peakRps} peak rps`,
       `${workload.sawtooth.rampDuration}ms ramp`
     )
   }
+
+  return details
+}
+
+function livePatternPhaseLabel(
+  workload: ScenarioRunContext['workload'],
+  currentSimMs: number
+): string | null {
+  switch (workload.pattern) {
+    case 'constant':
+    case 'replay':
+      return 'even arrivals'
+
+    case 'poisson':
+      return 'random gaps'
+
+    case 'bursty': {
+      if (!workload.bursty) return null
+      const burstDuration = Math.max(1, workload.bursty.burstDuration)
+      const normalDuration = Math.max(1, workload.bursty.normalDuration)
+      const cycle = burstDuration + normalDuration
+      return currentSimMs % cycle < burstDuration ? 'burst' : 'base'
+    }
+
+    case 'spike': {
+      if (!workload.spike) return null
+      return currentSimMs >= workload.spike.spikeTime &&
+        currentSimMs < workload.spike.spikeTime + workload.spike.spikeDuration
+        ? 'spike'
+        : 'base'
+    }
+
+    case 'sawtooth': {
+      if (!workload.sawtooth) return null
+      const rampDuration = Math.max(1, workload.sawtooth.rampDuration)
+      const progress = (currentSimMs % rampDuration) / rampDuration
+      if (progress > 0.66) return 'ramp high'
+      if (progress > 0.33) return 'ramp mid'
+      return 'ramp low'
+    }
+
+    case 'diurnal': {
+      const multipliers = workload.diurnal?.hourlyMultipliers
+      if (!multipliers) return null
+      const hourPosition = (((currentSimMs / 1000 / 60 / 60) % 24) + 24) % 24
+      const hour = Math.floor(hourPosition)
+      const value = multipliers[hour] ?? 1
+      if (value > 1.1) return 'peak'
+      if (value < 0.8) return 'low'
+      return 'normal'
+    }
+
+    default:
+      return null
+  }
+}
+
+function liveNodeStatusClass(status: string): string {
+  switch (status) {
+    case 'failed':
+      return 'text-nss-danger bg-nss-danger/10 border-nss-danger/20'
+    case 'saturated':
+      return 'text-nss-warning bg-nss-warning/10 border-nss-warning/20'
+    case 'busy':
+      return 'text-nss-primary bg-nss-primary/10 border-nss-primary/20'
+    default:
+      return 'text-nss-muted bg-nss-surface border-nss-border'
+  }
+}
+
+function edgeFlowStatusClass(status: 'success' | 'edge-error' | 'packet-loss' | 'timeout'): string {
+  switch (status) {
+    case 'success':
+      return 'text-nss-success bg-nss-success/10 border-nss-success/20'
+    case 'timeout':
+      return 'text-nss-warning bg-nss-warning/10 border-nss-warning/20'
+    case 'edge-error':
+    case 'packet-loss':
+      return 'text-nss-danger bg-nss-danger/10 border-nss-danger/20'
+  }
+}
+
+function upperBoundTrafficEventTime(events: EdgeFlowRenderEvent[], currentSimMs: number): number {
+  let low = 0
+  let high = events.length
+
+  while (low < high) {
+    const mid = Math.floor((low + high) / 2)
+    if (events[mid]?.startedAtMs <= currentSimMs) {
+      low = mid + 1
+    } else {
+      high = mid
+    }
+  }
+
+  return low
+}
+
+function trafficEventsUpToTime(
+  events: EdgeFlowRenderEvent[],
+  currentSimMs: number,
+  limit = TRAFFIC_EVENT_LOG_SIZE
+): EdgeFlowRenderEvent[] {
+  const endIndex = upperBoundTrafficEventTime(events, currentSimMs)
+  const startIndex = Math.max(0, endIndex - limit)
+  return events.slice(startIndex, endIndex)
+}
+
+function edgeFlowStatusLabel(status: EdgeFlowRenderEvent['status']): string {
+  switch (status) {
+    case 'edge-error':
+      return 'edge error'
+    case 'packet-loss':
+      return 'packet loss'
+    default:
+      return status
+  }
+}
+
+function trafficFilterButtonClass(
+  filter: TrafficStatusFilter,
+  activeFilter: TrafficStatusFilter
+): string {
+  if (filter === 'all') {
+    return activeFilter === 'all'
+      ? 'border-nss-primary bg-nss-primary/15 text-nss-primary'
+      : 'border-nss-border bg-nss-surface text-nss-muted hover:text-nss-text hover:bg-nss-bg'
+  }
+
+  if (activeFilter === filter) {
+    return `${edgeFlowStatusClass(filter)} ring-1 ring-inset ring-current/25`
+  }
+
+  switch (filter) {
+    case 'success':
+      return 'border-nss-border bg-nss-surface text-nss-muted hover:border-nss-success/20 hover:bg-nss-success/10 hover:text-nss-success'
+    case 'timeout':
+      return 'border-nss-border bg-nss-surface text-nss-muted hover:border-nss-warning/20 hover:bg-nss-warning/10 hover:text-nss-warning'
+    case 'edge-error':
+    case 'packet-loss':
+      return 'border-nss-border bg-nss-surface text-nss-muted hover:border-nss-danger/20 hover:bg-nss-danger/10 hover:text-nss-danger'
+  }
+}
+
+// ─── Request outcome log ──────────────────────────────────────────────────────
+// Post-run Event Log source: one row per request keyed on terminal fate. Chips
+// are terminal OUTCOMES a user filters for — never lifecycle transitions, which
+// live in the per-row drill-down instead. `in-flight` is a confidence state
+// (unfinished at cutoff), styled muted, never as an alarm.
+
+type OutcomeStatus = RequestOutcomeRecord['status']
+type OutcomeStatusFilter = 'all' | OutcomeStatus
+
+const OUTCOME_PAGE_SIZE = 50
+
+const OUTCOME_STATUS_ORDER: OutcomeStatus[] = [
+  'success',
+  'rejected',
+  'timeout',
+  'connection_reset',
+  'in-flight'
+]
+
+const OUTCOME_STATUS_LABEL: Record<OutcomeStatus, string> = {
+  success: 'Success',
+  rejected: 'Rejected',
+  timeout: 'Timeout',
+  connection_reset: 'Reset',
+  'in-flight': 'In-flight'
+}
+
+function outcomeStatusBadgeClass(status: OutcomeStatus): string {
+  switch (status) {
+    case 'success':
+      return 'text-nss-success bg-nss-success/10 border-nss-success/20'
+    case 'timeout':
+      return 'text-nss-warning bg-nss-warning/10 border-nss-warning/20'
+    case 'rejected':
+    case 'connection_reset':
+      return 'text-nss-danger bg-nss-danger/10 border-nss-danger/20'
+    // In-flight is a confidence caveat, not a fault: muted, never red or green.
+    case 'in-flight':
+      return 'text-nss-muted bg-nss-muted/10 border-nss-muted/30'
+  }
+}
+
+function outcomeFilterButtonClass(
+  filter: OutcomeStatusFilter,
+  activeFilter: OutcomeStatusFilter
+): string {
+  if (filter === 'all') {
+    return activeFilter === 'all'
+      ? 'border-nss-primary bg-nss-primary/15 text-nss-primary'
+      : 'border-nss-border bg-nss-surface text-nss-muted hover:text-nss-text hover:bg-nss-bg'
+  }
+
+  if (activeFilter === filter) {
+    return `${outcomeStatusBadgeClass(filter)} ring-1 ring-inset ring-current/25`
+  }
+
+  switch (filter) {
+    case 'success':
+      return 'border-nss-border bg-nss-surface text-nss-muted hover:border-nss-success/20 hover:bg-nss-success/10 hover:text-nss-success'
+    case 'timeout':
+      return 'border-nss-border bg-nss-surface text-nss-muted hover:border-nss-warning/20 hover:bg-nss-warning/10 hover:text-nss-warning'
+    case 'rejected':
+    case 'connection_reset':
+      return 'border-nss-border bg-nss-surface text-nss-muted hover:border-nss-danger/20 hover:bg-nss-danger/10 hover:text-nss-danger'
+    case 'in-flight':
+      return 'border-nss-border bg-nss-surface text-nss-muted hover:border-nss-muted/40 hover:bg-nss-muted/10 hover:text-nss-text'
+  }
+}
+
+function fmtAttempts(attempts: number): string {
+  return attempts === 1 ? '1' : `${attempts}×`
+}
+
+/** Prettify a canonical lifecycle event type for the per-row drill-down. */
+function lifecycleStepLabel(type: CanonicalEventType): string {
+  return type.replace(/^request-/, '').replace(/-/g, ' ')
+}
+
+/** One collapsed lifecycle step, with a repeat count for consecutive duplicates. */
+interface LifecycleStep {
+  key: number
+  label: string
+  reasonCode?: string
+  timeMs: number
+  count: number
+}
+
+/** A run of consecutive lifecycle steps that happened at the same node. */
+interface LifecycleNodeGroup {
+  key: number
+  nodeId: string | null
+  label: string
+  /** Time attributed to this node hop: entry here → entry at the next node. */
+  deltaMs: number
+  steps: LifecycleStep[]
+}
+
+/**
+ * Fold a request's flat, sequence-ordered lifecycle events into per-node groups
+ * for the drill-down tree. Each group's delta is the time from arriving at that
+ * node to arriving at the next one (the last hop runs to the request's final
+ * event), so the group deltas sum to the request's end-to-end latency. Repeated
+ * consecutive steps at a node (e.g. two `trait-evaluated`) collapse into one row
+ * carrying an `×N` count.
+ */
+function buildLifecycleGroups(
+  steps: CanonicalEventRecord[],
+  graphLookup: EventGraphLookup
+): LifecycleNodeGroup[] {
+  if (steps.length === 0) return []
+
+  const groups: LifecycleNodeGroup[] = []
+  for (const event of steps) {
+    const nodeId = event.nodeId ?? null
+    const timeMs = Number(event.timestampUs) / 1000
+    const label = lifecycleStepLabel(event.type)
+    const current = groups[groups.length - 1]
+
+    if (!current || current.nodeId !== nodeId) {
+      groups.push({
+        key: event.sequence,
+        nodeId,
+        label: nodeId ? (labelForNode(nodeId, graphLookup) ?? nodeId) : 'System',
+        deltaMs: 0,
+        steps: [{ key: event.sequence, label, reasonCode: event.reasonCode, timeMs, count: 1 }]
+      })
+      continue
+    }
+
+    const lastStep = current.steps[current.steps.length - 1]
+    if (lastStep.label === label && lastStep.reasonCode === event.reasonCode) {
+      lastStep.count += 1
+    } else {
+      current.steps.push({
+        key: event.sequence,
+        label,
+        reasonCode: event.reasonCode,
+        timeMs,
+        count: 1
+      })
+    }
+  }
+
+  const overallEndMs = Number(steps[steps.length - 1].timestampUs) / 1000
+  for (let index = 0; index < groups.length; index++) {
+    const entryMs = groups[index].steps[0].timeMs
+    const nextEntryMs = index < groups.length - 1 ? groups[index + 1].steps[0].timeMs : overallEndMs
+    groups[index].deltaMs = Math.max(0, nextEntryMs - entryMs)
+  }
+
+  return groups
+}
+
+/**
+ * The per-request drill-down: a node-grouped lifecycle tree. Each node hop is an
+ * independently collapsible branch showing its steps and the wall time spent
+ * before the request moved on.
+ */
+function LifecycleTree({
+  requestId,
+  totalLatencyMs,
+  groups
+}: {
+  requestId: string
+  totalLatencyMs: number | null
+  groups: LifecycleNodeGroup[]
+}) {
+  // All hops start expanded; collapsing is opt-in per branch.
+  const [collapsed, setCollapsed] = useState<ReadonlySet<number>>(() => new Set())
+
+  return (
+    <div className="text-[10px] text-nss-muted">
+      <div className="flex items-center justify-between gap-2 pb-1.5">
+        <span className="font-semibold text-nss-text">{requestId}</span>
+        <span className="rounded border border-nss-border bg-nss-surface px-1.5 py-0.5 tabular-nums text-nss-text">
+          {fmtMs(totalLatencyMs)} total
+        </span>
+      </div>
+      <div className="space-y-0.5 border-l border-nss-border/70 pl-2">
+        {groups.map((group) => {
+          const isOpen = !collapsed.has(group.key)
+          return (
+            <div key={group.key}>
+              <button
+                type="button"
+                onClick={() =>
+                  setCollapsed((current) => {
+                    const next = new Set(current)
+                    if (next.has(group.key)) next.delete(group.key)
+                    else next.add(group.key)
+                    return next
+                  })
+                }
+                className="flex w-full items-center justify-between gap-2 rounded py-0.5 pr-1 text-left outline-none hover:bg-nss-bg/60 focus-visible:bg-nss-bg/60"
+              >
+                <span className="flex min-w-0 items-center gap-1.5">
+                  <span className="w-2 shrink-0 text-nss-muted">{isOpen ? '▾' : '▸'}</span>
+                  <span className="truncate font-semibold text-nss-text">{group.label}</span>
+                </span>
+                <span className="shrink-0 tabular-nums text-nss-muted">
+                  Δ {fmtMs(group.deltaMs)}
+                </span>
+              </button>
+              {isOpen && (
+                <ol className="mb-1 ml-[3px] space-y-0.5 border-l border-nss-border/40 py-0.5 pl-3">
+                  {group.steps.map((step) => (
+                    <li key={step.key} className="flex items-baseline gap-2">
+                      <span className="w-12 shrink-0 tabular-nums text-nss-muted/80">
+                        {fmtChartTime(step.timeMs)}
+                      </span>
+                      <span className="text-nss-text">
+                        {step.label}
+                        {step.count > 1 ? (
+                          <span className="text-nss-muted"> (×{step.count})</span>
+                        ) : null}
+                        {step.reasonCode ? (
+                          <span className="text-nss-muted"> · {step.reasonCode}</span>
+                        ) : null}
+                      </span>
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function hash01(input: string): number {
+  let hash = 2166136261
+  for (let index = 0; index < input.length; index++) {
+    hash ^= input.charCodeAt(index)
+    hash = Math.imul(hash, 16777619)
+  }
+  return (hash >>> 0) / 4294967295
+}
+
+function workloadRateMultiplierAtMs(
+  workload: ScenarioRunContext['workload'],
+  currentSimMs: number
+): number {
+  const baseRps = Math.max(1, workload.baseRps)
+
+  switch (workload.pattern) {
+    case 'constant':
+    case 'replay':
+      return 1
+
+    case 'poisson': {
+      const bucket = Math.floor(currentSimMs / 900)
+      return 0.55 + hash01(`poisson:${bucket}`) * 0.9
+    }
+
+    case 'bursty': {
+      if (!workload.bursty) return 1
+      const burstDuration = Math.max(1, workload.bursty.burstDuration)
+      const normalDuration = Math.max(1, workload.bursty.normalDuration)
+      const cycle = burstDuration + normalDuration
+      const inBurst = currentSimMs % cycle < burstDuration
+      return inBurst ? Math.max(1.5, Math.min(4, workload.bursty.burstRps / baseRps)) : 1
+    }
+
+    case 'spike': {
+      if (!workload.spike) return 1
+      const inSpike =
+        currentSimMs >= workload.spike.spikeTime &&
+        currentSimMs < workload.spike.spikeTime + workload.spike.spikeDuration
+      return inSpike ? Math.max(1.75, Math.min(5, workload.spike.spikeRps / baseRps)) : 1
+    }
+
+    case 'sawtooth': {
+      if (!workload.sawtooth) return 1
+      const rampDuration = Math.max(1, workload.sawtooth.rampDuration)
+      const progress = (currentSimMs % rampDuration) / rampDuration
+      const currentRps = baseRps + (workload.sawtooth.peakRps - baseRps) * progress
+      return Math.max(0.45, Math.min(5, currentRps / baseRps))
+    }
+
+    case 'diurnal': {
+      const multipliers = workload.diurnal?.hourlyMultipliers
+      if (!multipliers) return 1
+      const hourPosition = (((currentSimMs / 1000 / 60 / 60) % 24) + 24) % 24
+      const hour = Math.floor(hourPosition)
+      const nextHour = (hour + 1) % 24
+      const localT = hourPosition - Math.floor(hourPosition)
+      const current = multipliers[hour] ?? 1
+      const next = multipliers[nextHour] ?? current
+      return Math.max(0.35, Math.min(2.5, current + (next - current) * localT))
+    }
+
+    default:
+      return 1
+  }
+}
+
+function simulatedArrivalBins(
+  workload: ScenarioRunContext['workload'],
+  currentSimMs: number,
+  windowMs: number,
+  binCount: number
+): number[] {
+  const binWidthMs = Math.max(1, windowMs / Math.max(1, binCount))
+
+  return Array.from({ length: binCount }, (_, index) => {
+    const binCenterMs = currentSimMs - windowMs + binWidthMs * index + binWidthMs / 2
+    const base = workloadRateMultiplierAtMs(workload, Math.max(0, binCenterMs))
+
+    if (workload.pattern === 'poisson') {
+      return base * (0.7 + hash01(`arrival:${Math.round(binCenterMs / 80)}:${index}`) * 0.9)
+    }
+
+    return base
+  })
+}
+
+function errorRateAtTime(output: SimulationOutput, currentSimMs: number): number | null {
+  const window =
+    output.summary.latencyWindows.find(
+      (entry) => currentSimMs >= entry.windowStartMs && currentSimMs <= entry.windowEndMs
+    ) ??
+    [...output.summary.latencyWindows]
+      .reverse()
+      .find((entry) => currentSimMs >= entry.windowEndMs) ??
+    output.summary.latencyWindows[0]
+
+  return window ? window.errorRate : null
+}
+
+function RunContextPanel({ runContext }: { runContext: ScenarioRunContext }) {
+  const workload = runContext.workload
+  const patternExtras = workloadPatternDetails(workload)
 
   return (
     <div className="space-y-2">
@@ -312,6 +680,1262 @@ function RunContextPanel({ runContext }: { runContext: ScenarioRunContext }) {
           {patternExtras.join(' • ')}
         </div>
       )}
+    </div>
+  )
+}
+
+function ArrivalPatternStrip({ bins, active }: { bins: number[]; active: boolean }) {
+  const maxBin = Math.max(1, ...bins)
+  const positiveBins = bins.filter((count) => count > 0)
+  const minPositiveBin =
+    positiveBins.length > 0 ? positiveBins.reduce((min, count) => Math.min(min, count), maxBin) : 0
+  const spread = Math.max(0, maxBin - minPositiveBin)
+  const hasMeaningfulVariation = spread > maxBin * 0.08
+
+  return (
+    <div
+      className={`${SURFACE_CARD} relative h-24 overflow-hidden bg-[linear-gradient(180deg,rgba(59,130,246,0.06),rgba(15,23,42,0.04))] px-2 py-2`}
+      aria-label="Live arrival pattern strip"
+    >
+      <div className="pointer-events-none absolute inset-0">
+        {[25, 50, 75].map((marker) => (
+          <div
+            key={marker}
+            className="absolute inset-x-0 border-t border-white/6"
+            style={{ bottom: `${marker}%` } satisfies CSSProperties}
+          />
+        ))}
+      </div>
+
+      <div className="relative z-[1] flex h-full items-end gap-1.5">
+        {bins.map((count, index) => {
+          const height =
+            count <= 0
+              ? 10
+              : hasMeaningfulVariation
+                ? Math.max(
+                    18,
+                    Math.round(22 + ((count - minPositiveBin) / Math.max(spread, 0.0001)) * 68)
+                  )
+                : 64
+
+          return (
+            <div
+              key={index}
+              className="relative flex-1 h-full overflow-hidden rounded-[4px] border border-white/6 bg-black/10"
+            >
+              <div
+                className={`absolute inset-x-0 bottom-0 rounded-[3px] border-t transition-[height,opacity,background-color] duration-200 ${
+                  active
+                    ? 'border-nss-primary/70 bg-nss-primary/80 shadow-[0_0_16px_rgba(59,130,246,0.18)]'
+                    : 'border-sky-300/60 bg-sky-400/55'
+                }`}
+                style={
+                  { height: `${height}%`, opacity: count > 0 ? 1 : 0.28 } satisfies CSSProperties
+                }
+              />
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function TrafficEventLog({
+  currentSimMs,
+  graphLookup,
+  mode
+}: {
+  currentSimMs: number
+  graphLookup: EventGraphLookup
+  mode: 'live' | 'replay'
+}) {
+  const edgeFlowHistory = useStore((state) => state.edgeFlowHistory)
+  const selectGraphElements = useStore((state) => state.selectGraphElements)
+  const [activeEventKey, setActiveEventKey] = useState<string | null>(null)
+  const [statusFilter, setStatusFilter] = useState<TrafficStatusFilter>('all')
+  const eventsAtTime = useMemo(
+    () => trafficEventsUpToTime(edgeFlowHistory, currentSimMs),
+    [currentSimMs, edgeFlowHistory]
+  )
+  const statusCounts = useMemo(() => {
+    const counts: Record<TrafficStatusFilter, number> = {
+      all: eventsAtTime.length,
+      success: 0,
+      timeout: 0,
+      'edge-error': 0,
+      'packet-loss': 0
+    }
+
+    for (const event of eventsAtTime) {
+      counts[event.status] += 1
+    }
+
+    return counts
+  }, [eventsAtTime])
+  const visibleEvents = useMemo(
+    () =>
+      statusFilter === 'all'
+        ? eventsAtTime
+        : eventsAtTime.filter((event) => event.status === statusFilter),
+    [eventsAtTime, statusFilter]
+  )
+
+  useEffect(() => {
+    if (
+      activeEventKey !== null &&
+      !visibleEvents.some(
+        (event) => `${event.requestId}:${event.edgeId}:${event.sequence}` === activeEventKey
+      )
+    ) {
+      setActiveEventKey(null)
+    }
+  }, [activeEventKey, visibleEvents])
+
+  return (
+    <div className={`${SURFACE_CARD} p-3`}>
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <div className="text-xs font-semibold uppercase tracking-wider text-nss-muted">
+            Event Log
+          </div>
+          <div className="text-[11px] text-nss-muted">
+            {mode === 'live'
+              ? 'Requests append here as the run advances.'
+              : 'This list rewinds and advances with the replay slider.'}
+          </div>
+        </div>
+        <span className="text-[10px] text-nss-muted tabular-nums">
+          {visibleEvents.length.toLocaleString()} visible
+        </span>
+      </div>
+
+      <div className="mt-3 flex flex-wrap gap-1.5">
+        {TRAFFIC_STATUS_FILTERS.map((filter) => (
+          <button
+            key={filter.id}
+            type="button"
+            onClick={() => setStatusFilter(filter.id)}
+            className={`rounded-full border px-2 py-1 text-[10px] font-medium transition-colors ${trafficFilterButtonClass(filter.id, statusFilter)}`}
+            aria-pressed={statusFilter === filter.id}
+          >
+            {statusCounts[filter.id].toLocaleString()} {filter.label}
+          </button>
+        ))}
+      </div>
+
+      {visibleEvents.length > 0 ? (
+        <div className="mt-3 overflow-hidden rounded-md border border-nss-border">
+          <div className="max-h-80 overflow-auto">
+            <table className="w-full text-[11px] tabular-nums">
+              <thead className="sticky top-0 border-b border-nss-border bg-nss-surface text-nss-muted">
+                <tr>
+                  <th className="px-2 py-1.5 text-left">Sim Time</th>
+                  <th className="px-2 py-1.5 text-left">Request</th>
+                  <th className="px-2 py-1.5 text-left">Route</th>
+                  <th className="px-2 py-1.5 text-left">Status</th>
+                  <th className="px-2 py-1.5 text-right">Latency</th>
+                </tr>
+              </thead>
+              <tbody>
+                {visibleEvents.map((event) => {
+                  const source = labelForNode(event.sourceNodeId, graphLookup) ?? event.sourceNodeId
+                  const target = labelForNode(event.targetNodeId, graphLookup) ?? event.targetNodeId
+                  const edge = graphLookup.edgeById.get(event.edgeId)
+                  const routeLabel = edge?.label ?? `${source} → ${target}`
+                  const routeMeta = [
+                    edge?.label ? `${source} → ${target}` : undefined,
+                    edge?.protocol,
+                    edge?.mode
+                  ]
+                    .filter(Boolean)
+                    .join(' • ')
+                  const rowKey = `${event.requestId}:${event.edgeId}:${event.sequence}`
+                  const isActive = activeEventKey === rowKey
+
+                  return (
+                    <tr
+                      key={rowKey}
+                      tabIndex={0}
+                      aria-selected={isActive}
+                      onClick={() => {
+                        setActiveEventKey(rowKey)
+                        selectGraphElements({ edgeId: event.edgeId })
+                      }}
+                      onKeyDown={(keyboardEvent) => {
+                        if (keyboardEvent.key !== 'Enter' && keyboardEvent.key !== ' ') {
+                          return
+                        }
+
+                        keyboardEvent.preventDefault()
+                        setActiveEventKey(rowKey)
+                        selectGraphElements({ edgeId: event.edgeId })
+                      }}
+                      className={`cursor-pointer border-b border-nss-border outline-none hover:bg-nss-bg focus:bg-nss-bg ${
+                        isActive ? 'bg-nss-primary/10 ring-1 ring-inset ring-nss-primary/30' : ''
+                      }`}
+                    >
+                      <td className="px-2 py-1 text-nss-muted">
+                        {fmtChartTime(event.startedAtMs)}
+                      </td>
+                      <td className="px-2 py-1 text-nss-text">
+                        <div className="truncate">{event.requestId}</div>
+                        <div className="truncate text-[10px] text-nss-muted">
+                          seq {event.sequence}
+                        </div>
+                      </td>
+                      <td className="max-w-56 px-2 py-1 text-nss-muted" title={routeLabel}>
+                        <div className="truncate text-nss-text">{routeLabel}</div>
+                        <div className="truncate text-[10px] text-nss-muted">
+                          {routeMeta || `${source} → ${target}`}
+                        </div>
+                      </td>
+                      <td className="px-2 py-1">
+                        <span
+                          className={`rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${edgeFlowStatusClass(event.status)}`}
+                        >
+                          {edgeFlowStatusLabel(event.status)}
+                        </span>
+                      </td>
+                      <td className="px-2 py-1 text-right text-nss-text">
+                        {fmtMs(event.latencyMs)}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+          <div className="border-t border-nss-border px-2 py-1 text-[10px] text-nss-muted">
+            Showing the latest {visibleEvents.length}{' '}
+            {statusFilter === 'all' ? '' : `${edgeFlowStatusLabel(statusFilter)} `}
+            traversals at or before {fmtChartTime(currentSimMs)}.
+          </div>
+        </div>
+      ) : (
+        <div className="mt-3 text-xs text-nss-muted">
+          {statusFilter !== 'all'
+            ? `No ${edgeFlowStatusLabel(statusFilter)} traversals are visible at this point in the run.`
+            : mode === 'live'
+              ? 'Waiting for requests to start moving through the graph.'
+              : 'No retained request traversals exist at this replay point yet.'}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function RequestOutcomeLog({
+  output,
+  graphLookup
+}: {
+  output: SimulationOutput
+  graphLookup: EventGraphLookup
+}) {
+  const selectGraphElements = useStore((state) => state.selectGraphElements)
+  const [statusFilter, setStatusFilter] = useState<OutcomeStatusFilter>('all')
+  const [query, setQuery] = useState('')
+  const [page, setPage] = useState(1)
+  const [expandedRequestId, setExpandedRequestId] = useState<string | null>(null)
+
+  const outcomes = output.requestOutcomes
+  const statusCounts = useMemo(() => {
+    const counts: Record<OutcomeStatusFilter, number> = {
+      all: outcomes.length,
+      success: 0,
+      rejected: 0,
+      timeout: 0,
+      connection_reset: 0,
+      'in-flight': 0
+    }
+    for (const row of outcomes) {
+      counts[row.status] += 1
+    }
+    return counts
+  }, [outcomes])
+
+  // Chip filter, then free-text search over request id / node label / status.
+  const trimmedQuery = query.trim().toLowerCase()
+  const visibleRows = useMemo(() => {
+    const byStatus =
+      statusFilter === 'all' ? outcomes : outcomes.filter((row) => row.status === statusFilter)
+    if (trimmedQuery === '') return byStatus
+    return byStatus.filter((row) => {
+      const nodeLabel = row.nodeId ? (labelForNode(row.nodeId, graphLookup) ?? row.nodeId) : ''
+      const haystack =
+        `${row.requestId} ${nodeLabel} ${OUTCOME_STATUS_LABEL[row.status]}`.toLowerCase()
+      return haystack.includes(trimmedQuery)
+    })
+  }, [outcomes, statusFilter, trimmedQuery, graphLookup])
+
+  const pageCount = Math.max(1, Math.ceil(visibleRows.length / OUTCOME_PAGE_SIZE))
+  const clampedPage = Math.min(page, pageCount)
+  const pageStart = (clampedPage - 1) * OUTCOME_PAGE_SIZE
+  const pagedRows = visibleRows.slice(pageStart, pageStart + OUTCOME_PAGE_SIZE)
+
+  // Reset to the first page whenever the filter or search narrows the set.
+  useEffect(() => {
+    setPage(1)
+  }, [statusFilter, trimmedQuery])
+
+  // Lifecycle steps for the one expanded request, derived on demand from the
+  // canonical stream. Empty when the stream was truncated for a large run.
+  const expandedSteps = useMemo(() => {
+    if (expandedRequestId === null) return []
+    return output.eventStream
+      .filter((event) => event.requestId === expandedRequestId)
+      .sort((a, b) => a.sequence - b.sequence)
+  }, [expandedRequestId, output.eventStream])
+
+  // The same steps folded into per-node hops for the drill-down tree.
+  const expandedGroups = useMemo(
+    () => buildLifecycleGroups(expandedSteps, graphLookup),
+    [expandedSteps, graphLookup]
+  )
+
+  useEffect(() => {
+    if (
+      expandedRequestId !== null &&
+      !visibleRows.some((row) => row.requestId === expandedRequestId)
+    ) {
+      setExpandedRequestId(null)
+    }
+  }, [expandedRequestId, visibleRows])
+
+  const inFlightCount = statusCounts['in-flight']
+
+  const filters: OutcomeStatusFilter[] = ['all', ...OUTCOME_STATUS_ORDER]
+
+  return (
+    <div className={`${SURFACE_CARD} p-3`}>
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs font-semibold uppercase tracking-wider text-nss-muted">
+              Request Outcomes
+            </span>
+            <TooltipInfo
+              label="About the request outcome log"
+              content="One row per request, keyed on its final fate. Every generated request appears exactly once - successes, failures, and requests still in flight at the cutoff. Click a row to see its lifecycle steps."
+            />
+          </div>
+          <div className="text-[11px] text-nss-muted">
+            Final fate of every request this run. Click a row for its lifecycle.
+          </div>
+        </div>
+        <span className="text-[10px] text-nss-muted tabular-nums">
+          {visibleRows.length.toLocaleString()} of {outcomes.length.toLocaleString()}
+        </span>
+      </div>
+
+      {inFlightCount > 0 && (
+        <div className="mt-3 rounded-md border border-nss-muted/30 bg-nss-muted/10 px-2.5 py-1.5 text-[11px] leading-snug text-nss-muted">
+          {formatInFlightAtCutoffBanner(inFlightCount)}
+        </div>
+      )}
+
+      <div className="mt-3 flex flex-wrap gap-1.5">
+        {filters.map((filter) => (
+          <button
+            key={filter}
+            type="button"
+            onClick={() => setStatusFilter(filter)}
+            className={`rounded-full border px-2 py-1 text-[10px] font-medium transition-colors ${outcomeFilterButtonClass(filter, statusFilter)}`}
+            aria-pressed={statusFilter === filter}
+          >
+            {statusCounts[filter].toLocaleString()}{' '}
+            {filter === 'all' ? 'All' : OUTCOME_STATUS_LABEL[filter]}
+          </button>
+        ))}
+      </div>
+
+      <div className="relative mt-2">
+        <Search
+          size={13}
+          className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-nss-muted"
+          aria-hidden="true"
+        />
+        <input
+          type="text"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Search by request id, node, or status…"
+          aria-label="Search request outcomes"
+          className="w-full rounded-md border border-nss-border bg-nss-bg py-1.5 pl-8 pr-8 text-[11px] text-nss-text placeholder:text-nss-muted focus:border-nss-primary/50 focus:outline-none focus:ring-1 focus:ring-nss-primary/40"
+        />
+        {query !== '' && (
+          <button
+            type="button"
+            onClick={() => setQuery('')}
+            aria-label="Clear search"
+            className="absolute right-2 top-1/2 -translate-y-1/2 text-nss-muted hover:text-nss-text"
+          >
+            <X size={13} />
+          </button>
+        )}
+      </div>
+
+      {pagedRows.length > 0 ? (
+        <div className="mt-3 overflow-hidden rounded-md border border-nss-border">
+          <div className="max-h-80 overflow-auto">
+            <table className="w-full text-[11px] tabular-nums">
+              <thead className="sticky top-0 border-b border-nss-border bg-nss-surface text-nss-muted">
+                <tr>
+                  <th className="px-2 py-1.5 text-left">Request</th>
+                  <th className="px-2 py-1.5 text-left">Terminal</th>
+                  <th className="px-2 py-1.5 text-left">Node</th>
+                  <th className="px-2 py-1.5 text-left">Status</th>
+                  <th className="px-2 py-1.5 text-right">Attempts</th>
+                  <th className="px-2 py-1.5 text-right">Latency</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pagedRows.map((row) => {
+                  const nodeLabel = row.nodeId
+                    ? (labelForNode(row.nodeId, graphLookup) ?? row.nodeId)
+                    : '-'
+                  const isExpanded = expandedRequestId === row.requestId
+
+                  return (
+                    <Fragment key={row.requestId}>
+                      <tr
+                        tabIndex={0}
+                        aria-expanded={isExpanded}
+                        onClick={() => {
+                          setExpandedRequestId(isExpanded ? null : row.requestId)
+                          if (row.nodeId) {
+                            selectGraphElements({ nodeId: row.nodeId })
+                          }
+                        }}
+                        onKeyDown={(keyboardEvent) => {
+                          if (keyboardEvent.key !== 'Enter' && keyboardEvent.key !== ' ') {
+                            return
+                          }
+                          keyboardEvent.preventDefault()
+                          setExpandedRequestId(isExpanded ? null : row.requestId)
+                          if (row.nodeId) {
+                            selectGraphElements({ nodeId: row.nodeId })
+                          }
+                        }}
+                        className={`cursor-pointer border-b border-nss-border outline-none hover:bg-nss-bg focus:bg-nss-bg ${
+                          isExpanded
+                            ? 'bg-nss-primary/10 ring-1 ring-inset ring-nss-primary/30'
+                            : ''
+                        }`}
+                      >
+                        <td className="px-2 py-1 text-nss-text">
+                          <div className="flex items-center gap-1 truncate">
+                            <span className="text-nss-muted">{isExpanded ? '▾' : '▸'}</span>
+                            <span className="truncate">{row.requestId}</span>
+                          </div>
+                        </td>
+                        <td className="px-2 py-1 text-nss-muted">
+                          {row.terminalAtMs === null ? '-' : fmtChartTime(row.terminalAtMs)}
+                        </td>
+                        <td className="max-w-40 px-2 py-1 text-nss-muted" title={nodeLabel}>
+                          <span className="block truncate">{nodeLabel}</span>
+                        </td>
+                        <td className="px-2 py-1">
+                          <span
+                            className={`rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${outcomeStatusBadgeClass(row.status)}`}
+                          >
+                            {OUTCOME_STATUS_LABEL[row.status]}
+                          </span>
+                        </td>
+                        <td className="px-2 py-1 text-right text-nss-muted">
+                          {fmtAttempts(row.attempts)}
+                        </td>
+                        <td className="px-2 py-1 text-right text-nss-text">
+                          {fmtMs(row.latencyMs)}
+                        </td>
+                      </tr>
+                      {isExpanded && (
+                        <tr className="border-b border-nss-border bg-nss-bg/40">
+                          <td colSpan={6} className="px-3 py-2">
+                            {expandedGroups.length > 0 ? (
+                              <LifecycleTree
+                                requestId={row.requestId}
+                                totalLatencyMs={row.latencyMs}
+                                groups={expandedGroups}
+                              />
+                            ) : (
+                              <div className="text-[10px] text-nss-muted">
+                                Lifecycle steps for this request were not retained (the event stream
+                                was capped for this large run).
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+          <div className="flex items-center justify-between gap-3 border-t border-nss-border px-2 py-1.5 text-[10px] text-nss-muted">
+            <span className="tabular-nums">
+              Showing {(pageStart + 1).toLocaleString()}–
+              {(pageStart + pagedRows.length).toLocaleString()} of{' '}
+              {visibleRows.length.toLocaleString()}
+            </span>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setPage((current) => Math.max(1, current - 1))}
+                disabled={clampedPage <= 1}
+                className="inline-flex items-center gap-0.5 rounded border border-nss-border px-1.5 py-0.5 text-nss-muted transition-colors hover:text-nss-text disabled:opacity-40 disabled:hover:text-nss-muted"
+              >
+                <ChevronLeft size={12} /> Prev
+              </button>
+              <span className="px-1 tabular-nums">
+                {clampedPage} / {pageCount}
+              </span>
+              <button
+                type="button"
+                onClick={() => setPage((current) => Math.min(pageCount, current + 1))}
+                disabled={clampedPage >= pageCount}
+                className="inline-flex items-center gap-0.5 rounded border border-nss-border px-1.5 py-0.5 text-nss-muted transition-colors hover:text-nss-text disabled:opacity-40 disabled:hover:text-nss-muted"
+              >
+                Next <ChevronRight size={12} />
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="mt-3 text-xs text-nss-muted">
+          {outcomes.length === 0
+            ? 'No requests were generated in this run.'
+            : trimmedQuery !== ''
+              ? `No requests match “${query.trim()}”${statusFilter === 'all' ? '' : ` in ${OUTCOME_STATUS_LABEL[statusFilter as OutcomeStatus].toLowerCase()}`}.`
+              : `No ${statusFilter === 'all' ? '' : `${OUTCOME_STATUS_LABEL[statusFilter as OutcomeStatus].toLowerCase()} `}requests in this run.`}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function LiveMonitorPanel({
+  status,
+  progress,
+  eventsProcessed,
+  runStartedAtMs,
+  snapshot,
+  runContext,
+  graphLookup
+}: {
+  status: SimulationStatus
+  progress: number
+  eventsProcessed: number
+  runStartedAtMs: number | null
+  snapshot: TimeSeriesSnapshot | null
+  runContext: ScenarioRunContext
+  graphLookup: EventGraphLookup
+}) {
+  const edges = useStore((state) => state.edges)
+  const edgeFlowById = useStore((state) => state.edgeFlowById)
+  const [nowMs, setNowMs] = useState(() => Date.now())
+
+  useEffect(() => {
+    if (status !== 'running' && status !== 'paused') {
+      return
+    }
+
+    const intervalId = window.setInterval(() => setNowMs(Date.now()), 100)
+    return () => window.clearInterval(intervalId)
+  }, [status])
+
+  const elapsedWallMs = Math.max(0, runStartedAtMs === null ? 0 : nowMs - runStartedAtMs)
+  const currentSimMs =
+    snapshot?.timestamp ??
+    (runContext.global.simulationDuration > 0
+      ? (progress / 100) * runContext.global.simulationDuration
+      : 0)
+  const isWarmup = currentSimMs < runContext.global.warmupDuration
+  const phaseLabel = livePatternPhaseLabel(runContext.workload, currentSimMs)
+  const sourceEdgeIds = useMemo(
+    () => edges.filter((edge) => edge.source === runContext.sourceNodeId).map((edge) => edge.id),
+    [edges, runContext.sourceNodeId]
+  )
+
+  const sourceFlows = sourceEdgeIds
+    .map((edgeId) => edgeFlowById[edgeId])
+    .filter((flow): flow is NonNullable<(typeof edgeFlowById)[string]> => Boolean(flow))
+  const sourceEvents = sourceFlows.flatMap((flow) => flow.recent)
+  const allFlows = Object.values(edgeFlowById)
+
+  const arrivalWindowMs = Math.min(
+    4_000,
+    Math.max(1_200, Math.round(runContext.global.simulationDuration / 12))
+  )
+  const windowStartMs = Math.max(0, currentSimMs - arrivalWindowMs)
+  const arrivalBins = Array.from({ length: LIVE_PATTERN_BAR_COUNT }, () => 0)
+  const binSizeMs = arrivalWindowMs / LIVE_PATTERN_BAR_COUNT
+
+  for (const event of sourceEvents) {
+    if (event.startedAtMs < windowStartMs || event.startedAtMs > currentSimMs) continue
+    const index = Math.min(
+      LIVE_PATTERN_BAR_COUNT - 1,
+      Math.max(0, Math.floor((event.startedAtMs - windowStartMs) / Math.max(binSizeMs, 1)))
+    )
+    arrivalBins[index]++
+  }
+
+  const sourceEmitRate = sourceFlows.reduce((sum, flow) => sum + flow.attemptedPerSecond, 0)
+  const totalAttemptedPerSecond = allFlows.reduce((sum, flow) => sum + flow.attemptedPerSecond, 0)
+  const totalFailedPerSecond = allFlows.reduce((sum, flow) => sum + flow.failedPerSecond, 0)
+  const edgeFailureRatio =
+    totalAttemptedPerSecond > 0 ? totalFailedPerSecond / totalAttemptedPerSecond : 0
+
+  const liveNodes = Object.entries(snapshot?.node ?? {})
+  const totalInSystem = liveNodes.reduce((sum, [, node]) => sum + node.totalInSystem, 0)
+  const totalWorkers = liveNodes.reduce((sum, [, node]) => sum + node.activeWorkers, 0)
+  const hotQueueEntry = [...liveNodes].sort((a, b) => {
+    const queueDiff = b[1].queueLength - a[1].queueLength
+    if (queueDiff !== 0) return queueDiff
+    return b[1].totalInSystem - a[1].totalInSystem
+  })[0]
+  const hotQueueLabel = hotQueueEntry
+    ? `${labelForNode(hotQueueEntry[0], graphLookup) ?? hotQueueEntry[0]} · ${Math.round(hotQueueEntry[1].queueLength)}`
+    : '-'
+  const busiestNodes = [...liveNodes]
+    .sort((a, b) => {
+      const inSystemDiff = b[1].totalInSystem - a[1].totalInSystem
+      if (inSystemDiff !== 0) return inSystemDiff
+      const queueDiff = b[1].queueLength - a[1].queueLength
+      if (queueDiff !== 0) return queueDiff
+      // Stable tiebreak so interpolated near-ties don't swap rows every frame.
+      return a[0].localeCompare(b[0])
+    })
+    .filter(([, node]) => node.totalInSystem > 0 || node.queueLength > 0 || node.status !== 'idle')
+  const patternDetails = workloadPatternDetails(runContext.workload)
+  const phaseValue = `${isWarmup ? 'Warmup' : 'Steady state'}${phaseLabel ? ` · ${phaseLabel}` : ''}`
+
+  return (
+    <div className="space-y-3">
+      <div>
+        <h3 className={SECTION_TITLE}>Live Monitor</h3>
+        <div className="text-xs text-nss-muted">
+          Runtime snapshot plus source-side arrivals. This stays compact on purpose.
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 text-sm xl:grid-cols-4">
+        <StatCard
+          label="Sim Clock"
+          value={`${fmtSeconds(currentSimMs)} / ${fmtSeconds(runContext.global.simulationDuration)}`}
+        />
+        <StatCard label="Elapsed" value={fmtSeconds(elapsedWallMs)} />
+        <StatCard label="Phase" value={phaseValue} highlight={isWarmup ? 'warn' : undefined} />
+        <StatCard label="Events" value={eventsProcessed.toLocaleString()} />
+      </div>
+
+      <div className={`${SURFACE_CARD} p-3 space-y-3`}>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <div className="text-xs text-nss-muted">Source workload</div>
+            <div className="text-sm font-medium text-nss-text">
+              {runContext.sourceLabel} · {runContext.workload.pattern} ·{' '}
+              {runContext.workload.baseRps.toFixed(1)} rps
+            </div>
+          </div>
+          {phaseLabel && (
+            <span className="rounded-full border border-nss-primary/20 bg-nss-primary/10 px-2 py-1 text-[11px] font-medium text-nss-primary">
+              {phaseLabel}
+            </span>
+          )}
+        </div>
+
+        <ArrivalPatternStrip bins={arrivalBins} active={status === 'running'} />
+
+        <div className="flex items-center justify-between gap-3 text-[11px] text-nss-muted">
+          <span>{fmtSeconds(arrivalWindowMs)} source arrival window</span>
+          <span>
+            {sourceEvents.length > 0
+              ? 'Same average rate, different spacing is what the pattern changes.'
+              : 'Waiting for source traffic.'}
+          </span>
+        </div>
+
+        {patternDetails.length > 0 && (
+          <div className="text-xs text-nss-muted">{patternDetails.join(' • ')}</div>
+        )}
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 text-sm xl:grid-cols-4">
+        <StatCard label="Source Emit" value={fmtRps(sourceEmitRate)} />
+        <StatCard label="In System" value={totalInSystem.toLocaleString()} />
+        <StatCard
+          label="Edge Fail"
+          value={fmtPct(edgeFailureRatio)}
+          highlight={edgeFailureRatio > 0.05 ? 'crit' : edgeFailureRatio > 0 ? 'warn' : 'ok'}
+        />
+        <StatCard label="Hot Queue" value={hotQueueLabel} />
+      </div>
+
+      <TrafficEventLog currentSimMs={currentSimMs} graphLookup={graphLookup} mode="live" />
+
+      <BusiestNodesCard
+        busiestNodes={busiestNodes}
+        totalWorkers={totalWorkers}
+        graphLookup={graphLookup}
+        nodeCount={liveNodes.length}
+        emptyLabel="No components are carrying visible load yet."
+      />
+    </div>
+  )
+}
+
+// ─── Paced playback ───────────────────────────────────────────────────────────
+// Snapshots are sampled at a coarse cadence, so stepping frame-to-frame looks
+// choppy. Instead we run a wall-clock playhead over sim time and interpolate the
+// bracketing snapshots, so the clock, gauges, and bars move continuously.
+
+type SnapshotNodeState = TimeSeriesSnapshot['node'][string]
+
+function lerp(a: number, b: number, fraction: number): number {
+  return a + (b - a) * fraction
+}
+
+/** Interpolated topology state at an arbitrary sim time `t` (ms). */
+function snapshotAtTime(timeSeries: TimeSeriesSnapshot[], t: number): TimeSeriesSnapshot {
+  if (timeSeries.length === 0) return { timestamp: t, node: {} }
+  if (t <= timeSeries[0].timestamp) return timeSeries[0]
+  const last = timeSeries[timeSeries.length - 1]
+  if (t >= last.timestamp) return last
+
+  let lo = 0
+  let hi = timeSeries.length - 1
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1
+    if (timeSeries[mid].timestamp <= t) lo = mid
+    else hi = mid
+  }
+
+  const before = timeSeries[lo]
+  const after = timeSeries[hi]
+  const span = after.timestamp - before.timestamp
+  const fraction = span > 0 ? (t - before.timestamp) / span : 0
+
+  const node: TimeSeriesSnapshot['node'] = {}
+  const ids = new Set([...Object.keys(before.node), ...Object.keys(after.node)])
+  for (const id of ids) {
+    const a = before.node[id]
+    const b = after.node[id]
+    if (a && b) {
+      node[id] = {
+        queueLength: lerp(a.queueLength, b.queueLength, fraction),
+        activeWorkers: lerp(a.activeWorkers, b.activeWorkers, fraction),
+        totalInSystem: lerp(a.totalInSystem, b.totalInSystem, fraction),
+        utilization: lerp(a.utilization, b.utilization, fraction),
+        // Status is categorical — snap to the nearer sample rather than blend.
+        status: fraction < 0.5 ? a.status : b.status
+      } satisfies SnapshotNodeState
+    } else {
+      node[id] = (a ?? b) as SnapshotNodeState
+    }
+  }
+  return { timestamp: t, node }
+}
+
+// ─── Busiest nodes (animated, height-stable) ────────────────────────────────────
+// The card count varies as nodes cross the "carrying load" threshold, so a naive
+// list changes height and shoves the content below it up and down. We reserve a
+// fixed number of slots (so nothing below ever moves) and animate each card's
+// entry/exit, keeping departing cards mounted briefly so they fade out in place.
+
+type BusiestNodeEntry = [string, SnapshotNodeState]
+type NodeCardPhase = 'present' | 'exit'
+interface AnimatedNodeCard {
+  id: string
+  node: SnapshotNodeState
+  phase: NodeCardPhase
+}
+
+const BUSIEST_MAX_SLOTS = 4
+const BUSIEST_ROW_HEIGHT = 'h-[3.25rem]'
+const BUSIEST_EXIT_MS = 240
+
+function useAnimatedNodeList(entries: BusiestNodeEntry[]): AnimatedNodeCard[] {
+  const [cards, setCards] = useState<AnimatedNodeCard[]>(() =>
+    entries.map(([id, node]) => ({ id, node, phase: 'present' as NodeCardPhase }))
+  )
+  const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>())
+
+  useEffect(() => {
+    const currentById = new Map(entries)
+    const currentIds = new Set(currentById.keys())
+
+    // A node that came back cancels its pending exit.
+    for (const id of currentIds) {
+      const timer = timers.current.get(id)
+      if (timer) {
+        clearTimeout(timer)
+        timers.current.delete(id)
+      }
+    }
+
+    setCards((prev) => {
+      const prevIds = new Set(prev.map((card) => card.id))
+      const next: AnimatedNodeCard[] = []
+      // Keep existing cards in place; refresh live ones, mark departed ones exiting.
+      for (const card of prev) {
+        const liveNode = currentById.get(card.id)
+        if (liveNode) {
+          next.push({ id: card.id, node: liveNode, phase: 'present' })
+        } else {
+          next.push({ ...card, phase: 'exit' })
+          if (!timers.current.has(card.id)) {
+            timers.current.set(
+              card.id,
+              setTimeout(() => {
+                timers.current.delete(card.id)
+                setCards((current) => current.filter((entry) => entry.id !== card.id))
+              }, BUSIEST_EXIT_MS)
+            )
+          }
+        }
+      }
+      // Append newly arrived cards.
+      for (const [id, node] of entries) {
+        if (!prevIds.has(id)) next.push({ id, node, phase: 'present' })
+      }
+      return next
+    })
+  }, [entries])
+
+  useEffect(() => {
+    const map = timers.current
+    return () => map.forEach((timer) => clearTimeout(timer))
+  }, [])
+
+  return cards
+}
+
+function BusiestNodesCard({
+  busiestNodes,
+  totalWorkers,
+  graphLookup,
+  nodeCount,
+  emptyLabel
+}: {
+  busiestNodes: BusiestNodeEntry[]
+  totalWorkers: number
+  graphLookup: EventGraphLookup
+  nodeCount: number
+  emptyLabel: string
+}) {
+  const slotCount = Math.min(BUSIEST_MAX_SLOTS, Math.max(1, nodeCount))
+  const shown = busiestNodes.slice(0, slotCount)
+  const overflow = busiestNodes.length - shown.length
+  const cards = useAnimatedNodeList(shown)
+  const isEmpty = cards.length === 0
+  // Reserve height for a full set of slots (row + gap) so nothing below ever
+  // moves; cards collapse into this space instead of resizing the section.
+  const reservedHeight = `${slotCount * 3.75}rem`
+
+  return (
+    <div className={`${SURFACE_CARD} p-3`}>
+      <div className="flex items-center justify-between gap-3">
+        <div className="text-xs font-semibold uppercase tracking-wider text-nss-muted">
+          Busiest Nodes
+        </div>
+        <div className="text-[11px] text-nss-muted">
+          {overflow > 0 && <span className="text-nss-warning">+{overflow} more busy · </span>}
+          {Math.round(totalWorkers).toLocaleString()} active workers
+        </div>
+      </div>
+
+      <div className="relative mt-3" style={{ minHeight: reservedHeight }}>
+        {cards.map((card) => (
+          <div
+            key={card.id}
+            className={`flex ${BUSIEST_ROW_HEIGHT} mb-2 max-h-[3.25rem] items-center justify-between gap-3 overflow-hidden rounded-md border border-nss-border bg-nss-bg px-3 ${
+              card.phase === 'exit' ? 'nss-node-card-exit' : 'nss-node-card-enter'
+            }`}
+          >
+            <div className="min-w-0">
+              <div className="truncate text-sm text-nss-text">
+                {labelForNode(card.id, graphLookup) ?? card.id}
+              </div>
+              <div className="text-[11px] text-nss-muted tabular-nums">
+                q={Math.round(card.node.queueLength)} • in-system=
+                {Math.round(card.node.totalInSystem)} • util={fmtPct(card.node.utilization)}
+              </div>
+            </div>
+            <span
+              className={`shrink-0 rounded-full border px-2 py-1 text-[10px] font-medium capitalize ${liveNodeStatusClass(card.node.status)}`}
+            >
+              {card.node.status}
+            </span>
+          </div>
+        ))}
+        {isEmpty && (
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-center text-[11px] text-nss-muted">
+            {emptyLabel}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+const PLAYBACK_SPEEDS = [0.5, 1, 2, 4] as const
+
+interface PacedPlayback {
+  playheadMs: number
+  isPlaying: boolean
+  speed: number
+  atEnd: boolean
+  setSpeed: (speed: number) => void
+  toggle: () => void
+  seek: (ms: number) => void
+  stepToFrame: (direction: -1 | 1) => void
+  jumpStart: () => void
+  jumpEnd: () => void
+}
+
+/**
+ * Wall-clock playhead over sim time. `speed` is sim-ms advanced per wall-ms, so
+ * speed 1 replays in real time. Advances via rAF for frame-rate-smooth motion.
+ */
+function usePacedPlayback(durationMs: number, frameTimes: number[]): PacedPlayback {
+  const [playheadMs, setPlayheadMs] = useState(0)
+  const [isPlaying, setIsPlaying] = useState(false)
+  const [speed, setSpeed] = useState(1)
+  const lastWallRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    if (!isPlaying || durationMs <= 0) return
+
+    let raf = 0
+    lastWallRef.current = null
+    const tick = (nowWall: number): void => {
+      const previous = lastWallRef.current ?? nowWall
+      const deltaWall = nowWall - previous
+      lastWallRef.current = nowWall
+      setPlayheadMs((current) => {
+        const next = current + deltaWall * speed
+        if (next >= durationMs) {
+          setIsPlaying(false)
+          return durationMs
+        }
+        return next
+      })
+      raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [isPlaying, durationMs, speed])
+
+  const atEnd = playheadMs >= durationMs
+
+  const toggle = useCallback(() => {
+    setIsPlaying((playing) => {
+      if (!playing && playheadMs >= durationMs) {
+        setPlayheadMs(0)
+      }
+      return !playing
+    })
+  }, [playheadMs, durationMs])
+
+  const seek = useCallback(
+    (ms: number) => {
+      setIsPlaying(false)
+      setPlayheadMs(Math.min(durationMs, Math.max(0, ms)))
+    },
+    [durationMs]
+  )
+
+  const stepToFrame = useCallback(
+    (direction: -1 | 1) => {
+      setIsPlaying(false)
+      setPlayheadMs((current) => {
+        if (direction === 1) {
+          const nextFrame = frameTimes.find((time) => time > current + 0.001)
+          return nextFrame ?? durationMs
+        }
+        let target = 0
+        for (const time of frameTimes) {
+          if (time < current - 0.001) target = time
+          else break
+        }
+        return target
+      })
+    },
+    [frameTimes, durationMs]
+  )
+
+  const jumpStart = useCallback(() => {
+    setIsPlaying(false)
+    setPlayheadMs(0)
+  }, [])
+
+  const jumpEnd = useCallback(() => {
+    setIsPlaying(false)
+    setPlayheadMs(durationMs)
+  }, [durationMs])
+
+  return {
+    playheadMs,
+    isPlaying,
+    speed,
+    atEnd,
+    setSpeed,
+    toggle,
+    seek,
+    stepToFrame,
+    jumpStart,
+    jumpEnd
+  }
+}
+
+function ReplayMonitorPanel({
+  output,
+  runContext,
+  graphLookup
+}: {
+  output: SimulationOutput
+  runContext: ScenarioRunContext | null
+  graphLookup: EventGraphLookup
+}) {
+  const durationMs = runContext?.global.simulationDuration ?? 0
+  const frameTimes = useMemo(
+    () => output.timeSeries.map((frame) => frame.timestamp),
+    [output.timeSeries]
+  )
+  const playback = usePacedPlayback(durationMs, frameTimes)
+
+  if (!runContext) {
+    return (
+      <div className={`${SURFACE_CARD} p-4 text-sm text-nss-muted`}>
+        Replay data is available, but the run context for this session is missing.
+      </div>
+    )
+  }
+
+  if (output.timeSeries.length === 0) {
+    return (
+      <div className={`${SURFACE_CARD} p-4 text-sm text-nss-muted`}>
+        No time-series snapshots were retained for this run.
+      </div>
+    )
+  }
+
+  const currentSimMs = playback.playheadMs
+  const snapshot = snapshotAtTime(output.timeSeries, currentSimMs)
+  const replayProgress = durationMs > 0 ? (currentSimMs / durationMs) * 100 : 0
+  const isWarmup = currentSimMs < runContext.global.warmupDuration
+  const phaseLabel = livePatternPhaseLabel(runContext.workload, currentSimMs)
+  const phaseValue = `${isWarmup ? 'Warmup' : 'Steady state'}${phaseLabel ? ` · ${phaseLabel}` : ''}`
+  const arrivalWindowMs = Math.min(
+    4_000,
+    Math.max(1_200, Math.round(runContext.global.simulationDuration / 12))
+  )
+  const arrivalBins = simulatedArrivalBins(
+    runContext.workload,
+    currentSimMs,
+    arrivalWindowMs,
+    LIVE_PATTERN_BAR_COUNT
+  )
+  const currentSourceRate =
+    workloadRateMultiplierAtMs(runContext.workload, currentSimMs) * runContext.workload.baseRps
+  const currentErrorRate = errorRateAtTime(output, currentSimMs)
+  const liveNodes = Object.entries(snapshot.node)
+  const totalInSystem = liveNodes.reduce((sum, [, node]) => sum + node.totalInSystem, 0)
+  const totalWorkers = liveNodes.reduce((sum, [, node]) => sum + node.activeWorkers, 0)
+  const hotQueueEntry = [...liveNodes].sort((a, b) => {
+    const queueDiff = b[1].queueLength - a[1].queueLength
+    if (queueDiff !== 0) return queueDiff
+    return b[1].totalInSystem - a[1].totalInSystem
+  })[0]
+  const hotQueueLabel = hotQueueEntry
+    ? `${labelForNode(hotQueueEntry[0], graphLookup) ?? hotQueueEntry[0]} · ${Math.round(hotQueueEntry[1].queueLength)}`
+    : '-'
+  const busiestNodes = [...liveNodes]
+    .sort((a, b) => {
+      const inSystemDiff = b[1].totalInSystem - a[1].totalInSystem
+      if (inSystemDiff !== 0) return inSystemDiff
+      const queueDiff = b[1].queueLength - a[1].queueLength
+      if (queueDiff !== 0) return queueDiff
+      // Stable tiebreak so interpolated near-ties don't swap rows every frame.
+      return a[0].localeCompare(b[0])
+    })
+    .filter(([, node]) => node.totalInSystem > 0 || node.queueLength > 0 || node.status !== 'idle')
+  const buttonClass =
+    'h-7 w-7 inline-flex items-center justify-center rounded border border-nss-border text-nss-muted hover:text-nss-text hover:bg-nss-surface transition-colors disabled:opacity-40 disabled:hover:bg-transparent'
+  const patternDetails = workloadPatternDetails(runContext.workload)
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h3 className={SECTION_TITLE}>Replay Monitor</h3>
+          <div className="text-xs text-nss-muted">
+            Scrub saved snapshots to replay the run state over simulation time.
+          </div>
+        </div>
+        <span className="text-[10px] text-nss-muted tabular-nums">
+          {fmtChartTime(currentSimMs)} · {playback.speed}×
+        </span>
+      </div>
+
+      <div className={`${SURFACE_CARD} p-3 space-y-3`}>
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={playback.jumpStart}
+            disabled={currentSimMs <= 0}
+            className={buttonClass}
+            title="Jump to start"
+            aria-label="Jump to start"
+          >
+            <ChevronsLeft size={14} />
+          </button>
+          <button
+            type="button"
+            onClick={() => playback.stepToFrame(-1)}
+            disabled={currentSimMs <= 0}
+            className={buttonClass}
+            title="Step back one snapshot"
+            aria-label="Step back"
+          >
+            <ChevronLeft size={14} />
+          </button>
+          <button
+            type="button"
+            onClick={playback.toggle}
+            disabled={durationMs <= 0}
+            className={buttonClass}
+            title={playback.isPlaying ? 'Pause' : 'Play'}
+            aria-label={playback.isPlaying ? 'Pause' : 'Play'}
+          >
+            {playback.isPlaying ? <Pause size={14} /> : <Play size={14} />}
+          </button>
+          <input
+            type="range"
+            min={0}
+            max={Math.max(1, durationMs)}
+            step={Math.max(1, durationMs / 1000)}
+            value={currentSimMs}
+            onChange={(event) => playback.seek(Number(event.target.value))}
+            className="nss-range min-w-0 flex-1"
+            style={{ '--range-progress': `${replayProgress}%` } as CSSProperties}
+            aria-label="Replay time"
+          />
+          <button
+            type="button"
+            onClick={() => playback.stepToFrame(1)}
+            disabled={playback.atEnd}
+            className={buttonClass}
+            title="Step forward one snapshot"
+            aria-label="Step forward"
+          >
+            <ChevronRight size={14} />
+          </button>
+          <button
+            type="button"
+            onClick={playback.jumpEnd}
+            disabled={playback.atEnd}
+            className={buttonClass}
+            title="Jump to end"
+            aria-label="Jump to end"
+          >
+            <ChevronsRight size={14} />
+          </button>
+          <div className="ml-1 flex items-center gap-0.5">
+            {PLAYBACK_SPEEDS.map((option) => (
+              <button
+                key={option}
+                type="button"
+                onClick={() => playback.setSpeed(option)}
+                className={`rounded px-1.5 py-1 text-[10px] font-medium tabular-nums transition-colors ${
+                  playback.speed === option
+                    ? 'bg-nss-primary/15 text-nss-primary'
+                    : 'text-nss-muted hover:text-nss-text'
+                }`}
+                aria-pressed={playback.speed === option}
+                title={`${option}× speed`}
+              >
+                {option}×
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="text-[11px] text-nss-muted">
+          Playback eases between sampled snapshots over sim time. Drag to scrub; the step buttons
+          jump to a sampled frame.
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 text-sm xl:grid-cols-4">
+        <StatCard
+          label="Sim Clock"
+          value={`${fmtSeconds(currentSimMs)} / ${fmtSeconds(runContext.global.simulationDuration)}`}
+        />
+        <StatCard label="Snapshot" value={fmtChartTime(currentSimMs)} />
+        <StatCard label="Phase" value={phaseValue} highlight={isWarmup ? 'warn' : undefined} />
+        <StatCard label="Warmup Ends" value={fmtSeconds(runContext.global.warmupDuration)} />
+      </div>
+
+      <div className={`${SURFACE_CARD} p-3 space-y-3`}>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <div className="text-xs text-nss-muted">Source workload</div>
+            <div className="text-sm font-medium text-nss-text">
+              {runContext.sourceLabel} · {runContext.workload.pattern} ·{' '}
+              {runContext.workload.baseRps.toFixed(1)} rps
+            </div>
+          </div>
+          {phaseLabel && (
+            <span className="rounded-full border border-nss-primary/20 bg-nss-primary/10 px-2 py-1 text-[11px] font-medium text-nss-primary">
+              {phaseLabel}
+            </span>
+          )}
+        </div>
+
+        <ArrivalPatternStrip bins={arrivalBins} active={playback.isPlaying} />
+
+        <div className="flex items-center justify-between gap-3 text-[11px] text-nss-muted">
+          <span>{fmtSeconds(arrivalWindowMs)} arrival window</span>
+          <span>Slide or press play to walk the run again.</span>
+        </div>
+
+        {patternDetails.length > 0 && (
+          <div className="text-xs text-nss-muted">{patternDetails.join(' • ')}</div>
+        )}
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 text-sm xl:grid-cols-4">
+        <StatCard label="Est. Source Emit" value={fmtRps(currentSourceRate)} />
+        <StatCard label="In System" value={Math.round(totalInSystem).toLocaleString()} />
+        <StatCard
+          label="Window Fail"
+          value={currentErrorRate === null ? '-' : fmtPct(currentErrorRate)}
+          highlight={
+            currentErrorRate === null
+              ? undefined
+              : currentErrorRate > 0.05
+                ? 'crit'
+                : currentErrorRate > 0
+                  ? 'warn'
+                  : 'ok'
+          }
+        />
+        <StatCard label="Hot Queue" value={hotQueueLabel} />
+      </div>
+
+      <RequestOutcomeLog output={output} graphLookup={graphLookup} />
+
+      <BusiestNodesCard
+        busiestNodes={busiestNodes}
+        totalWorkers={totalWorkers}
+        graphLookup={graphLookup}
+        nodeCount={liveNodes.length}
+        emptyLabel="No components were carrying visible load at this snapshot."
+      />
     </div>
   )
 }
@@ -349,11 +1973,41 @@ function StatCard({
         ? 'text-nss-warning'
         : 'text-nss-text'
 
-  return (
-    <div className={`${SURFACE_CARD} p-2`} title={tooltip}>
+  const card = (triggerProps?: HTMLAttributes<HTMLDivElement>) => (
+    <div className={`${SURFACE_CARD} p-2`} tabIndex={tooltip ? 0 : undefined} {...triggerProps}>
       <div className="text-xs text-nss-muted">{label}</div>
       <div className={`font-medium tabular-nums text-sm ${colour}`}>{value}</div>
     </div>
+  )
+
+  if (!tooltip) {
+    return card()
+  }
+
+  return <HoverTooltip content={tooltip}>{(triggerProps) => card(triggerProps)}</HoverTooltip>
+}
+
+function MetricHeaderCell({
+  label,
+  tooltip,
+  className = 'text-right pb-1 pr-2'
+}: {
+  label: string
+  tooltip: string
+  className?: string
+}) {
+  return (
+    <th className={className}>
+      <span className="inline-flex items-center justify-end gap-1">
+        <span>{label}</span>
+        <TooltipInfo
+          label={`Explain ${label}`}
+          content={tooltip}
+          width={280}
+          className="h-3 w-3 text-[8px]"
+        />
+      </span>
+    </th>
   )
 }
 
@@ -448,7 +2102,7 @@ function SummaryPanel({ output }: { output: SimulationOutput }) {
       ]
     >
   ).filter(([, metrics]) => metrics.count > 0)
-  const throughputDisplay = summary.postWarmupTotalRequests > 0 ? fmtRps(summary.throughput) : '—'
+  const throughputDisplay = summary.postWarmupTotalRequests > 0 ? fmtRps(summary.throughput) : '-'
   const totalInFlightAtCutoff = output.conservationCheck.reduce(
     (sum, result) => sum + result.inFlight,
     0
@@ -474,42 +2128,40 @@ function SummaryPanel({ output }: { output: SimulationOutput }) {
         <StatCard
           label="Requests (post-warmup)"
           value={summary.postWarmupTotalRequests.toLocaleString()}
-          tooltip="Total requests that entered the system after warmup ended. Warmup samples are excluded so transient startup behavior doesn't skew the metrics."
+          tooltip={RESULTS_SUMMARY_TOOLTIPS.requestsPostWarmup}
         />
         <StatCard
           label="Successful"
           value={summary.postWarmupSuccessfulRequests.toLocaleString()}
-          tooltip="Requests that both entered after warmup and eventually completed successfully."
+          tooltip={RESULTS_SUMMARY_TOOLTIPS.successful}
         />
         <StatCard
           label="Throughput"
           value={throughputDisplay}
-          tooltip="Requests completed per second, averaged over the post-warmup window. If this exceeds your configured Base RPS, something (retries, fan-out, misconfigured source) is amplifying traffic."
+          tooltip={RESULTS_SUMMARY_TOOLTIPS.throughput}
         />
         <StatCard
           label="Error Rate"
           value={fmtPct(summary.errorRate)}
           highlight={errorHighlight}
-          tooltip="Fraction of post-warmup requests that failed. This includes instant rejects, timeout walls, and connection resets."
+          tooltip={RESULTS_SUMMARY_TOOLTIPS.errorRate}
         />
         <StatCard
           label="In Flight at Cutoff"
           value={totalInFlightAtCutoff.toLocaleString()}
           highlight={totalInFlightAtCutoff > 0 ? 'warn' : 'ok'}
-          tooltip="Requests that had entered at least one node after warmup, but had not yet completed, timed out, or been rejected when the simulation stopped."
+          tooltip={RESULTS_SUMMARY_TOOLTIPS.inFlightAtCutoff}
         />
         <StatCard
           label="Offered Arrival CV"
           value={fmtCv(summary.offeredArrivalCV)}
-          tooltip="Coefficient of variation of source-generated inter-arrival gaps after warmup. 0 means perfectly even; ≈1 is Poisson."
+          tooltip={RESULTS_SUMMARY_TOOLTIPS.offeredArrivalCv}
         />
       </div>
 
       {totalInFlightAtCutoff > 0 && (
         <div className="rounded-md border border-nss-warning/20 bg-nss-warning/10 px-3 py-2 text-xs text-nss-warning">
-          {totalInFlightAtCutoff.toLocaleString()} request
-          {totalInFlightAtCutoff === 1 ? '' : 's'} were still in flight when the simulation hit its
-          duration limit. They are not counted as completed or failed.
+          {formatInFlightAtCutoffBanner(totalInFlightAtCutoff)}
         </div>
       )}
 
@@ -520,19 +2172,24 @@ function SummaryPanel({ output }: { output: SimulationOutput }) {
         errorRate={summary.latencyWindowErrorRate}
       >
         <div className="flex items-baseline justify-between gap-3">
-          <span
-            className="text-[10px] text-nss-muted"
-            title="Percentiles don't compose — E2E p99 ≠ sum of per-hop p99s. Use per-node mean (W) for additive decomposition."
-          >
-            ⓘ percentiles do not sum across hops
-          </span>
+          <HoverTooltip content={RESULTS_CONTEXTUAL_TOOLTIPS.percentilesDoNotCompose} width={320}>
+            {(triggerProps) => (
+              <span className="text-[10px] text-nss-muted" tabIndex={0} {...triggerProps}>
+                ⓘ percentiles do not sum across hops
+              </span>
+            )}
+          </HoverTooltip>
         </div>
         <div className="grid grid-cols-5 gap-1 text-xs text-center">
           {(['p50', 'p90', 'p95', 'p99', 'max'] as const).map((k) => (
-            <div key={k} className={`${SURFACE_CARD} p-1.5`} title={E2E_PERCENTILE_TOOLTIPS[k]}>
-              <div className="text-nss-muted">{k}</div>
-              <div className="font-medium tabular-nums text-nss-text">{fmtMs(l[k])}</div>
-            </div>
+            <HoverTooltip key={k} content={RESULTS_E2E_PERCENTILE_TOOLTIPS[k]} width={280}>
+              {(triggerProps) => (
+                <div className={`${SURFACE_CARD} p-1.5`} tabIndex={0} {...triggerProps}>
+                  <div className="text-nss-muted">{k}</div>
+                  <div className="font-medium tabular-nums text-nss-text">{fmtMs(l[k])}</div>
+                </div>
+              )}
+            </HoverTooltip>
           ))}
         </div>
       </LatencyPopulationSection>
@@ -607,23 +2264,30 @@ function CollapsibleCheck({
         ? 'text-nss-warning'
         : 'text-nss-success'
   const icon = level === 'healthy' ? '✓' : level === 'warnings' ? '⚠' : '✕'
+  const button = (triggerProps?: ButtonHTMLAttributes<HTMLButtonElement>) => (
+    <button
+      type="button"
+      onClick={() => setOpen((o) => !o)}
+      aria-expanded={open}
+      aria-controls={contentId}
+      className="w-full flex items-center justify-between px-3 py-2 bg-nss-surface hover:bg-nss-bg text-left transition-colors"
+      {...triggerProps}
+    >
+      <span className="flex items-center gap-2 text-xs font-medium text-nss-text">
+        <span className={iconCls}>{icon}</span>
+        {title}
+      </span>
+      <span className="text-nss-muted text-[10px]">{open ? '▲' : '▼'}</span>
+    </button>
+  )
 
   return (
     <div className="border border-nss-border rounded-md overflow-hidden">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        aria-expanded={open}
-        aria-controls={contentId}
-        title={tooltip}
-        className="w-full flex items-center justify-between px-3 py-2 bg-nss-surface hover:bg-nss-bg text-left transition-colors"
-      >
-        <span className="flex items-center gap-2 text-xs font-medium text-nss-text">
-          <span className={iconCls}>{icon}</span>
-          {title}
-        </span>
-        <span className="text-nss-muted text-[10px]">{open ? '▲' : '▼'}</span>
-      </button>
+      {tooltip ? (
+        <HoverTooltip content={tooltip}>{(triggerProps) => button(triggerProps)}</HoverTooltip>
+      ) : (
+        button()
+      )}
       {open && (
         <div id={contentId} className="px-3 py-2 bg-nss-panel space-y-1">
           {children}
@@ -646,6 +2310,12 @@ const CONDITION_CLASSES: Record<'ok' | 'warn' | 'crit', string> = {
   crit: 'text-nss-danger border-nss-danger/30 bg-nss-danger/10'
 }
 
+const CAPACITY_CLASSES: Record<CapacityStatus['level'], string> = {
+  headroom: 'text-nss-success border-nss-success/30 bg-nss-success/10',
+  tight: 'text-nss-warning border-nss-warning/25 bg-nss-warning/10',
+  saturated: 'text-nss-warning border-nss-warning/40 bg-nss-warning/15'
+}
+
 function dominantCause(tte: NodeMetric['timeToErrorByCause']): ErrorCauseKey | null {
   return dominantTimeToErrorCause(tte)
 }
@@ -656,31 +2326,14 @@ function dominantCause(tte: NodeMetric['timeToErrorByCause']): ErrorCauseKey | n
  * passes) never renders as healthy, and the dominant failure cause separates
  * "overloaded" (queue_full) from "dead" (node_failed) from "silent" (timeout).
  */
-function nodeCondition(m: NodeMetric): { label: string; level: 'ok' | 'warn' | 'crit' } {
-  const hasWindowSamples = m.successLatencySamples + m.timeToErrorSamples > 0
-  if (m.postWarmupArrived === 0 && !hasWindowSamples) return { label: 'Idle', level: 'ok' }
-  const served = m.successLatencySamples > 0
-  const dominant = dominantCause(m.timeToErrorByCause)
-
-  if (!served && m.latencyWindowErrorRate > 0.5) {
-    if (dominant === 'timeout') return { label: 'Silent (timing out)', level: 'crit' }
-    return { label: 'Down', level: 'crit' }
-  }
-  if (m.latencyWindowErrorRate > 0.05) {
-    switch (dominant) {
-      case 'node_failed':
-        return { label: 'Failing', level: 'crit' }
-      case 'queue_full':
-        return { label: 'Overloaded', level: 'warn' }
-      case 'timeout':
-        return { label: 'Timing out', level: 'warn' }
-      case 'network_error':
-        return { label: 'Network errors', level: 'warn' }
-      default:
-        return { label: 'Degraded', level: 'warn' }
-    }
-  }
-  return { label: 'Healthy', level: 'ok' }
+function nodeCondition(m: NodeMetric): ReliabilityStatus {
+  return deriveReliabilityStatus({
+    postWarmupArrived: m.postWarmupArrived,
+    successLatencySamples: m.successLatencySamples,
+    timeToErrorSamples: m.timeToErrorSamples,
+    latencyWindowErrorRate: m.latencyWindowErrorRate,
+    timeToErrorByCause: m.timeToErrorByCause
+  })
 }
 
 /**
@@ -689,22 +2342,48 @@ function nodeCondition(m: NodeMetric): { label: string; level: 'ok' | 'warn' | '
  * wrong claim. The card never puts an approving mark next to a latency when the
  * node is down: the survivor-bias 8ms is only over requests that succeeded.
  */
-function NodeConditionCard({ nodeId, m }: { nodeId: string; m: NodeMetric }) {
-  const condition = nodeCondition(m)
+function NodeConditionCard({
+  nodeId,
+  m,
+  workers
+}: {
+  nodeId: string
+  m: NodeMetric
+  workers?: number
+}) {
+  const reliability = nodeCondition(m)
+  const capacity = deriveCapacityStatus({
+    utilization: m.utilization,
+    utilizationUnit: 'ratio',
+    queueDepth: m.avgQueueLength,
+    workers
+  })
   const served = m.successLatencySamples
   const lowSample = served > 0 && served < LOW_SAMPLE_FLOOR
   const p95 = m.latencyNodeLocal.p95
-  const dominant = dominantCause(m.timeToErrorByCause)
 
   return (
     <div className={`${SURFACE_CARD} p-2.5 space-y-2`}>
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex items-start justify-between gap-3">
         <span className="text-xs font-medium text-nss-text truncate">{m.nodeLabel ?? nodeId}</span>
-        <span
-          className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border ${CONDITION_CLASSES[condition.level]}`}
-        >
-          {condition.label}
-        </span>
+        <div className="grid gap-1 text-right">
+          <div className="flex items-center justify-end gap-1.5">
+            <span className="text-[10px] text-nss-muted uppercase tracking-wide">Reliability</span>
+            <span
+              className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border ${CONDITION_CLASSES[reliability.tone]}`}
+            >
+              {reliability.label}
+            </span>
+          </div>
+          <div className="flex items-center justify-end gap-1.5">
+            <span className="text-[10px] text-nss-muted uppercase tracking-wide">Capacity</span>
+            <span
+              className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border ${CAPACITY_CLASSES[capacity.level]}`}
+            >
+              {capacity.label}
+            </span>
+          </div>
+        </div>
       </div>
 
       <div className="flex items-baseline justify-between gap-2">
@@ -734,19 +2413,43 @@ function NodeConditionCard({ nodeId, m }: { nodeId: string; m: NodeMetric }) {
           {fmtPct(m.latencyWindowErrorRate)}
         </span>
       </div>
-      <div className="text-[10px] text-nss-muted">
-        {dominant ? `mostly ${ERROR_CAUSE_LABELS[dominant]}` : 'no failures at this node'}
-        {' · same window as latency'}
+      <div className="text-[10px] text-nss-muted">{reliability.detail}</div>
+
+      <div className="flex items-baseline justify-between gap-2 border-t border-nss-border pt-1.5">
+        <span className="text-[10px] text-nss-muted uppercase tracking-wide">capacity</span>
+        <span
+          className={`text-sm font-medium tabular-nums ${
+            capacity.level === 'headroom' ? 'text-nss-success' : 'text-nss-warning'
+          }`}
+        >
+          {fmtPct(m.utilization)}
+        </span>
       </div>
+      <div className="text-[10px] text-nss-muted">{capacity.detail}</div>
     </div>
   )
 }
 
-function conditionRank(level: 'ok' | 'warn' | 'crit'): number {
-  return level === 'crit' ? 2 : level === 'warn' ? 1 : 0
+function conditionRank(condition: ReliabilityStatus): number {
+  return reliabilityRank(condition.level) * 10 + toneRank(condition.tone)
 }
 
 function NodeConditionCards({ output }: { output: SimulationOutput }) {
+  const nodes = useStore((state) => state.nodes)
+  const workersByNodeId = useMemo(() => {
+    const byId = new Map<string, number>()
+
+    for (const node of nodes) {
+      const workers = (node.data as { sim?: { queue?: { workers?: unknown } } } | undefined)?.sim
+        ?.queue?.workers
+      if (typeof workers === 'number' && Number.isFinite(workers) && workers > 0) {
+        byId.set(node.id, workers)
+      }
+    }
+
+    return byId
+  }, [nodes])
+
   const active = Object.entries(output.perNode)
     .filter(
       ([, m]) => m.postWarmupArrived > 0 || m.successLatencySamples > 0 || m.timeToErrorSamples > 0
@@ -754,8 +2457,19 @@ function NodeConditionCards({ output }: { output: SimulationOutput }) {
     .sort(([, a], [, b]) => {
       const aCondition = nodeCondition(a)
       const bCondition = nodeCondition(b)
+      const aCapacity = deriveCapacityStatus({
+        utilization: a.utilization,
+        utilizationUnit: 'ratio',
+        queueDepth: a.avgQueueLength
+      })
+      const bCapacity = deriveCapacityStatus({
+        utilization: b.utilization,
+        utilizationUnit: 'ratio',
+        queueDepth: b.avgQueueLength
+      })
       return (
-        conditionRank(bCondition.level) - conditionRank(aCondition.level) ||
+        conditionRank(bCondition) - conditionRank(aCondition) ||
+        capacityRank(bCapacity.level) - capacityRank(aCapacity.level) ||
         b.latencyWindowErrorRate - a.latencyWindowErrorRate ||
         b.timeToErrorSamples - a.timeToErrorSamples ||
         b.successLatencySamples - a.successLatencySamples
@@ -767,7 +2481,12 @@ function NodeConditionCards({ output }: { output: SimulationOutput }) {
       <h3 className={SECTION_TITLE}>Node Health</h3>
       <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
         {active.map(([nodeId, m]) => (
-          <NodeConditionCard key={nodeId} nodeId={nodeId} m={m} />
+          <NodeConditionCard
+            key={nodeId}
+            nodeId={nodeId}
+            m={m}
+            workers={workersByNodeId.get(nodeId)}
+          />
         ))}
       </div>
     </div>
@@ -833,7 +2552,7 @@ function BottleneckVerdicts({
               <div className="text-xs text-nss-text">
                 <span className="font-medium">{latencyLabel}</span>{' '}
                 <span className="text-nss-muted">
-                  — {fmtMs(latTop.meanMs)} ({fmtPct(latTop.shareOfEndToEnd)} of end-to-end,{' '}
+                  - {fmtMs(latTop.meanMs)} ({fmtPct(latTop.shareOfEndToEnd)} of end-to-end,{' '}
                   {latTop.kind})
                 </span>
               </div>
@@ -856,14 +2575,14 @@ function BottleneckVerdicts({
               <div className="text-xs text-nss-text">
                 <span className="font-medium">{failureLabel}</span>{' '}
                 <span className="text-nss-muted">
-                  — {failTop.total.toLocaleString()} killed (
+                  - {failTop.total.toLocaleString()} killed (
                   {ERROR_CAUSE_LABELS[failTop.dominantCause]}, {fmtPct(failTop.shareOfFailures)} of
                   failures)
                 </span>
               </div>
             </button>
           ) : (
-            <div className="text-xs text-nss-success">No failures — nothing to locate.</div>
+            <div className="text-xs text-nss-success">No failures - nothing to locate.</div>
           )}
         </div>
       </div>
@@ -937,6 +2656,15 @@ function StatusTimelineStrip({ output }: { output: SimulationOutput }) {
 
 type ChartPoint = { xMs: number; y: number | null }
 type ChartSeries = { label: string; color: string; points: ChartPoint[] }
+type HoveredChartPoint = {
+  key: string
+  label: string
+  value: string
+  timeLabel: string
+  leftPercent: number
+  topPercent: number
+  placement: 'above' | 'below'
+}
 
 function edgeCondition(m: EdgeMetric): { label: string; level: 'ok' | 'warn' | 'crit' } {
   const total = m.successLatencySamples + m.timeToErrorSamples
@@ -1048,6 +2776,11 @@ function linePath(
     .join(' ')
 }
 
+function fmtChartTime(ms: number): string {
+  const seconds = ms / 1000
+  return `t=${seconds.toFixed(Number.isInteger(seconds) ? 0 : 1)}s`
+}
+
 function TimelineChart({
   title,
   subtitle,
@@ -1055,7 +2788,9 @@ function TimelineChart({
   warmupDurationMs,
   statusWindows,
   series,
-  yFormatter
+  yFormatter,
+  xAxisLabel = 'simulation time (seconds)',
+  yAxisLabel
 }: {
   title: string
   subtitle: string
@@ -1064,13 +2799,16 @@ function TimelineChart({
   statusWindows: StatusWindow[]
   series: ChartSeries[]
   yFormatter: (value: number | null) => string
+  xAxisLabel?: string
+  yAxisLabel: string
 }) {
   const width = 640
   const height = 180
-  const margin = { top: 12, right: 12, bottom: 24, left: 36 }
+  const margin = { top: 12, right: 12, bottom: 24, left: 44 }
   const plotWidth = width - margin.left - margin.right
   const plotHeight = height - margin.top - margin.bottom
   const duration = Math.max(1, totalDurationMs)
+  const [hoveredPoint, setHoveredPoint] = useState<HoveredChartPoint | null>(null)
   const values = series.flatMap((item) =>
     item.points.map((point) => point.y).filter((value): value is number => value !== null)
   )
@@ -1085,6 +2823,9 @@ function TimelineChart({
         <div>
           <div className="text-xs font-medium text-nss-text">{title}</div>
           <div className="text-[10px] text-nss-muted">{subtitle}</div>
+          <div className="mt-1 text-[10px] text-nss-muted">
+            x-axis: {xAxisLabel} · y-axis: {yAxisLabel}
+          </div>
         </div>
         <div className="text-[10px] text-nss-muted tabular-nums">
           max {yFormatter(values.length > 0 ? yMax : null)}
@@ -1096,79 +2837,152 @@ function TimelineChart({
           No windowed samples for this chart.
         </div>
       ) : (
-        <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-44 rounded bg-nss-panel">
-          <rect x={0} y={0} width={width} height={height} rx={8} fill="transparent" />
-          {warmupDurationMs > 0 && (
-            <rect
-              x={margin.left}
-              y={margin.top}
-              width={(Math.min(duration, warmupDurationMs) / duration) * plotWidth}
-              height={plotHeight}
-              fill="rgba(148, 163, 184, 0.12)"
-            />
-          )}
-          {statusWindows.map((window, index) => (
-            <rect
-              key={`${window.componentId}-${window.startMs}-${index}`}
-              x={xAt(window.startMs)}
-              y={margin.top}
-              width={Math.max(2, xAt(window.endMs) - xAt(window.startMs))}
-              height={plotHeight}
-              fill="rgba(239, 68, 68, 0.16)"
-            />
-          ))}
-          {[0.25, 0.5, 0.75, 1].map((fraction) => (
-            <line
-              key={fraction}
-              x1={margin.left}
-              x2={width - margin.right}
-              y1={margin.top + plotHeight - plotHeight * fraction}
-              y2={margin.top + plotHeight - plotHeight * fraction}
-              stroke="rgba(148, 163, 184, 0.18)"
-              strokeWidth={1}
-            />
-          ))}
-          {series.map((item) => {
-            const path = linePath(item.points, xAt, yAt)
-            return (
-              <g key={item.label}>
-                {path && (
-                  <path
-                    d={path}
-                    fill="none"
-                    stroke={item.color}
-                    strokeWidth={2}
-                    strokeLinejoin="round"
-                    strokeLinecap="round"
-                  />
-                )}
-                {item.points
-                  .filter((point) => point.y !== null)
-                  .map((point, index) => (
-                    <circle
-                      key={`${item.label}-${index}`}
-                      cx={xAt(point.xMs)}
-                      cy={yAt(point.y as number)}
-                      r={2.4}
-                      fill={item.color}
+        <div className="relative" onMouseLeave={() => setHoveredPoint(null)}>
+          <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-44 rounded bg-nss-panel">
+            <rect x={0} y={0} width={width} height={height} rx={8} fill="transparent" />
+            {warmupDurationMs > 0 && (
+              <rect
+                x={margin.left}
+                y={margin.top}
+                width={(Math.min(duration, warmupDurationMs) / duration) * plotWidth}
+                height={plotHeight}
+                fill="rgba(148, 163, 184, 0.12)"
+              />
+            )}
+            {statusWindows.map((window, index) => (
+              <rect
+                key={`${window.componentId}-${window.startMs}-${index}`}
+                x={xAt(window.startMs)}
+                y={margin.top}
+                width={Math.max(2, xAt(window.endMs) - xAt(window.startMs))}
+                height={plotHeight}
+                fill="rgba(239, 68, 68, 0.16)"
+              />
+            ))}
+            {[0.25, 0.5, 0.75, 1].map((fraction) => (
+              <line
+                key={fraction}
+                x1={margin.left}
+                x2={width - margin.right}
+                y1={margin.top + plotHeight - plotHeight * fraction}
+                y2={margin.top + plotHeight - plotHeight * fraction}
+                stroke="rgba(148, 163, 184, 0.18)"
+                strokeWidth={1}
+              />
+            ))}
+            <text
+              x={14}
+              y={margin.top + plotHeight / 2}
+              textAnchor="middle"
+              fill="rgba(148, 163, 184, 0.8)"
+              fontSize="9"
+              transform={`rotate(-90 14 ${margin.top + plotHeight / 2})`}
+            >
+              {yAxisLabel}
+            </text>
+            {series.map((item) => {
+              const path = linePath(item.points, xAt, yAt)
+              return (
+                <g key={item.label}>
+                  {path && (
+                    <path
+                      d={path}
+                      fill="none"
+                      stroke={item.color}
+                      strokeWidth={2}
+                      strokeLinejoin="round"
+                      strokeLinecap="round"
                     />
-                  ))}
-              </g>
-            )
-          })}
-          <text x={margin.left} y={height - 6} fill="rgba(148, 163, 184, 0.8)" fontSize="10">
-            t=0
-          </text>
-          <text
-            x={width - margin.right}
-            y={height - 6}
-            textAnchor="end"
-            fill="rgba(148, 163, 184, 0.8)"
-            fontSize="10"
-          >
-            t={(duration / 1000).toFixed(0)}s
-          </text>
-        </svg>
+                  )}
+                  {item.points
+                    .filter((point) => point.y !== null)
+                    .map((point, index) => {
+                      const value = point.y as number
+                      const cx = xAt(point.xMs)
+                      const cy = yAt(value)
+                      const key = `${item.label}-${index}-${point.xMs}`
+                      const isHovered = hoveredPoint?.key === key
+
+                      return (
+                        <g key={key}>
+                          {isHovered && (
+                            <circle
+                              cx={cx}
+                              cy={cy}
+                              r={5.5}
+                              fill="transparent"
+                              stroke={item.color}
+                              strokeWidth={1.5}
+                              opacity={0.85}
+                            />
+                          )}
+                          <circle cx={cx} cy={cy} r={2.4} fill={item.color} />
+                          <circle
+                            cx={cx}
+                            cy={cy}
+                            r={8}
+                            fill="transparent"
+                            onMouseEnter={() =>
+                              setHoveredPoint({
+                                key,
+                                label: item.label,
+                                value: yFormatter(value),
+                                timeLabel: fmtChartTime(point.xMs),
+                                leftPercent: (cx / width) * 100,
+                                topPercent: (cy / height) * 100,
+                                placement: cy < margin.top + 34 ? 'below' : 'above'
+                              })
+                            }
+                          />
+                        </g>
+                      )
+                    })}
+                </g>
+              )
+            })}
+            <text x={margin.left} y={height - 6} fill="rgba(148, 163, 184, 0.8)" fontSize="10">
+              t=0
+            </text>
+            <text
+              x={width / 2}
+              y={height - 6}
+              textAnchor="middle"
+              fill="rgba(148, 163, 184, 0.8)"
+              fontSize="10"
+            >
+              {xAxisLabel}
+            </text>
+            <text
+              x={width - margin.right}
+              y={height - 6}
+              textAnchor="end"
+              fill="rgba(148, 163, 184, 0.8)"
+              fontSize="10"
+            >
+              t={(duration / 1000).toFixed(0)}s
+            </text>
+          </svg>
+
+          {hoveredPoint && (
+            <div
+              className="pointer-events-none absolute z-10 w-44 -translate-x-1/2 rounded-md border border-nss-border bg-nss-surface px-2.5 py-2 shadow-xl"
+              style={{
+                left: `${hoveredPoint.leftPercent}%`,
+                top: `${hoveredPoint.topPercent}%`,
+                transform:
+                  hoveredPoint.placement === 'above'
+                    ? 'translate(-50%, calc(-100% - 10px))'
+                    : 'translate(-50%, 10px)'
+              }}
+            >
+              <div className="text-[10px] font-semibold uppercase tracking-wide text-nss-muted">
+                {hoveredPoint.label}
+              </div>
+              <div className="mt-1 text-xs font-medium text-nss-text">{hoveredPoint.value}</div>
+              <div className="mt-1 text-[10px] text-nss-muted">{hoveredPoint.timeLabel}</div>
+            </div>
+          )}
+        </div>
       )}
 
       <div className="flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-nss-muted">
@@ -1202,6 +3016,7 @@ function SystemWindowCharts({ output }: { output: SimulationOutput }) {
           totalDurationMs={output.simulationDuration}
           warmupDurationMs={output.warmupDuration}
           statusWindows={output.statusTimeline}
+          yAxisLabel="end-to-end p95 latency (ms)"
           series={[
             {
               label: 'p95 latency',
@@ -1217,6 +3032,7 @@ function SystemWindowCharts({ output }: { output: SimulationOutput }) {
           totalDurationMs={output.simulationDuration}
           warmupDurationMs={output.warmupDuration}
           statusWindows={output.statusTimeline}
+          yAxisLabel="error rate (% of terminals)"
           series={[
             {
               label: 'error rate',
@@ -1341,8 +3157,19 @@ function ComponentSelectorPanel({
     .sort(([, a], [, b]) => {
       const aCondition = nodeCondition(a)
       const bCondition = nodeCondition(b)
+      const aCapacity = deriveCapacityStatus({
+        utilization: a.utilization,
+        utilizationUnit: 'ratio',
+        queueDepth: a.avgQueueLength
+      })
+      const bCapacity = deriveCapacityStatus({
+        utilization: b.utilization,
+        utilizationUnit: 'ratio',
+        queueDepth: b.avgQueueLength
+      })
       return (
-        conditionRank(bCondition.level) - conditionRank(aCondition.level) ||
+        conditionRank(bCondition) - conditionRank(aCondition) ||
+        capacityRank(bCapacity.level) - capacityRank(aCapacity.level) ||
         b.latencyWindowErrorRate - a.latencyWindowErrorRate
       )
     })
@@ -1352,7 +3179,7 @@ function ComponentSelectorPanel({
       const aCondition = edgeCondition(a)
       const bCondition = edgeCondition(b)
       return (
-        conditionRank(bCondition.level) - conditionRank(aCondition.level) ||
+        toneRank(bCondition.level) - toneRank(aCondition.level) ||
         b.latencyWindowErrorRate - a.latencyWindowErrorRate
       )
     })
@@ -1364,6 +3191,11 @@ function ComponentSelectorPanel({
         {nodeEntries.map(([nodeId, metric]) => {
           const condition = nodeCondition(metric)
           const isSelected = selected?.kind === 'node' && selected.id === nodeId
+          const capacity = deriveCapacityStatus({
+            utilization: metric.utilization,
+            utilizationUnit: 'ratio',
+            queueDepth: metric.avgQueueLength
+          })
           return (
             <button
               key={`node-${nodeId}`}
@@ -1380,10 +3212,12 @@ function ComponentSelectorPanel({
                   <div className="truncate text-xs font-medium text-nss-text">
                     {metric.nodeLabel ?? nodeId}
                   </div>
-                  <div className="text-[10px] text-nss-muted">node-local scope</div>
+                  <div className="text-[10px] text-nss-muted">
+                    node-local scope · capacity {capacity.label.toLowerCase()}
+                  </div>
                 </div>
                 <span
-                  className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border ${CONDITION_CLASSES[condition.level]}`}
+                  className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border ${CONDITION_CLASSES[condition.tone]}`}
                 >
                   {condition.label}
                 </span>
@@ -1506,7 +3340,7 @@ function ComponentDrilldown({
                 </div>
               </div>
               <span
-                className={`text-[10px] font-semibold px-2 py-0.5 rounded border ${CONDITION_CLASSES[condition.level]}`}
+                className={`text-[10px] font-semibold px-2 py-0.5 rounded border ${CONDITION_CLASSES[condition.tone]}`}
               >
                 {condition.label}
               </span>
@@ -1530,7 +3364,7 @@ function ComponentDrilldown({
               <StatCard
                 label="Offered CV"
                 value={fmtCv(output.summary.offeredArrivalCV)}
-                tooltip="Source-generated inter-arrival CV after warmup. Compare against this node's arrival CV to see how much variance the network added."
+                tooltip={RESULTS_CONTEXTUAL_TOOLTIPS.offeredCvVsArrivalCv}
               />
               <StatCard
                 label="Arrival CV"
@@ -1542,7 +3376,7 @@ function ComponentDrilldown({
                     ? 'warn'
                     : undefined
                 }
-                tooltip="Delivered inter-arrival CV at this node after warmup. 0 = perfectly even; ≈1 = Poisson."
+                tooltip={RESULTS_CONTEXTUAL_TOOLTIPS.arrivalCvNode}
               />
             </div>
 
@@ -1559,6 +3393,7 @@ function ComponentDrilldown({
                 totalDurationMs={output.simulationDuration}
                 warmupDurationMs={output.warmupDuration}
                 statusWindows={statusWindows}
+                yAxisLabel="node-local p95 latency (ms)"
                 series={[
                   {
                     label: 'p95 latency',
@@ -1574,6 +3409,7 @@ function ComponentDrilldown({
                 totalDurationMs={output.simulationDuration}
                 warmupDurationMs={output.warmupDuration}
                 statusWindows={statusWindows}
+                yAxisLabel="error rate (% of terminals)"
                 series={[
                   {
                     label: 'error rate',
@@ -1592,6 +3428,7 @@ function ComponentDrilldown({
                 totalDurationMs={output.simulationDuration}
                 warmupDurationMs={output.warmupDuration}
                 statusWindows={statusWindows}
+                yAxisLabel="queue length (requests)"
                 series={[
                   {
                     label: 'queue length',
@@ -1607,6 +3444,7 @@ function ComponentDrilldown({
                 totalDurationMs={output.simulationDuration}
                 warmupDurationMs={output.warmupDuration}
                 statusWindows={statusWindows}
+                yAxisLabel="utilization (% busy)"
                 series={[
                   {
                     label: 'utilization',
@@ -1749,6 +3587,7 @@ function ComponentDrilldown({
               totalDurationMs={output.simulationDuration}
               warmupDurationMs={output.warmupDuration}
               statusWindows={statusWindows}
+              yAxisLabel="edge transit p95 latency (ms)"
               series={[
                 {
                   label: 'p95 latency',
@@ -1764,6 +3603,7 @@ function ComponentDrilldown({
               totalDurationMs={output.simulationDuration}
               warmupDurationMs={output.warmupDuration}
               statusWindows={statusWindows}
+              yAxisLabel="error rate (% of terminals)"
               series={[
                 {
                   label: 'error rate',
@@ -1891,11 +3731,11 @@ function SimulationHealth({ output }: { output: SimulationOutput }) {
       <CollapsibleCheck
         title={
           sloLevel === 'healthy'
-            ? 'SLO — No breaches'
-            : `SLO — ${output.sloBreaches.length} breach${output.sloBreaches.length !== 1 ? 'es' : ''}`
+            ? 'SLO -No breaches'
+            : `SLO -${output.sloBreaches.length} breach${output.sloBreaches.length !== 1 ? 'es' : ''}`
         }
         level={sloLevel}
-        tooltip={HEALTH_CHECK_TOOLTIPS.slo}
+        tooltip={RESULTS_HEALTH_CHECK_TOOLTIPS.slo}
       >
         {sloLevel === 'healthy' ? (
           <p className="text-xs text-nss-muted">All configured SLO targets met.</p>
@@ -1918,7 +3758,7 @@ function SimulationHealth({ output }: { output: SimulationOutput }) {
                   {b.severity === 'critical' ? 'CRIT' : 'WARN'}
                 </span>
                 <span>
-                  {b.nodeLabel} — {metricStr}
+                  {b.nodeLabel} - {metricStr}
                 </span>
               </div>
             )
@@ -1930,11 +3770,11 @@ function SimulationHealth({ output }: { output: SimulationOutput }) {
       <CollapsibleCheck
         title={
           errorLevel === 'healthy'
-            ? 'Error Rate — None'
-            : `Error Rate — ${fmtPct(output.summary.errorRate)} (${output.summary.postWarmupFailedRequests.toLocaleString()} errors)`
+            ? 'Error Rate -None'
+            : `Error Rate -${fmtPct(output.summary.errorRate)} (${output.summary.postWarmupFailedRequests.toLocaleString()} errors)`
         }
         level={errorLevel}
-        tooltip={HEALTH_CHECK_TOOLTIPS.errorRate}
+        tooltip={RESULTS_HEALTH_CHECK_TOOLTIPS.errorRate}
       >
         {errorLevel === 'healthy' ? (
           <p className="text-xs text-nss-muted">
@@ -1984,11 +3824,11 @@ function SimulationHealth({ output }: { output: SimulationOutput }) {
       <CollapsibleCheck
         title={
           llLevel === 'healthy'
-            ? "Little's Law — Within tolerance"
-            : `Little's Law — ${llViolations.length} violation${llViolations.length !== 1 ? 's' : ''} (error > 10%)`
+            ? "Little's Law -Within tolerance"
+            : `Little's Law -${llViolations.length} violation${llViolations.length !== 1 ? 's' : ''} (error > 10%)`
         }
         level={llLevel}
-        tooltip={HEALTH_CHECK_TOOLTIPS.littlesLaw}
+        tooltip={RESULTS_HEALTH_CHECK_TOOLTIPS.littlesLaw}
       >
         {llLevel === 'healthy' ? (
           <p className="text-xs text-nss-muted">L = λW verified for all nodes (error ≤ 10%).</p>
@@ -2014,12 +3854,12 @@ function SimulationHealth({ output }: { output: SimulationOutput }) {
         title={
           conservationLevel === 'healthy'
             ? totalInFlightAtCutoff > 0
-              ? `Conservation — Balanced (${totalInFlightAtCutoff} in-flight at cutoff)`
-              : 'Conservation — Balanced'
-            : `Conservation — ${imbalanced.length} node${imbalanced.length !== 1 ? 's' : ''} with in-flight requests`
+              ? `Conservation -Balanced (${totalInFlightAtCutoff} in-flight at cutoff)`
+              : 'Conservation -Balanced'
+            : `Conservation -${imbalanced.length} node${imbalanced.length !== 1 ? 's' : ''} with in-flight requests`
         }
         level={conservationLevel}
-        tooltip={HEALTH_CHECK_TOOLTIPS.conservation}
+        tooltip={RESULTS_HEALTH_CHECK_TOOLTIPS.conservation}
       >
         {conservationLevel === 'healthy' ? (
           totalInFlightAtCutoff === 0 ? (
@@ -2057,9 +3897,9 @@ function SimulationHealth({ output }: { output: SimulationOutput }) {
 
       {/* Warmup */}
       <CollapsibleCheck
-        title={warmupLevel === 'healthy' ? 'Warmup — Adequate' : 'Warmup — May be too short'}
+        title={warmupLevel === 'healthy' ? 'Warmup -Adequate' : 'Warmup -May be too short'}
         level={warmupLevel}
-        tooltip={HEALTH_CHECK_TOOLTIPS.warmup}
+        tooltip={RESULTS_HEALTH_CHECK_TOOLTIPS.warmup}
       >
         <p
           className={`text-xs ${warmupLevel === 'healthy' ? 'text-nss-muted' : 'text-nss-warning'}`}
@@ -2102,54 +3942,38 @@ function PerNodeTable({ output }: { output: SimulationOutput }) {
           <thead>
             <tr className="text-nss-muted border-b border-nss-border">
               <th className="text-left pb-1 pr-2">Node</th>
-              <th className="text-right pb-1 pr-2" title={PER_NODE_COLUMN_TOOLTIPS.arrived}>
-                Arrived
-              </th>
-              <th className="text-right pb-1 pr-2" title={PER_NODE_COLUMN_TOOLTIPS.done}>
-                Done
-              </th>
-              <th className="text-right pb-1 pr-2" title={PER_NODE_COLUMN_TOOLTIPS.reject}>
-                Reject
-              </th>
-              <th className="text-right pb-1 pr-2" title={PER_NODE_COLUMN_TOOLTIPS.timedOut}>
-                T.O.
-              </th>
-              <th className="text-right pb-1 pr-2" title={PER_NODE_COLUMN_TOOLTIPS.reset}>
-                Reset
-              </th>
-              <th className="text-right pb-1 pr-2" title={PER_NODE_COLUMN_TOOLTIPS.inFlight}>
-                In Flight
-              </th>
-              <th className="text-right pb-1 pr-2" title={PER_NODE_COLUMN_TOOLTIPS.avgQueue}>
-                Avg Q
-              </th>
-              <th className="text-right pb-1 pr-2" title={PER_NODE_COLUMN_TOOLTIPS.util}>
-                Util
-              </th>
-              <th className="text-right pb-1 pr-2" title={PER_NODE_COLUMN_TOOLTIPS.errorRate}>
-                Err %
-              </th>
-              <th className="text-right pb-1 pr-2" title={PER_NODE_COLUMN_TOOLTIPS.arrivalCV}>
-                Arr CV
-              </th>
-              <th className="text-right pb-1 pr-2" title={PER_NODE_COLUMN_TOOLTIPS.p50}>
-                p50
-              </th>
-              <th className="text-right pb-1 pr-2" title={PER_NODE_COLUMN_TOOLTIPS.p95}>
-                p95
-              </th>
-              <th className="text-right pb-1 pr-2" title={PER_NODE_COLUMN_TOOLTIPS.p99}>
-                p99
-              </th>
-              <th className="text-right pb-1 pr-2" title={PER_NODE_COLUMN_TOOLTIPS.lambda}>
-                λ
-              </th>
-              <th className="text-right pb-1 pr-2" title={PER_NODE_COLUMN_TOOLTIPS.w}>
-                W
-              </th>
-              <th className="text-right pb-1" title={PER_NODE_COLUMN_TOOLTIPS.l}>
-                L
-              </th>
+              <MetricHeaderCell
+                label="Arrived"
+                tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.arrived}
+              />
+              <MetricHeaderCell label="Done" tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.done} />
+              <MetricHeaderCell label="Reject" tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.reject} />
+              <MetricHeaderCell label="T.O." tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.timedOut} />
+              <MetricHeaderCell label="Reset" tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.reset} />
+              <MetricHeaderCell
+                label="In Flight"
+                tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.inFlight}
+              />
+              <MetricHeaderCell label="Avg Q" tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.avgQueue} />
+              <MetricHeaderCell label="Util" tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.util} />
+              <MetricHeaderCell
+                label="Err %"
+                tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.errorRate}
+              />
+              <MetricHeaderCell
+                label="Arr CV"
+                tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.arrivalCV}
+              />
+              <MetricHeaderCell label="p50" tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.p50} />
+              <MetricHeaderCell label="p95" tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.p95} />
+              <MetricHeaderCell label="p99" tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.p99} />
+              <MetricHeaderCell label="λ" tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.lambda} />
+              <MetricHeaderCell label="W" tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.w} />
+              <MetricHeaderCell
+                label="L"
+                tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.l}
+                className="text-right pb-1"
+              />
             </tr>
           </thead>
           <tbody>
@@ -2219,16 +4043,16 @@ function PerNodeTable({ output }: { output: SimulationOutput }) {
                   <td className="text-right pr-2 text-nss-text">{fmtMs(m.latencyP95)}</td>
                   <td className="text-right pr-2 text-nss-text">{fmtMs(m.latencyP99)}</td>
                   <td className="text-right pr-2 text-nss-muted">
-                    {ll ? fmtLambda(ll.lambda) : '—'}
+                    {ll ? fmtLambda(ll.lambda) : '-'}
                   </td>
-                  <td className="text-right pr-2 text-nss-muted">{ll ? fmtW(ll.wSeconds) : '—'}</td>
+                  <td className="text-right pr-2 text-nss-muted">{ll ? fmtW(ll.wSeconds) : '-'}</td>
                   <td
                     className={`text-right ${llViolation ? 'text-nss-warning font-medium' : 'text-nss-muted'}`}
                     title={
                       llViolation ? `Little's Law: expected ${fmtL(ll!.expectedL)}` : undefined
                     }
                   >
-                    {ll ? fmtL(ll.observedL) : '—'}
+                    {ll ? fmtL(ll.observedL) : '-'}
                     {llViolation && <span className="ml-0.5">⚠</span>}
                   </td>
                 </tr>
@@ -2245,7 +4069,7 @@ function PerNodeTable({ output }: { output: SimulationOutput }) {
             onClick={() => setShowInactive((s) => !s)}
             className="text-[10px] text-nss-muted hover:text-nss-text transition-colors"
           >
-            {showInactive ? '▲' : '▼'} Inactive nodes ({inactiveEntries.length}) — post-warmup
+            {showInactive ? '▲' : '▼'} Inactive nodes ({inactiveEntries.length}) - post-warmup
           </button>
           {showInactive && (
             <table className="w-full text-xs tabular-nums mt-1 opacity-50">
@@ -2262,372 +4086,6 @@ function PerNodeTable({ output }: { output: SimulationOutput }) {
             </table>
           )}
         </div>
-      )}
-    </div>
-  )
-}
-
-// ─── Replay Preview ──────────────────────────────────────────────────────────
-
-function ReplayPreview({
-  output,
-  graphLookup
-}: {
-  output: SimulationOutput
-  graphLookup: EventGraphLookup
-}) {
-  const retainedEventCount = output.eventStream.length
-  const totalEventCount = totalReplayEventCount(output)
-  const isTruncated = retainedEventCount < totalEventCount
-  const [sequence, setSequence] = useState(0)
-  const maxSequence = Math.max(0, retainedEventCount - 1)
-
-  useEffect(() => {
-    setSequence((current) => clampSequence(current, maxSequence))
-  }, [maxSequence])
-
-  const event = output.eventStream[clampSequence(sequence, maxSequence)]
-  const debugEvent = useMemo(() => (event ? projectToDebugEvent(event) : null), [event])
-
-  if (!debugEvent) {
-    return null
-  }
-
-  const currentEdge = edgeDisplay(debugEvent, graphLookup)
-  const replayProgress =
-    maxSequence > 0 ? Math.round((clampSequence(sequence, maxSequence) / maxSequence) * 100) : 0
-
-  const buttonClass =
-    'h-7 w-7 inline-flex items-center justify-center rounded border border-nss-border text-nss-muted hover:text-nss-text hover:bg-nss-surface transition-colors disabled:opacity-40 disabled:hover:bg-transparent'
-
-  return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between gap-3">
-        <h3 className={SECTION_TITLE}>Replay Preview</h3>
-        <span className="text-[10px] text-nss-muted tabular-nums">
-          {sequence + 1} / {retainedEventCount.toLocaleString()}
-        </span>
-      </div>
-
-      <div className={`${SURFACE_CARD} p-3 space-y-3`}>
-        <div className="flex items-center gap-1.5">
-          <button
-            type="button"
-            onClick={() => setSequence(0)}
-            disabled={sequence === 0}
-            className={buttonClass}
-            title="Jump to start"
-          >
-            <ChevronsLeft size={14} />
-          </button>
-          <button
-            type="button"
-            onClick={() => setSequence((current) => clampSequence(current - 1, maxSequence))}
-            disabled={sequence === 0}
-            className={buttonClass}
-            title="Previous event"
-          >
-            <ChevronLeft size={14} />
-          </button>
-          <input
-            type="range"
-            min={0}
-            max={maxSequence}
-            value={sequence}
-            onChange={(event) => setSequence(Number(event.target.value))}
-            className="nss-range min-w-0 flex-1"
-            style={{ '--range-progress': `${replayProgress}%` } as CSSProperties}
-            aria-label="Replay sequence"
-          />
-          <button
-            type="button"
-            onClick={() => setSequence((current) => clampSequence(current + 1, maxSequence))}
-            disabled={sequence === maxSequence}
-            className={buttonClass}
-            title="Next event"
-          >
-            <ChevronRight size={14} />
-          </button>
-          <button
-            type="button"
-            onClick={() => setSequence(maxSequence)}
-            disabled={sequence === maxSequence}
-            className={buttonClass}
-            title="Jump to end"
-          >
-            <ChevronsRight size={14} />
-          </button>
-        </div>
-
-        {isTruncated && (
-          <div className="rounded-md border border-nss-warning/20 bg-nss-warning/10 px-2 py-1 text-[10px] text-nss-warning">
-            Showing the first {retainedEventCount.toLocaleString()} replay events out of{' '}
-            {totalEventCount.toLocaleString()} recorded for this run.
-          </div>
-        )}
-
-        <div className="grid grid-cols-2 gap-2 text-xs">
-          <StatCard label="Sequence" value={debugEvent.sequence.toLocaleString()} />
-          <StatCard label="Time" value={fmtEventTime(debugEvent.timestampMs)} />
-          <StatCard label="Type" value={debugEvent.type} />
-          <StatCard label="Status" value={debugEvent.status} />
-          <StatCard label="Request" value={debugEvent.requestId ?? '—'} />
-          <StatCard label="Node" value={nodeDisplayName(debugEvent, graphLookup)} />
-          <StatCard label="Edge" value={currentEdge.primary} />
-          <StatCard label="Route" value={routeDisplayName(debugEvent, graphLookup)} />
-        </div>
-
-        {(debugEvent.reasonCode || debugEvent.nodeSnapshot) && (
-          <div className="grid grid-cols-2 gap-2 text-xs">
-            {debugEvent.reasonCode && <StatCard label="Reason" value={debugEvent.reasonCode} />}
-            {debugEvent.nodeSnapshot && (
-              <StatCard
-                label="Node State"
-                value={`${debugEvent.nodeSnapshot.activeWorkers} active / ${debugEvent.nodeSnapshot.queueLength} queued`}
-              />
-            )}
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-function EventLog({
-  output,
-  graphLookup
-}: {
-  output: SimulationOutput
-  graphLookup: EventGraphLookup
-}) {
-  const [isOpen, setIsOpen] = useState(true)
-  const [query, setQuery] = useState('')
-  const [page, setPage] = useState(0)
-  const [activeSequence, setActiveSequence] = useState<number | null>(null)
-  const selectGraphElements = useStore((state) => state.selectGraphElements)
-  const retainedEventCount = output.eventStream.length
-  const totalEventCount = totalReplayEventCount(output)
-  const isTruncated = retainedEventCount < totalEventCount
-  const debugEvents = useMemo(
-    () => (isOpen ? output.eventStream.map((event) => projectToDebugEvent(event)) : []),
-    [isOpen, output.eventStream]
-  )
-  const visibleEvents = useMemo(
-    () => debugEvents.filter((event) => eventMatchesQuery(event, query, graphLookup)),
-    [debugEvents, query, graphLookup]
-  )
-  const summary = useMemo(
-    () =>
-      visibleEvents.reduce(
-        (acc, event) => {
-          acc[event.status] = (acc[event.status] ?? 0) + 1
-          return acc
-        },
-        {} as Partial<Record<DebugEvent['status'], number>>
-      ),
-    [visibleEvents]
-  )
-  const pageCount = Math.max(1, Math.ceil(visibleEvents.length / EVENT_LOG_PAGE_SIZE))
-  const clampedPage = Math.min(page, pageCount - 1)
-  const pageStart = clampedPage * EVENT_LOG_PAGE_SIZE
-  const rows = visibleEvents.slice(pageStart, pageStart + EVENT_LOG_PAGE_SIZE)
-  const displayStart = visibleEvents.length === 0 ? 0 : pageStart + 1
-  const displayEnd = pageStart + rows.length
-
-  useEffect(() => {
-    setPage(0)
-  }, [query, retainedEventCount])
-
-  function selectEventTarget(event: DebugEvent): void {
-    if (!event.nodeId && !event.edgeId) {
-      return
-    }
-
-    setActiveSequence(event.sequence)
-    selectGraphElements({ nodeId: event.nodeId, edgeId: event.edgeId })
-  }
-
-  function handleRowKeyDown(
-    keyboardEvent: KeyboardEvent<HTMLTableRowElement>,
-    event: DebugEvent
-  ): void {
-    if (keyboardEvent.key !== 'Enter' && keyboardEvent.key !== ' ') {
-      return
-    }
-
-    keyboardEvent.preventDefault()
-    selectEventTarget(event)
-  }
-
-  if (retainedEventCount === 0) {
-    return null
-  }
-
-  return (
-    <div className="space-y-2">
-      <button
-        type="button"
-        onClick={() => setIsOpen((open) => !open)}
-        className="w-full flex items-center justify-between gap-3 text-left"
-        aria-expanded={isOpen}
-      >
-        <span className={SECTION_TITLE}>Event Log</span>
-        <div className="flex items-center gap-2">
-          <span className="text-[10px] text-nss-muted tabular-nums">
-            {isTruncated
-              ? `${retainedEventCount.toLocaleString()} / ${totalEventCount.toLocaleString()} replay events`
-              : `${totalEventCount.toLocaleString()} replay events`}
-          </span>
-          <span className="text-nss-muted text-[10px]">{isOpen ? '▲' : '▼'}</span>
-        </div>
-      </button>
-
-      {!isOpen && (
-        <div className={`${SURFACE_CARD} px-3 py-2 text-xs text-nss-muted`}>
-          {isTruncated
-            ? `Open to inspect the retained replay window (${retainedEventCount.toLocaleString()} of ${totalEventCount.toLocaleString()} events).`
-            : 'Open to inspect canonical events and filter by request, node, edge, status, or type.'}
-        </div>
-      )}
-
-      {isOpen && (
-        <>
-          {isTruncated && (
-            <div className="rounded-md border border-nss-warning/20 bg-nss-warning/10 px-3 py-2 text-xs text-nss-warning">
-              Large runs are capped to keep the renderer responsive. This table shows the first{' '}
-              {retainedEventCount.toLocaleString()} replay events out of{' '}
-              {totalEventCount.toLocaleString()} total canonical events.
-            </div>
-          )}
-
-          <div className="flex flex-wrap gap-1 text-[10px]">
-            {(['rejected', 'timeout', 'success', 'info'] as const).map((status) => (
-              <span
-                key={status}
-                className={`px-1.5 py-0.5 rounded border ${eventStatusClass(status)}`}
-              >
-                {summary[status] ?? 0} {status}
-              </span>
-            ))}
-          </div>
-
-          <input
-            value={query}
-            onChange={(event) => {
-              setQuery(event.target.value)
-              setPage(0)
-            }}
-            placeholder="type:request-forwarded OR status:rejected"
-            className="w-full h-8 px-2 rounded-md bg-nss-surface border border-nss-border text-xs text-nss-text placeholder:text-nss-muted outline-none focus:border-nss-primary"
-          />
-
-          <div className={`${SURFACE_CARD} overflow-hidden`}>
-            <div className="max-h-80 overflow-auto">
-              <table className="w-full text-[11px] tabular-nums">
-                <thead className="sticky top-0 bg-nss-surface text-nss-muted border-b border-nss-border">
-                  <tr>
-                    <th className="text-right py-1.5 px-2">Seq</th>
-                    <th className="text-right py-1.5 px-2">Time</th>
-                    <th className="text-left py-1.5 px-2">Type</th>
-                    <th className="text-left py-1.5 px-2">Request</th>
-                    <th className="text-left py-1.5 px-2">Node</th>
-                    <th className="text-left py-1.5 px-2">Edge / Route</th>
-                    <th className="text-left py-1.5 px-2">Status</th>
-                    <th className="text-left py-1.5 px-2">Reason</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((event) => {
-                    const edge = edgeDisplay(event, graphLookup)
-                    const isActive = activeSequence === event.sequence
-                    const isSelectable = Boolean(event.nodeId || event.edgeId)
-                    return (
-                      <tr
-                        key={event.sequence}
-                        tabIndex={isSelectable ? 0 : undefined}
-                        aria-selected={isActive}
-                        onClick={() => selectEventTarget(event)}
-                        onKeyDown={(keyboardEvent) => handleRowKeyDown(keyboardEvent, event)}
-                        className={`border-b border-nss-border outline-none ${
-                          isSelectable ? 'cursor-pointer hover:bg-nss-bg focus:bg-nss-bg' : ''
-                        } ${
-                          isActive ? 'bg-nss-primary/10 ring-1 ring-inset ring-nss-primary/30' : ''
-                        }`}
-                      >
-                        <td className="text-right py-1 px-2 text-nss-muted">{event.sequence}</td>
-                        <td className="text-right py-1 px-2 text-nss-muted">
-                          {fmtEventTime(event.timestampMs)}
-                        </td>
-                        <td className="py-1 px-2 text-nss-text whitespace-nowrap">{event.type}</td>
-                        <td className="py-1 px-2 text-nss-muted">{event.requestId ?? '—'}</td>
-                        <td className="py-1 px-2 text-nss-muted max-w-32" title={event.nodeId}>
-                          <div className="truncate text-nss-text">
-                            {nodeDisplayName(event, graphLookup)}
-                          </div>
-                          {labelForNode(event.nodeId, graphLookup) && event.nodeId && (
-                            <div className="truncate text-[10px] text-nss-muted">
-                              {event.nodeId}
-                            </div>
-                          )}
-                        </td>
-                        <td className="py-1 px-2 text-nss-muted max-w-48" title={edge.title}>
-                          <div className="truncate text-nss-text">{edge.primary}</div>
-                          {edge.secondary && (
-                            <div className="truncate text-[10px] text-nss-muted">
-                              {edge.secondary}
-                            </div>
-                          )}
-                        </td>
-                        <td className="py-1 px-2">
-                          <span
-                            className={`px-1.5 py-0.5 rounded border ${eventStatusClass(event.status)}`}
-                          >
-                            {event.status}
-                          </span>
-                        </td>
-                        <td className="py-1 px-2 text-nss-muted">{event.reasonCode ?? '—'}</td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
-            {visibleEvents.length > 0 && (
-              <div className="px-2 py-1 border-t border-nss-border flex items-center justify-between gap-2 text-[10px] text-nss-muted">
-                <span>
-                  Showing {displayStart.toLocaleString()}-{displayEnd.toLocaleString()} of{' '}
-                  {visibleEvents.length.toLocaleString()}
-                </span>
-                <div className="flex items-center gap-1">
-                  <button
-                    type="button"
-                    onClick={() => setPage((current) => Math.max(0, current - 1))}
-                    disabled={clampedPage === 0}
-                    className="px-2 py-0.5 rounded border border-nss-border text-nss-muted hover:text-nss-text hover:bg-nss-bg disabled:opacity-40 disabled:hover:bg-transparent"
-                  >
-                    Prev
-                  </button>
-                  <span className="tabular-nums px-1">
-                    {clampedPage + 1} / {pageCount}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setPage((current) => Math.min(pageCount - 1, current + 1))}
-                    disabled={clampedPage >= pageCount - 1}
-                    className="px-2 py-0.5 rounded border border-nss-border text-nss-muted hover:text-nss-text hover:bg-nss-bg disabled:opacity-40 disabled:hover:bg-transparent"
-                  >
-                    Next
-                  </button>
-                </div>
-              </div>
-            )}
-            {visibleEvents.length === 0 && (
-              <div className="px-3 py-4 text-xs text-nss-muted text-center">
-                No events match this filter.
-              </div>
-            )}
-          </div>
-        </>
       )}
     </div>
   )
@@ -2681,6 +4139,8 @@ export function ResultsTray({
   stopped,
   progress,
   eventsProcessed,
+  runStartedAtMs,
+  snapshot,
   results,
   error,
   runContext,
@@ -2724,6 +4184,12 @@ export function ResultsTray({
   }, [results])
 
   useEffect(() => {
+    if (!results && (status === 'running' || status === 'paused') && activeTab !== 'traffic') {
+      setActiveTab('traffic')
+    }
+  }, [activeTab, results, status])
+
+  useEffect(() => {
     if (!results) {
       return
     }
@@ -2737,6 +4203,7 @@ export function ResultsTray({
   const retainedReplayEventCount = results ? results.eventStream.length : 0
   const totalCapturedReplayEvents = results ? totalReplayEventCount(results) : 0
   const replayEventsTruncated = retainedReplayEventCount < totalCapturedReplayEvents
+  const visibleTabs = results !== null ? RESULTS_TABS : []
   const progressLabel =
     stopped && status === 'paused'
       ? `Stopping at ${progress.toFixed(1)}% complete...`
@@ -2783,16 +4250,31 @@ export function ResultsTray({
         </div>
       )}
 
-      {/* Results */}
+      {!results && runContext && (status === 'running' || status === 'paused') && (
+        <div className="flex-1 overflow-y-auto px-4 py-3">
+          <LiveMonitorPanel
+            status={status}
+            progress={progress}
+            eventsProcessed={eventsProcessed}
+            runStartedAtMs={runStartedAtMs}
+            snapshot={snapshot}
+            runContext={runContext}
+            graphLookup={graphLookup}
+          />
+        </div>
+      )}
+
       {results && (
         <>
-          <div className="shrink-0 px-4 py-2 border-b border-nss-border overflow-x-auto">
-            <div className="flex items-center gap-2 min-w-max">
-              {RESULTS_TABS.map((tab) => (
-                <TabButton key={tab.id} tab={tab} activeTab={activeTab} onSelect={setActiveTab} />
-              ))}
+          {visibleTabs.length > 0 && (
+            <div className="shrink-0 overflow-x-auto border-b border-nss-border px-4 py-2">
+              <div className="flex min-w-max items-center gap-2">
+                {visibleTabs.map((tab) => (
+                  <TabButton key={tab.id} tab={tab} activeTab={activeTab} onSelect={setActiveTab} />
+                ))}
+              </div>
             </div>
-          </div>
+          )}
 
           <div className="flex-1 overflow-y-auto px-4 py-3 space-y-5">
             {stopped && (
@@ -2834,14 +4316,14 @@ export function ResultsTray({
             )}
 
             {activeTab === 'traffic' && (
-              <>
-                <ReplayPreview output={results} graphLookup={graphLookup} />
-                <EventLog output={results} graphLookup={graphLookup} />
-              </>
+              <ReplayMonitorPanel
+                output={results}
+                runContext={runContext}
+                graphLookup={graphLookup}
+              />
             )}
 
-            {/* Footer — debug info */}
-            <div className="text-[10px] text-nss-muted pb-2 flex flex-wrap gap-x-3 gap-y-1">
+            <div className="flex flex-wrap gap-x-3 gap-y-1 pb-2 text-[10px] text-nss-muted">
               <span>Seed: {results.seed}</span>
               <span>Reproducible: {results.reproducible ? 'yes' : 'no'}</span>
               <span>{eventsProcessed.toLocaleString()} events processed</span>

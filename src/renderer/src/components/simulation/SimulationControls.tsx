@@ -444,7 +444,7 @@ export function SimulationControls({
 
           <label className="flex items-center justify-between mb-2 cursor-pointer">
             <span className="text-[10px] font-semibold uppercase tracking-widest text-nss-muted">
-              Chaos — inject a failure
+              Chaos - inject a failure
             </span>
             <input
               type="checkbox"

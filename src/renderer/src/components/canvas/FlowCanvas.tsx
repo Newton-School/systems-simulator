@@ -13,13 +13,12 @@ import ReactFlow, {
   Node
 } from 'reactflow'
 import 'reactflow/dist/style.css'
-import { EdgeSimulationData } from '@renderer/types/ui'
-import type { CanvasNodeDataV2 } from '../../../../engine/catalog/nodeSpecTypes'
 
 import EmptyFlowState from '../ui/EmptyFlowState'
+import { CanvasLegend } from './CanvasLegend'
 import { MetricLensSwitcher } from './MetricLensSwitcher'
 // Hooks & Config
-import { EdgePropertiesPanel, EdgePropertiesPanelValue } from '../ui/EdgePropertiesPanel'
+import useStore from '@renderer/store/useStore'
 
 import { useFlowStore } from './hooks/useFlowStore'
 import { useFlowDnD } from './hooks/useFlowDnD'
@@ -36,19 +35,11 @@ interface FlowCanvasProps {
 
 const FlowCanvasInternal = ({ showMetricLens = false, onNodeDoubleClick }: FlowCanvasProps) => {
   const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance | null>(null)
-  const [selectedEdge, setSelectedEdge] = useState<Edge | null>(null)
 
-  const {
-    nodes,
-    edges,
-    onNodesChange,
-    onEdgesChange,
-    onConnect,
-    addNode,
-    setNodes,
-    setEdges,
-    updateEdgeData
-  } = useFlowStore()
+  const { nodes, edges, onNodesChange, onEdgesChange, onConnect, addNode, setNodes, setEdges } =
+    useFlowStore()
+
+  const selectGraphElements = useStore((state) => state.selectGraphElements)
 
   const { edgeTypes, defaultEdgeOptions } = useFlowConfig()
 
@@ -89,46 +80,19 @@ const FlowCanvasInternal = ({ showMetricLens = false, onNodeDoubleClick }: FlowC
     prevNodeCount.current = nodes.length
   }, [nodes.length, reactFlowInstance])
 
-  const onEdgeClick = useCallback((event: React.MouseEvent, edge: Edge) => {
-    event.stopPropagation()
-    setSelectedEdge(edge)
-  }, [])
+  // Edge selection lives in the shared store so the right-hand inspector
+  // (PropertiesPanel) can render its properties, exactly like node config.
+  const onEdgeClick = useCallback(
+    (event: React.MouseEvent, edge: Edge) => {
+      event.stopPropagation()
+      selectGraphElements({ edgeId: edge.id })
+    },
+    [selectGraphElements]
+  )
 
   const onPaneClick = useCallback(() => {
-    setSelectedEdge(null)
-  }, [])
-
-  const handleEdgePropertiesChange = useCallback(
-    (patch: Partial<EdgePropertiesPanelValue>) => {
-      if (!selectedEdge) return
-
-      const { label, ...dataPatch } = patch
-      const hasDataPatch = Object.keys(dataPatch).length > 0
-
-      updateEdgeData(selectedEdge.id, {
-        ...(label !== undefined ? { label } : {}),
-        ...(hasDataPatch ? { data: dataPatch as Partial<EdgeSimulationData> } : {})
-      })
-
-      setSelectedEdge((prev) =>
-        prev
-          ? {
-              ...prev,
-              ...(label !== undefined ? { label } : {}),
-              ...(hasDataPatch
-                ? {
-                    data: {
-                      ...((prev.data as Record<string, unknown> | undefined) ?? {}),
-                      ...dataPatch
-                    }
-                  }
-                : {})
-            }
-          : null
-      )
-    },
-    [selectedEdge, updateEdgeData]
-  )
+    selectGraphElements({})
+  }, [selectGraphElements])
 
   return (
     <div style={{ width: '100%', height: '100%' }} className="bg-nss-bg relative">
@@ -162,30 +126,10 @@ const FlowCanvasInternal = ({ showMetricLens = false, onNodeDoubleClick }: FlowC
         <MiniMap className="!bg-nss-surface !border-nss-border" />
       </ReactFlow>
       {!isEmpty && showMetricLens && <MetricLensSwitcher />}
+      {!isEmpty && showMetricLens && <CanvasLegend />}
 
       {/* Empty State */}
       <EmptyFlowState isEmpty={isEmpty} />
-
-      {selectedEdge && (
-        <EdgePropertiesPanel
-          sourceNodeData={
-            nodes.find((node) => node.id === selectedEdge.source)?.data as
-              | CanvasNodeDataV2
-              | undefined
-          }
-          targetNodeData={
-            nodes.find((node) => node.id === selectedEdge.target)?.data as
-              | CanvasNodeDataV2
-              | undefined
-          }
-          value={{
-            label: (selectedEdge.label as string) || '',
-            ...(((selectedEdge.data as EdgeSimulationData | undefined) ?? {}) as EdgeSimulationData)
-          }}
-          onChange={handleEdgePropertiesChange}
-          onClose={() => setSelectedEdge(null)}
-        />
-      )}
     </div>
   )
 }

@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { BaseEdge, getSmoothStepPath, EdgeProps, EdgeLabelRenderer } from 'reactflow'
+import type { AnyNodeData, EdgeSimulationData } from '@renderer/types/ui'
+import { getEdgeModePresentation, inferCanvasEdgeMode } from '@renderer/config/edgeSemantics'
 import useStore, { type EdgeFlowRunConfig, type EdgeFlowState } from '@renderer/store/useStore'
 import { getRoutingPreviewSnapshot } from '@renderer/utils/routingStrategyPreview'
 import { failureRateLevelFromRatio } from '@renderer/utils/failureRatePresentation'
@@ -102,6 +104,7 @@ function packetSpeedJitter(
 export const PacketEdge = ({
   id,
   source,
+  target,
   sourceX,
   sourceY,
   targetX,
@@ -111,6 +114,7 @@ export const PacketEdge = ({
   style = {},
   markerEnd,
   label,
+  data,
   selected
 }: EdgeProps) => {
   const [edgePath, labelX, labelY] = getSmoothStepPath({
@@ -137,6 +141,10 @@ export const PacketEdge = ({
   const nodes = useStore((state) => state.nodes)
   const edges = useStore((state) => state.edges)
   const metricsByNode = useStore((state) => state.simulationMetricsByNode)
+  const targetNodeData = nodes.find((node) => node.id === target)?.data as AnyNodeData | undefined
+  const edgeData = (data ?? {}) as EdgeSimulationData
+  const edgeMode = inferCanvasEdgeMode(edgeData, targetNodeData)
+  const edgeModePresentation = getEdgeModePresentation(edgeMode)
   const routingPreview = useMemo(() => {
     if (!routingVisualization || routingVisualization.sourceNodeId !== source) return null
 
@@ -293,6 +301,14 @@ export const PacketEdge = ({
             ? 'text-nss-warning'
             : 'text-nss-primary'
   ].join(' ')
+  const showModeBadge = selected || edgeMode !== 'synchronous'
+  const modeBadgeTitle = [
+    `${edgeModePresentation.title}: ${edgeModePresentation.summary}`,
+    edgeModePresentation.simulationEffect,
+    edgeModePresentation.note
+  ]
+    .filter(Boolean)
+    .join(' ')
 
   const pointForProgress = (progress: number) => {
     if (!pathRef.current || pathLength <= 0) {
@@ -324,12 +340,12 @@ export const PacketEdge = ({
         style={{
           ...style,
           strokeWidth: trafficStrokeWidth,
+          strokeDasharray: edgeModePresentation.strokeDasharray,
           stroke: isRoutingPreviewEdge
             ? 'var(--nss-border-high)'
             : selected
               ? FLOW_PRIMARY_COLOR
               : (failureStroke ?? 'var(--nss-border-high)'),
-          strokeDasharray: 'none',
           opacity: isRoutingPreviewEdge
             ? routingPreview?.isSelected
               ? 1
@@ -414,7 +430,7 @@ export const PacketEdge = ({
         style={{ pointerEvents: 'all', ...(selected ? { opacity: 1 } : {}) }}
       />
 
-      {(hasLabel || isRoutingPreviewEdge || flowStatus === 'complete' || flow) && (
+      {(hasLabel || showModeBadge || isRoutingPreviewEdge || flowStatus === 'complete' || flow) && (
         <EdgeLabelRenderer>
           <div
             style={{
@@ -425,6 +441,14 @@ export const PacketEdge = ({
             className="nodrag nopan"
           >
             <div className="flex flex-col items-center gap-1">
+              {showModeBadge && (
+                <span
+                  className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold leading-none tracking-wide ${edgeModePresentation.badgeClassName}`}
+                  title={modeBadgeTitle}
+                >
+                  {edgeModePresentation.shortLabel}
+                </span>
+              )}
               {hasLabel && (
                 <span className="bg-nss-bg px-2 py-0.5 text-[11px] font-bold uppercase leading-none tracking-wide text-nss-text">
                   {label.toString()}

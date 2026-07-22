@@ -42,8 +42,8 @@ export function RoutingVisualizationToast({ state, onClose }: RoutingVisualizati
           <span className="font-semibold text-nss-text">{state.sourceLabel}</span>.
         </p>
         <p className="text-nss-muted">
-          Node id: <span className="font-mono text-nss-text">{state.sourceNodeId}</span>. Close this
-          banner to return to the normal packet view.
+          Node id: <span className="text-nss-text">{state.sourceNodeId}</span>. Close this banner to
+          return to the normal packet view.
         </p>
       </div>
     </div>

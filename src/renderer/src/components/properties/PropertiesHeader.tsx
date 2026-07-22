@@ -44,7 +44,7 @@ export const PropertiesHeader = ({ data }: PropertiesHeaderProps) => {
             </span>
           </div>
           <div className="mt-1 flex items-center gap-2">
-            <span className="text-[10px] text-nss-muted font-mono uppercase truncate">
+            <span className="text-[10px] text-nss-muted uppercase truncate">
               {data.subLabel || subLabel}
             </span>
             <span className="text-[10px] px-1.5 py-0.5 rounded border border-nss-border bg-nss-surface text-nss-muted uppercase tracking-wide">

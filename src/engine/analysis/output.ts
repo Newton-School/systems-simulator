@@ -3,7 +3,8 @@ import type {
   CanonicalEventRecord,
   DebugEvent,
   EventCountsByType,
-  RequestLifecycle
+  RequestLifecycle,
+  RequestOutcomeRecord
 } from '../core/event-stream'
 import { createEmptyEventCounts } from '../core/event-stream'
 import { MetricsCollector, PerEdgeMetrics, PerNodeMetrics, SimulationSummary } from '../metrics'
@@ -159,6 +160,12 @@ export interface SimulationOutput {
   eventLog: DebugEvent[] | null
   /** Lifecycle assembled for a focused debug request, when one was selected. */
   debuggedLifecycle: RequestLifecycle | null
+  /**
+   * Complete, unsampled per-request outcome ledger: one row per generated
+   * request keyed on terminal fate (success/timeout/rejected/connection_reset)
+   * plus in-flight survivors at cutoff. `Σ(rows by status) === requests generated`.
+   */
+  requestOutcomes: RequestOutcomeRecord[]
 }
 
 export function generateSimulationOutput(
@@ -175,6 +182,7 @@ export function generateSimulationOutput(
     eventLog?: DebugEvent[] | null
     debuggedLifecycle?: RequestLifecycle | null
     statusTimeline?: StatusWindow[]
+    requestOutcomes?: RequestOutcomeRecord[]
   }
 ): SimulationOutput {
   const summary = metrics.generateSummary(config.simulationDuration)
@@ -208,7 +216,8 @@ export function generateSimulationOutput(
     simulationDuration: config.simulationDuration,
     warmupDuration: config.warmupDuration,
     eventLog: debugData?.eventLog ?? null,
-    debuggedLifecycle: debugData?.debuggedLifecycle ?? null
+    debuggedLifecycle: debugData?.debuggedLifecycle ?? null,
+    requestOutcomes: debugData?.requestOutcomes ?? []
   }
 }
 

@@ -1,4 +1,10 @@
-export type FailureRateLevel = 'ok' | 'warn' | 'crit'
+import type { FailureRateLevel } from '@renderer/utils/nodeHealthThresholds'
+
+export type { FailureRateLevel } from '@renderer/utils/nodeHealthThresholds'
+export {
+  failureRateLevelFromPercent,
+  failureRateLevelFromRatio
+} from '@renderer/utils/nodeHealthThresholds'
 
 export function roundedFailurePercent(value?: number): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) return 0
@@ -15,18 +21,6 @@ export function formatFailurePercentLabel(value?: number): string {
   }
 
   return `${value.toFixed(1)}%`
-}
-
-export function failureRateLevelFromPercent(value?: number): FailureRateLevel {
-  const rounded = roundedFailurePercent(value)
-  if (rounded > 5) return 'crit'
-  if (rounded > 1) return 'warn'
-  return 'ok'
-}
-
-export function failureRateLevelFromRatio(value?: number): FailureRateLevel {
-  if (typeof value !== 'number' || !Number.isFinite(value)) return 'ok'
-  return failureRateLevelFromPercent(value * 100)
 }
 
 export function failureRateTextClass(level: FailureRateLevel): string {

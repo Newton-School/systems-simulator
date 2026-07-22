@@ -8,7 +8,7 @@ export const Input = ({
   <div className="relative group">
     <input
       className={clsx(
-        'w-full bg-nss-input-bg border border-nss-border hover:border-nss-muted/50 focus:border-nss-primary rounded px-3 py-2 text-sm text-nss-text outline-none transition-colors font-mono placeholder:text-nss-placeholder',
+        'w-full bg-nss-input-bg border border-nss-border hover:border-nss-muted/50 focus:border-nss-primary rounded px-3 py-2 text-sm text-nss-text outline-none transition-colors placeholder:text-nss-placeholder',
         className
       )}
       {...props}

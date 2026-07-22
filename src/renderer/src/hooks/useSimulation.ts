@@ -12,6 +12,7 @@ export interface SimulationState {
   status: SimulationStatus
   progress: number // 0–100
   eventsProcessed: number
+  runStartedAtMs: number | null
   snapshot: TimeSeriesSnapshot | null
   results: SimulationOutput | null
   stopped: boolean
@@ -33,6 +34,7 @@ const INITIAL_STATE: SimulationState = {
   status: 'idle',
   progress: 0,
   eventsProcessed: 0,
+  runStartedAtMs: null,
   snapshot: null,
   results: null,
   stopped: false,
@@ -136,6 +138,7 @@ export function useSimulation(): SimulationState & SimulationControls {
       status: 'running',
       progress: 0,
       eventsProcessed: 0,
+      runStartedAtMs: Date.now(),
       snapshot: null,
       results: null,
       stopped: false,
