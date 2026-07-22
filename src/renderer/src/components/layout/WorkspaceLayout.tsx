@@ -189,6 +189,7 @@ export const WorkspaceLayout = () => {
   const { handleSave, handleOpen, loadFromData } = useFlowPersistence(confirmDiscardChanges)
 
   const selectedNodeId = nodes.find((n) => n.selected)?.id
+  const selectedEdgeId = edges.find((e) => e.selected)?.id
   const hasElectronCloseBridge = typeof window.nssimulator?.onCloseRequest === 'function'
   const handleLeftSidebarTabSelect = useCallback((tab: LibrarySidebarTab) => {
     setLeftSidebarTab(tab)
@@ -234,10 +235,18 @@ export const WorkspaceLayout = () => {
   }, [])
 
   useEffect(() => {
-    if (!selectedNodeId) {
+    if (!selectedNodeId && !selectedEdgeId) {
       setIsRightOpen(false)
     }
-  }, [selectedNodeId])
+  }, [selectedNodeId, selectedEdgeId])
+
+  // Selecting an edge opens the inspector on its properties, mirroring how
+  // double-clicking a node opens the node config.
+  useEffect(() => {
+    if (selectedEdgeId) {
+      setIsRightOpen(true)
+    }
+  }, [selectedEdgeId])
 
   // Simulation
   const sim = useSimulation()
@@ -503,6 +512,8 @@ export const WorkspaceLayout = () => {
                         stopped={sim.stopped}
                         progress={sim.progress}
                         eventsProcessed={sim.eventsProcessed}
+                        runStartedAtMs={sim.runStartedAtMs}
+                        snapshot={sim.snapshot}
                         results={sim.results}
                         error={sim.error}
                         runContext={lastRunContext}
