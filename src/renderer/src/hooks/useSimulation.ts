@@ -77,12 +77,14 @@ export function useSimulation(): SimulationState & SimulationControls {
           setState((s) => ({ ...s, snapshot: msg.payload.snapshot }))
           break
 
-        case 'edge-flow':
-          useStore.getState().recordEdgeFlowEvent(msg.payload.event)
+        case 'edge-flow-batch':
+          useStore.getState().recordEdgeFlowEventBatch(msg.payload.events)
           break
 
         case 'complete':
           useStore.getState().setEdgeFlowStatus('complete')
+          useStore.getState().selectGraphElements({})
+          useStore.getState().setRunInspectorPinned(true)
           setState((s) => ({
             ...s,
             status: 'complete',
@@ -133,6 +135,8 @@ export function useSimulation(): SimulationState & SimulationControls {
     // Terminate any existing worker before starting a new one
     workerRef.current?.terminate()
     workerRef.current = spawnWorker()
+    useStore.getState().selectGraphElements({})
+    useStore.getState().setRunInspectorPinned(false)
 
     setState({
       status: 'running',

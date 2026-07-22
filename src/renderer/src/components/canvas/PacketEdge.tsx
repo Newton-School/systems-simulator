@@ -5,7 +5,7 @@ import { getEdgeModePresentation, inferCanvasEdgeMode } from '@renderer/config/e
 import useStore, { type EdgeFlowRunConfig, type EdgeFlowState } from '@renderer/store/useStore'
 import { getRoutingPreviewSnapshot } from '@renderer/utils/routingStrategyPreview'
 import { failureRateLevelFromRatio } from '@renderer/utils/failureRatePresentation'
-import { patternMultiplier, patternPhaseLabel } from './edgeFlowPatterns'
+import { patternMultiplier } from './edgeFlowPatterns'
 import type { EdgeFailureCause } from '../../../../engine/core/events'
 
 const EDGE_VISUAL_WINDOW_MS = 3_000
@@ -249,12 +249,6 @@ export const PacketEdge = ({
       : 0
     : patternPacketCount(basePacketCount, visualMultiplier)
   const isInactiveAfterRun = flowStatus === 'complete' && !flow
-  const phaseLabel =
-    isRoutingPreviewEdge || isInactiveAfterRun
-      ? null
-      : patternPhaseLabel(runConfig, playback, now, (config, player, currentTime, edgeId) =>
-          patternMultiplier(config, player, currentTime, edgeId, hash01)
-        )
   const hasFlow = isRoutingPreviewEdge
     ? Boolean(routingPreview?.isSelected)
     : isComplete
@@ -282,33 +276,25 @@ export const PacketEdge = ({
       : 'not selected'
     : isInactiveAfterRun
       ? 'inactive'
-      : [phaseLabel, fmtFailureRate(failureRatio)].filter(Boolean).join(' / ')
+      : fmtFailureRate(failureRatio)
   const flowLabelTitle =
     failureBreakdownText.length > 0 && !isRoutingPreviewEdge
       ? `${flowLabelText} (${failureBreakdownText})`
       : flowLabelText
   const flowLabelClassName = [
-    'bg-nss-bg px-2 py-0.5 text-[16px] leading-none tracking-wide',
+    'rounded-full border px-2 py-0.5 text-[12px] font-semibold leading-none tracking-wide shadow-sm',
     isRoutingPreviewEdge
       ? routingPreview?.isSelected
-        ? 'text-nss-success'
-        : 'text-nss-muted'
+        ? 'border-nss-success/30 bg-nss-success/10 text-nss-success'
+        : 'border-nss-border bg-nss-surface text-nss-muted'
       : isInactiveAfterRun
-        ? 'text-nss-muted'
+        ? 'border-nss-border bg-nss-surface text-nss-muted'
         : failureLevel === 'crit'
-          ? 'text-nss-danger'
+          ? 'border-nss-danger/30 bg-nss-danger/10 text-nss-danger'
           : failureLevel === 'warn'
-            ? 'text-nss-warning'
-            : 'text-nss-primary'
+            ? 'border-nss-warning/30 bg-nss-warning/10 text-nss-warning'
+            : 'border-nss-primary/30 bg-nss-primary/10 text-nss-primary'
   ].join(' ')
-  const showModeBadge = selected || edgeMode !== 'synchronous'
-  const modeBadgeTitle = [
-    `${edgeModePresentation.title}: ${edgeModePresentation.summary}`,
-    edgeModePresentation.simulationEffect,
-    edgeModePresentation.note
-  ]
-    .filter(Boolean)
-    .join(' ')
 
   const pointForProgress = (progress: number) => {
     if (!pathRef.current || pathLength <= 0) {
@@ -430,7 +416,7 @@ export const PacketEdge = ({
         style={{ pointerEvents: 'all', ...(selected ? { opacity: 1 } : {}) }}
       />
 
-      {(hasLabel || showModeBadge || isRoutingPreviewEdge || flowStatus === 'complete' || flow) && (
+      {(hasLabel || isRoutingPreviewEdge || flowStatus === 'complete' || flow) && (
         <EdgeLabelRenderer>
           <div
             style={{
@@ -441,14 +427,6 @@ export const PacketEdge = ({
             className="nodrag nopan"
           >
             <div className="flex flex-col items-center gap-1">
-              {showModeBadge && (
-                <span
-                  className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold leading-none tracking-wide ${edgeModePresentation.badgeClassName}`}
-                  title={modeBadgeTitle}
-                >
-                  {edgeModePresentation.shortLabel}
-                </span>
-              )}
               {hasLabel && (
                 <span className="bg-nss-bg px-2 py-0.5 text-[11px] font-bold uppercase leading-none tracking-wide text-nss-text">
                   {label.toString()}

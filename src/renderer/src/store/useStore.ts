@@ -29,6 +29,7 @@ type FailureCountsByCause = Partial<Record<EdgeFailureCause, number>>
 export type EdgeFlowRenderEvent = EdgeFlowEvent & {
   receivedAtMs: number
   displayAtMs: number
+  sampleWeight: number
 }
 
 export interface EdgeFlowState {
@@ -69,8 +70,9 @@ export interface EdgeFlowRunConfig {
 
 const EDGE_FLOW_WINDOW_MS = 6_000
 const EDGE_FLOW_MAX_EVENTS = 25_000
-const EDGE_FLOW_HISTORY_MAX_EVENTS = 100_000
+const EDGE_FLOW_HISTORY_MAX_EVENTS = 10_000
 const EDGE_FLOW_PLAYBACK_SPEED = 10
+const EDGE_FLOW_LIVE_RETAINED_EVENTS_PER_BATCH = 100
 
 const EMPTY_EDGE_FLOW_STATE: EdgeFlowState = {
   recent: [],
@@ -100,8 +102,17 @@ function summarizeEdgeFlow(
   EdgeFlowState,
   'attemptedPerSecond' | 'successPerSecond' | 'failedPerSecond' | 'failureRatio'
 > {
-  const attempted = events.length
-  const success = events.filter((event) => event.status === 'success').length
+  let attempted = 0
+  let success = 0
+
+  for (const event of events) {
+    const weight = event.sampleWeight
+    attempted += weight
+    if (event.status === 'success') {
+      success += weight
+    }
+  }
+
   const failed = attempted - success
   const first = events[0]?.displayAtMs
   const last = events[events.length - 1]?.displayAtMs
@@ -118,18 +129,104 @@ function summarizeEdgeFlow(
   }
 }
 
-function incrementFailureCause(
+function incrementFailureCauseInPlace(
   counts: FailureCountsByCause,
   cause: EdgeFailureCause | undefined
-): FailureCountsByCause {
+) {
   if (!cause) {
-    return counts
+    return
   }
 
-  return {
-    ...counts,
-    [cause]: (counts[cause] ?? 0) + 1
+  counts[cause] = (counts[cause] ?? 0) + 1
+}
+
+function mergeEdgeFlowState(
+  previous: EdgeFlowState,
+  countedEvents: EdgeFlowEvent[],
+  retainedEvents: EdgeFlowRenderEvent[],
+  warmupDurationMs: number
+): EdgeFlowState {
+  const lastEvent = countedEvents[countedEvents.length - 1]
+  if (!lastEvent) {
+    return previous
   }
+
+  const lastRetainedEvent = retainedEvents[retainedEvents.length - 1]
+  const recent = previous.recent
+    .concat(retainedEvents)
+    .filter(
+      (item) =>
+        !lastRetainedEvent ||
+        lastRetainedEvent.displayAtMs - item.displayAtMs <= EDGE_FLOW_WINDOW_MS * 2
+    )
+    .slice(-EDGE_FLOW_MAX_EVENTS)
+  const totalAttempted = previous.totalAttempted + countedEvents.length
+  let totalSuccess = previous.totalSuccess
+  let totalPostWarmupAttempted = previous.totalPostWarmupAttempted
+  let totalPostWarmupSuccess = previous.totalPostWarmupSuccess
+  const totalFailedByCause = { ...previous.totalFailedByCause }
+  const totalPostWarmupFailedByCause = { ...previous.totalPostWarmupFailedByCause }
+
+  for (const event of countedEvents) {
+    const isPostWarmupEvent = event.completedAtMs >= warmupDurationMs
+
+    if (event.status === 'success') {
+      totalSuccess++
+      if (isPostWarmupEvent) {
+        totalPostWarmupSuccess++
+      }
+    }
+
+    if (isPostWarmupEvent) {
+      totalPostWarmupAttempted++
+    }
+
+    incrementFailureCauseInPlace(totalFailedByCause, event.failureCause)
+    if (isPostWarmupEvent) {
+      incrementFailureCauseInPlace(totalPostWarmupFailedByCause, event.failureCause)
+    }
+  }
+
+  const totalFailed = totalAttempted - totalSuccess
+  const totalPostWarmupFailed = totalPostWarmupAttempted - totalPostWarmupSuccess
+  const firstStartedAtMs =
+    previous.totalAttempted === 0 ? (countedEvents[0]?.startedAtMs ?? 0) : previous.firstStartedAtMs
+  const lastStartedAtMs =
+    previous.totalAttempted === 0
+      ? lastEvent.startedAtMs
+      : Math.max(previous.lastStartedAtMs, lastEvent.startedAtMs)
+  const durationSeconds = Math.max(1, (lastStartedAtMs - firstStartedAtMs) / 1000)
+  const postWarmupDurationSeconds = Math.max(
+    1,
+    (Math.max(lastStartedAtMs, warmupDurationMs) - warmupDurationMs) / 1000
+  )
+
+  return {
+    recent,
+    ...summarizeEdgeFlow(recent),
+    totalAttempted,
+    totalSuccess,
+    totalFailed,
+    totalPostWarmupAttempted,
+    totalPostWarmupSuccess,
+    totalPostWarmupFailed,
+    avgAttemptedPerSecond: totalAttempted / durationSeconds,
+    avgSuccessPerSecond: totalSuccess / durationSeconds,
+    avgFailedPerSecond: totalFailed / durationSeconds,
+    avgPostWarmupSuccessPerSecond: totalPostWarmupSuccess / postWarmupDurationSeconds,
+    firstStartedAtMs,
+    lastStartedAtMs,
+    totalFailedByCause,
+    totalPostWarmupFailedByCause
+  }
+}
+
+function shouldRetainEdgeFlowEvent(
+  event: EdgeFlowEvent,
+  index: number,
+  sampleStride: number
+): boolean {
+  return event.status !== 'success' || index % sampleStride === 0
 }
 
 type RFState = {
@@ -143,6 +240,8 @@ type RFState = {
   edgeFlowPlayback: { wallStartMs: number; simStartMs: number } | null
   edgeFlowStatus: EdgeFlowStatus
   edgeFlowRunConfig: EdgeFlowRunConfig | null
+  runInspectorPinned: boolean
+  runInspectorDrilldownActive: boolean
   routingStrategyVisualization: RoutingStrategyVisualizationState | null
 
   // --- File State ---
@@ -164,8 +263,11 @@ type RFState = {
   clearSimulationMetrics: () => void
   setMetricLens: (lens: MetricLens) => void
   recordEdgeFlowEvent: (event: EdgeFlowEvent) => void
+  recordEdgeFlowEventBatch: (events: EdgeFlowEvent[]) => void
   setEdgeFlowStatus: (status: EdgeFlowStatus) => void
   setEdgeFlowRunConfig: (config: EdgeFlowRunConfig) => void
+  setRunInspectorPinned: (pinned: boolean) => void
+  setRunInspectorDrilldownActive: (active: boolean) => void
   clearEdgeFlow: () => void
   setRoutingStrategyVisualization: (state: RoutingStrategyVisualizationState | null) => void
   setNodes: (nodes: Node[]) => void
@@ -189,6 +291,8 @@ const useStore = create<RFState>((set, get) => ({
   edgeFlowPlayback: null,
   edgeFlowStatus: 'idle',
   edgeFlowRunConfig: null,
+  runInspectorPinned: false,
+  runInspectorDrilldownActive: false,
   routingStrategyVisualization: null,
 
   // Initial File State
@@ -256,6 +360,10 @@ const useStore = create<RFState>((set, get) => ({
 
   selectGraphElements: ({ nodeId, edgeId }) => {
     set({
+      runInspectorPinned:
+        nodeId !== undefined || edgeId !== undefined ? false : get().runInspectorPinned,
+      runInspectorDrilldownActive:
+        nodeId !== undefined || edgeId !== undefined ? false : get().runInspectorDrilldownActive,
       nodes: get().nodes.map((node) => ({
         ...node,
         selected: nodeId !== undefined && node.id === nodeId
@@ -318,75 +426,91 @@ const useStore = create<RFState>((set, get) => ({
   },
 
   recordEdgeFlowEvent: (event) => {
-    const now = Date.now()
-    const playback = get().edgeFlowPlayback ?? {
-      wallStartMs: now,
-      simStartMs: event.startedAtMs
-    }
-    const edgeFlowById = get().edgeFlowById
-    const edgeFlowHistory = get().edgeFlowHistory
-    const previous = edgeFlowById[event.edgeId] ?? EMPTY_EDGE_FLOW_STATE
-    const displayAtMs =
-      playback.wallStartMs + (event.startedAtMs - playback.simStartMs) / EDGE_FLOW_PLAYBACK_SPEED
-    const renderedEvent: EdgeFlowRenderEvent = {
-      ...event,
-      receivedAtMs: now,
-      displayAtMs
-    }
-    const recent = [...previous.recent, renderedEvent]
-      .filter((item) => displayAtMs - item.displayAtMs <= EDGE_FLOW_WINDOW_MS * 2)
-      .slice(-EDGE_FLOW_MAX_EVENTS)
-    const nextHistory = [...edgeFlowHistory, renderedEvent].slice(-EDGE_FLOW_HISTORY_MAX_EVENTS)
-    const warmupDurationMs = get().edgeFlowRunConfig?.warmupDurationMs ?? 0
-    const isPostWarmupEvent = event.completedAtMs >= warmupDurationMs
-    const isPostWarmupSuccess = event.status === 'success' && isPostWarmupEvent
-    const totalAttempted = previous.totalAttempted + 1
-    const totalSuccess = previous.totalSuccess + (event.status === 'success' ? 1 : 0)
-    const totalFailed = totalAttempted - totalSuccess
-    const totalPostWarmupAttempted = previous.totalPostWarmupAttempted + (isPostWarmupEvent ? 1 : 0)
-    const totalPostWarmupSuccess = previous.totalPostWarmupSuccess + (isPostWarmupSuccess ? 1 : 0)
-    const totalPostWarmupFailed = totalPostWarmupAttempted - totalPostWarmupSuccess
-    const totalFailedByCause = incrementFailureCause(
-      previous.totalFailedByCause,
-      event.failureCause
-    )
-    const totalPostWarmupFailedByCause =
-      isPostWarmupEvent && event.failureCause
-        ? incrementFailureCause(previous.totalPostWarmupFailedByCause, event.failureCause)
-        : previous.totalPostWarmupFailedByCause
-    const firstStartedAtMs =
-      previous.totalAttempted === 0 ? event.startedAtMs : previous.firstStartedAtMs
-    const lastStartedAtMs = Math.max(previous.lastStartedAtMs, event.startedAtMs)
-    const durationSeconds = Math.max(1, (lastStartedAtMs - firstStartedAtMs) / 1000)
-    const postWarmupDurationSeconds = Math.max(
-      1,
-      (Math.max(lastStartedAtMs, warmupDurationMs) - warmupDurationMs) / 1000
-    )
+    get().recordEdgeFlowEventBatch([event])
+  },
 
-    set({
-      edgeFlowStatus: 'running',
-      edgeFlowPlayback: playback,
-      edgeFlowHistory: nextHistory,
-      edgeFlowById: {
-        ...edgeFlowById,
-        [event.edgeId]: {
-          recent,
-          ...summarizeEdgeFlow(recent),
-          totalAttempted,
-          totalSuccess,
-          totalFailed,
-          totalPostWarmupAttempted,
-          totalPostWarmupSuccess,
-          totalPostWarmupFailed,
-          avgAttemptedPerSecond: totalAttempted / durationSeconds,
-          avgSuccessPerSecond: totalSuccess / durationSeconds,
-          avgFailedPerSecond: totalFailed / durationSeconds,
-          avgPostWarmupSuccessPerSecond: totalPostWarmupSuccess / postWarmupDurationSeconds,
-          firstStartedAtMs,
-          lastStartedAtMs,
-          totalFailedByCause,
-          totalPostWarmupFailedByCause
+  recordEdgeFlowEventBatch: (events) => {
+    if (events.length === 0) {
+      return
+    }
+
+    const receivedAtMs = Date.now()
+
+    set((state) => {
+      const playback = state.edgeFlowPlayback ?? {
+        wallStartMs: receivedAtMs,
+        simStartMs: events[0]?.startedAtMs ?? 0
+      }
+      const countedEventsByEdgeId = new Map<string, EdgeFlowEvent[]>()
+      const retainedEventsByEdgeId = new Map<string, EdgeFlowRenderEvent[]>()
+      const retainedEvents: EdgeFlowRenderEvent[] = []
+
+      for (const event of events) {
+        const counted = countedEventsByEdgeId.get(event.edgeId)
+        if (counted) {
+          counted.push(event)
+        } else {
+          countedEventsByEdgeId.set(event.edgeId, [event])
         }
+      }
+
+      for (const [edgeId, edgeEvents] of countedEventsByEdgeId) {
+        const retainedTarget = Math.max(
+          1,
+          Math.ceil((EDGE_FLOW_LIVE_RETAINED_EVENTS_PER_BATCH * edgeEvents.length) / events.length)
+        )
+        const sampleStride = Math.max(1, Math.ceil(edgeEvents.length / retainedTarget))
+
+        edgeEvents.forEach((event, index) => {
+          if (!shouldRetainEdgeFlowEvent(event, index, sampleStride)) {
+            return
+          }
+
+          const displayAtMs =
+            playback.wallStartMs +
+            (event.startedAtMs - playback.simStartMs) / EDGE_FLOW_PLAYBACK_SPEED
+          const renderedEvent: EdgeFlowRenderEvent = {
+            ...event,
+            receivedAtMs,
+            displayAtMs,
+            sampleWeight: event.status === 'success' ? sampleStride : 1
+          }
+          const existing = retainedEventsByEdgeId.get(edgeId)
+          if (existing) {
+            existing.push(renderedEvent)
+          } else {
+            retainedEventsByEdgeId.set(edgeId, [renderedEvent])
+          }
+          retainedEvents.push(renderedEvent)
+        })
+      }
+
+      retainedEvents.sort(
+        (first, second) =>
+          first.startedAtMs - second.startedAtMs ||
+          first.sequence - second.sequence ||
+          first.edgeId.localeCompare(second.edgeId)
+      )
+      const edgeFlowById = { ...state.edgeFlowById }
+      const warmupDurationMs = state.edgeFlowRunConfig?.warmupDurationMs ?? 0
+
+      for (const [edgeId, edgeEvents] of countedEventsByEdgeId) {
+        const previous = edgeFlowById[edgeId] ?? EMPTY_EDGE_FLOW_STATE
+        edgeFlowById[edgeId] = mergeEdgeFlowState(
+          previous,
+          edgeEvents,
+          retainedEventsByEdgeId.get(edgeId) ?? [],
+          warmupDurationMs
+        )
+      }
+
+      return {
+        edgeFlowStatus: 'running' as const,
+        edgeFlowPlayback: playback,
+        edgeFlowHistory: state.edgeFlowHistory
+          .concat(retainedEvents)
+          .slice(-EDGE_FLOW_HISTORY_MAX_EVENTS),
+        edgeFlowById
       }
     })
   },
@@ -399,13 +523,26 @@ const useStore = create<RFState>((set, get) => ({
     set({ edgeFlowRunConfig: config })
   },
 
+  setRunInspectorPinned: (pinned) => {
+    set({
+      runInspectorPinned: pinned,
+      ...(pinned ? { runInspectorDrilldownActive: false } : {})
+    })
+  },
+
+  setRunInspectorDrilldownActive: (active) => {
+    set({ runInspectorDrilldownActive: active })
+  },
+
   clearEdgeFlow: () => {
     set({
       edgeFlowById: {},
       edgeFlowHistory: [],
       edgeFlowPlayback: null,
       edgeFlowStatus: 'idle',
-      edgeFlowRunConfig: null
+      edgeFlowRunConfig: null,
+      runInspectorPinned: false,
+      runInspectorDrilldownActive: false
     })
   },
 

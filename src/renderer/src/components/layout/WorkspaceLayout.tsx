@@ -172,6 +172,7 @@ export const WorkspaceLayout = () => {
   const setSimulationMetrics = useStore((s) => s.setSimulationMetrics)
   const clearSimulationMetrics = useStore((s) => s.clearSimulationMetrics)
   const selectGraphElements = useStore((s) => s.selectGraphElements)
+  const runInspectorPinned = useStore((s) => s.runInspectorPinned)
   const routingVisualization = useStore((s) => s.routingStrategyVisualization)
   const setRoutingVisualization = useStore((s) => s.setRoutingStrategyVisualization)
   const { confirm, dialog } = useConfirmDialog()
@@ -235,10 +236,16 @@ export const WorkspaceLayout = () => {
   }, [])
 
   useEffect(() => {
-    if (!selectedNodeId && !selectedEdgeId) {
+    if (!selectedNodeId && !selectedEdgeId && !runInspectorPinned) {
       setIsRightOpen(false)
     }
-  }, [selectedNodeId, selectedEdgeId])
+  }, [runInspectorPinned, selectedNodeId, selectedEdgeId])
+
+  useEffect(() => {
+    if (runInspectorPinned) {
+      setIsRightOpen(true)
+    }
+  }, [runInspectorPinned])
 
   // Selecting an edge opens the inspector on its properties, mirroring how
   // double-clicking a node opens the node config.
@@ -283,6 +290,7 @@ export const WorkspaceLayout = () => {
 
   useEffect(() => {
     if (!sim.results) return
+    setIsRightOpen(true)
 
     const inFlightByNode = new Map(
       sim.results.conservationCheck.map((result) => [result.nodeId, result.inFlight])
@@ -492,13 +500,25 @@ export const WorkspaceLayout = () => {
             <PanelGroup direction="vertical" autoSaveId="main-layout-vertical">
               {/* Canvas */}
               <Panel defaultSize={showResults ? 65 : 100} minSize={10} order={1}>
-                <FlowCanvas
-                  showMetricLens
-                  onNodeDoubleClick={(_, node) => {
-                    selectGraphElements({ nodeId: node.id })
-                    setIsRightOpen(true)
-                  }}
-                />
+                <div className="relative h-full">
+                  <FlowCanvas
+                    showMetricLens
+                    onNodeDoubleClick={(_, node) => {
+                      selectGraphElements({ nodeId: node.id })
+                      setIsRightOpen(true)
+                    }}
+                  />
+
+                  {!showResults && sim.results && (
+                    <button
+                      type="button"
+                      onClick={() => setShowResults(true)}
+                      className="absolute bottom-4 left-1/2 z-20 -translate-x-1/2 rounded-full border border-nss-border bg-nss-panel/95 px-4 py-2 text-sm font-semibold text-nss-text shadow-lg backdrop-blur transition-colors hover:border-nss-primary/50 hover:text-nss-primary"
+                    >
+                      Show Results
+                    </button>
+                  )}
+                </div>
               </Panel>
 
               {/* Results Tray */}
@@ -519,9 +539,6 @@ export const WorkspaceLayout = () => {
                         runContext={lastRunContext}
                         onClose={() => {
                           setShowResults(false)
-                          sim.reset()
-                          clearSimulationMetrics()
-                          setLastRunContext(null)
                         }}
                       />
                     </Suspense>

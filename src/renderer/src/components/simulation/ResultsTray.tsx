@@ -44,7 +44,6 @@ import {
   deriveReliabilityStatus,
   reliabilityRank,
   toneRank,
-  type CapacityStatus,
   type ReliabilityStatus
 } from '@renderer/utils/nodeHealthThresholds'
 
@@ -128,7 +127,7 @@ const TRAFFIC_EVENT_LOG_SIZE = 24
 const RESULTS_TABS: Array<{ id: ResultsTab; label: string }> = [
   { id: 'overview', label: 'Overview' },
   { id: 'bottlenecks', label: 'Bottlenecks' },
-  { id: 'nodes', label: 'Nodes' },
+  { id: 'nodes', label: 'Node Metrics' },
   { id: 'traffic', label: 'Traffic' }
 ]
 
@@ -1457,14 +1456,28 @@ const BUSIEST_MAX_SLOTS = 4
 const BUSIEST_ROW_HEIGHT = 'h-[3.25rem]'
 const BUSIEST_EXIT_MS = 240
 
+function busiestNodeEntrySignature(entries: BusiestNodeEntry[]): string {
+  return entries
+    .map(
+      ([id, node]) =>
+        `${id}:${node.status}:${node.queueLength}:${node.totalInSystem}:${node.activeWorkers}:${node.utilization}`
+    )
+    .join('|')
+}
+
 function useAnimatedNodeList(entries: BusiestNodeEntry[]): AnimatedNodeCard[] {
   const [cards, setCards] = useState<AnimatedNodeCard[]>(() =>
     entries.map(([id, node]) => ({ id, node, phase: 'present' as NodeCardPhase }))
   )
+  const entriesRef = useRef(entries)
   const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>())
+  const entriesSignature = busiestNodeEntrySignature(entries)
+
+  entriesRef.current = entries
 
   useEffect(() => {
-    const currentById = new Map(entries)
+    const currentEntries = entriesRef.current
+    const currentById = new Map(currentEntries)
     const currentIds = new Set(currentById.keys())
 
     // A node that came back cancels its pending exit.
@@ -1498,12 +1511,12 @@ function useAnimatedNodeList(entries: BusiestNodeEntry[]): AnimatedNodeCard[] {
         }
       }
       // Append newly arrived cards.
-      for (const [id, node] of entries) {
+      for (const [id, node] of currentEntries) {
         if (!prevIds.has(id)) next.push({ id, node, phase: 'present' })
       }
       return next
     })
-  }, [entries])
+  }, [entriesSignature])
 
   useEffect(() => {
     const map = timers.current
@@ -2301,19 +2314,10 @@ type NodeMetric = SimulationOutput['perNode'][string]
 type EdgeMetric = SimulationOutput['perEdge'][string]
 type ErrorCauseKey = keyof typeof ERROR_CAUSE_LABELS
 
-/** Node-local success samples below this render latency as "low sample", grayed. */
-const LOW_SAMPLE_FLOOR = 50
-
 const CONDITION_CLASSES: Record<'ok' | 'warn' | 'crit', string> = {
   ok: 'text-nss-success border-nss-success/30 bg-nss-success/10',
   warn: 'text-nss-warning border-nss-warning/30 bg-nss-warning/10',
   crit: 'text-nss-danger border-nss-danger/30 bg-nss-danger/10'
-}
-
-const CAPACITY_CLASSES: Record<CapacityStatus['level'], string> = {
-  headroom: 'text-nss-success border-nss-success/30 bg-nss-success/10',
-  tight: 'text-nss-warning border-nss-warning/25 bg-nss-warning/10',
-  saturated: 'text-nss-warning border-nss-warning/40 bg-nss-warning/15'
 }
 
 function dominantCause(tte: NodeMetric['timeToErrorByCause']): ErrorCauseKey | null {
@@ -2336,161 +2340,8 @@ function nodeCondition(m: NodeMetric): ReliabilityStatus {
   })
 }
 
-/**
- * State-aware node card. Every number declares its population, window, and locus
- * inline (node-local, over the served count) — a bare "8ms" is a different,
- * wrong claim. The card never puts an approving mark next to a latency when the
- * node is down: the survivor-bias 8ms is only over requests that succeeded.
- */
-function NodeConditionCard({
-  nodeId,
-  m,
-  workers
-}: {
-  nodeId: string
-  m: NodeMetric
-  workers?: number
-}) {
-  const reliability = nodeCondition(m)
-  const capacity = deriveCapacityStatus({
-    utilization: m.utilization,
-    utilizationUnit: 'ratio',
-    queueDepth: m.avgQueueLength,
-    workers
-  })
-  const served = m.successLatencySamples
-  const lowSample = served > 0 && served < LOW_SAMPLE_FLOOR
-  const p95 = m.latencyNodeLocal.p95
-
-  return (
-    <div className={`${SURFACE_CARD} p-2.5 space-y-2`}>
-      <div className="flex items-start justify-between gap-3">
-        <span className="text-xs font-medium text-nss-text truncate">{m.nodeLabel ?? nodeId}</span>
-        <div className="grid gap-1 text-right">
-          <div className="flex items-center justify-end gap-1.5">
-            <span className="text-[10px] text-nss-muted uppercase tracking-wide">Reliability</span>
-            <span
-              className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border ${CONDITION_CLASSES[reliability.tone]}`}
-            >
-              {reliability.label}
-            </span>
-          </div>
-          <div className="flex items-center justify-end gap-1.5">
-            <span className="text-[10px] text-nss-muted uppercase tracking-wide">Capacity</span>
-            <span
-              className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border ${CAPACITY_CLASSES[capacity.level]}`}
-            >
-              {capacity.label}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      <div className="flex items-baseline justify-between gap-2">
-        <span className="text-[10px] text-nss-muted uppercase tracking-wide">p95 latency</span>
-        <span
-          className={`text-sm font-medium tabular-nums ${lowSample ? 'text-nss-muted' : 'text-nss-text'}`}
-        >
-          {fmtMs(p95)}
-        </span>
-      </div>
-      <div className="text-[10px] text-nss-muted">
-        node-local · {served.toLocaleString()} successes{lowSample ? ' · low sample' : ''}
-        {p95 === null ? ' · no successful passes in this window' : ''}
-      </div>
-
-      <div className="flex items-baseline justify-between gap-2 border-t border-nss-border pt-1.5">
-        <span className="text-[10px] text-nss-muted uppercase tracking-wide">error rate</span>
-        <span
-          className={`text-sm font-medium tabular-nums ${
-            m.latencyWindowErrorRate > 0.05
-              ? 'text-nss-danger'
-              : m.latencyWindowErrorRate > 0.01
-                ? 'text-nss-warning'
-                : 'text-nss-muted'
-          }`}
-        >
-          {fmtPct(m.latencyWindowErrorRate)}
-        </span>
-      </div>
-      <div className="text-[10px] text-nss-muted">{reliability.detail}</div>
-
-      <div className="flex items-baseline justify-between gap-2 border-t border-nss-border pt-1.5">
-        <span className="text-[10px] text-nss-muted uppercase tracking-wide">capacity</span>
-        <span
-          className={`text-sm font-medium tabular-nums ${
-            capacity.level === 'headroom' ? 'text-nss-success' : 'text-nss-warning'
-          }`}
-        >
-          {fmtPct(m.utilization)}
-        </span>
-      </div>
-      <div className="text-[10px] text-nss-muted">{capacity.detail}</div>
-    </div>
-  )
-}
-
 function conditionRank(condition: ReliabilityStatus): number {
   return reliabilityRank(condition.level) * 10 + toneRank(condition.tone)
-}
-
-function NodeConditionCards({ output }: { output: SimulationOutput }) {
-  const nodes = useStore((state) => state.nodes)
-  const workersByNodeId = useMemo(() => {
-    const byId = new Map<string, number>()
-
-    for (const node of nodes) {
-      const workers = (node.data as { sim?: { queue?: { workers?: unknown } } } | undefined)?.sim
-        ?.queue?.workers
-      if (typeof workers === 'number' && Number.isFinite(workers) && workers > 0) {
-        byId.set(node.id, workers)
-      }
-    }
-
-    return byId
-  }, [nodes])
-
-  const active = Object.entries(output.perNode)
-    .filter(
-      ([, m]) => m.postWarmupArrived > 0 || m.successLatencySamples > 0 || m.timeToErrorSamples > 0
-    )
-    .sort(([, a], [, b]) => {
-      const aCondition = nodeCondition(a)
-      const bCondition = nodeCondition(b)
-      const aCapacity = deriveCapacityStatus({
-        utilization: a.utilization,
-        utilizationUnit: 'ratio',
-        queueDepth: a.avgQueueLength
-      })
-      const bCapacity = deriveCapacityStatus({
-        utilization: b.utilization,
-        utilizationUnit: 'ratio',
-        queueDepth: b.avgQueueLength
-      })
-      return (
-        conditionRank(bCondition) - conditionRank(aCondition) ||
-        capacityRank(bCapacity.level) - capacityRank(aCapacity.level) ||
-        b.latencyWindowErrorRate - a.latencyWindowErrorRate ||
-        b.timeToErrorSamples - a.timeToErrorSamples ||
-        b.successLatencySamples - a.successLatencySamples
-      )
-    })
-  if (active.length === 0) return null
-  return (
-    <div className="space-y-2">
-      <h3 className={SECTION_TITLE}>Node Health</h3>
-      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-        {active.map(([nodeId, m]) => (
-          <NodeConditionCard
-            key={nodeId}
-            nodeId={nodeId}
-            m={m}
-            workers={workersByNodeId.get(nodeId)}
-          />
-        ))}
-      </div>
-    </div>
-  )
 }
 
 /**
@@ -4150,7 +4001,6 @@ export function ResultsTray({
   const [selectedComponent, setSelectedComponent] = useState<SelectedComponent | null>(null)
   const nodes = useStore((state) => state.nodes)
   const edges = useStore((state) => state.edges)
-  const selectGraphElements = useStore((state) => state.selectGraphElements)
   const graphLookup = useMemo<EventGraphLookup>(() => {
     const nodeLabelById = new Map<string, string>()
     const edgeById = new Map<string, EventEdgeDisplayInfo>()
@@ -4188,17 +4038,6 @@ export function ResultsTray({
       setActiveTab('traffic')
     }
   }, [activeTab, results, status])
-
-  useEffect(() => {
-    if (!results) {
-      return
-    }
-
-    selectGraphElements({
-      nodeId: selectedComponent?.kind === 'node' ? selectedComponent.id : undefined,
-      edgeId: selectedComponent?.kind === 'edge' ? selectedComponent.id : undefined
-    })
-  }, [results, selectedComponent, selectGraphElements])
 
   const retainedReplayEventCount = results ? results.eventStream.length : 0
   const totalCapturedReplayEvents = results ? totalReplayEventCount(results) : 0
@@ -4310,7 +4149,6 @@ export function ResultsTray({
 
             {activeTab === 'nodes' && (
               <div className="space-y-4">
-                <NodeConditionCards output={results} />
                 <PerNodeTable output={results} />
               </div>
             )}
