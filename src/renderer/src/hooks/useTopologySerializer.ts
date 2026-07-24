@@ -30,6 +30,7 @@ type EdgeRuntimeData = {
   packetLossRate?: number
   errorRate?: number
   condition?: string
+  weight?: number
 }
 
 function asPositiveNumber(value: unknown): number | null {
@@ -215,7 +216,8 @@ function serializeEdge(
     condition:
       typeof edgeData.condition === 'string' && edgeData.condition.trim().length > 0
         ? edgeData.condition.trim()
-        : undefined
+        : undefined,
+    weight: asPositiveNumber(edgeData.weight) ?? undefined
   }
 }
 
