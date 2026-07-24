@@ -2,11 +2,11 @@
   "version": "2.0.0",
   "nodes": [
     {
-      "id": "producer",
+      "id": "client",
       "type": "serviceNode",
       "position": {
-        "x": 410.47060205104196,
-        "y": -407.5069153936337
+        "x": 520,
+        "y": -420
       },
       "data": {
         "schemaVersion": 2,
@@ -15,64 +15,140 @@
         "structuralRole": "source",
         "profile": "source",
         "rendererType": "serviceNode",
-        "label": "Producer",
-        "subLabel": "Browser / Mobile",
+        "label": "Client",
+        "subLabel": "Keyed Requests",
         "iconKey": "monitor",
         "source": {
           "requestDistribution": [
             {
-              "type": "publish",
-              "weight": 1,
-              "sizeBytes": 2048
+              "type": "read",
+              "weight": 0.17,
+              "sizeBytes": 512,
+              "metadata": { "shardKey": "tenant-3" }
+            },
+            {
+              "type": "read",
+              "weight": 0.16,
+              "sizeBytes": 512,
+              "metadata": { "shardKey": "tenant-6" }
+            },
+            {
+              "type": "read",
+              "weight": 0.17,
+              "sizeBytes": 512,
+              "metadata": { "shardKey": "tenant-2" }
+            },
+            {
+              "type": "read",
+              "weight": 0.16,
+              "sizeBytes": 512,
+              "metadata": { "shardKey": "tenant-5" }
+            },
+            {
+              "type": "read",
+              "weight": 0.17,
+              "sizeBytes": 512,
+              "metadata": { "shardKey": "tenant-1" }
+            },
+            {
+              "type": "read",
+              "weight": 0.17,
+              "sizeBytes": 512,
+              "metadata": { "shardKey": "tenant-4" }
             }
           ],
           "defaultWorkload": {
             "pattern": "constant",
-            "baseRps": 100
+            "baseRps": 90
           }
+        }
+      },
+      "zIndex": 0,
+      "expandParent": false,
+      "selected": false,
+      "width": 256,
+      "height": 118,
+      "positionAbsolute": {
+        "x": 520,
+        "y": -420
+      },
+      "dragging": false,
+      "nodes": []
+    },
+    {
+      "id": "router",
+      "type": "serviceNode",
+      "position": {
+        "x": 520,
+        "y": -200
+      },
+      "data": {
+        "schemaVersion": 2,
+        "templateId": "sharding",
+        "componentType": "sharding",
+        "structuralRole": "router",
+        "profile": "router",
+        "rendererType": "serviceNode",
+        "label": "Shard Router",
+        "subLabel": "Hash-Routed by Key",
+        "iconKey": "sharding",
+        "sim": {
+          "queue": {
+            "workers": 8,
+            "capacity": 64,
+            "discipline": "fifo"
+          },
+          "processing": {
+            "distribution": {
+              "type": "exponential",
+              "lambda": 2
+            },
+            "timeout": 200
+          },
+          "routingKeyField": "shardKey"
         }
       },
       "zIndex": 0,
       "expandParent": false,
       "selected": true,
       "width": 256,
-      "height": 116,
+      "height": 129,
       "positionAbsolute": {
-        "x": 410.47060205104196,
-        "y": -407.5069153936337
+        "x": 520,
+        "y": -200
       },
       "dragging": false,
       "nodes": []
     },
     {
-      "id": "stream",
+      "id": "shard-a",
       "type": "serviceNode",
       "position": {
-        "x": 240.73603672684635,
-        "y": -14.818433287041216
+        "x": 180,
+        "y": 60
       },
       "data": {
         "schemaVersion": 2,
-        "templateId": "stream",
-        "componentType": "stream",
+        "templateId": "shard-node",
+        "componentType": "shard-node",
         "structuralRole": "storage",
-        "profile": "broker",
+        "profile": "datastore",
         "rendererType": "serviceNode",
-        "label": "Kafka Topic",
-        "subLabel": "Ordered Event Log",
-        "iconKey": "stream",
+        "label": "Shard A",
+        "subLabel": "Partition Replica",
+        "iconKey": "shard-node",
         "sim": {
           "queue": {
-            "workers": 1,
-            "capacity": 1000,
+            "workers": 4,
+            "capacity": 48,
             "discipline": "fifo"
           },
           "processing": {
             "distribution": {
               "type": "exponential",
-              "lambda": 0.05
+              "lambda": 0.2
             },
-            "timeout": 2000
+            "timeout": 800
           }
         }
       },
@@ -82,8 +158,96 @@
       "width": 256,
       "height": 129,
       "positionAbsolute": {
-        "x": 240.73603672684635,
-        "y": -14.818433287041216
+        "x": 180,
+        "y": 60
+      },
+      "dragging": false,
+      "nodes": []
+    },
+    {
+      "id": "shard-b",
+      "type": "serviceNode",
+      "position": {
+        "x": 520,
+        "y": 60
+      },
+      "data": {
+        "schemaVersion": 2,
+        "templateId": "shard-node",
+        "componentType": "shard-node",
+        "structuralRole": "storage",
+        "profile": "datastore",
+        "rendererType": "serviceNode",
+        "label": "Shard B",
+        "subLabel": "Partition Replica",
+        "iconKey": "shard-node",
+        "sim": {
+          "queue": {
+            "workers": 4,
+            "capacity": 48,
+            "discipline": "fifo"
+          },
+          "processing": {
+            "distribution": {
+              "type": "exponential",
+              "lambda": 0.2
+            },
+            "timeout": 800
+          }
+        }
+      },
+      "zIndex": 0,
+      "expandParent": false,
+      "selected": false,
+      "width": 256,
+      "height": 129,
+      "positionAbsolute": {
+        "x": 520,
+        "y": 60
+      },
+      "dragging": false,
+      "nodes": []
+    },
+    {
+      "id": "shard-c",
+      "type": "serviceNode",
+      "position": {
+        "x": 860,
+        "y": 60
+      },
+      "data": {
+        "schemaVersion": 2,
+        "templateId": "shard-node",
+        "componentType": "shard-node",
+        "structuralRole": "storage",
+        "profile": "datastore",
+        "rendererType": "serviceNode",
+        "label": "Shard C",
+        "subLabel": "Partition Replica",
+        "iconKey": "shard-node",
+        "sim": {
+          "queue": {
+            "workers": 4,
+            "capacity": 48,
+            "discipline": "fifo"
+          },
+          "processing": {
+            "distribution": {
+              "type": "exponential",
+              "lambda": 0.2
+            },
+            "timeout": 800
+          }
+        }
+      },
+      "zIndex": 0,
+      "expandParent": false,
+      "selected": false,
+      "width": 256,
+      "height": 129,
+      "positionAbsolute": {
+        "x": 860,
+        "y": 60
       },
       "dragging": false,
       "nodes": []
@@ -91,17 +255,68 @@
   ],
   "edges": [
     {
-      "id": "producer-stream",
-      "source": "producer",
-      "target": "stream",
+      "id": "client-router",
+      "source": "client",
+      "target": "router",
       "data": {
-        "protocol": "kafka",
-        "mode": "asynchronous",
+        "protocol": "https",
+        "mode": "synchronous",
         "latencyMu": 0,
-        "latencySigma": 0.35,
+        "latencySigma": 0.3,
         "pathType": "same-dc",
         "bandwidth": 1000,
-        "maxConcurrentRequests": 500,
+        "maxConcurrentRequests": 200,
+        "packetLossRate": 0,
+        "errorRate": 0
+      },
+      "selected": false
+    },
+    {
+      "id": "router-shard-a",
+      "source": "router",
+      "target": "shard-a",
+      "data": {
+        "protocol": "tcp",
+        "mode": "synchronous",
+        "latencyMu": 0,
+        "latencySigma": 0.25,
+        "pathType": "same-dc",
+        "bandwidth": 1000,
+        "maxConcurrentRequests": 100,
+        "packetLossRate": 0,
+        "errorRate": 0
+      },
+      "selected": false
+    },
+    {
+      "id": "router-shard-b",
+      "source": "router",
+      "target": "shard-b",
+      "data": {
+        "protocol": "tcp",
+        "mode": "synchronous",
+        "latencyMu": 0,
+        "latencySigma": 0.25,
+        "pathType": "same-dc",
+        "bandwidth": 1000,
+        "maxConcurrentRequests": 100,
+        "packetLossRate": 0,
+        "errorRate": 0
+      },
+      "selected": false
+    },
+    {
+      "id": "router-shard-c",
+      "source": "router",
+      "target": "shard-c",
+      "data": {
+        "protocol": "tcp",
+        "mode": "synchronous",
+        "latencyMu": 0,
+        "latencySigma": 0.25,
+        "pathType": "same-dc",
+        "bandwidth": 1000,
+        "maxConcurrentRequests": 100,
         "packetLossRate": 0,
         "errorRate": 0
       },
@@ -112,11 +327,11 @@
     "global": {
       "simulationDuration": 20000,
       "warmupDuration": 2000,
-      "seed": "consumer-lag-seed",
+      "seed": "key-based-sharding-seed",
       "defaultTimeout": 5000,
       "traceSampleRate": 0.01
     },
-    "selectedSourceNodeId": "producer",
+    "selectedSourceNodeId": "client",
     "workloadOverride": {}
   }
 }

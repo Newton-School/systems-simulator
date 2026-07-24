@@ -819,6 +819,29 @@ export const PropertiesPanel = () => {
       ? sourceEmittedCount(selectedNode.id, edges, edgeFlowById)
       : 0
 
+    // When a node fans out to more than one downstream target, the share of its
+    // traffic reaching each target *is* the routing outcome — the honest source of
+    // truth for cache-aside hit/miss, DNS weighting, sharding, etc. Surface it so
+    // the split is visible instead of being inferred from a misleading node panel.
+    const selectedOutboundEdges = edges.filter((edge) => edge.source === selectedNode.id)
+    const downstreamSplit =
+      selectedOutboundEdges.length > 1
+        ? (() => {
+            const rows = selectedOutboundEdges.map((edge) => ({
+              targetLabel:
+                (nodes.find((n) => n.id === edge.target)?.data as { label?: string } | undefined)
+                  ?.label ?? edge.target,
+              count: edgeFlowById[edge.id]?.totalAttempted ?? 0
+            }))
+            const total = rows.reduce((sum, row) => sum + row.count, 0)
+            return total > 0
+              ? rows
+                  .map((row) => ({ ...row, share: row.count / total }))
+                  .sort((a, b) => b.share - a.share)
+              : undefined
+          })()
+        : undefined
+
     return (
       <div className="h-full w-full bg-nss-panel border-l border-nss-border flex flex-col text-nss-text font-sans shadow-xl">
         <PropertiesHeader
@@ -841,7 +864,11 @@ export const PropertiesPanel = () => {
                 emitted={selectedEmitted}
               />
             ) : (
-              <NodeMetricsDetail metrics={metrics} />
+              <NodeMetricsDetail
+                metrics={metrics}
+                configuredCacheHitRate={data.sim?.cacheHitRate}
+                downstreamSplit={downstreamSplit}
+              />
             )
           ) : (
             <PropertiesForm nodeId={selectedNode.id} data={data} onUpdate={handleUpdate} />

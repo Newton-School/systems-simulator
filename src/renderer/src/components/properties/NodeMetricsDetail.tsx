@@ -9,6 +9,24 @@ type NodeMetrics = ReturnType<typeof useNodeMetrics>
 
 interface NodeMetricsDetailProps {
   metrics: NodeMetrics
+  /**
+   * The node-level cache trait's configured hit rate (`sim.cacheHitRate`).
+   * The Cache panel below reports hit/miss counters that only mean anything when
+   * this trait is actually enabled. When it's absent or 0 the node is a plain
+   * datastore that happens to be a cache *type* (e.g. a Redis node fed by
+   * routing-level cache-aside), and the trait counts every arrival as a "miss" —
+   * producing a misleading 0% hit ratio. Gate the panel on this so we never
+   * surface phantom misses.
+   */
+  configuredCacheHitRate?: number
+  /**
+   * How this node's outbound traffic was split across its downstream targets,
+   * highest share first. Present only for nodes that fan out to more than one
+   * target. This is the honest source of truth for routing-level behaviour
+   * (cache-aside hit/miss, DNS weighting, sharding) — the split you'd otherwise
+   * have to infer from a per-node cache panel.
+   */
+  downstreamSplit?: { targetLabel: string; count: number; share: number }[]
 }
 
 function latencyMetricItem(value: number | null | undefined): {
@@ -78,14 +96,23 @@ export const SourceNodeMetricsDetail = ({
  * never had room for. This is what "click for detail" on the canvas card
  * links to - nothing here duplicates onto the card itself.
  */
-export const NodeMetricsDetail = ({ metrics }: NodeMetricsDetailProps) => {
+export const NodeMetricsDetail = ({
+  metrics,
+  configuredCacheHitRate,
+  downstreamSplit
+}: NodeMetricsDetailProps) => {
   const rejectionEntries = Object.entries(metrics.rejectionsByReason ?? {}).sort(
     (a, b) => b[1] - a[1]
   )
   const traitCounterEntries = Object.entries(metrics.traitCounters ?? {}).filter(
     ([key]) => key !== 'cacheHits' && key !== 'cacheMisses'
   )
+  // Only show the Cache panel when the node-level cache trait is actually enabled
+  // (a configured hit rate > 0). Otherwise the hit/miss counters are phantom
+  // misses from a node that's really just a fast datastore.
+  const cacheTraitEnabled = (configuredCacheHitRate ?? 0) > 0
   const hasCacheData =
+    cacheTraitEnabled &&
     metrics.cacheHitRatio !== undefined &&
     ((metrics.cacheHits ?? 0) > 0 || (metrics.cacheMisses ?? 0) > 0)
   const inFlightColour =
@@ -145,6 +172,37 @@ export const NodeMetricsDetail = ({ metrics }: NodeMetricsDetailProps) => {
           />
         </div>
       </Section>
+
+      {downstreamSplit && downstreamSplit.length > 0 && (
+        <Section title="Downstream Routing Split">
+          <div className="space-y-2">
+            {downstreamSplit.map((row) => (
+              <div key={row.targetLabel} className="space-y-1">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-nss-text">{row.targetLabel}</span>
+                  <span className="font-semibold text-nss-text tabular-nums">
+                    {(row.share * 100).toFixed(1)}%
+                    <span className="ml-1 text-nss-muted font-normal">
+                      ({row.count.toLocaleString()} req)
+                    </span>
+                  </span>
+                </div>
+                <div className="h-1.5 w-full overflow-hidden rounded-full bg-nss-surface">
+                  <div
+                    className="h-full rounded-full bg-nss-primary"
+                    style={{ width: `${Math.max(row.share * 100, 1)}%` }}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+          <p className="mt-3 text-xs text-nss-muted">
+            Share of this node&apos;s outbound requests routed to each target. For a cache-aside
+            path this is the real hit/miss split — cache hits and misses are modelled as which
+            backend the request is routed to.
+          </p>
+        </Section>
+      )}
 
       <Section title="Latency">
         <div className="grid grid-cols-3 gap-4">

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Pause, Play, Square, X } from 'lucide-react'
+import { Pause, Play, RotateCcw, Square, X } from 'lucide-react'
 import type { FaultSpec, WorkloadProfile } from '../../../../engine/core/types'
 import type { FaultTargetOption, ScenarioState, SourceNodeOption } from '@renderer/types/ui'
 import { mergeWorkloadDefaults } from '@renderer/utils/workloadDefaults'
@@ -70,6 +70,8 @@ const ACTION_BUTTON_BASE =
 
 interface SimulationControlsProps {
   onRun: () => void
+  onReset: () => void
+  isPostRun: boolean
   onPause: () => void
   onResume: () => void
   onStop: () => void
@@ -94,6 +96,8 @@ function updateWorkloadOverride(
 
 export function SimulationControls({
   onRun,
+  onReset,
+  isPostRun,
   onPause,
   onResume,
   onStop,
@@ -216,14 +220,26 @@ export function SimulationControls({
   return (
     <div ref={wrapperRef} className="relative flex items-center gap-1.5">
       {!isRunning && !isPaused && (
-        <button
-          onClick={() => setIsOpen((prev) => !prev)}
-          disabled={disabled}
-          className={`${ACTION_BUTTON_BASE} flex items-center gap-1.5 bg-nss-primary text-white border-transparent hover:bg-nss-primary-hover`}
-        >
-          <Play size={12} className="fill-white" />
-          Run
-        </button>
+        <>
+          {isPostRun && (
+            <button
+              onClick={onReset}
+              title="Clear results and return to setup"
+              className={`${ACTION_BUTTON_BASE} flex items-center gap-1.5 bg-nss-surface text-nss-text border-nss-border hover:bg-nss-bg`}
+            >
+              <RotateCcw size={12} />
+              Reset
+            </button>
+          )}
+          <button
+            onClick={() => setIsOpen((prev) => !prev)}
+            disabled={disabled}
+            className={`${ACTION_BUTTON_BASE} flex items-center gap-1.5 bg-nss-primary text-white border-transparent hover:bg-nss-primary-hover`}
+          >
+            <Play size={12} className="fill-white" />
+            {isPostRun ? 'Run again' : 'Run'}
+          </button>
+        </>
       )}
 
       {isRunning && !isPaused && (

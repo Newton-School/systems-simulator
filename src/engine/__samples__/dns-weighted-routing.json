@@ -5,8 +5,8 @@
       "id": "client",
       "type": "serviceNode",
       "position": {
-        "x": 1206.5045225315553,
-        "y": -435.0376884128205
+        "x": 774.4462362422744,
+        "y": -494.6972896812895
       },
       "data": {
         "schemaVersion": 2,
@@ -21,14 +21,18 @@
         "source": {
           "requestDistribution": [
             {
-              "type": "charge",
+              "type": "resolve",
               "weight": 1,
-              "sizeBytes": 1024
+              "sizeBytes": 256,
+              "metadata": {
+                "host": "catalog.internal",
+                "origin": "us"
+              }
             }
           ],
           "defaultWorkload": {
             "pattern": "constant",
-            "baseRps": 20
+            "baseRps": 40
           }
         }
       },
@@ -38,47 +42,87 @@
       "width": 256,
       "height": 118,
       "positionAbsolute": {
-        "x": 1206.5045225315553,
-        "y": -435.0376884128205
+        "x": 774.4462362422744,
+        "y": -494.6972896812895
       },
       "dragging": false,
       "nodes": []
     },
     {
-      "id": "sidecar",
-      "type": "computeNode",
+      "id": "dns",
+      "type": "serviceNode",
       "position": {
-        "x": 868.496180860711,
-        "y": -170.53477385782563
+        "x": 521.2437808730153,
+        "y": -295.55397179041904
       },
       "data": {
         "schemaVersion": 2,
-        "templateId": "sidecar-proxy",
-        "componentType": "sidecar",
-        "structuralRole": "processor",
-        "profile": "compute-service",
-        "rendererType": "computeNode",
-        "label": "Service Mesh Sidecar",
-        "subLabel": "Local Data Plane",
-        "iconKey": "SIDECAR",
+        "templateId": "dns-server",
+        "componentType": "internal-dns",
+        "structuralRole": "router",
+        "profile": "router",
+        "rendererType": "serviceNode",
+        "label": "Resolver",
+        "subLabel": "Internal DNS / Authoritative",
+        "iconKey": "server-cog",
         "sim": {
           "queue": {
             "workers": 8,
-            "capacity": 32,
+            "capacity": 16,
             "discipline": "fifo"
           },
           "processing": {
             "distribution": {
               "type": "exponential",
-              "lambda": 1
+              "lambda": 1.6666666666666667
             },
-            "timeout": 500
+            "timeout": 100
           },
-          "circuitBreaker": {
-            "failureThreshold": 0.5,
-            "failureCount": 4,
-            "recoveryTimeout": 2000,
-            "halfOpenRequests": 1
+          "dnsRoutingPolicy": "weighted",
+          "dnsCacheTtlSeconds": 30
+        }
+      },
+      "zIndex": 0,
+      "expandParent": false,
+      "selected": true,
+      "width": 256,
+      "height": 129,
+      "positionAbsolute": {
+        "x": 521.2437808730153,
+        "y": -295.55397179041904
+      },
+      "dragging": false,
+      "nodes": []
+    },
+    {
+      "id": "stable",
+      "type": "computeNode",
+      "position": {
+        "x": 185.47999793426015,
+        "y": 99.14331789087055
+      },
+      "data": {
+        "schemaVersion": 2,
+        "templateId": "backend-server",
+        "componentType": "microservice",
+        "structuralRole": "processor",
+        "profile": "compute-service",
+        "rendererType": "computeNode",
+        "label": "Stable API",
+        "subLabel": "Long-running Process",
+        "iconKey": "SERVER",
+        "sim": {
+          "queue": {
+            "workers": 8,
+            "capacity": 64,
+            "discipline": "fifo"
+          },
+          "processing": {
+            "distribution": {
+              "type": "exponential",
+              "lambda": 0.125
+            },
+            "timeout": 800
           }
         }
       },
@@ -88,18 +132,18 @@
       "width": 274,
       "height": 115,
       "positionAbsolute": {
-        "x": 868.496180860711,
-        "y": -170.53477385782563
+        "x": 185.47999793426015,
+        "y": 99.14331789087055
       },
       "dragging": false,
       "nodes": []
     },
     {
-      "id": "payment",
+      "id": "canary",
       "type": "computeNode",
       "position": {
-        "x": 526.6823115559862,
-        "y": 25.522211053552155
+        "x": 790.8124642215887,
+        "y": 36.77989908226331
       },
       "data": {
         "schemaVersion": 2,
@@ -108,13 +152,13 @@
         "structuralRole": "processor",
         "profile": "compute-service",
         "rendererType": "computeNode",
-        "label": "Failing Payment Service",
+        "label": "Canary API",
         "subLabel": "Long-running Process",
         "iconKey": "SERVER",
         "sim": {
           "queue": {
-            "workers": 4,
-            "capacity": 16,
+            "workers": 8,
+            "capacity": 64,
             "discipline": "fifo"
           },
           "processing": {
@@ -123,18 +167,17 @@
               "lambda": 0.125
             },
             "timeout": 800
-          },
-          "nodeErrorRate": 1
+          }
         }
       },
       "zIndex": 0,
       "expandParent": false,
-      "selected": true,
+      "selected": false,
       "width": 274,
       "height": 115,
       "positionAbsolute": {
-        "x": 526.6823115559862,
-        "y": 25.522211053552155
+        "x": 790.8124642215887,
+        "y": 36.77989908226331
       },
       "dragging": false,
       "nodes": []
@@ -142,14 +185,14 @@
   ],
   "edges": [
     {
-      "id": "client-sidecar",
+      "id": "client-dns",
       "source": "client",
-      "target": "sidecar",
+      "target": "dns",
       "data": {
-        "protocol": "https",
+        "protocol": "udp",
         "mode": "synchronous",
         "latencyMu": 0,
-        "latencySigma": 0.35,
+        "latencySigma": 0.3,
         "pathType": "same-dc",
         "bandwidth": 100,
         "maxConcurrentRequests": 100,
@@ -159,28 +202,47 @@
       "selected": false
     },
     {
-      "id": "sidecar-payment",
-      "source": "sidecar",
-      "target": "payment",
+      "id": "dns-stable",
+      "source": "dns",
+      "target": "stable",
       "data": {
-        "protocol": "grpc",
+        "protocol": "https",
         "mode": "synchronous",
-        "latencyMu": -0.3,
-        "latencySigma": 0.25,
-        "pathType": "same-rack",
-        "bandwidth": 1000,
-        "maxConcurrentRequests": 50,
+        "latencyMu": 0,
+        "latencySigma": 0.35,
+        "pathType": "same-dc",
+        "bandwidth": 100,
+        "maxConcurrentRequests": 100,
         "packetLossRate": 0,
-        "errorRate": 0
+        "errorRate": 0,
+        "weight": 80
+      },
+      "selected": false
+    },
+    {
+      "id": "dns-canary",
+      "source": "dns",
+      "target": "canary",
+      "data": {
+        "protocol": "https",
+        "mode": "synchronous",
+        "latencyMu": 0,
+        "latencySigma": 0.35,
+        "pathType": "same-dc",
+        "bandwidth": 100,
+        "maxConcurrentRequests": 100,
+        "packetLossRate": 0,
+        "errorRate": 0,
+        "weight": 20
       },
       "selected": false
     }
   ],
   "scenario": {
     "global": {
-      "simulationDuration": 15000,
-      "warmupDuration": 1000,
-      "seed": "breaker-seed",
+      "simulationDuration": 20000,
+      "warmupDuration": 2000,
+      "seed": "dns-weighted-seed",
       "defaultTimeout": 5000,
       "traceSampleRate": 0.01
     },

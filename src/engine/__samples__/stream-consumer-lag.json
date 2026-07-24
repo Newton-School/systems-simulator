@@ -2,11 +2,11 @@
   "version": "2.0.0",
   "nodes": [
     {
-      "id": "client",
+      "id": "producer",
       "type": "serviceNode",
       "position": {
-        "x": 774.4462362422744,
-        "y": -494.6972896812895
+        "x": 410.47060205104196,
+        "y": -407.5069153936337
       },
       "data": {
         "schemaVersion": 2,
@@ -15,169 +15,75 @@
         "structuralRole": "source",
         "profile": "source",
         "rendererType": "serviceNode",
-        "label": "Client",
+        "label": "Producer",
         "subLabel": "Browser / Mobile",
         "iconKey": "monitor",
         "source": {
           "requestDistribution": [
             {
-              "type": "resolve",
+              "type": "publish",
               "weight": 1,
-              "sizeBytes": 256,
-              "metadata": {
-                "host": "catalog.internal",
-                "origin": "us"
-              }
+              "sizeBytes": 2048
             }
           ],
           "defaultWorkload": {
             "pattern": "constant",
-            "baseRps": 40
+            "baseRps": 100
           }
-        }
-      },
-      "zIndex": 0,
-      "expandParent": false,
-      "selected": false,
-      "width": 256,
-      "height": 118,
-      "positionAbsolute": {
-        "x": 774.4462362422744,
-        "y": -494.6972896812895
-      },
-      "dragging": false,
-      "nodes": []
-    },
-    {
-      "id": "dns",
-      "type": "serviceNode",
-      "position": {
-        "x": 521.2437808730153,
-        "y": -295.55397179041904
-      },
-      "data": {
-        "schemaVersion": 2,
-        "templateId": "dns-server",
-        "componentType": "internal-dns",
-        "structuralRole": "router",
-        "profile": "router",
-        "rendererType": "serviceNode",
-        "label": "Resolver",
-        "subLabel": "Internal DNS / Authoritative",
-        "iconKey": "server-cog",
-        "sim": {
-          "queue": {
-            "workers": 8,
-            "capacity": 16,
-            "discipline": "fifo"
-          },
-          "processing": {
-            "distribution": {
-              "type": "exponential",
-              "lambda": 1.6666666666666667
-            },
-            "timeout": 100
-          },
-          "dnsRoutingPolicy": "weighted",
-          "dnsCacheTtlSeconds": 30
         }
       },
       "zIndex": 0,
       "expandParent": false,
       "selected": true,
       "width": 256,
+      "height": 116,
+      "positionAbsolute": {
+        "x": 410.47060205104196,
+        "y": -407.5069153936337
+      },
+      "dragging": false,
+      "nodes": []
+    },
+    {
+      "id": "stream",
+      "type": "serviceNode",
+      "position": {
+        "x": 240.73603672684635,
+        "y": -14.818433287041216
+      },
+      "data": {
+        "schemaVersion": 2,
+        "templateId": "stream",
+        "componentType": "stream",
+        "structuralRole": "storage",
+        "profile": "broker",
+        "rendererType": "serviceNode",
+        "label": "Kafka Topic",
+        "subLabel": "Ordered Event Log",
+        "iconKey": "stream",
+        "sim": {
+          "queue": {
+            "workers": 1,
+            "capacity": 1000,
+            "discipline": "fifo"
+          },
+          "processing": {
+            "distribution": {
+              "type": "exponential",
+              "lambda": 0.05
+            },
+            "timeout": 2000
+          }
+        }
+      },
+      "zIndex": 0,
+      "expandParent": false,
+      "selected": false,
+      "width": 256,
       "height": 129,
       "positionAbsolute": {
-        "x": 521.2437808730153,
-        "y": -295.55397179041904
-      },
-      "dragging": false,
-      "nodes": []
-    },
-    {
-      "id": "stable",
-      "type": "computeNode",
-      "position": {
-        "x": 185.47999793426015,
-        "y": 99.14331789087055
-      },
-      "data": {
-        "schemaVersion": 2,
-        "templateId": "backend-server",
-        "componentType": "microservice",
-        "structuralRole": "processor",
-        "profile": "compute-service",
-        "rendererType": "computeNode",
-        "label": "Stable API",
-        "subLabel": "Long-running Process",
-        "iconKey": "SERVER",
-        "sim": {
-          "queue": {
-            "workers": 8,
-            "capacity": 64,
-            "discipline": "fifo"
-          },
-          "processing": {
-            "distribution": {
-              "type": "exponential",
-              "lambda": 0.125
-            },
-            "timeout": 800
-          }
-        }
-      },
-      "zIndex": 0,
-      "expandParent": false,
-      "selected": false,
-      "width": 274,
-      "height": 115,
-      "positionAbsolute": {
-        "x": 185.47999793426015,
-        "y": 99.14331789087055
-      },
-      "dragging": false,
-      "nodes": []
-    },
-    {
-      "id": "canary",
-      "type": "computeNode",
-      "position": {
-        "x": 790.8124642215887,
-        "y": 36.77989908226331
-      },
-      "data": {
-        "schemaVersion": 2,
-        "templateId": "backend-server",
-        "componentType": "microservice",
-        "structuralRole": "processor",
-        "profile": "compute-service",
-        "rendererType": "computeNode",
-        "label": "Canary API",
-        "subLabel": "Long-running Process",
-        "iconKey": "SERVER",
-        "sim": {
-          "queue": {
-            "workers": 8,
-            "capacity": 64,
-            "discipline": "fifo"
-          },
-          "processing": {
-            "distribution": {
-              "type": "exponential",
-              "lambda": 0.125
-            },
-            "timeout": 800
-          }
-        }
-      },
-      "zIndex": 0,
-      "expandParent": false,
-      "selected": false,
-      "width": 274,
-      "height": 115,
-      "positionAbsolute": {
-        "x": 790.8124642215887,
-        "y": 36.77989908226331
+        "x": 240.73603672684635,
+        "y": -14.818433287041216
       },
       "dragging": false,
       "nodes": []
@@ -185,51 +91,17 @@
   ],
   "edges": [
     {
-      "id": "client-dns",
-      "source": "client",
-      "target": "dns",
+      "id": "producer-stream",
+      "source": "producer",
+      "target": "stream",
       "data": {
-        "protocol": "udp",
-        "mode": "synchronous",
-        "latencyMu": 0,
-        "latencySigma": 0.3,
-        "pathType": "same-dc",
-        "bandwidth": 100,
-        "maxConcurrentRequests": 100,
-        "packetLossRate": 0,
-        "errorRate": 0
-      },
-      "selected": false
-    },
-    {
-      "id": "dns-stable",
-      "source": "dns",
-      "target": "stable",
-      "data": {
-        "protocol": "https",
-        "mode": "synchronous",
+        "protocol": "kafka",
+        "mode": "asynchronous",
         "latencyMu": 0,
         "latencySigma": 0.35,
         "pathType": "same-dc",
-        "bandwidth": 100,
-        "maxConcurrentRequests": 100,
-        "packetLossRate": 0,
-        "errorRate": 0
-      },
-      "selected": false
-    },
-    {
-      "id": "dns-canary",
-      "source": "dns",
-      "target": "canary",
-      "data": {
-        "protocol": "https",
-        "mode": "synchronous",
-        "latencyMu": 0,
-        "latencySigma": 0.35,
-        "pathType": "same-dc",
-        "bandwidth": 100,
-        "maxConcurrentRequests": 100,
+        "bandwidth": 1000,
+        "maxConcurrentRequests": 500,
         "packetLossRate": 0,
         "errorRate": 0
       },
@@ -240,11 +112,11 @@
     "global": {
       "simulationDuration": 20000,
       "warmupDuration": 2000,
-      "seed": "dns-weighted-seed",
+      "seed": "consumer-lag-seed",
       "defaultTimeout": 5000,
       "traceSampleRate": 0.01
     },
-    "selectedSourceNodeId": "client",
+    "selectedSourceNodeId": "producer",
     "workloadOverride": {}
   }
 }

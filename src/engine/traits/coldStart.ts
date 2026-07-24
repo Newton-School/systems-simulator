@@ -1,4 +1,5 @@
 import { msToMicro } from '../core/time'
+import type { CanvasNodeDataV2 } from '../catalog/nodeSpecTypes'
 import type {
   ComponentNode,
   ComponentType,
@@ -30,6 +31,17 @@ function asPositiveNumber(value: unknown): number | null {
 function asPositiveInt(value: unknown): number | null {
   const num = asPositiveNumber(value)
   return num !== null ? Math.round(num) : null
+}
+
+function coldStartLatencyPlaceholder(data: CanvasNodeDataV2): string {
+  // The engine also accepts a full distribution via `sim.coldStartLatency`; when that
+  // is set (as some sample scenarios do) this scalar field is intentionally left empty,
+  // so surface the effective value instead of showing a blank, broken-looking input.
+  const distribution = data.sim?.coldStartLatency
+  if (distribution && distribution.type === 'exponential' && distribution.lambda > 0) {
+    return `Using distribution ≈ ${Math.round(1 / distribution.lambda)}ms mean`
+  }
+  return `Default: ${DEFAULT_COLD_START_LATENCY_MS}ms after idle`
 }
 
 function createTraitRng(random?: () => number): RandomGenerator {
@@ -127,6 +139,7 @@ export const coldStartCapabilityModule: NodeCapabilityModule = {
             label: 'Cold start latency',
             unit: 'ms',
             step: 1,
+            placeholder: coldStartLatencyPlaceholder,
             why: 'Adds one-off startup latency after the function has been idle.'
           },
           {

@@ -99,7 +99,7 @@ export const cacheCapabilityModule: NodeCapabilityModule = {
       {
         id: 'caching',
         title: 'Caching',
-        note: 'Empty cache hit rate means this node behaves as a pass-through cache. Cache hit latency only applies to hits. TTL is shown for topology intent, but the current simulator does not model expiry over time.',
+        note: 'Empty cache hit rate means this node behaves as a pass-through cache and the results-view cache panel stays hidden. Try it: 0.9 = warm cache (~90% hits), 0.5 = half served locally, 1.0 = every request a hit; leave empty to disable. After a run, select this node to see the resulting hit/miss split. Cache hit latency only applies to hits. TTL is shown for topology intent, but the current simulator does not model expiry over time.',
         fields: [
           {
             path: 'sim.cacheHitRate',
@@ -108,7 +108,7 @@ export const cacheCapabilityModule: NodeCapabilityModule = {
             step: 0.01,
             unit: 'ratio',
             placeholder: defaultCacheHitRatePlaceholder,
-            why: 'Controls how much traffic this node serves locally instead of forwarding. Leave empty to disable cache hits.'
+            why: 'Controls how much traffic this node serves locally instead of forwarding — e.g. 0.9 serves 90% from cache. Leave empty to disable cache hits.'
           },
           {
             path: 'sim.cacheHitLatencyMs',
