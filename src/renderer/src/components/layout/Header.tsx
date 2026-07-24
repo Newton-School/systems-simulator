@@ -25,6 +25,8 @@ interface HeaderProps {
 
   // Simulation
   onRun: () => void
+  onReset: () => void
+  isPostRun: boolean
   onPause: () => void
   onResume: () => void
   onStop: () => void
@@ -48,6 +50,8 @@ export const Header = memo(
     fileName,
     isUnsaved,
     onRun,
+    onReset,
+    isPostRun,
     onPause,
     onResume,
     onStop,
@@ -86,6 +90,8 @@ export const Header = memo(
 
           <SimulationControls
             onRun={onRun}
+            onReset={onReset}
+            isPostRun={isPostRun}
             onPause={onPause}
             onResume={onResume}
             onStop={onStop}

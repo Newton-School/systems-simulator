@@ -543,6 +543,19 @@ export const WorkspaceLayout = () => {
     startSimulation()
   }
 
+  // Leave the post-run state and return to pre-run setup: discard the run's
+  // results (node metrics, edge flow) and reset the lens back to the pre-run
+  // family. The topology itself is untouched. sim.reset() clears the edge flow
+  // and flips status to idle, which cascades into clearSimulationMetrics.
+  const handleResetRun = useCallback(() => {
+    sim.reset()
+    clearSimulationMetrics()
+    setShowResults(false)
+    setLastRunContext(null)
+    setRunIssues({ messages: [], tone: 'warning' })
+    setRunInspectorPinned(false)
+  }, [clearSimulationMetrics, setRunInspectorPinned, sim])
+
   const handleSampleLoad = useCallback(
     async (sample: SampleScenario) => {
       const loaded = await loadFromData(sample.raw, `${sample.id}.json`)
@@ -560,6 +573,7 @@ export const WorkspaceLayout = () => {
 
   const isRunning = sim.status === 'running'
   const isPaused = sim.status === 'paused' && !sim.stopped
+  const isPostRun = sim.status === 'complete'
   const sourceNodes: SourceNodeOption[] = nodes
     .filter((node) => (node.data as CanvasNodeDataV2).profile === 'source')
     .map((node) => {
@@ -604,6 +618,8 @@ export const WorkspaceLayout = () => {
         fileName={fileName}
         isUnsaved={isUnsaved}
         onRun={handleRun}
+        onReset={handleResetRun}
+        isPostRun={isPostRun}
         onPause={sim.pause}
         onResume={sim.resume}
         onStop={() => {
