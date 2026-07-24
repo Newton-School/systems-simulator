@@ -4,9 +4,9 @@ import type { AnyNodeData, EdgeSimulationData } from '@renderer/types/ui'
 import { getEdgeModePresentation, inferCanvasEdgeMode } from '@renderer/config/edgeSemantics'
 import useStore, { type EdgeFlowRunConfig, type EdgeFlowState } from '@renderer/store/useStore'
 import { getRoutingPreviewSnapshot } from '@renderer/utils/routingStrategyPreview'
-import { failureRateLevelFromRatio } from '@renderer/utils/failureRatePresentation'
+import { inferEdgeDefaults } from '../../../../engine/defaults/edgeDefaults'
 import { patternMultiplier } from './edgeFlowPatterns'
-import type { EdgeFailureCause } from '../../../../engine/core/events'
+import { resolveEdgeLensProjection } from './edgeLensPresentation'
 
 const EDGE_VISUAL_WINDOW_MS = 3_000
 const FAILED_PULSE_MS = 650
@@ -21,34 +21,6 @@ const EMPTY_EDGE_FLOW_BY_ID: Record<string, EdgeFlowState> = {}
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value))
-}
-
-function fmtFailureRate(ratio: number): string {
-  const percent = clamp(ratio, 0, 1) * 100
-  if (percent > 0 && percent < 0.1) {
-    return '<0.1% fail'
-  }
-  return `${percent.toFixed(1)}% fail`
-}
-
-function fmtPercent(percent: number): string {
-  if (percent > 0 && percent < 0.1) {
-    return '<0.1%'
-  }
-  return `${percent.toFixed(1)}%`
-}
-
-function labelForFailureCause(cause: EdgeFailureCause): string {
-  switch (cause) {
-    case 'connection_refused':
-      return 'saturation'
-    case 'deadline_exceeded':
-      return 'deadline'
-    case 'edge_error_rate':
-      return 'edge error'
-    case 'packet_loss':
-      return 'packet loss'
-  }
 }
 
 function compressedPacketCount(arrivalRate: number): number {
@@ -130,6 +102,7 @@ export const PacketEdge = ({
   const hasLabel = typeof label === 'string' && label.trim().length > 0
   const flow = useStore((state) => state.edgeFlowById[id])
   const flowStatus = useStore((state) => state.edgeFlowStatus)
+  const metricLens = useStore((state) => state.metricLens)
   const runConfig = useStore((state) => state.edgeFlowRunConfig)
   const playback = useStore((state) => state.edgeFlowPlayback)
   const routingVisualization = useStore((state) => state.routingStrategyVisualization)
@@ -141,6 +114,7 @@ export const PacketEdge = ({
   const nodes = useStore((state) => state.nodes)
   const edges = useStore((state) => state.edges)
   const metricsByNode = useStore((state) => state.simulationMetricsByNode)
+  const sourceNodeData = nodes.find((node) => node.id === source)?.data as AnyNodeData | undefined
   const targetNodeData = nodes.find((node) => node.id === target)?.data as AnyNodeData | undefined
   const edgeData = (data ?? {}) as EdgeSimulationData
   const edgeMode = inferCanvasEdgeMode(edgeData, targetNodeData)
@@ -197,40 +171,20 @@ export const PacketEdge = ({
   const liveSuccessRate = Math.max(flow?.successPerSecond ?? 0, flow?.avgSuccessPerSecond ?? 0)
   const postRunPacketRate = flow?.avgPostWarmupSuccessPerSecond ?? 0
   const arrivedRequestCount = flow?.totalPostWarmupSuccess ?? 0
-  const liveFailedRate = Math.max(flow?.failedPerSecond ?? 0, flow?.avgFailedPerSecond ?? 0)
-  const liveFailureRatio = liveIncomingRate > 0 ? liveFailedRate / liveIncomingRate : 0
-  const postWarmupAttemptedCount = flow?.totalPostWarmupAttempted ?? 0
-  const postRunFailureRatio =
-    postWarmupAttemptedCount > 0 ? (flow?.totalPostWarmupFailed ?? 0) / postWarmupAttemptedCount : 0
-  const failureRatio = isComplete ? postRunFailureRatio : liveFailureRatio
-  const failureBreakdown = useMemo(() => {
-    const attempted = isComplete ? postWarmupAttemptedCount : (flow?.totalAttempted ?? 0)
-    const counts = isComplete
-      ? (flow?.totalPostWarmupFailedByCause ?? {})
-      : (flow?.totalFailedByCause ?? {})
-
-    if (attempted <= 0) {
-      return []
-    }
-
-    return Object.entries(counts)
-      .filter((entry): entry is [EdgeFailureCause, number] => entry[1] > 0)
-      .sort((a, b) => b[1] - a[1])
-      .map(([cause, count]) => ({
-        cause,
-        label: labelForFailureCause(cause),
-        percent: (count / attempted) * 100
-      }))
-  }, [
-    flow?.totalAttempted,
-    flow?.totalFailedByCause,
-    flow?.totalPostWarmupFailedByCause,
-    isComplete,
-    postWarmupAttemptedCount
-  ])
-  const failureBreakdownText = failureBreakdown
-    .map((entry) => `${entry.label} ${fmtPercent(entry.percent)}`)
-    .join(' • ')
+  const edgeDefaults = useMemo(
+    () => inferEdgeDefaults(sourceNodeData, targetNodeData),
+    [sourceNodeData, targetNodeData]
+  )
+  const lensProjection = useMemo(
+    () =>
+      resolveEdgeLensProjection({
+        lens: metricLens,
+        flow,
+        config: (data ?? {}) as EdgeSimulationData,
+        defaults: edgeDefaults
+      }),
+    [metricLens, flow, data, edgeDefaults]
+  )
   const visualMultiplier = patternMultiplier(runConfig, playback, now, id, hash01)
   const steadyRequestRate = isComplete ? postRunPacketRate : liveSuccessRate
   const previewShare =
@@ -263,24 +217,27 @@ export const PacketEdge = ({
       : selected
         ? 3
         : 2
-  const failureLevel = failureRateLevelFromRatio(failureRatio)
+  // Health severity drives the stroke colour and is computed independently of
+  // the active lens, so a failing link stays red even under a non-error lens.
   const failureStroke =
-    failureLevel === 'crit'
+    lensProjection.severity === 'crit'
       ? FLOW_DANGER_COLOR
-      : failureLevel === 'warn'
+      : lensProjection.severity === 'warn'
         ? FLOW_WARNING_COLOR
         : undefined
+  // Node-first lenses (timeout, queue capacity) recede: the edge dims to its
+  // identity and lets the nodes carry the lens.
+  const lensRecedes = !isRoutingPreviewEdge && lensProjection.recedes
   const flowLabelText = isRoutingPreviewEdge
     ? routingPreview?.isSelected
       ? `${routingPreview.selectedCount}/${routingPreview.totalCount} preview`
       : 'not selected'
     : isInactiveAfterRun
       ? 'inactive'
-      : fmtFailureRate(failureRatio)
-  const flowLabelTitle =
-    failureBreakdownText.length > 0 && !isRoutingPreviewEdge
-      ? `${flowLabelText} (${failureBreakdownText})`
-      : flowLabelText
+      : lensProjection.headline
+  const flowLabelSub = isRoutingPreviewEdge ? undefined : lensProjection.sub
+  const flowLabelTitle = isRoutingPreviewEdge ? flowLabelText : lensProjection.why
+  const showFlowLabel = isRoutingPreviewEdge || flowLabelText.length > 0
   const flowLabelClassName = [
     'rounded-full border px-2 py-0.5 text-[12px] font-semibold leading-none tracking-wide shadow-md',
     isRoutingPreviewEdge
@@ -289,9 +246,9 @@ export const PacketEdge = ({
         : 'border-nss-border bg-nss-panel text-nss-muted'
       : isInactiveAfterRun
         ? 'border-nss-border bg-nss-panel text-nss-muted'
-        : failureLevel === 'crit'
+        : lensProjection.severity === 'crit'
           ? 'border-nss-danger/50 bg-nss-panel text-nss-danger'
-          : failureLevel === 'warn'
+          : lensProjection.severity === 'warn'
             ? 'border-nss-warning/50 bg-nss-panel text-nss-warning'
             : 'border-nss-primary/40 bg-nss-panel text-nss-primary'
   ].join(' ')
@@ -336,7 +293,7 @@ export const PacketEdge = ({
             ? routingPreview?.isSelected
               ? 1
               : 0.28
-            : isInactiveAfterRun
+            : isInactiveAfterRun || lensRecedes
               ? 0.28
               : 1
         }}
@@ -416,7 +373,7 @@ export const PacketEdge = ({
         style={{ pointerEvents: 'all', ...(selected ? { opacity: 1 } : {}) }}
       />
 
-      {(hasLabel || isRoutingPreviewEdge || flowStatus === 'complete' || flow) && (
+      {(hasLabel || showFlowLabel) && (
         <EdgeLabelRenderer>
           <div
             style={{
@@ -432,14 +389,14 @@ export const PacketEdge = ({
                   {label.toString()}
                 </span>
               )}
-              {(isRoutingPreviewEdge || flowStatus === 'complete' || flow) && (
+              {showFlowLabel && (
                 <span className={flowLabelClassName} title={flowLabelTitle}>
                   {flowLabelText}
                 </span>
               )}
-              {!isRoutingPreviewEdge && selected && failureBreakdownText.length > 0 && (
+              {!isRoutingPreviewEdge && selected && flowLabelSub && (
                 <span className="bg-nss-bg px-2 py-0.5 text-[11px] font-semibold leading-none tracking-wide text-nss-muted">
-                  {failureBreakdownText}
+                  {flowLabelSub}
                 </span>
               )}
             </div>
