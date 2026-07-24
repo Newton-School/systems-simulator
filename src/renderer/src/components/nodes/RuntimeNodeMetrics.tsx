@@ -1,4 +1,3 @@
-import { RUNTIME_NODE_METRIC_TOOLTIPS } from '@renderer/config/tooltipCatalog'
 import { NodeMetricCell } from './NodeMetricCell'
 
 type RuntimeNodeMetricsProps = {
@@ -27,13 +26,11 @@ export function RuntimeNodeMetrics({
       <NodeMetricCell
         label="Completed / Received"
         value={`${fmtCount(completed)} / ${fmtCount(arrived)}`}
-        tooltip={RUNTIME_NODE_METRIC_TOOLTIPS.completedReceived}
       />
       <NodeMetricCell
         label="Rejected / Timed Out"
         value={`${fmtCount(rejected)} / ${fmtCount(timedOut)}`}
         tone={hasFailures ? 'text-nss-danger' : 'text-nss-success'}
-        tooltip={RUNTIME_NODE_METRIC_TOOLTIPS.rejectedTimedOut}
       />
     </div>
   )

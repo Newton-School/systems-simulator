@@ -8,7 +8,7 @@ import type { CanvasNodeDataV2 } from '../../../../engine/catalog/nodeSpecTypes'
 import useStore, { type EdgeFlowState } from '../../store/useStore'
 import { PropertiesHeader } from './PropertiesHeader'
 import { PropertiesForm } from './PropertiesForm'
-import { NodeMetricsDetail } from './NodeMetricsDetail'
+import { NodeMetricsDetail, SourceNodeMetricsDetail } from './NodeMetricsDetail'
 import { MetricItem } from './MetricItem'
 import { EdgePropertiesPanel, type EdgePropertiesPanelValue } from '../ui/EdgePropertiesPanel'
 
@@ -156,8 +156,34 @@ function getNodeLabel(node: { id: string; data: unknown }): string {
 }
 
 function getNodeSubtitle(node: { data: unknown }): string {
+  // A source is a traffic generator; its componentType ("api-endpoint") mislabels
+  // it, so describe it by role. Every other node shows its real component type.
+  if (isSourceNode(node)) return 'source'
   const data = node.data as Partial<CanvasNodeDataV2>
   return data.componentType || data.profile || 'node'
+}
+
+function isSourceNode(node: { data: unknown }): boolean {
+  const data = node.data as Partial<CanvasNodeDataV2>
+  return data.structuralRole === 'source' || data.profile === 'source'
+}
+
+// A source doesn't process requests, it emits them. Its real output is the
+// number of requests it pushed onto its outgoing edges.
+function sourceEmittedCount(
+  nodeId: string,
+  edges: ReturnType<typeof useStore.getState>['edges'],
+  edgeFlowById: Record<string, EdgeFlowState>
+): number {
+  return edges
+    .filter((edge) => edge.source === nodeId)
+    .reduce((sum, edge) => sum + (edgeFlowById[edge.id]?.totalAttempted ?? 0), 0)
+}
+
+// Neutral, non-health tint so a source is never mistaken for an "Idle" processor.
+const SOURCE_BADGE = {
+  label: 'Source',
+  className: 'border-nss-primary/30 bg-nss-primary/10 text-nss-primary'
 }
 
 function getEdgeLabel(
@@ -282,6 +308,7 @@ function RunInspector({
   edges,
   metricsByNode,
   edgeFlowById,
+  runConfig,
   onSelectNode,
   onSelectEdge
 }: {
@@ -289,6 +316,7 @@ function RunInspector({
   edges: ReturnType<typeof useStore.getState>['edges']
   metricsByNode: Record<string, NodeSimulationMetrics>
   edgeFlowById: Record<string, EdgeFlowState>
+  runConfig: ReturnType<typeof useStore.getState>['edgeFlowRunConfig']
   onSelectNode: (id: string) => void
   onSelectEdge: (id: string) => void
 }) {
@@ -390,8 +418,24 @@ function RunInspector({
         {activeTab === 'nodes' ? (
           <div className="space-y-2">
             {runtimeNodes.map(({ node, metrics }) => {
-              const health = nodeHealth(metrics)
+              const source = isSourceNode(node)
+              const health = source ? SOURCE_BADGE : nodeHealth(metrics)
               const errorRate = metrics.errorRate ?? 0
+              // Offered load + pattern must reflect the ACTUAL run (the workload
+              // the user configured in the Run dialog), not the node's static
+              // template default. edgeFlowRunConfig.workload is that source of
+              // truth; fall back to the node's configured default only for a
+              // source that did not drive this run.
+              const staticWorkload = (node.data as Partial<CanvasNodeDataV2>).source
+                ?.defaultWorkload
+              const isRunSource = runConfig?.workload.sourceNodeId === node.id
+              const offeredRps = isRunSource
+                ? runConfig?.workload.baseRps
+                : staticWorkload?.baseRps
+              const pattern = isRunSource
+                ? runConfig?.workload.pattern
+                : staticWorkload?.pattern
+              const emitted = source ? sourceEmittedCount(node.id, edges, edgeFlowById) : 0
 
               return (
                 <button
@@ -417,19 +461,34 @@ function RunInspector({
                         <CardBadge label={health.label} className={health.className} />
                       </div>
                       <div className="mt-3 grid grid-cols-3 gap-3">
-                        <MiniMetric
-                          label="Throughput"
-                          value={`${formatRate(metrics.throughput ?? 0)} rps`}
-                        />
-                        <MiniMetric
-                          label="p95"
-                          value={formatMs(metrics.latencyNodeLocal?.p95 ?? metrics.latencyP95)}
-                        />
-                        <MiniMetric
-                          label="Errors"
-                          value={formatPercentValue(errorRate)}
-                          tone={errorRate > 0 ? 'text-nss-danger' : 'text-nss-text'}
-                        />
+                        {source ? (
+                          <>
+                            <MiniMetric
+                              label="Offered"
+                              value={
+                                offeredRps === undefined ? 'N/A' : `${formatRate(offeredRps)} rps`
+                              }
+                            />
+                            <MiniMetric label="Pattern" value={pattern ?? 'N/A'} />
+                            <MiniMetric label="Emitted" value={formatNumber(emitted)} />
+                          </>
+                        ) : (
+                          <>
+                            <MiniMetric
+                              label="Throughput"
+                              value={`${formatRate(metrics.throughput ?? 0)} rps`}
+                            />
+                            <MiniMetric
+                              label="p95"
+                              value={formatMs(metrics.latencyNodeLocal?.p95 ?? metrics.latencyP95)}
+                            />
+                            <MiniMetric
+                              label="Errors"
+                              value={formatPercentValue(errorRate)}
+                              tone={errorRate > 0 ? 'text-nss-danger' : 'text-nss-text'}
+                            />
+                          </>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -609,6 +668,7 @@ export const PropertiesPanel = () => {
   const edges = useStore((state) => state.edges)
   const metricsByNode = useStore((state) => state.simulationMetricsByNode)
   const edgeFlowById = useStore((state) => state.edgeFlowById)
+  const edgeFlowRunConfig = useStore((state) => state.edgeFlowRunConfig)
   const runInspectorPinned = useStore((state) => state.runInspectorPinned)
   const runInspectorDrilldownActive = useStore((state) => state.runInspectorDrilldownActive)
   const updateNodeData = useStore((state) => state.updateNodeData)
@@ -669,6 +729,7 @@ export const PropertiesPanel = () => {
         edges={edges}
         metricsByNode={metricsByNode}
         edgeFlowById={edgeFlowById}
+        runConfig={edgeFlowRunConfig}
         onSelectNode={(id) => openRunInspectorDetail({ nodeId: id })}
         onSelectEdge={(id) => openRunInspectorDetail({ edgeId: id })}
       />
@@ -682,6 +743,23 @@ export const PropertiesPanel = () => {
     const handleUpdate = (path: FieldPath, value: unknown) => {
       updateNodeData(selectedNode.id, setPathValue(data, path, value))
     }
+
+    // A source generates traffic; its runtime detail is offered load + pattern +
+    // emitted, read from the actual run (edgeFlowRunConfig) rather than the
+    // node's static default — the same source of truth the Run Inspector uses.
+    const selectedIsSource = isSourceNode(selectedNode)
+    const selectedStaticWorkload = (selectedNode.data as Partial<CanvasNodeDataV2>).source
+      ?.defaultWorkload
+    const selectedIsRunSource = edgeFlowRunConfig?.workload.sourceNodeId === selectedNode.id
+    const selectedOfferedRps = selectedIsRunSource
+      ? edgeFlowRunConfig?.workload.baseRps
+      : selectedStaticWorkload?.baseRps
+    const selectedPattern = selectedIsRunSource
+      ? edgeFlowRunConfig?.workload.pattern
+      : selectedStaticWorkload?.pattern
+    const selectedEmitted = selectedIsSource
+      ? sourceEmittedCount(selectedNode.id, edges, edgeFlowById)
+      : 0
 
     return (
       <div className="h-full w-full bg-nss-panel border-l border-nss-border flex flex-col text-nss-text font-sans shadow-xl">
@@ -698,7 +776,15 @@ export const PropertiesPanel = () => {
 
         <div className="flex-1 overflow-y-auto custom-scrollbar p-5 bg-nss-panel">
           {metrics.hasRuntime && tab === 'metrics' ? (
-            <NodeMetricsDetail metrics={metrics} />
+            selectedIsSource ? (
+              <SourceNodeMetricsDetail
+                offeredRps={selectedOfferedRps}
+                pattern={selectedPattern}
+                emitted={selectedEmitted}
+              />
+            ) : (
+              <NodeMetricsDetail metrics={metrics} />
+            )
           ) : (
             <PropertiesForm nodeId={selectedNode.id} data={data} onUpdate={handleUpdate} />
           )}
@@ -759,6 +845,7 @@ export const PropertiesPanel = () => {
         edges={edges}
         metricsByNode={metricsByNode}
         edgeFlowById={edgeFlowById}
+        runConfig={edgeFlowRunConfig}
         onSelectNode={(id) => openRunInspectorDetail({ nodeId: id })}
         onSelectEdge={(id) => openRunInspectorDetail({ edgeId: id })}
       />
