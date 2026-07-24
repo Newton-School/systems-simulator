@@ -939,6 +939,23 @@ function RequestOutcomeLog({
   const [expandedRequestId, setExpandedRequestId] = useState<string | null>(null)
 
   const outcomes = output.requestOutcomes
+
+  // Per-request terminal reason (e.g. queue_full, node_error_rate, policy). It is
+  // not on the outcome row — it lives as reasonCode on the request's events — so
+  // we fold the stream into requestId → last reasonCode (highest sequence wins,
+  // which is the terminal one). Empty when the stream was capped for a large run.
+  const reasonByRequestId = useMemo(() => {
+    const map = new Map<string, { sequence: number; reason: string }>()
+    for (const event of output.eventStream) {
+      if (!event.requestId || !event.reasonCode) continue
+      const existing = map.get(event.requestId)
+      if (!existing || event.sequence > existing.sequence) {
+        map.set(event.requestId, { sequence: event.sequence, reason: event.reasonCode })
+      }
+    }
+    return map
+  }, [output.eventStream])
+
   const statusCounts = useMemo(() => {
     const counts: Record<OutcomeStatusFilter, number> = {
       all: outcomes.length,
@@ -962,11 +979,12 @@ function RequestOutcomeLog({
     if (trimmedQuery === '') return byStatus
     return byStatus.filter((row) => {
       const nodeLabel = row.nodeId ? (labelForNode(row.nodeId, graphLookup) ?? row.nodeId) : ''
+      const reason = reasonByRequestId.get(row.requestId)?.reason ?? ''
       const haystack =
-        `${row.requestId} ${nodeLabel} ${OUTCOME_STATUS_LABEL[row.status]}`.toLowerCase()
+        `${row.requestId} ${nodeLabel} ${OUTCOME_STATUS_LABEL[row.status]} ${reason}`.toLowerCase()
       return haystack.includes(trimmedQuery)
     })
-  }, [outcomes, statusFilter, trimmedQuery, graphLookup])
+  }, [outcomes, statusFilter, trimmedQuery, graphLookup, reasonByRequestId])
 
   const pageCount = Math.max(1, Math.ceil(visibleRows.length / OUTCOME_PAGE_SIZE))
   const clampedPage = Math.min(page, pageCount)
@@ -1095,6 +1113,11 @@ function RequestOutcomeLog({
                     ? (labelForNode(row.nodeId, graphLookup) ?? row.nodeId)
                     : '-'
                   const isExpanded = expandedRequestId === row.requestId
+                  // Only failed terminals have a "why"; success and in-flight do not.
+                  const failureReason =
+                    row.status !== 'success' && row.status !== 'in-flight'
+                      ? (reasonByRequestId.get(row.requestId)?.reason ?? null)
+                      : null
 
                   return (
                     <Fragment key={row.requestId}>
@@ -1136,11 +1159,18 @@ function RequestOutcomeLog({
                           <span className="block truncate">{nodeLabel}</span>
                         </td>
                         <td className="px-2 py-1">
-                          <span
-                            className={`rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${outcomeStatusBadgeClass(row.status)}`}
-                          >
-                            {OUTCOME_STATUS_LABEL[row.status]}
-                          </span>
+                          <div className="flex flex-col items-start gap-0.5">
+                            <span
+                              className={`rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${outcomeStatusBadgeClass(row.status)}`}
+                            >
+                              {OUTCOME_STATUS_LABEL[row.status]}
+                            </span>
+                            {failureReason && (
+                              <span className="text-[9px] text-nss-muted" title={failureReason}>
+                                {failureReason}
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td className="px-2 py-1 text-right text-nss-muted">
                           {fmtAttempts(row.attempts)}

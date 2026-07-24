@@ -33,6 +33,45 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   )
 }
 
+interface SourceNodeMetricsDetailProps {
+  offeredRps?: number
+  pattern?: string
+  emitted: number
+}
+
+/**
+ * A source generates requests, it does not process them. Showing the processing
+ * grid (throughput/utilization/arrived/latency/errors) for a source reads as a
+ * dead node full of zeros. Instead we show what a generator actually did: the
+ * offered load, its arrival pattern, and how many requests it emitted.
+ */
+export const SourceNodeMetricsDetail = ({
+  offeredRps,
+  pattern,
+  emitted
+}: SourceNodeMetricsDetailProps) => {
+  return (
+    <div className="space-y-6">
+      <Section title="Traffic Generation">
+        <div className="grid grid-cols-2 gap-4">
+          <MetricItem
+            label="Offered Load"
+            value={offeredRps === undefined ? 'N/A' : offeredRps}
+            unit={offeredRps === undefined ? undefined : 'req/s'}
+          />
+          <MetricItem label="Pattern" value={pattern ?? 'N/A'} />
+          <MetricItem label="Emitted" value={emitted.toLocaleString()} unit="req" />
+        </div>
+      </Section>
+
+      <p className="text-xs text-nss-muted">
+        This is a traffic source. It generates requests rather than processing them, so throughput,
+        latency, and error metrics apply to the downstream nodes it feeds - not here.
+      </p>
+    </div>
+  )
+}
+
 /**
  * The second altitude (C3): everything the Nodes table shows for this node,
  * plus trait-specific detail (cache ratio, rejection reasons) the table
