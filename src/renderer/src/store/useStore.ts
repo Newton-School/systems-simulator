@@ -25,6 +25,13 @@ import type { WorkloadProfile } from '../../../engine/core/types'
 import type { RoutingStrategy } from '../../../engine/catalog/nodeSpecTypes'
 
 type FailureCountsByCause = Partial<Record<EdgeFailureCause, number>>
+const RUNTIME_METRIC_LENSES: ReadonlySet<MetricLens> = new Set([
+  'traffic',
+  'saturation',
+  'latency',
+  'errors',
+  'throughput'
+])
 
 export type EdgeFlowRenderEvent = EdgeFlowEvent & {
   receivedAtMs: number
@@ -102,10 +109,15 @@ function summarizeEdgeFlow(
   EdgeFlowState,
   'attemptedPerSecond' | 'successPerSecond' | 'failedPerSecond' | 'failureRatio'
 > {
+  const lastStartedAtMs = events[events.length - 1]?.startedAtMs
+  const windowedEvents =
+    lastStartedAtMs === undefined
+      ? []
+      : events.filter((event) => lastStartedAtMs - event.startedAtMs <= EDGE_FLOW_WINDOW_MS)
   let attempted = 0
   let success = 0
 
-  for (const event of events) {
+  for (const event of windowedEvents) {
     const weight = event.sampleWeight
     attempted += weight
     if (event.status === 'success') {
@@ -114,8 +126,8 @@ function summarizeEdgeFlow(
   }
 
   const failed = attempted - success
-  const first = events[0]?.displayAtMs
-  const last = events[events.length - 1]?.displayAtMs
+  const first = windowedEvents[0]?.startedAtMs
+  const last = windowedEvents[windowedEvents.length - 1]?.startedAtMs
   const spanSeconds = Math.max(
     1,
     first !== undefined && last !== undefined ? (last - first) / 1000 : 1
@@ -414,7 +426,10 @@ const useStore = create<RFState>((set, get) => ({
   },
 
   setSimulationMetrics: (simulationMetricsByNode) => {
-    set({ simulationMetricsByNode, metricLens: 'traffic' })
+    set((state) => ({
+      simulationMetricsByNode,
+      metricLens: RUNTIME_METRIC_LENSES.has(state.metricLens) ? state.metricLens : 'traffic'
+    }))
   },
 
   setMetricLens: (metricLens) => {

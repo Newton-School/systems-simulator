@@ -16,7 +16,7 @@ export const RESULTS_SUMMARY_TOOLTIPS = {
     "Total requests that entered the system after warmup ended. Warmup samples are excluded so transient startup behavior doesn't skew the metrics.",
   successful: 'Requests that both entered after warmup and eventually completed successfully.',
   throughput:
-    'Requests completed per second, averaged over the post-warmup window. If this exceeds your configured Base RPS, something is amplifying traffic.',
+    'Successful end-to-end requests completed per second, averaged over the post-warmup window.',
   errorRate:
     'Fraction of post-warmup requests that failed. This includes instant rejects, timeout walls, and connection resets.',
   inFlightAtCutoff:
@@ -37,11 +37,11 @@ export const RESULTS_E2E_PERCENTILE_TOOLTIPS: Record<
 }
 
 export const RESULTS_HEALTH_CHECK_TOOLTIPS = {
-  slo: "Compares each node's measured p99 latency and availability against the SLO targets configured on the node.",
+  slo: "Compares each node's measured p99 latency and availability against explicitly configured SLO targets. Run-level error rate is checked separately.",
   errorRate:
     'Breakdown of rejected, timed-out, and connection-reset requests by node. Rejections happen when the queue is full, timeouts happen when the caller waits too long, and resets happen when in-flight work is explicitly dropped.',
   littlesLaw:
-    "Little's Law (L = λ·W) is a queueing-theory identity that must hold in steady state. Violations usually indicate either measurement noise at low utilization, or that the simulation never reached steady state. At very low L, relative errors can be large while absolute differences are sub-request.",
+    "Little's Law (L = λ·W) is a queueing-theory identity for stable accepted work. Violations usually indicate measurement noise, transient behavior, or rejection-heavy overload where the check should be read as a consistency warning.",
   conservation:
     'Verifies that for every node: arrived = processed + rejected + timed out + connection reset + in-flight at cutoff. Small non-zero in-flight counts are expected when the run ends with requests still being processed.',
   warmup:

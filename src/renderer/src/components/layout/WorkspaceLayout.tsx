@@ -2,7 +2,7 @@ import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react'
 import { Panel, PanelGroup, ImperativePanelHandle } from 'react-resizable-panels'
 
 // Store
-import useStore from '@renderer/store/useStore'
+import useStore, { type EdgeFlowState } from '@renderer/store/useStore'
 
 // Hooks
 import { useFlowPersistence } from '@renderer/hooks/useFlowPersistence'
@@ -11,6 +11,7 @@ import { useSimulation } from '@renderer/hooks/useSimulation'
 import { useTopologySerializer } from '@renderer/hooks/useTopologySerializer'
 import { validateTopology } from '../../../../engine/validation/validator'
 import type { LatencyPercentiles } from '../../../../engine/metrics'
+import type { TimeSeriesSnapshot } from '../../../../engine/analysis/output'
 import type { ValidationError } from '../../../../engine/validation/validator'
 
 // Organisms
@@ -29,7 +30,12 @@ import { ResizeHandle } from '../ui/ResizeHandle'
 import { RunToast } from '../ui/RunToast'
 import { RoutingVisualizationToast } from '../ui/RoutingVisualizationToast'
 import type { CanvasNodeDataV2 } from '../../../../engine/catalog/nodeSpecTypes'
-import type { FaultTargetOption, ScenarioRunContext, SourceNodeOption } from '@renderer/types/ui'
+import type {
+  FaultTargetOption,
+  NodeSimulationMetrics,
+  ScenarioRunContext,
+  SourceNodeOption
+} from '@renderer/types/ui'
 
 type RunIssueTone = 'warning' | 'error'
 
@@ -135,6 +141,123 @@ function roundLatencyPercentiles(latency: LatencyPercentiles): LatencyPercentile
   }
 }
 
+type StoreNode = ReturnType<typeof useStore.getState>['nodes'][number]
+type StoreEdge = ReturnType<typeof useStore.getState>['edges'][number]
+
+function isSourceNode(node: StoreNode): boolean {
+  const data = node.data as Partial<CanvasNodeDataV2>
+  return data.structuralRole === 'source' || data.profile === 'source'
+}
+
+function sumEdgeFlows(
+  edges: StoreEdge[],
+  edgeFlowById: Record<string, EdgeFlowState>
+): Pick<
+  EdgeFlowState,
+  | 'attemptedPerSecond'
+  | 'successPerSecond'
+  | 'failedPerSecond'
+  | 'totalAttempted'
+  | 'totalSuccess'
+  | 'totalFailed'
+> {
+  return edges.reduce(
+    (sum, edge) => {
+      const flow = edgeFlowById[edge.id]
+      if (!flow) return sum
+
+      return {
+        attemptedPerSecond: sum.attemptedPerSecond + flow.attemptedPerSecond,
+        successPerSecond: sum.successPerSecond + flow.successPerSecond,
+        failedPerSecond: sum.failedPerSecond + flow.failedPerSecond,
+        totalAttempted: sum.totalAttempted + flow.totalAttempted,
+        totalSuccess: sum.totalSuccess + flow.totalSuccess,
+        totalFailed: sum.totalFailed + flow.totalFailed
+      }
+    },
+    {
+      attemptedPerSecond: 0,
+      successPerSecond: 0,
+      failedPerSecond: 0,
+      totalAttempted: 0,
+      totalSuccess: 0,
+      totalFailed: 0
+    }
+  )
+}
+
+function buildLiveNodeMetrics({
+  snapshot,
+  nodes,
+  edges,
+  edgeFlowById
+}: {
+  snapshot: TimeSeriesSnapshot
+  nodes: StoreNode[]
+  edges: StoreEdge[]
+  edgeFlowById: Record<string, EdgeFlowState>
+}): Record<string, NodeSimulationMetrics> {
+  return Object.fromEntries(
+    nodes.map((node) => {
+      const nodeSnapshot = snapshot.node[node.id]
+      const incoming = sumEdgeFlows(
+        edges.filter((edge) => edge.target === node.id),
+        edgeFlowById
+      )
+      const outgoing = sumEdgeFlows(
+        edges.filter((edge) => edge.source === node.id),
+        edgeFlowById
+      )
+      const source = isSourceNode(node)
+      const totalInSystem = nodeSnapshot?.totalInSystem ?? 0
+      const arrived = source ? outgoing.totalAttempted : incoming.totalSuccess
+      const completed =
+        source || outgoing.totalAttempted > 0
+          ? outgoing.totalAttempted
+          : Math.max(0, incoming.totalSuccess - totalInSystem)
+      const attempted = source ? outgoing.totalAttempted : incoming.totalAttempted
+      const failed = source ? 0 : incoming.totalFailed
+      const errorRate = attempted > 0 ? Math.round((failed / attempted) * 1000) / 10 : 0
+      const throughput = source
+        ? outgoing.attemptedPerSecond
+        : outgoing.successPerSecond > 0
+          ? outgoing.successPerSecond
+          : incoming.successPerSecond
+
+      return [
+        node.id,
+        {
+          throughput: Math.round(throughput * 10) / 10,
+          postWarmupArrived: arrived,
+          postWarmupProcessed: completed,
+          postWarmupRejected: failed,
+          postWarmupTimedOut: 0,
+          postWarmupConnectionReset: 0,
+          postWarmupInFlight: totalInSystem,
+          queueDepth: Math.round((nodeSnapshot?.queueLength ?? 0) * 10) / 10,
+          utilization: Math.round((nodeSnapshot?.utilization ?? 0) * 1000) / 10,
+          errorRate,
+          active: source ? outgoing.totalAttempted > 0 : arrived > 0 || totalInSystem > 0,
+          latencyNodeLocal: {
+            p50: null,
+            p90: null,
+            p95: null,
+            p99: null,
+            min: null,
+            max: null,
+            mean: null
+          },
+          availability: Math.round((100 - errorRate) * 10) / 10,
+          totalArrived: arrived,
+          totalRejected: failed,
+          peakInSystem: totalInSystem,
+          finalInSystem: totalInSystem
+        }
+      ]
+    })
+  )
+}
+
 export const WorkspaceLayout = () => {
   // Sidebar State
   const [isLeftOpen, setIsLeftOpen] = useState(true)
@@ -147,6 +270,7 @@ export const WorkspaceLayout = () => {
     tone: 'warning'
   })
   const [lastRunContext, setLastRunContext] = useState<ScenarioRunContext | null>(null)
+  const lastLiveNodeMetricsSnapshotAtRef = useRef<number | null>(null)
 
   // Panel refs — panels stay in the DOM always; we collapse/expand imperatively
   // so that opening one side never redistributes the other side's size.
@@ -173,6 +297,7 @@ export const WorkspaceLayout = () => {
   const clearSimulationMetrics = useStore((s) => s.clearSimulationMetrics)
   const selectGraphElements = useStore((s) => s.selectGraphElements)
   const runInspectorPinned = useStore((s) => s.runInspectorPinned)
+  const setRunInspectorPinned = useStore((s) => s.setRunInspectorPinned)
   const routingVisualization = useStore((s) => s.routingStrategyVisualization)
   const setRoutingVisualization = useStore((s) => s.setRoutingStrategyVisualization)
   const { confirm, dialog } = useConfirmDialog()
@@ -289,9 +414,43 @@ export const WorkspaceLayout = () => {
   )
 
   useEffect(() => {
+    if (sim.results || !sim.snapshot || (sim.status !== 'running' && sim.status !== 'paused')) {
+      return
+    }
+
+    if (lastLiveNodeMetricsSnapshotAtRef.current === sim.snapshot.timestamp) {
+      return
+    }
+    lastLiveNodeMetricsSnapshotAtRef.current = sim.snapshot.timestamp
+
+    setSimulationMetrics(
+      buildLiveNodeMetrics({
+        snapshot: sim.snapshot,
+        nodes,
+        edges,
+        edgeFlowById: useStore.getState().edgeFlowById
+      })
+    )
+    if (!runInspectorPinned && !selectedNodeId && !selectedEdgeId) {
+      setRunInspectorPinned(true)
+    }
+    setIsRightOpen(true)
+  }, [
+    edges,
+    nodes,
+    runInspectorPinned,
+    selectedEdgeId,
+    selectedNodeId,
+    setRunInspectorPinned,
+    setSimulationMetrics,
+    sim.results,
+    sim.snapshot,
+    sim.status
+  ])
+
+  useEffect(() => {
     if (!sim.results) return
     setIsRightOpen(true)
-
     const inFlightByNode = new Map(
       sim.results.conservationCheck.map((result) => [result.nodeId, result.inFlight])
     )
@@ -376,6 +535,8 @@ export const WorkspaceLayout = () => {
     })
     flowStore.setEdgeFlowStatus('running')
     sim.run(topology)
+    flowStore.setRunInspectorPinned(true)
+    setIsRightOpen(true)
   }
 
   function handleRun() {

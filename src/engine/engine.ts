@@ -86,6 +86,9 @@ interface SecurityPolicyConfig {
 }
 
 const DEFAULT_MAX_RETAINED_EVENT_STREAM_EVENTS = 25_000
+const DEFAULT_MAX_RETAINED_REQUEST_OUTCOMES = 25_000
+const TERMINAL_TOMBSTONE_RETENTION_US = msToMicro(60_000)
+const MAX_TERMINAL_TOMBSTONES = 100_000
 const LOAD_BALANCER_UNHEALTHY_COOLDOWN_US = msToMicro(5_000)
 
 interface SimulationEngineOptions {
@@ -132,13 +135,16 @@ export class SimulationEngine {
   private readonly workload?: WorkloadGenerator
 
   private readonly requestById = new Map<string, Request>()
-  private readonly terminalStatusByRequestId = new Map<string, TerminalRequestStatus>()
+  private readonly terminalStatusByRequestId = new Map<string, bigint>()
+  private readonly terminalTombstoneOrder: Array<{ requestId: string; terminalAtUs: bigint }> = []
+  private terminalTombstoneHead = 0
   /**
-   * Complete, unsampled per-request outcome ledger, filled at the single
-   * `markRequestTerminal` funnel. In-flight survivors are appended at cutoff in
-   * {@link generateResults}, so every generated request is accounted for exactly once.
+   * Bounded sample of per-request outcomes retained for UI inspection. Aggregate
+   * metrics remain exact in MetricsCollector; this avoids keeping millions of
+   * outcome objects alive during high-RPS runs.
    */
-  private readonly requestOutcomeById = new Map<string, RequestOutcomeRecord>()
+  private readonly retainedRequestOutcomes: RequestOutcomeRecord[] = []
+  private requestOutcomeTotal = 0
   private readonly simulationDurationUs: bigint
   private readonly snapshotIntervalUs = secToMicro(1)
 
@@ -1264,10 +1270,7 @@ export class SimulationEngine {
     const fromEvent = event.data.request as Request | undefined
     if (fromEvent?.metadata?.__terminal) {
       if (typeof fromEvent.metadata.__terminal === 'string') {
-        this.terminalStatusByRequestId.set(
-          fromEvent.id,
-          fromEvent.metadata.__terminal as TerminalRequestStatus
-        )
+        this.markTerminalTombstone(fromEvent.id)
       }
       return undefined
     }
@@ -1459,23 +1462,70 @@ export class SimulationEngine {
 
   private markRequestTerminal(request: Request, status: TerminalRequestStatus): void {
     request.metadata.__terminal = status
-    this.terminalStatusByRequestId.set(request.id, status)
-    // First terminal wins: races are already tombstoned upstream, but guard so a
-    // stray second transition can never double-count a request in the ledger.
-    if (!this.requestOutcomeById.has(request.id)) {
-      const createdAtMs = microToMs(request.createdAt)
-      const terminalAtMs = microToMs(this.clock)
-      this.requestOutcomeById.set(request.id, {
-        requestId: request.id,
-        status,
-        createdAtMs,
-        terminalAtMs,
-        nodeId: request.path.length > 0 ? request.path[request.path.length - 1] : null,
-        attempts: (request.retryCount ?? 0) + 1,
-        latencyMs: Math.max(0, terminalAtMs - createdAtMs)
-      })
-    }
+    this.markTerminalTombstone(request.id)
+    const createdAtMs = microToMs(request.createdAt)
+    const terminalAtMs = microToMs(this.clock)
+    this.retainRequestOutcome({
+      requestId: request.id,
+      status,
+      createdAtMs,
+      terminalAtMs,
+      nodeId: request.path.length > 0 ? request.path[request.path.length - 1] : null,
+      attempts: (request.retryCount ?? 0) + 1,
+      latencyMs: Math.max(0, terminalAtMs - createdAtMs)
+    })
     this.requestById.delete(request.id)
+  }
+
+  private markTerminalTombstone(requestId: string, terminalAtUs = this.clock): void {
+    this.terminalStatusByRequestId.set(requestId, terminalAtUs)
+    this.terminalTombstoneOrder.push({ requestId, terminalAtUs })
+    this.pruneTerminalTombstones()
+  }
+
+  private pruneTerminalTombstones(): void {
+    const minTerminalAtUs = this.clock - TERMINAL_TOMBSTONE_RETENTION_US
+    while (this.terminalTombstoneHead < this.terminalTombstoneOrder.length) {
+      const oldest = this.terminalTombstoneOrder[this.terminalTombstoneHead]
+      const overCountLimit =
+        this.terminalTombstoneOrder.length - this.terminalTombstoneHead > MAX_TERMINAL_TOMBSTONES
+      const pastRetentionWindow = oldest.terminalAtUs < minTerminalAtUs
+      if (!overCountLimit && !pastRetentionWindow) {
+        break
+      }
+
+      this.terminalTombstoneHead++
+      const currentTerminalAtUs = this.terminalStatusByRequestId.get(oldest.requestId)
+      if (currentTerminalAtUs === oldest.terminalAtUs) {
+        this.terminalStatusByRequestId.delete(oldest.requestId)
+      }
+    }
+
+    if (
+      this.terminalTombstoneHead > 10_000 &&
+      this.terminalTombstoneHead > this.terminalTombstoneOrder.length / 2
+    ) {
+      this.terminalTombstoneOrder.splice(0, this.terminalTombstoneHead)
+      this.terminalTombstoneHead = 0
+    }
+  }
+
+  private retainRequestOutcome(outcome: RequestOutcomeRecord): void {
+    this.requestOutcomeTotal++
+
+    if (this.retainedRequestOutcomes.length < DEFAULT_MAX_RETAINED_REQUEST_OUTCOMES) {
+      this.retainedRequestOutcomes.push(outcome)
+      return
+    }
+
+    // Deterministic reservoir sampling: each later row has a stable chance to
+    // replace an earlier retained row, keeping memory bounded without retaining
+    // only the beginning of large runs.
+    const slot =
+      this.hash32(`${this.topology.global.seed}:${outcome.requestId}`) % this.requestOutcomeTotal
+    if (slot < DEFAULT_MAX_RETAINED_REQUEST_OUTCOMES) {
+      this.retainedRequestOutcomes[slot] = outcome
+    }
   }
 
   /**
@@ -1488,10 +1538,7 @@ export class SimulationEngine {
    */
   private buildRequestOutcomes(): RequestOutcomeRecord[] {
     for (const request of this.requestById.values()) {
-      if (this.requestOutcomeById.has(request.id)) {
-        continue
-      }
-      this.requestOutcomeById.set(request.id, {
+      this.retainRequestOutcome({
         requestId: request.id,
         status: 'in-flight',
         createdAtMs: microToMs(request.createdAt),
@@ -1502,13 +1549,22 @@ export class SimulationEngine {
       })
     }
 
-    return [...this.requestOutcomeById.values()].sort((a, b) => {
+    return [...this.retainedRequestOutcomes].sort((a, b) => {
       const aKey = a.terminalAtMs ?? Number.POSITIVE_INFINITY
       const bKey = b.terminalAtMs ?? Number.POSITIVE_INFINITY
       if (aKey !== bKey) return aKey - bKey
       if (a.createdAtMs !== b.createdAtMs) return a.createdAtMs - b.createdAtMs
       return a.requestId.localeCompare(b.requestId)
     })
+  }
+
+  private hash32(value: string): number {
+    let hash = 2166136261
+    for (let i = 0; i < value.length; i++) {
+      hash ^= value.charCodeAt(i)
+      hash = Math.imul(hash, 16777619)
+    }
+    return hash >>> 0
   }
 
   private takeSnapshot(): TimeSeriesSnapshot {
@@ -1573,7 +1629,9 @@ export class SimulationEngine {
         eventLog,
         debuggedLifecycle,
         statusTimeline: this.buildStatusTimeline(),
-        requestOutcomes: this.buildRequestOutcomes()
+        requestOutcomes: this.buildRequestOutcomes(),
+        requestOutcomeTotal: this.requestOutcomeTotal,
+        requestOutcomesSampled: this.requestOutcomeTotal > DEFAULT_MAX_RETAINED_REQUEST_OUTCOMES
       }
     )
   }

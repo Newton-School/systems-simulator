@@ -282,18 +282,18 @@ export const PacketEdge = ({
       ? `${flowLabelText} (${failureBreakdownText})`
       : flowLabelText
   const flowLabelClassName = [
-    'rounded-full border px-2 py-0.5 text-[12px] font-semibold leading-none tracking-wide shadow-sm',
+    'rounded-full border px-2 py-0.5 text-[12px] font-semibold leading-none tracking-wide shadow-md',
     isRoutingPreviewEdge
       ? routingPreview?.isSelected
-        ? 'border-nss-success/30 bg-nss-success/10 text-nss-success'
-        : 'border-nss-border bg-nss-surface text-nss-muted'
+        ? 'border-nss-success/40 bg-nss-panel text-nss-success'
+        : 'border-nss-border bg-nss-panel text-nss-muted'
       : isInactiveAfterRun
-        ? 'border-nss-border bg-nss-surface text-nss-muted'
+        ? 'border-nss-border bg-nss-panel text-nss-muted'
         : failureLevel === 'crit'
-          ? 'border-nss-danger/30 bg-nss-danger/10 text-nss-danger'
+          ? 'border-nss-danger/50 bg-nss-panel text-nss-danger'
           : failureLevel === 'warn'
-            ? 'border-nss-warning/30 bg-nss-warning/10 text-nss-warning'
-            : 'border-nss-primary/30 bg-nss-primary/10 text-nss-primary'
+            ? 'border-nss-warning/50 bg-nss-panel text-nss-warning'
+            : 'border-nss-primary/40 bg-nss-panel text-nss-primary'
   ].join(' ')
 
   const pointForProgress = (progress: number) => {

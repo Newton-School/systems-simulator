@@ -28,7 +28,7 @@ interface ConfigFieldBase {
   visible?: (data: CanvasNodeDataV2) => boolean
   displayAs?: ConfigDisplayTransform
   renderer?: ConfigCustomRenderer
-  placeholder?: string
+  placeholder?: string | ((data: CanvasNodeDataV2) => string)
 }
 
 export type ConfigField =

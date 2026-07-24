@@ -15,6 +15,34 @@ function isReadReplicaNode(data: CanvasNodeDataV2): boolean {
   return data.sim?.replicationRole === 'replica' || data.templateId === 'read-replica'
 }
 
+function meanServiceTimeMs(data: CanvasNodeDataV2): number | null {
+  const distribution = data.sim?.processing?.distribution
+  if (!distribution) {
+    return null
+  }
+
+  if (distribution.type === 'constant') {
+    return distribution.value
+  }
+
+  if (distribution.type === 'exponential' && distribution.lambda > 0) {
+    return 1 / distribution.lambda
+  }
+
+  if (distribution.type === 'normal') {
+    return distribution.mean
+  }
+
+  return null
+}
+
+function serviceTimeFallbackText(data: CanvasNodeDataV2): string {
+  const mean = meanServiceTimeMs(data)
+  return mean === null
+    ? 'Uses the node mean service time when empty.'
+    : `Uses mean service time (${mean.toFixed(1)}ms) when empty.`
+}
+
 /**
  * Overrides the sampled service-time distribution by request.type. Read
  * Replicas opt out — ReadOnlyTrait owns their behaviour instead — since both
@@ -59,8 +87,9 @@ export const readWriteSplitCapabilityModule: NodeCapabilityModule = {
             label: 'Read latency',
             step: 0.1,
             unit: 'ms',
+            placeholder: serviceTimeFallbackText,
             visible: (data) => !isReadReplicaNode(data),
-            why: 'Overrides read requests with a separate mean service time.'
+            why: 'Optional override for read requests. Leave empty to use the node mean service time.'
           },
           {
             path: 'sim.writeLatencyMs',
@@ -68,8 +97,9 @@ export const readWriteSplitCapabilityModule: NodeCapabilityModule = {
             label: 'Write latency',
             step: 0.1,
             unit: 'ms',
+            placeholder: serviceTimeFallbackText,
             visible: (data) => !isReadReplicaNode(data),
-            why: 'Overrides write requests with a separate mean service time.'
+            why: 'Optional override for write requests. Leave empty to use the node mean service time.'
           }
         ]
       }

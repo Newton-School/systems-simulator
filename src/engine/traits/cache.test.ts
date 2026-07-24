@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Request } from '../core/events'
 import type { ComponentNode } from '../core/types'
-import { cacheTrait } from './cache'
+import { cacheCapabilityModule, cacheTrait } from './cache'
 
 function makeRequest(): Request {
   return {
@@ -64,5 +64,30 @@ describe('cacheTrait', () => {
         cacheOutcome: 'miss'
       })
     })
+  })
+
+  it('explains empty cache config fallbacks in field metadata', () => {
+    const fields = cacheCapabilityModule.config?.sections[0]?.fields ?? []
+    const data = {
+      schemaVersion: 2,
+      componentType: 'in-memory-cache',
+      structuralRole: 'storage',
+      profile: 'datastore',
+      rendererType: 'serviceNode',
+      label: 'Redis Cache',
+      sim: {}
+    } as const
+
+    const hitRate = fields.find((field) => field.path === 'sim.cacheHitRate')
+    const hitLatency = fields.find((field) => field.path === 'sim.cacheHitLatencyMs')
+    const ttl = fields.find((field) => field.path === 'sim.ttlSeconds')
+
+    expect(typeof hitRate?.placeholder === 'function' ? hitRate.placeholder(data) : undefined).toBe(
+      'Default: 0.00 (cache disabled when empty)'
+    )
+    expect(
+      typeof hitLatency?.placeholder === 'function' ? hitLatency.placeholder(data) : undefined
+    ).toBe('Default cache-hit latency: 0.1ms')
+    expect(ttl?.accuracy).toBe('not-simulated')
   })
 })

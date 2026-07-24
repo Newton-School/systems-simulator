@@ -105,6 +105,10 @@ function formatMs(value: number | null | undefined): string {
   return typeof value === 'number' && Number.isFinite(value) ? `${value.toFixed(1)}ms` : 'N/A'
 }
 
+function clampPercent(value: number): number {
+  return Math.min(100, Math.max(0, value))
+}
+
 function percentile(values: number[], p: number): number | null {
   if (values.length === 0) return null
 
@@ -157,13 +161,10 @@ function getNodeLabel(node: { id: string; data: unknown }): string {
 
 function getNodeSubtitle(node: { data: unknown }): string {
   // A source is a traffic generator; its componentType ("api-endpoint") mislabels
-  // it, so describe it by role. Every other node shows its real component type.
-  if (isSourceNode(node)) return 'source'
-  const data = node.data as Partial<CanvasNodeDataV2>
-  // A source is a traffic generator; its componentType ("api-endpoint") mislabels
   // it, so describe it by role. Every other node shows its real component type
   // from the catalog taxonomy (microservice, database, cache, load-balancer, …).
   if (isSourceNode(node)) return 'source'
+  const data = node.data as Partial<CanvasNodeDataV2>
   return data.componentType || data.profile || 'node'
 }
 
@@ -225,7 +226,7 @@ function nodeHealth(metrics: NodeSimulationMetrics): {
   }
 
   return {
-    label: 'Healthy',
+    label: 'Not bottleneck',
     className: 'border-nss-success/30 bg-nss-success/10 text-nss-success'
   }
 }
@@ -267,6 +268,26 @@ function MiniMetric({
     <div className="min-w-0">
       <div className="text-[9px] font-semibold uppercase tracking-wide text-nss-muted">{label}</div>
       <div className={clsx('truncate text-xs font-semibold tabular-nums', tone)}>{value}</div>
+    </div>
+  )
+}
+
+function MiniUtilizationMetric({ value }: { value?: number }) {
+  const safeValue = typeof value === 'number' && Number.isFinite(value) ? clampPercent(value) : 0
+  const tone =
+    safeValue >= 90 ? 'bg-nss-danger' : safeValue >= 70 ? 'bg-nss-warning' : 'bg-nss-success'
+  const textTone =
+    safeValue >= 90 ? 'text-nss-danger' : safeValue >= 70 ? 'text-nss-warning' : 'text-nss-text'
+
+  return (
+    <div className="min-w-0">
+      <div className="text-[9px] font-semibold uppercase tracking-wide text-nss-muted">Util</div>
+      <div className={clsx('truncate text-xs font-semibold tabular-nums', textTone)}>
+        {formatPercentValue(value)}
+      </div>
+      <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-nss-border/60">
+        <div className={clsx('h-full rounded-full', tone)} style={{ width: `${safeValue}%` }} />
+      </div>
     </div>
   )
 }
@@ -313,6 +334,8 @@ function RunInspector({
   metricsByNode,
   edgeFlowById,
   runConfig,
+  activeTab,
+  onTabChange,
   onSelectNode,
   onSelectEdge
 }: {
@@ -321,10 +344,11 @@ function RunInspector({
   metricsByNode: Record<string, NodeSimulationMetrics>
   edgeFlowById: Record<string, EdgeFlowState>
   runConfig: ReturnType<typeof useStore.getState>['edgeFlowRunConfig']
+  activeTab: RunInspectorTab
+  onTabChange: (tab: RunInspectorTab) => void
   onSelectNode: (id: string) => void
   onSelectEdge: (id: string) => void
 }) {
-  const [activeTab, setActiveTab] = useState<RunInspectorTab>('nodes')
   const nodeLabelsById = new Map(nodes.map((node) => [node.id, getNodeLabel(node)]))
   const runtimeNodes = nodes
     .map((node) => ({ node, metrics: metricsByNode[node.id] }))
@@ -346,6 +370,18 @@ function RunInspector({
     if (!worst) return entry
     return (entry.metrics.errorRate ?? 0) > (worst.metrics.errorRate ?? 0) ? entry : worst
   }, null)
+  const bottleneckSummary = worstNode
+    ? [
+        `${getNodeLabel(worstNode.node)} needs attention`,
+        `${formatPercentValue(worstNode.metrics.utilization)} util`,
+        `${formatPercentValue(worstNode.metrics.errorRate)} errors`,
+        (worstNode.metrics.queueDepth ?? 0) > 0
+          ? `queue ${formatNumber(worstNode.metrics.queueDepth ?? 0)}`
+          : null
+      ]
+        .filter(Boolean)
+        .join(' · ')
+    : null
   const p95Values = runtimeNodes
     .map((entry) => entry.metrics.latencyNodeLocal?.p95 ?? entry.metrics.latencyP95)
     .filter((value): value is number => value !== undefined && value !== null)
@@ -363,14 +399,17 @@ function RunInspector({
               Run Inspector
             </h2>
             <p className="mt-1 text-[10px] uppercase tracking-wide text-nss-muted">
-              Post-simulation results
+              Live and post-run results
             </p>
           </div>
         </div>
 
         <div className="mt-4 grid grid-cols-2 gap-2">
           <div className="rounded-lg border border-nss-border bg-nss-surface px-3 py-2">
-            <MiniMetric label="Throughput" value={`${formatRate(totalThroughput)} rps`} />
+            <MiniMetric
+              label="Node-Local Throughput"
+              value={`${formatRate(totalThroughput)} rps`}
+            />
           </div>
           <div className="rounded-lg border border-nss-border bg-nss-surface px-3 py-2">
             <MiniMetric
@@ -388,14 +427,21 @@ function RunInspector({
 
         {worstNode && (
           <div className="mt-3 rounded-lg border border-nss-border bg-nss-surface px-3 py-2 text-xs">
-            <span className="text-nss-muted">Watch first: </span>
-            <button
-              type="button"
-              onClick={() => onSelectNode(worstNode.node.id)}
-              className="font-semibold text-nss-primary hover:underline"
-            >
-              {getNodeLabel(worstNode.node)}
-            </button>
+            <div>
+              <span className="text-nss-muted">Watch first: </span>
+              <button
+                type="button"
+                onClick={() => onSelectNode(worstNode.node.id)}
+                className="font-semibold text-nss-primary hover:underline"
+              >
+                {getNodeLabel(worstNode.node)}
+              </button>
+            </div>
+            {bottleneckSummary && (
+              <div className="mt-1 text-[11px] leading-snug text-nss-muted">
+                {bottleneckSummary}
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -405,7 +451,7 @@ function RunInspector({
           <button
             key={option}
             type="button"
-            onClick={() => setActiveTab(option)}
+            onClick={() => onTabChange(option)}
             className={clsx(
               'rounded-t px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide transition-colors',
               activeTab === option
@@ -460,7 +506,9 @@ function RunInspector({
                         </div>
                         <CardBadge label={health.label} className={health.className} />
                       </div>
-                      <div className="mt-3 grid grid-cols-3 gap-3">
+                      <div
+                        className={clsx('mt-3 grid gap-3', source ? 'grid-cols-3' : 'grid-cols-4')}
+                      >
                         {source ? (
                           <>
                             <MiniMetric
@@ -483,13 +531,20 @@ function RunInspector({
                               value={formatMs(metrics.latencyNodeLocal?.p95 ?? metrics.latencyP95)}
                             />
                             <MiniMetric
-                              label="Errors"
+                              label="Terminated Here"
                               value={formatPercentValue(errorRate)}
                               tone={errorRate > 0 ? 'text-nss-danger' : 'text-nss-text'}
                             />
+                            <MiniUtilizationMetric value={metrics.utilization} />
                           </>
                         )}
                       </div>
+                      {!source && errorRate > 0 && (
+                        <p className="mt-2 text-[10px] leading-snug text-nss-muted">
+                          Errors are scoped to requests that terminate at this node; utilization can
+                          remain low when requests are rejected or timed out before much work runs.
+                        </p>
+                      )}
                     </div>
                   </div>
                 </button>
@@ -688,6 +743,7 @@ export const PropertiesPanel = () => {
     Object.values(edgeFlowById).some((flow) => flow.totalAttempted > 0)
   const metrics = useNodeMetrics(selectedNode?.id ?? '')
   const [tab, setTab] = useState<PanelTab>('metrics')
+  const [runInspectorTab, setRunInspectorTab] = useState<RunInspectorTab>('nodes')
   const returnToRunInspector = () => {
     setRunInspectorPinned(true)
     selectGraphElements({})
@@ -730,6 +786,8 @@ export const PropertiesPanel = () => {
         metricsByNode={metricsByNode}
         edgeFlowById={edgeFlowById}
         runConfig={edgeFlowRunConfig}
+        activeTab={runInspectorTab}
+        onTabChange={setRunInspectorTab}
         onSelectNode={(id) => openRunInspectorDetail({ nodeId: id })}
         onSelectEdge={(id) => openRunInspectorDetail({ edgeId: id })}
       />
@@ -846,6 +904,8 @@ export const PropertiesPanel = () => {
         metricsByNode={metricsByNode}
         edgeFlowById={edgeFlowById}
         runConfig={edgeFlowRunConfig}
+        activeTab={runInspectorTab}
+        onTabChange={setRunInspectorTab}
         onSelectNode={(id) => openRunInspectorDetail({ nodeId: id })}
         onSelectEdge={(id) => openRunInspectorDetail({ edgeId: id })}
       />

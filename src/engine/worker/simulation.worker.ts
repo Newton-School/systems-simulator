@@ -1,13 +1,16 @@
 import { SimulationEngine } from '../engine'
 import type { EdgeFlowEvent } from '../core/events'
-import type { TimeSeriesSnapshot } from '../analysis/output'
+import type { SimulationOutput, TimeSeriesSnapshot } from '../analysis/output'
+import type { RequestOutcomeRecord } from '../core/event-stream'
 import type { WorkerInboundMessage, WorkerOutboundMessage } from './protocols'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 /** Events processed per chunk before yielding to allow incoming messages. */
 const CHUNK_SIZE = 5_000
-const EDGE_FLOW_BATCH_SIZE = 5_000
+const LIVE_TELEMETRY_INTERVAL_MS = 100
+const EDGE_FLOW_MAX_PENDING_EVENTS = 25_000
+const MAX_RETAINED_REQUEST_OUTCOMES = 25_000
 
 // ─── State ────────────────────────────────────────────────────────────────────
 
@@ -18,6 +21,7 @@ let running = false
 let pendingEdgeFlowEvents: EdgeFlowEvent[] = []
 let pendingProgress: { percent: number; eventsProcessed: number } | null = null
 let pendingSnapshot: TimeSeriesSnapshot | null = null
+let lastTelemetryFlushAtMs = 0
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -37,12 +41,19 @@ function flushEdgeFlowEvents(): void {
 
 function queueEdgeFlowEvent(event: EdgeFlowEvent): void {
   pendingEdgeFlowEvents.push(event)
-  if (pendingEdgeFlowEvents.length >= EDGE_FLOW_BATCH_SIZE) {
-    flushEdgeFlowEvents()
-  }
 }
 
-function flushLiveTelemetry(): void {
+function flushLiveTelemetry(force = false): void {
+  const now = Date.now()
+  const pendingEventPressure = pendingEdgeFlowEvents.length >= EDGE_FLOW_MAX_PENDING_EVENTS
+  if (
+    !force &&
+    !pendingEventPressure &&
+    now - lastTelemetryFlushAtMs < LIVE_TELEMETRY_INTERVAL_MS
+  ) {
+    return
+  }
+
   if (pendingSnapshot) {
     post({ type: 'snapshot', payload: { snapshot: pendingSnapshot } })
     pendingSnapshot = null
@@ -54,6 +65,7 @@ function flushLiveTelemetry(): void {
   }
 
   flushEdgeFlowEvents()
+  lastTelemetryFlushAtMs = now
 }
 
 function reset(): void {
@@ -64,10 +76,48 @@ function reset(): void {
   pendingEdgeFlowEvents = []
   pendingProgress = null
   pendingSnapshot = null
+  lastTelemetryFlushAtMs = 0
 }
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function sampleRequestOutcomes(outcomes: RequestOutcomeRecord[]): RequestOutcomeRecord[] {
+  if (outcomes.length <= MAX_RETAINED_REQUEST_OUTCOMES) {
+    return outcomes
+  }
+
+  const stride = Math.ceil(outcomes.length / MAX_RETAINED_REQUEST_OUTCOMES)
+  const sampled: RequestOutcomeRecord[] = []
+
+  for (
+    let index = 0;
+    index < outcomes.length && sampled.length < MAX_RETAINED_REQUEST_OUTCOMES;
+    index += stride
+  ) {
+    sampled.push(outcomes[index])
+  }
+
+  const last = outcomes[outcomes.length - 1]
+  if (last && sampled[sampled.length - 1]?.requestId !== last.requestId) {
+    sampled[sampled.length - 1] = last
+  }
+
+  return sampled
+}
+
+function prepareOutputForTransport(output: SimulationOutput): SimulationOutput {
+  if (output.requestOutcomes.length <= MAX_RETAINED_REQUEST_OUTCOMES) {
+    return output
+  }
+
+  return {
+    ...output,
+    requestOutcomeTotal: output.requestOutcomeTotal,
+    requestOutcomesSampled: true,
+    requestOutcomes: sampleRequestOutcomes(output.requestOutcomes)
+  }
 }
 
 // ─── Chunked execution loop ───────────────────────────────────────────────────
@@ -94,13 +144,13 @@ async function runChunked(): Promise<void> {
     }
 
     if (engine) {
-      flushLiveTelemetry()
-      const output = engine.getResults()
+      flushLiveTelemetry(true)
+      const output = prepareOutputForTransport(engine.getResults())
       post({ type: 'complete', payload: { output, stopped } })
     }
   } catch (err) {
     const e = err as Error
-    flushLiveTelemetry()
+    flushLiveTelemetry(true)
     post({ type: 'error', payload: { message: e.message, stack: e.stack } })
   } finally {
     reset()
@@ -177,15 +227,15 @@ self.onmessage = (event: MessageEvent<WorkerInboundMessage>) => {
 
       try {
         engine.step(msg.payload.count)
-        flushLiveTelemetry()
+        flushLiveTelemetry(true)
         if (!engine.hasPendingEvents()) {
-          const output = engine.getResults()
+          const output = prepareOutputForTransport(engine.getResults())
           post({ type: 'complete', payload: { output } })
           reset()
         }
       } catch (err) {
         const e = err as Error
-        flushLiveTelemetry()
+        flushLiveTelemetry(true)
         post({ type: 'error', payload: { message: e.message, stack: e.stack } })
         reset()
       }

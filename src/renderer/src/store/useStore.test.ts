@@ -146,6 +146,26 @@ describe('useStore edge flow batching', () => {
     expect(flow.recent.length).toBe(100)
     expect(state.edgeFlowHistory.length).toBe(100)
     expect(flow.recent[0]?.sampleWeight).toBe(16)
-    expect(flow.attemptedPerSecond).toBeGreaterThan(1_500)
+    expect(flow.attemptedPerSecond).toBeGreaterThan(950)
+    expect(flow.attemptedPerSecond).toBeLessThan(1_050)
+  })
+
+  it('preserves a selected runtime metric lens across live metric updates', () => {
+    useStore.getState().setSimulationMetrics({
+      'node-a': {
+        throughput: 10
+      }
+    })
+    expect(useStore.getState().metricLens).toBe('traffic')
+
+    useStore.getState().setMetricLens('saturation')
+    useStore.getState().setSimulationMetrics({
+      'node-a': {
+        throughput: 20,
+        utilization: 80
+      }
+    })
+
+    expect(useStore.getState().metricLens).toBe('saturation')
   })
 })

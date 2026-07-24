@@ -140,6 +140,8 @@ export interface SimulationOutput {
   statusTimeline: StatusWindow[]
   traces: RequestTrace[]
   causalGraph: CausalGraph | null
+  /** Number of explicitly configured SLO targets evaluated for this run. */
+  sloTargetCount: number
   sloBreaches: SLOBreach[]
   invariantViolations: InvariantViolation[]
   littlesLawCheck: LittlesLawResult[]
@@ -161,11 +163,14 @@ export interface SimulationOutput {
   /** Lifecycle assembled for a focused debug request, when one was selected. */
   debuggedLifecycle: RequestLifecycle | null
   /**
-   * Complete, unsampled per-request outcome ledger: one row per generated
-   * request keyed on terminal fate (success/timeout/rejected/connection_reset)
-   * plus in-flight survivors at cutoff. `Σ(rows by status) === requests generated`.
+   * Per-request outcome rows retained for UI inspection. Engine-side callers may
+   * keep this complete; worker/UI payloads may sample it for very large runs.
    */
   requestOutcomes: RequestOutcomeRecord[]
+  /** Total outcome rows before any UI transport sampling. */
+  requestOutcomeTotal: number
+  /** True when `requestOutcomes` is a sampled subset of the total outcome ledger. */
+  requestOutcomesSampled: boolean
 }
 
 export function generateSimulationOutput(
@@ -183,6 +188,8 @@ export function generateSimulationOutput(
     debuggedLifecycle?: RequestLifecycle | null
     statusTimeline?: StatusWindow[]
     requestOutcomes?: RequestOutcomeRecord[]
+    requestOutcomeTotal?: number
+    requestOutcomesSampled?: boolean
   }
 ): SimulationOutput {
   const summary = metrics.generateSummary(config.simulationDuration)
@@ -192,8 +199,11 @@ export function generateSimulationOutput(
   const perEdge = Object.fromEntries(metrics.getPerEdgeMetrics()) as Record<string, PerEdgeMetrics>
   const littlesLawCheck = calculateLittlesLaw(perNode, config)
   const sloBreaches = detectSLOBreaches(metrics, perNode)
+  const sloTargetCount = countSLOTargets(metrics, perNode)
   const warmupAdequacy = assessWarmupAdequacy(perNode, config)
   const conservationCheck = buildConservationCheck(perNode)
+
+  const requestOutcomes = debugData?.requestOutcomes ?? []
 
   return {
     summary,
@@ -203,6 +213,7 @@ export function generateSimulationOutput(
     statusTimeline: debugData?.statusTimeline ?? [],
     traces: tracer.getTraces(),
     causalGraph,
+    sloTargetCount,
     sloBreaches,
     invariantViolations: [...invariantViolations],
     littlesLawCheck,
@@ -217,8 +228,30 @@ export function generateSimulationOutput(
     warmupDuration: config.warmupDuration,
     eventLog: debugData?.eventLog ?? null,
     debuggedLifecycle: debugData?.debuggedLifecycle ?? null,
-    requestOutcomes: debugData?.requestOutcomes ?? []
+    requestOutcomes,
+    requestOutcomeTotal: debugData?.requestOutcomeTotal ?? requestOutcomes.length,
+    requestOutcomesSampled: debugData?.requestOutcomesSampled ?? false
   }
+}
+
+function countSLOTargets(
+  metrics: MetricsCollector,
+  perNode: Record<string, PerNodeMetrics>
+): number {
+  let count = 0
+  for (const nodeId of Object.keys(perNode)) {
+    const slo = metrics.getNodeMetadata(nodeId)?.slo
+    if (!slo) {
+      continue
+    }
+    if (typeof slo.latencyP99 === 'number') {
+      count++
+    }
+    if (typeof slo.availabilityTarget === 'number') {
+      count++
+    }
+  }
+  return count
 }
 
 function detectSLOBreaches(

@@ -1,4 +1,5 @@
 import type { ComponentType } from '../core/types'
+import type { CanvasNodeDataV2 } from '../catalog/nodeSpecTypes'
 import type { NodeBehaviourTrait, NodeCapabilityModule } from './types'
 
 export const CACHE_COMPONENT_TYPES = [
@@ -28,6 +29,18 @@ function defaultCacheHitLatencyMs(type: ComponentType): number {
     default:
       return 1
   }
+}
+
+function defaultCacheHitRatePlaceholder(data: CanvasNodeDataV2): string {
+  const configured = asProbability(data.sim?.cacheHitRate)
+  const rate = configured ?? 0
+  return `Default: ${rate.toFixed(2)} (${rate === 0 ? 'cache disabled when empty' : 'hit probability'})`
+}
+
+function defaultCacheHitLatencyPlaceholder(data: CanvasNodeDataV2): string {
+  const configured = asPositiveNumber(data.sim?.cacheHitLatencyMs)
+  const latency = configured ?? defaultCacheHitLatencyMs(data.componentType)
+  return `Default cache-hit latency: ${latency.toFixed(1)}ms`
 }
 
 export const cacheTrait: NodeBehaviourTrait = {
@@ -86,6 +99,7 @@ export const cacheCapabilityModule: NodeCapabilityModule = {
       {
         id: 'caching',
         title: 'Caching',
+        note: 'Empty cache hit rate means this node behaves as a pass-through cache. Cache hit latency only applies to hits. TTL is shown for topology intent, but the current simulator does not model expiry over time.',
         fields: [
           {
             path: 'sim.cacheHitRate',
@@ -93,7 +107,8 @@ export const cacheCapabilityModule: NodeCapabilityModule = {
             label: 'Cache hit rate',
             step: 0.01,
             unit: 'ratio',
-            why: 'Controls how much traffic this node serves locally instead of forwarding.'
+            placeholder: defaultCacheHitRatePlaceholder,
+            why: 'Controls how much traffic this node serves locally instead of forwarding. Leave empty to disable cache hits.'
           },
           {
             path: 'sim.cacheHitLatencyMs',
@@ -101,7 +116,8 @@ export const cacheCapabilityModule: NodeCapabilityModule = {
             label: 'Cache hit latency',
             step: 0.1,
             unit: 'ms',
-            why: 'Sets the latency cost of a cache hit.'
+            placeholder: defaultCacheHitLatencyPlaceholder,
+            why: 'Sets the latency cost of a cache hit. Leave empty to use the component default.'
           },
           {
             path: 'sim.ttlSeconds',
@@ -109,7 +125,9 @@ export const cacheCapabilityModule: NodeCapabilityModule = {
             label: 'TTL',
             step: 1,
             unit: 's',
-            why: 'Controls how long cached responses remain reusable.'
+            placeholder: 'Not simulated when empty',
+            accuracy: 'not-simulated',
+            why: 'Documents cache expiry intent. The current simulator does not use TTL to change hit or miss behavior.'
           }
         ]
       }

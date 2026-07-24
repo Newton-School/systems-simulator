@@ -78,7 +78,7 @@ function resolveField(field: ConfigField, data: AnyNodeData): ResolvedFieldDefin
     accuracy: field.accuracy ?? 'user-parameter',
     renderer: field.renderer ?? 'default',
     displayAs: field.displayAs,
-    placeholder: field.placeholder
+    placeholder: resolveText(field.placeholder, data)
   } satisfies Omit<ResolvedFieldDefinition, 'options' | 'min' | 'max' | 'step' | 'defaultValue'>
 
   switch (field.type) {

@@ -46,6 +46,7 @@ import {
   toneRank,
   type ReliabilityStatus
 } from '@renderer/utils/nodeHealthThresholds'
+import { simulatedArrivalBins, workloadRateMultiplierAtMs } from './resultsTrayWorkload'
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
@@ -559,93 +560,6 @@ function LifecycleTree({
   )
 }
 
-function hash01(input: string): number {
-  let hash = 2166136261
-  for (let index = 0; index < input.length; index++) {
-    hash ^= input.charCodeAt(index)
-    hash = Math.imul(hash, 16777619)
-  }
-  return (hash >>> 0) / 4294967295
-}
-
-function workloadRateMultiplierAtMs(
-  workload: ScenarioRunContext['workload'],
-  currentSimMs: number
-): number {
-  const baseRps = Math.max(1, workload.baseRps)
-
-  switch (workload.pattern) {
-    case 'constant':
-    case 'replay':
-      return 1
-
-    case 'poisson': {
-      const bucket = Math.floor(currentSimMs / 900)
-      return 0.55 + hash01(`poisson:${bucket}`) * 0.9
-    }
-
-    case 'bursty': {
-      if (!workload.bursty) return 1
-      const burstDuration = Math.max(1, workload.bursty.burstDuration)
-      const normalDuration = Math.max(1, workload.bursty.normalDuration)
-      const cycle = burstDuration + normalDuration
-      const inBurst = currentSimMs % cycle < burstDuration
-      return inBurst ? Math.max(1.5, Math.min(4, workload.bursty.burstRps / baseRps)) : 1
-    }
-
-    case 'spike': {
-      if (!workload.spike) return 1
-      const inSpike =
-        currentSimMs >= workload.spike.spikeTime &&
-        currentSimMs < workload.spike.spikeTime + workload.spike.spikeDuration
-      return inSpike ? Math.max(1.75, Math.min(5, workload.spike.spikeRps / baseRps)) : 1
-    }
-
-    case 'sawtooth': {
-      if (!workload.sawtooth) return 1
-      const rampDuration = Math.max(1, workload.sawtooth.rampDuration)
-      const progress = (currentSimMs % rampDuration) / rampDuration
-      const currentRps = baseRps + (workload.sawtooth.peakRps - baseRps) * progress
-      return Math.max(0.45, Math.min(5, currentRps / baseRps))
-    }
-
-    case 'diurnal': {
-      const multipliers = workload.diurnal?.hourlyMultipliers
-      if (!multipliers) return 1
-      const hourPosition = (((currentSimMs / 1000 / 60 / 60) % 24) + 24) % 24
-      const hour = Math.floor(hourPosition)
-      const nextHour = (hour + 1) % 24
-      const localT = hourPosition - Math.floor(hourPosition)
-      const current = multipliers[hour] ?? 1
-      const next = multipliers[nextHour] ?? current
-      return Math.max(0.35, Math.min(2.5, current + (next - current) * localT))
-    }
-
-    default:
-      return 1
-  }
-}
-
-function simulatedArrivalBins(
-  workload: ScenarioRunContext['workload'],
-  currentSimMs: number,
-  windowMs: number,
-  binCount: number
-): number[] {
-  const binWidthMs = Math.max(1, windowMs / Math.max(1, binCount))
-
-  return Array.from({ length: binCount }, (_, index) => {
-    const binCenterMs = currentSimMs - windowMs + binWidthMs * index + binWidthMs / 2
-    const base = workloadRateMultiplierAtMs(workload, Math.max(0, binCenterMs))
-
-    if (workload.pattern === 'poisson') {
-      return base * (0.7 + hash01(`arrival:${Math.round(binCenterMs / 80)}:${index}`) * 0.9)
-    }
-
-    return base
-  })
-}
-
 function errorRateAtTime(output: SimulationOutput, currentSimMs: number): number | null {
   const window =
     output.summary.latencyWindows.find(
@@ -1021,6 +935,8 @@ function RequestOutcomeLog({
   }, [expandedRequestId, visibleRows])
 
   const inFlightCount = statusCounts['in-flight']
+  const totalOutcomeCount = output.requestOutcomeTotal ?? outcomes.length
+  const outcomesSampled = output.requestOutcomesSampled ?? false
 
   const filters: OutcomeStatusFilter[] = ['all', ...OUTCOME_STATUS_ORDER]
 
@@ -1038,11 +954,15 @@ function RequestOutcomeLog({
             />
           </div>
           <div className="text-[11px] text-nss-muted">
-            Final fate of every request this run. Click a row for its lifecycle.
+            {outcomesSampled
+              ? `Showing a sampled request-outcome ledger. ${outcomes.length.toLocaleString()} outcomes are retained from ${totalOutcomeCount.toLocaleString()} total; aggregate metrics above remain exact. Search and pagination only cover retained rows.`
+              : 'Final fate of every request this run. Click a row for its lifecycle.'}
           </div>
         </div>
         <span className="text-[10px] text-nss-muted tabular-nums">
-          {visibleRows.length.toLocaleString()} of {outcomes.length.toLocaleString()}
+          {outcomesSampled
+            ? `${visibleRows.length.toLocaleString()} visible of ${outcomes.length.toLocaleString()} sampled`
+            : `${visibleRows.length.toLocaleString()} of ${outcomes.length.toLocaleString()} retained`}
         </span>
       </div>
 
@@ -1291,27 +1211,23 @@ function LiveMonitorPanel({
   const sourceFlows = sourceEdgeIds
     .map((edgeId) => edgeFlowById[edgeId])
     .filter((flow): flow is NonNullable<(typeof edgeFlowById)[string]> => Boolean(flow))
-  const sourceEvents = sourceFlows.flatMap((flow) => flow.recent)
+  const sourceHasTraffic = sourceFlows.some((flow) => flow.totalAttempted > 0)
   const allFlows = Object.values(edgeFlowById)
 
   const arrivalWindowMs = Math.min(
     4_000,
     Math.max(1_200, Math.round(runContext.global.simulationDuration / 12))
   )
-  const windowStartMs = Math.max(0, currentSimMs - arrivalWindowMs)
-  const arrivalBins = Array.from({ length: LIVE_PATTERN_BAR_COUNT }, () => 0)
-  const binSizeMs = arrivalWindowMs / LIVE_PATTERN_BAR_COUNT
-
-  for (const event of sourceEvents) {
-    if (event.startedAtMs < windowStartMs || event.startedAtMs > currentSimMs) continue
-    const index = Math.min(
-      LIVE_PATTERN_BAR_COUNT - 1,
-      Math.max(0, Math.floor((event.startedAtMs - windowStartMs) / Math.max(binSizeMs, 1)))
-    )
-    arrivalBins[index]++
-  }
-
-  const sourceEmitRate = sourceFlows.reduce((sum, flow) => sum + flow.attemptedPerSecond, 0)
+  const arrivalBins = sourceHasTraffic
+    ? simulatedArrivalBins(
+        runContext.workload,
+        currentSimMs,
+        arrivalWindowMs,
+        LIVE_PATTERN_BAR_COUNT
+      )
+    : Array.from({ length: LIVE_PATTERN_BAR_COUNT }, () => 0)
+  const sourceEmitRate =
+    workloadRateMultiplierAtMs(runContext.workload, currentSimMs) * runContext.workload.baseRps
   const totalAttemptedPerSecond = allFlows.reduce((sum, flow) => sum + flow.attemptedPerSecond, 0)
   const totalFailedPerSecond = allFlows.reduce((sum, flow) => sum + flow.failedPerSecond, 0)
   const edgeFailureRatio =
@@ -1381,7 +1297,7 @@ function LiveMonitorPanel({
         <div className="flex items-center justify-between gap-3 text-[11px] text-nss-muted">
           <span>{fmtSeconds(arrivalWindowMs)} source arrival window</span>
           <span>
-            {sourceEvents.length > 0
+            {sourceHasTraffic
               ? 'Same average rate, different spacing is what the pattern changes.'
               : 'Waiting for source traffic.'}
           </span>
@@ -1955,7 +1871,7 @@ function ReplayMonitorPanel({
         <StatCard label="Est. Source Emit" value={fmtRps(currentSourceRate)} />
         <StatCard label="In System" value={Math.round(totalInSystem).toLocaleString()} />
         <StatCard
-          label="Window Fail"
+          label={currentSimMs <= 0 ? 'First Retained Window Fail' : 'Replay Window Fail'}
           value={currentErrorRate === null ? '-' : fmtPct(currentErrorRate)}
           highlight={
             currentErrorRate === null
@@ -1977,7 +1893,7 @@ function ReplayMonitorPanel({
         totalWorkers={totalWorkers}
         graphLookup={graphLookup}
         nodeCount={liveNodes.length}
-        emptyLabel="No components were carrying visible load at this snapshot."
+        emptyLabel="No components were carrying visible load at this replay point. Move the scrubber or press play to inspect active workers over time."
       />
     </div>
   )
@@ -2150,6 +2066,24 @@ function SummaryPanel({ output }: { output: SimulationOutput }) {
     (sum, result) => sum + result.inFlight,
     0
   )
+  const nodeEntries = Object.entries(output.perNode)
+  const hottestNode = nodeEntries.reduce<(typeof nodeEntries)[number] | null>((winner, entry) => {
+    if (!winner) return entry
+    return entry[1].utilization > winner[1].utilization ? entry : winner
+  }, null)
+  const downstreamHeadroom = nodeEntries.filter(
+    ([nodeId, metrics]) => nodeId !== hottestNode?.[0] && metrics.postWarmupArrived > 0
+  )
+  const avgDownstreamUtil =
+    downstreamHeadroom.length > 0
+      ? downstreamHeadroom.reduce((sum, [, metrics]) => sum + metrics.utilization, 0) /
+        downstreamHeadroom.length
+      : null
+  const showOverloadConclusion =
+    hottestNode !== null &&
+    hottestNode[1].utilization >= 0.95 &&
+    output.summary.errorRate >= 0.2 &&
+    (avgDownstreamUtil === null || avgDownstreamUtil < 0.5)
 
   const windowStart = output.warmupDuration / 1000
   const windowEnd = output.simulationDuration / 1000
@@ -2163,7 +2097,7 @@ function SummaryPanel({ output }: { output: SimulationOutput }) {
         <h3 className={SECTION_TITLE}>Summary</h3>
         <span className="text-[10px] text-nss-muted tabular-nums">
           Window: t={windowStart.toFixed(0)}s → t={windowEnd.toFixed(0)}s&nbsp;(
-          {windowLen.toFixed(0)}s,&nbsp;{summary.postWarmupTotalRequests.toLocaleString()} samples)
+          {windowLen.toFixed(0)}s,&nbsp;{summary.postWarmupTotalRequests.toLocaleString()} requests)
         </span>
       </div>
 
@@ -2179,7 +2113,7 @@ function SummaryPanel({ output }: { output: SimulationOutput }) {
           tooltip={RESULTS_SUMMARY_TOOLTIPS.successful}
         />
         <StatCard
-          label="Throughput"
+          label="Success Throughput"
           value={throughputDisplay}
           tooltip={RESULTS_SUMMARY_TOOLTIPS.throughput}
         />
@@ -2205,6 +2139,16 @@ function SummaryPanel({ output }: { output: SimulationOutput }) {
       {totalInFlightAtCutoff > 0 && (
         <div className="rounded-md border border-nss-warning/20 bg-nss-warning/10 px-3 py-2 text-xs text-nss-warning">
           {formatInFlightAtCutoffBanner(totalInFlightAtCutoff)}
+        </div>
+      )}
+
+      {showOverloadConclusion && hottestNode && (
+        <div className="rounded-md border border-nss-danger/20 bg-nss-danger/10 px-3 py-2 text-xs leading-relaxed text-nss-danger">
+          <span className="font-semibold">
+            Overload conclusion: {hottestNode[1].nodeLabel ?? hottestNode[0]} is saturated.
+          </span>{' '}
+          Downstream nodes are underused, so this run is constrained at the bottleneck. Add capacity
+          there, reduce offered load, or apply load shedding before it.
         </div>
       )}
 
@@ -3600,6 +3544,7 @@ function SimulationHealth({ output }: { output: SimulationOutput }) {
         : 'healthy'
 
   const overall = worstLevel([sloLevel, llLevel, conservationLevel, warmupLevel, errorLevel])
+  const hasConfiguredSloTargets = output.sloTargetCount > 0
 
   return (
     <div className="space-y-2">
@@ -3611,15 +3556,25 @@ function SimulationHealth({ output }: { output: SimulationOutput }) {
       {/* SLO */}
       <CollapsibleCheck
         title={
-          sloLevel === 'healthy'
-            ? 'SLO -No breaches'
-            : `SLO -${output.sloBreaches.length} breach${output.sloBreaches.length !== 1 ? 'es' : ''}`
+          !hasConfiguredSloTargets
+            ? 'SLO -No targets configured'
+            : sloLevel === 'healthy'
+              ? 'Configured SLOs -No breaches'
+              : `SLO -${output.sloBreaches.length} breach${output.sloBreaches.length !== 1 ? 'es' : ''}`
         }
         level={sloLevel}
         tooltip={RESULTS_HEALTH_CHECK_TOOLTIPS.slo}
       >
-        {sloLevel === 'healthy' ? (
-          <p className="text-xs text-nss-muted">All configured SLO targets met.</p>
+        {!hasConfiguredSloTargets ? (
+          <p className="text-xs text-nss-muted">
+            No latency or availability SLO targets are configured on these nodes. Use the Error Rate
+            section for this run-level overload result.
+          </p>
+        ) : sloLevel === 'healthy' ? (
+          <p className="text-xs text-nss-muted">
+            No configured latency or availability SLO targets were breached. This is separate from
+            the run-level error-rate check below.
+          </p>
         ) : (
           output.sloBreaches.map((b, i) => {
             const metricStr =
@@ -3712,21 +3667,30 @@ function SimulationHealth({ output }: { output: SimulationOutput }) {
         tooltip={RESULTS_HEALTH_CHECK_TOOLTIPS.littlesLaw}
       >
         {llLevel === 'healthy' ? (
-          <p className="text-xs text-nss-muted">L = λW verified for all nodes (error ≤ 10%).</p>
+          <p className="text-xs text-nss-muted">
+            L = λW verified for accepted node-local work (error ≤ 10%).
+          </p>
         ) : (
-          llViolations.map((r, i) => {
-            const nodeLabel = output.perNode[r.nodeId]?.nodeLabel ?? r.nodeId
-            return (
-              <div
-                key={i}
-                className="text-xs tabular-nums text-nss-warning bg-nss-warning/10 border border-nss-warning/20 rounded px-2 py-1"
-              >
-                {nodeLabel}: L={fmtL(r.observedL)} expected={fmtL(r.expectedL)} error=
-                {`${(r.error * 100).toFixed(1)}%`} | λ={fmtLambda(r.lambda)} rps, W=
-                {fmtW(r.wSeconds)}
-              </div>
-            )
-          })
+          <div className="space-y-1">
+            <p className="text-[11px] leading-relaxed text-nss-muted">
+              This check is most reliable for stable accepted traffic. In rejection-heavy overload,
+              λ and W can describe only the work that actually entered service, so treat this as a
+              consistency warning, not an additional capacity diagnosis.
+            </p>
+            {llViolations.map((r, i) => {
+              const nodeLabel = output.perNode[r.nodeId]?.nodeLabel ?? r.nodeId
+              return (
+                <div
+                  key={i}
+                  className="text-xs tabular-nums text-nss-warning bg-nss-warning/10 border border-nss-warning/20 rounded px-2 py-1"
+                >
+                  {nodeLabel}: L={fmtL(r.observedL)} expected={fmtL(r.expectedL)} error=
+                  {`${(r.error * 100).toFixed(1)}%`} | λ={fmtLambda(r.lambda)} rps, W=
+                  {fmtW(r.wSeconds)}
+                </div>
+              )
+            })}
+          </div>
         )}
       </CollapsibleCheck>
 
@@ -3802,6 +3766,63 @@ function SimulationHealth({ output }: { output: SimulationOutput }) {
 
 // ─── Per-Node Table ───────────────────────────────────────────────────────────
 
+type PerNodeFinding = {
+  text: string
+  level: 'ok' | 'warn' | 'crit'
+}
+
+function findingClass(level: PerNodeFinding['level']): string {
+  if (level === 'crit') {
+    return 'border-nss-danger/20 bg-nss-danger/10 text-nss-danger'
+  }
+  if (level === 'warn') {
+    return 'border-nss-warning/20 bg-nss-warning/10 text-nss-warning'
+  }
+  return 'border-nss-border bg-nss-bg text-nss-muted'
+}
+
+function buildPerNodeFindings(
+  entries: Array<[string, SimulationOutput['perNode'][string]]>
+): PerNodeFinding[] {
+  const active = entries.filter(([, metrics]) => metrics.postWarmupArrived > 0)
+  if (active.length === 0) {
+    return [{ text: 'No node received post-warmup traffic.', level: 'ok' }]
+  }
+
+  const topUtil = active.reduce((winner, current) =>
+    current[1].utilization > winner[1].utilization ? current : winner
+  )
+  const topErrors = active.reduce((winner, current) =>
+    current[1].errorRate > winner[1].errorRate ? current : winner
+  )
+  const topQueue = active.reduce((winner, current) =>
+    current[1].avgQueueLength > winner[1].avgQueueLength ? current : winner
+  )
+
+  const labelFor = ([nodeId, metrics]: [string, SimulationOutput['perNode'][string]]) =>
+    metrics.nodeLabel ?? nodeId
+  const findings: PerNodeFinding[] = [
+    {
+      text: `${labelFor(topUtil)} has highest utilization at ${(topUtil[1].utilization * 100).toFixed(1)}%.`,
+      level: topUtil[1].utilization >= 0.95 ? 'crit' : topUtil[1].utilization >= 0.7 ? 'warn' : 'ok'
+    },
+    topErrors[1].errorRate > 0
+      ? {
+          text: `${labelFor(topErrors)} has highest node-local error rate at ${fmtPct(topErrors[1].errorRate)}.`,
+          level: topErrors[1].errorRate >= 0.05 ? 'crit' : 'warn'
+        }
+      : { text: 'No node-local errors were recorded.', level: 'ok' },
+    topQueue[1].avgQueueLength > 0
+      ? {
+          text: `${labelFor(topQueue)} has the deepest average queue at ${topQueue[1].avgQueueLength.toFixed(1)} requests.`,
+          level: topQueue[1].avgQueueLength >= 1 ? 'warn' : 'ok'
+        }
+      : { text: 'No persistent node queue was observed.', level: 'ok' }
+  ]
+
+  return findings
+}
+
 function PerNodeTable({ output }: { output: SimulationOutput }) {
   const [showInactive, setShowInactive] = useState(false)
   const entries = Object.entries(output.perNode)
@@ -3814,10 +3835,26 @@ function PerNodeTable({ output }: { output: SimulationOutput }) {
 
   const activeEntries = entries.filter(([, m]) => m.postWarmupArrived > 0)
   const inactiveEntries = entries.filter(([, m]) => m.postWarmupArrived === 0)
+  const findings = buildPerNodeFindings(entries)
 
   return (
     <div className="space-y-2">
       <h3 className={SECTION_TITLE}>Per-node Metrics</h3>
+      <div className={`${SURFACE_CARD} p-3`}>
+        <div className="mb-2 text-[10px] font-bold uppercase tracking-widest text-nss-muted">
+          Top Findings
+        </div>
+        <div className="grid gap-2 text-xs text-nss-muted md:grid-cols-3">
+          {findings.map((finding) => (
+            <div
+              key={finding.text}
+              className={`rounded-md border px-2 py-1.5 ${findingClass(finding.level)}`}
+            >
+              {finding.text}
+            </div>
+          ))}
+        </div>
+      </div>
       <div className="overflow-x-auto">
         <table className="w-full text-xs tabular-nums">
           <thead>
