@@ -3825,7 +3825,23 @@ function buildPerNodeFindings(
 
 function PerNodeTable({ output }: { output: SimulationOutput }) {
   const [showInactive, setShowInactive] = useState(false)
+  const nodes = useStore((state) => state.nodes)
   const entries = Object.entries(output.perNode)
+
+  // Source nodes emit traffic rather than receive it, so their `postWarmupArrived`
+  // is always 0. Without this, the driver of the whole run gets mislabelled as an
+  // "inactive node with no post-warmup traffic". Split them out explicitly.
+  const sourceNodeIds = useMemo(() => {
+    const ids = new Set<string>()
+    for (const node of nodes) {
+      const data = node.data as { structuralRole?: unknown; profile?: unknown } | undefined
+      if (data?.structuralRole === 'source' || data?.profile === 'source') {
+        ids.add(node.id)
+      }
+    }
+    return ids
+  }, [nodes])
+
   if (entries.length === 0) return null
 
   const llByNode = new Map(output.littlesLawCheck.map((r) => [r.nodeId, r]))
@@ -3834,7 +3850,9 @@ function PerNodeTable({ output }: { output: SimulationOutput }) {
   )
 
   const activeEntries = entries.filter(([, m]) => m.postWarmupArrived > 0)
-  const inactiveEntries = entries.filter(([, m]) => m.postWarmupArrived === 0)
+  const idleEntries = entries.filter(([, m]) => m.postWarmupArrived === 0)
+  const sourceEntries = idleEntries.filter(([nodeId]) => sourceNodeIds.has(nodeId))
+  const inactiveEntries = idleEntries.filter(([nodeId]) => !sourceNodeIds.has(nodeId))
   const findings = buildPerNodeFindings(entries)
 
   return (
@@ -3980,6 +3998,20 @@ function PerNodeTable({ output }: { output: SimulationOutput }) {
         </table>
       </div>
 
+      {sourceEntries.length > 0 && (
+        <table className="w-full text-xs tabular-nums mt-1 opacity-60">
+          <tbody>
+            {sourceEntries.map(([nodeId, m]) => (
+              <tr key={nodeId} className="border-b border-nss-border">
+                <td className="py-0.5 pr-2 text-nss-muted">{m.nodeLabel ?? nodeId}</td>
+                <td className="text-right text-nss-muted text-[10px] italic" colSpan={16}>
+                  source · emits traffic (not measured by arrivals)
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
       {inactiveEntries.length > 0 && (
         <div>
           <button
