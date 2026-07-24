@@ -160,6 +160,10 @@ function getNodeSubtitle(node: { data: unknown }): string {
   // it, so describe it by role. Every other node shows its real component type.
   if (isSourceNode(node)) return 'source'
   const data = node.data as Partial<CanvasNodeDataV2>
+  // A source is a traffic generator; its componentType ("api-endpoint") mislabels
+  // it, so describe it by role. Every other node shows its real component type
+  // from the catalog taxonomy (microservice, database, cache, load-balancer, …).
+  if (isSourceNode(node)) return 'source'
   return data.componentType || data.profile || 'node'
 }
 
