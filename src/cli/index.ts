@@ -4,6 +4,7 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { SimulationEngine } from '../engine/engine'
 import type { SimulationOutput } from '../engine/analysis/output'
+import { projectToVerdict } from '../engine/analysis/verdict'
 import { validateTopology } from '../engine/validation/validator'
 import process from 'node:process'
 
@@ -27,8 +28,13 @@ function main(): void {
 
   const topologyPath = args[0]
   const outputJson = args.includes('--json')
+  const outputVerdict = args.includes('--verdict')
   const outputFlagIndex = args.indexOf('--output')
   const outputPath = outputFlagIndex !== -1 ? args[outputFlagIndex + 1] : undefined
+
+  if (outputJson && outputVerdict) {
+    die('Choose either --json or --verdict, not both.')
+  }
 
   // ─── LOAD ──────────────────────────────────────────────────────────────────
   let raw: unknown
@@ -57,7 +63,7 @@ function main(): void {
 
   const topology = validation.data
 
-  if (!outputJson) {
+  if (!outputJson && !outputVerdict) {
     const dur = topology.global.simulationDuration / 1000
     const warmup = topology.global.warmupDuration / 1000
     console.error(`\n${BOLD}${CYAN}NS Simulator${RESET}`)
@@ -72,7 +78,7 @@ function main(): void {
   let lastPct = -1
 
   engine.onProgress = (percent, eventsProcessed) => {
-    if (outputJson) return
+    if (outputJson || outputVerdict) return
     const pct = Math.floor(percent)
     if (pct === lastPct) return
     lastPct = pct
@@ -87,20 +93,22 @@ function main(): void {
   const output = engine.run()
   const wallMs = Date.now() - wallStart
 
-  if (!outputJson) {
+  if (!outputJson && !outputVerdict) {
     const total = output.eventsProcessed.toLocaleString()
     process.stderr.write(`\r  ${'█'.repeat(20)} 100%  ${total} events\n\n`)
   }
 
   // ─── OUTPUT ───────────────────────────────────────────────────────────────
+  const structuredOutput = outputVerdict ? projectToVerdict(output) : output
+
   if (outputPath) {
-    const json = JSON.stringify(output, null, 2)
+    const json = JSON.stringify(structuredOutput, null, 2)
     writeFileSync(resolve(outputPath), json, 'utf-8')
-    if (!outputJson) {
+    if (!outputJson && !outputVerdict) {
       console.error(`${GREEN}✓ Results written to ${outputPath}${RESET}\n`)
     }
-  } else if (outputJson) {
-    process.stdout.write(JSON.stringify(output, null, 2) + '\n')
+  } else if (outputJson || outputVerdict) {
+    process.stdout.write(JSON.stringify(structuredOutput, null, 2) + '\n')
   } else {
     printResults(output, wallMs)
   }
@@ -252,12 +260,14 @@ ${BOLD}Usage${RESET}
 
 ${BOLD}Options${RESET}
   --json              Print full SimulationOutput as JSON to stdout
-  --output <file>     Write full SimulationOutput as JSON to a file
+  --verdict           Print SimulationVerdict as JSON to stdout
+  --output <file>     Write JSON output to a file
   -h, --help          Show this message
 
 ${BOLD}Examples${RESET}
   npm run simulate -- topology.json
   npm run simulate -- topology.json --json
+  npm run simulate -- topology.json --verdict
   npm run simulate -- topology.json --output results.json
   npm run simulate -- topology.json --json | jq '.summary'
 `)
