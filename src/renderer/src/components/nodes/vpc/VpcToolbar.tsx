@@ -19,6 +19,7 @@ export const VpcToolbar = memo(
           onClick={onUngroup}
           disabled={isUngrouped}
           className={`
+            pointer-events-auto
             flex items-center gap-1.5 px-2 py-1 rounded shadow-md text-[10px] font-bold uppercase tracking-wider transition-colors border
             ${
               isUngrouped

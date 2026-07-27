@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildLatencyLensCard } from './nodePresentation'
+import { buildLatencyLensCard, getLensCard } from './nodePresentation'
 
 const EMPTY_LATENCY = {
   p50: null,
@@ -82,5 +82,38 @@ describe('buildLatencyLensCard', () => {
     expect(card?.why).toContain('success-only latency')
     expect(card?.why).toContain('88.0% failed')
     expect(card?.why).toContain('mostly Queue Full')
+  })
+})
+
+describe('getLensCard', () => {
+  it('treats timeouts as failures in the errors lens copy', () => {
+    const card = getLensCard(
+      'errors',
+      { componentType: 'compute-service' } as never,
+      {
+        errorRate: 100,
+        postWarmupRejected: 0,
+        postWarmupTimedOut: 38,
+        postWarmupConnectionReset: 0,
+        totalRejected: 0,
+        timeToErrorByCause: {
+          ...EMPTY_TTE,
+          timeout: { count: 38, errorRate: 1, shareOfErrors: 1, p50: 95, p95: 98, p99: 99 }
+        }
+      }
+    )
+
+    expect(card).toMatchObject({
+      value: '100.0%',
+      limit: '38 failed',
+      glyph: '✕',
+      tone: 'critical',
+      glyphTooltip: expect.objectContaining({
+        title: 'Errors: failure-heavy'
+      })
+    })
+    expect(card?.why).toContain('38 timed out')
+    expect(card?.why).toContain('mostly Timed Out')
+    expect(card?.why).not.toContain('no rejections')
   })
 })

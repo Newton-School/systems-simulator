@@ -1,12 +1,29 @@
 import { useShallow } from 'zustand/react/shallow'
-import type { ContentRoutingRule } from '../../../../engine/traits/contentRouting'
+import {
+  CONTENT_ROUTING_MATCH_FIELDS,
+  type ContentRoutingRule
+} from '../../../../engine/traits/contentRouting'
 import type { AnyNodeData } from '@renderer/types/ui'
 import useStore from '@renderer/store/useStore'
 import { Input } from '../ui/Input'
 import { Label } from '../ui/Label'
 import { Select } from '../ui/Select'
 
-const MATCH_FIELDS: ContentRoutingRule['matchField'][] = ['type', 'path', 'host']
+const MATCH_FIELDS: ContentRoutingRule['matchField'][] = [...CONTENT_ROUTING_MATCH_FIELDS]
+
+function placeholderForField(field: ContentRoutingRule['matchField']): string {
+  switch (field) {
+    case 'method':
+      return 'e.g. POST'
+    case 'host':
+      return 'e.g. api.internal'
+    case 'path':
+      return 'e.g. /checkout'
+    case 'type':
+    default:
+      return 'e.g. create-order'
+  }
+}
 
 interface RoutingRulesEditorProps {
   nodeId: string
@@ -80,7 +97,7 @@ export const RoutingRulesEditor = ({ nodeId, rules, onChange }: RoutingRulesEdit
               <Input
                 type="text"
                 value={rule.matchValue}
-                placeholder="e.g. write"
+                placeholder={placeholderForField(rule.matchField)}
                 onChange={(event) => updateRule(index, { matchValue: event.target.value })}
               />
             </div>

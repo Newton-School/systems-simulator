@@ -78,6 +78,21 @@ export const FormField = ({
 
       case 'input':
       default:
+        if (config.inputType === 'text') {
+          return (
+            <Input
+              type="text"
+              value={String(normalizedValue)}
+              rightElement={config.unit}
+              placeholder={config.placeholder}
+              onChange={(e) => {
+                const val = e.target.value
+                onChange(val === '' ? undefined : val)
+              }}
+            />
+          )
+        }
+
         return (
           <Input
             type="number"

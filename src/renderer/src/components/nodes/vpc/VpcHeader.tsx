@@ -14,7 +14,7 @@ export const VpcHeader = memo(
     return (
       <div
         className={`
-      absolute top-0 left-0 right-0 px-4 py-2 border-b border-dashed flex items-start gap-2
+      pointer-events-auto absolute top-0 left-0 right-0 px-4 py-2 border-b border-dashed flex items-start gap-2
       ${isSuccessState ? 'border-[rgb(var(--nss-success))]/30' : 'border-[var(--nss-vpc-border)]'}
         `}
       >

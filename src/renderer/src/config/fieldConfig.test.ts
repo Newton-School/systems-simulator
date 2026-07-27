@@ -30,6 +30,25 @@ function makeRuntimeNode(
   }
 }
 
+function makeCompositeNode(
+  overrides: Partial<CanvasNodeDataV2> & Pick<CanvasNodeDataV2, 'templateId' | 'label' | 'iconKey'>
+): CanvasNodeDataV2 {
+  return {
+    schemaVersion: 2,
+    templateId: overrides.templateId,
+    structuralRole: 'composite',
+    profile: 'composite',
+    rendererType: 'vpcNode',
+    label: overrides.label,
+    subLabel: overrides.subLabel,
+    iconKey: overrides.iconKey,
+    sim: overrides.sim,
+    source: overrides.source,
+    routingStrategy: overrides.routingStrategy,
+    ui: overrides.ui
+  }
+}
+
 describe('getNodeConfigSections', () => {
   it('composes L4 config from modules with relabeled queue fields and a locked content-routing note', () => {
     const data = makeRuntimeNode({
@@ -116,5 +135,77 @@ describe('getNodeConfigSections', () => {
     expect(availabilityTarget?.optional).toBe(true)
     expect(availabilityTarget?.displayAs?.toDisplay(0.999, data)).toBe(99.9)
     expect(availabilityTarget?.displayAs?.fromDisplay(99.9, data)).toBeCloseTo(0.999, 6)
+  })
+
+  it('marks free-form metadata fields as text inputs', () => {
+    const composite = makeCompositeNode({
+      templateId: 'availability-zone',
+      label: 'AZ A',
+      iconKey: 'az',
+      sim: { locationId: 'us-east-1a' }
+    })
+    const keyRouter = makeRuntimeNode({
+      templateId: 'sharding',
+      componentType: 'sharding',
+      structuralRole: 'router',
+      profile: 'router',
+      label: 'Shard Router',
+      sim: {
+        queue: { workers: 8, capacity: 10, discipline: 'fifo' },
+        processing: {
+          distribution: { type: 'exponential', lambda: 0.125 },
+          timeout: 100
+        },
+        routingKeyField: 'tenantId'
+      }
+    })
+
+    const compositeSections = getNodeConfigSections(composite)
+    const locationField = compositeSections
+      .find((section) => section.id === 'location')
+      ?.fields.find((field) => field.path === 'sim.locationId')
+    const routingKeyField = getNodeConfigSections(keyRouter)
+      .find((section) => section.id === 'key-routing')
+      ?.fields.find((field) => field.path === 'sim.routingKeyField')
+
+    expect(locationField?.inputType).toBe('text')
+    expect(routingKeyField?.inputType).toBe('text')
+    expect(compositeSections.find((section) => section.id === 'location')?.note?.text).toContain(
+      'renderer-side location rollups'
+    )
+  })
+
+  it('adds a structured request-template editor for source nodes', () => {
+    const source = makeRuntimeNode({
+      templateId: 'client-user',
+      componentType: 'api-endpoint',
+      structuralRole: 'source',
+      profile: 'source',
+      label: 'Client App',
+      source: {
+        requestDistribution: [{ type: 'GET', weight: 1, sizeBytes: 1024 }],
+        defaultWorkload: {
+          pattern: 'poisson',
+          baseRps: 100,
+          bursty: { burstRps: 500, burstDuration: 2000, normalDuration: 8000 },
+          spike: { spikeTime: 30000, spikeRps: 1000, spikeDuration: 5000 },
+          sawtooth: { peakRps: 300, rampDuration: 10000 },
+          diurnal: {
+            peakMultiplier: 1,
+            hourlyMultipliers: [
+              0.6, 0.5, 0.45, 0.4, 0.4, 0.5, 0.7, 0.9, 1.1, 1.2, 1.15, 1.05, 1, 1.05, 1.1, 1.2,
+              1.25, 1.3, 1.2, 1.05, 0.95, 0.85, 0.75, 0.65
+            ]
+          }
+        }
+      }
+    })
+
+    const requestTemplatesField = getNodeConfigSections(source)
+      .find((section) => section.id === 'request-templates')
+      ?.fields.find((field) => field.path === 'source.requestDistribution')
+
+    expect(requestTemplatesField?.renderer).toBe('request-distribution')
+    expect(requestTemplatesField?.inputType).toBe('text')
   })
 })

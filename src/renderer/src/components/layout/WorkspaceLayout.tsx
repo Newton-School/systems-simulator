@@ -737,7 +737,7 @@ export const WorkspaceLayout = () => {
             id="right-panel"
           >
             <Suspense fallback={<PanelFallback label="Loading inspector..." />}>
-              <PropertiesPanel />
+              <PropertiesPanel results={sim.results} />
             </Suspense>
           </Panel>
         </PanelGroup>

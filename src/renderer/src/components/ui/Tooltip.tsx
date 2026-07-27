@@ -1,5 +1,6 @@
 import type { FocusEvent, MouseEvent, ReactNode } from 'react'
 import { useEffect, useId, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { clsx } from 'clsx'
 
 interface TooltipPosition {
@@ -91,19 +92,22 @@ export function HoverTooltip({
         'aria-describedby': position ? tooltipId : undefined
       })}
 
-      {position && (
-        <div
-          id={tooltipId}
-          role="tooltip"
-          style={{ top: position.top, left: position.left, width }}
-          className={clsx(
-            'fixed z-[80] rounded-md border border-nss-border bg-nss-panel shadow-2xl p-3 text-left pointer-events-none',
-            className
-          )}
-        >
-          {content}
-        </div>
-      )}
+      {position && typeof document !== 'undefined'
+        ? createPortal(
+            <div
+              id={tooltipId}
+              role="tooltip"
+              style={{ top: position.top, left: position.left, width }}
+              className={clsx(
+                'fixed z-[80] rounded-md border border-nss-border bg-nss-panel shadow-2xl p-3 text-left pointer-events-none',
+                className
+              )}
+            >
+              {content}
+            </div>,
+            document.body
+          )
+        : null}
     </>
   )
 }

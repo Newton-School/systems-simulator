@@ -18,6 +18,7 @@ import { Input } from '../ui/Input'
 import { Label } from '../ui/Label'
 import { Select } from '../ui/Select'
 import { FormField } from './FormField'
+import { RequestDistributionEditor } from './RequestDistributionEditor'
 import { RoutingRulesEditor } from './RoutingRulesEditor'
 import type { ContentRoutingRule } from '../../../../engine/traits/contentRouting'
 import {
@@ -273,6 +274,20 @@ export const PropertiesForm = ({ nodeId, data, onUpdate }: PropertiesFormProps) 
       )
     }
 
+    if (field.renderer === 'request-distribution') {
+      const entries = Array.isArray(data.source?.requestDistribution)
+        ? data.source.requestDistribution
+        : []
+
+      return (
+        <RequestDistributionEditor
+          key={field.path}
+          entries={entries}
+          onChange={(nextValue) => onUpdate(field.path, nextValue)}
+        />
+      )
+    }
+
     return (
       <FormField
         key={field.path}
@@ -315,7 +330,7 @@ export const PropertiesForm = ({ nodeId, data, onUpdate }: PropertiesFormProps) 
         />
       </div>
 
-      {data.profile === 'composite' ? (
+      {data.profile === 'composite' && sections.length === 0 ? (
         <div className="rounded-md border border-nss-border bg-nss-surface p-3 text-xs text-nss-muted">
           Composite nodes are canvas containers only. They are not serialized into the simulation
           engine.
