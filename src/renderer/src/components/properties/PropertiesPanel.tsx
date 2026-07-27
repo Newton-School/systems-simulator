@@ -510,8 +510,11 @@ function RunInspector({
   onSelectNode: (id: string) => void
   onSelectEdge: (id: string) => void
 }) {
-  const nodeLabelsById = new Map(nodes.map((node) => [node.id, getNodeLabel(node)]))
-  const nodeById = new Map(nodes.map((node) => [node.id, node]))
+  const nodeLabelsById = useMemo(
+    () => new Map(nodes.map((node) => [node.id, getNodeLabel(node)])),
+    [nodes]
+  )
+  const nodeById = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes])
   const sourceNodeIds = useMemo(() => {
     const ids = new Set<string>()
     for (const node of nodes) {

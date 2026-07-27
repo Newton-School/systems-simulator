@@ -4,7 +4,6 @@ import {
   type RequestMatchField
 } from '../core/requestSemantics'
 import type { ComponentType } from '../core/types'
-import type { TraitContext } from './types'
 import type { NodeBehaviourTrait, NodeCapabilityModule } from './types'
 
 export const CONTENT_ROUTING_COMPONENT_TYPES = [
