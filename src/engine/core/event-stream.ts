@@ -1,4 +1,8 @@
 import type { EventType, SimulationEvent } from './events'
+import type {
+  RequestOutcomeFamily,
+  RequestOutcomeStatusClass
+} from './requestOutcomeSemantics'
 
 export const CANONICAL_EVENT_TYPES = [
   'request-generated',
@@ -42,6 +46,7 @@ export type RequestOutcomeStatus = TerminalRequestStatus | 'in-flight'
 export interface RequestOutcomeRecord {
   requestId: string
   status: RequestOutcomeStatus
+  reasonCode: string | null
   /** Wall-clock-independent sim time (ms) the request was generated. */
   createdAtMs: number
   /** Sim time (ms) the request reached its terminal status; null while in flight. */
@@ -52,6 +57,14 @@ export interface RequestOutcomeRecord {
   attempts: number
   /** End-to-end latency (ms) for terminal requests; null while in flight. */
   latencyMs: number | null
+  requestType: string | null
+  method: string | null
+  host: string | null
+  path: string | null
+  operationLabel: string
+  outcomeFamily: RequestOutcomeFamily
+  statusClass: RequestOutcomeStatusClass
+  statusCodeHint: string | null
 }
 
 export type JsonSafeValue =

@@ -135,4 +135,33 @@ describe('contentRoutingTrait', () => {
       routes: [expect.objectContaining({ targetNodeId: 'api-svc' })]
     })
   })
+
+  it('matches on method using explicit metadata or legacy request types', () => {
+    const explicitMethodResult = contentRoutingTrait.filterRoutes?.({
+      node: makeGatewayNode({
+        routingRules: [{ matchField: 'method', matchValue: 'POST', targetNodeId: 'write-svc' }]
+      }),
+      request: makeRequest({ type: 'create-order', metadata: { method: 'post' } }),
+      clock: 0n,
+      candidates: [makeRoute('write-svc'), makeRoute('read-svc')]
+    })
+
+    const legacyTypeResult = contentRoutingTrait.filterRoutes?.({
+      node: makeGatewayNode({
+        routingRules: [{ matchField: 'method', matchValue: 'GET', targetNodeId: 'read-svc' }]
+      }),
+      request: makeRequest({ type: 'GET' }),
+      clock: 0n,
+      candidates: [makeRoute('write-svc'), makeRoute('read-svc')]
+    })
+
+    expect(explicitMethodResult).toMatchObject({
+      decision: 'content-routed',
+      routes: [expect.objectContaining({ targetNodeId: 'write-svc' })]
+    })
+    expect(legacyTypeResult).toMatchObject({
+      decision: 'content-routed',
+      routes: [expect.objectContaining({ targetNodeId: 'read-svc' })]
+    })
+  })
 })

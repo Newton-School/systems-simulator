@@ -30,6 +30,12 @@ export interface ResolveTargetOptions {
   clock?: bigint
   isTargetHealthy?: (nodeId: string) => boolean
   isEdgeHealthy?: (edge: EdgeDefinition) => boolean
+  /**
+   * Live in-flight (queued + in-service) count for a target node, used by the
+   * `least-conn` strategy. The engine supplies this from each node's runtime
+   * state; when absent, least-conn degrades to round-robin so it still spreads.
+   */
+  getInFlight?: (nodeId: string) => number
   onTraitDecision?: (decision: {
     traitName: string
     nodeId: string
@@ -61,10 +67,17 @@ export class RoutingTable {
   private readonly roundRobinIndexBySource = new Map<string, number>()
 
   /**
-   * Set of node IDs that should use round-robin routing, derived from node
-   * config metadata. Only populated when node definitions are provided.
+   * Per-source rotating cursor used to break ties in `least-conn` when several
+   * targets share the smallest in-flight count, mirroring the routing preview.
    */
-  private readonly roundRobinSourceIds: Set<string>
+  private readonly leastConnTieIndexBySource = new Map<string, number>()
+
+  /**
+   * Effective routing strategy per source node, resolved once from explicit
+   * config (`routingStrategy`) with a trait hint fallback. Drives `pickSyncRoute`
+   * so the selector the user picks is what the engine actually runs.
+   */
+  private readonly strategyBySourceId = new Map<string, string>()
   private readonly nodeById = new Map<string, ComponentNode>()
   private readonly traitsBySourceId = new Map<string, readonly NodeBehaviourTrait[]>()
   private readonly traitStateBySourceId = new Map<string, Map<string, unknown>>()
@@ -101,17 +114,16 @@ export class RoutingTable {
       }
     }
 
-    this.roundRobinSourceIds = new Set(
-      nodes
-        .filter(
-          (node) =>
-            node.config?.['routingStrategy'] === 'round-robin' ||
-            (this.traitsBySourceId.get(node.id) ?? []).some(
-              (trait) => trait.routingStrategyHint === 'round-robin'
-            )
-        )
-        .map((node) => node.id)
-    )
+    for (const node of nodes) {
+      const configured = node.config?.['routingStrategy']
+      const traitHint = (this.traitsBySourceId.get(node.id) ?? []).find(
+        (trait) => trait.routingStrategyHint !== undefined
+      )?.routingStrategyHint
+      const strategy = typeof configured === 'string' ? configured : traitHint
+      if (strategy) {
+        this.strategyBySourceId.set(node.id, strategy)
+      }
+    }
   }
 
   /**
@@ -182,7 +194,7 @@ export class RoutingTable {
     if (syncRoutes.length === 1) {
       results.push(syncRoutes[0])
     } else if (syncRoutes.length > 1) {
-      results.push(this.pickSyncRoute(sourceNodeId, syncRoutes))
+      results.push(this.pickSyncRoute(sourceNodeId, syncRoutes, options.getInFlight))
     }
 
     results.push(...asyncRoutes)
@@ -191,23 +203,70 @@ export class RoutingTable {
   }
 
   /**
-   * Selects one edge from synchronous candidates using round-robin,
-   * weighted, or uniform random strategy.
+   * Selects one edge from synchronous candidates. The node's configured routing
+   * strategy is authoritative: whatever the user picks (and the preview animates)
+   * is what runs here. A source with no explicit strategy honours edge weights
+   * when present and otherwise spreads uniformly at random.
    */
-  private pickSyncRoute(sourceNodeId: string, routes: ResolveRoute[]): ResolveRoute {
-    if (this.isRoundRobinSource(sourceNodeId)) {
-      const current = this.roundRobinIndexBySource.get(sourceNodeId) ?? 0
-      const safeIndex = current % routes.length
-      const route = routes[safeIndex]
-      this.roundRobinIndexBySource.set(sourceNodeId, (safeIndex + 1) % routes.length)
-      return route
+  private pickSyncRoute(
+    sourceNodeId: string,
+    routes: ResolveRoute[],
+    getInFlight?: (nodeId: string) => number
+  ): ResolveRoute {
+    switch (this.strategyBySourceId.get(sourceNodeId)) {
+      case 'round-robin':
+        return this.pickRoundRobin(sourceNodeId, routes)
+      case 'least-conn':
+        return this.pickLeastConnected(sourceNodeId, routes, getInFlight)
+      case 'weighted':
+        return this.pickByWeight(routes)
+      case 'passthrough':
+        // No balancing: forward to the first eligible target, matching the preview.
+        return routes[0]
+      case 'random':
+        return routes[this.rng.integer(0, routes.length - 1)]
+      default:
+        if (routes.some((route) => route.edge.weight !== undefined)) {
+          return this.pickByWeight(routes)
+        }
+        return routes[this.rng.integer(0, routes.length - 1)]
+    }
+  }
+
+  private pickRoundRobin(sourceNodeId: string, routes: ResolveRoute[]): ResolveRoute {
+    const current = this.roundRobinIndexBySource.get(sourceNodeId) ?? 0
+    const safeIndex = current % routes.length
+    const route = routes[safeIndex]
+    this.roundRobinIndexBySource.set(sourceNodeId, (safeIndex + 1) % routes.length)
+    return route
+  }
+
+  /**
+   * Picks the candidate whose target currently has the fewest in-flight requests.
+   * Ties rotate through the tied set via a per-source cursor, matching the routing
+   * preview's tie-break. Without a live in-flight signal, degrades to round-robin.
+   */
+  private pickLeastConnected(
+    sourceNodeId: string,
+    routes: ResolveRoute[],
+    getInFlight?: (nodeId: string) => number
+  ): ResolveRoute {
+    if (!getInFlight) {
+      return this.pickRoundRobin(sourceNodeId, routes)
     }
 
-    if (routes.some((route) => route.edge.weight !== undefined)) {
-      return this.pickByWeight(routes)
+    const loads = routes.map((route) => getInFlight(route.targetNodeId))
+    const minLoad = Math.min(...loads)
+    const tied = routes.filter((_, index) => loads[index] === minLoad)
+
+    if (tied.length === 1) {
+      return tied[0]
     }
 
-    return routes[this.rng.integer(0, routes.length - 1)]
+    const tieIndex = this.leastConnTieIndexBySource.get(sourceNodeId) ?? 0
+    const chosen = tied[tieIndex % tied.length]
+    this.leastConnTieIndexBySource.set(sourceNodeId, (tieIndex + 1) % tied.length)
+    return chosen
   }
 
   /**
@@ -308,14 +367,6 @@ export class RoutingTable {
     }
 
     return routes[routes.length - 1]
-  }
-
-  /**
-   * Returns true if the source node should use round-robin routing.
-   * Resolution is driven by explicit node config and type-derived trait hints.
-   */
-  private isRoundRobinSource(sourceNodeId: string): boolean {
-    return this.roundRobinSourceIds.has(sourceNodeId)
   }
 
   private getTraitStateStore(sourceNodeId: string): TraitStateStore {

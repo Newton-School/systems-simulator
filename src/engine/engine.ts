@@ -33,6 +33,8 @@ import {
   type Request,
   type SimulationEvent
 } from './core/events'
+import { classifyRequestOutcome, createEmptyRequestOutcomeBreakdown } from './core/requestOutcomeSemantics'
+import { describeRequestOperation } from './core/requestSemantics'
 import { microToMs, msToMicro, secToMicro } from './core/time'
 import { ComponentNode, EdgeDefinition, EventScheduler, TopologyJSON } from './core/types'
 import {
@@ -145,6 +147,7 @@ export class SimulationEngine {
    */
   private readonly retainedRequestOutcomes: RequestOutcomeRecord[] = []
   private requestOutcomeTotal = 0
+  private readonly requestOutcomeBreakdown = createEmptyRequestOutcomeBreakdown()
   private readonly simulationDurationUs: bigint
   private readonly snapshotIntervalUs = secToMicro(1)
 
@@ -1103,7 +1106,7 @@ export class SimulationEngine {
     }
     this.tracer.setPhaseRecord(request.id, request.phaseRecord)
     this.tracer.markStatus(request.id, 'rejected')
-    this.markRequestTerminal(request, 'rejected')
+    this.markRequestTerminal(request, 'rejected', reason)
   }
 
   private handleNodeFailure(event: SimulationEvent): void {
@@ -1220,7 +1223,7 @@ export class SimulationEngine {
     }
     this.tracer.setPhaseRecord(request.id, request.phaseRecord)
     this.tracer.markStatus(request.id, 'connection_reset')
-    this.markRequestTerminal(request, 'connection_reset')
+    this.markRequestTerminal(request, 'connection_reset', 'connection_reset')
   }
 
   private assertAllNodeInvariants(): void {
@@ -1460,19 +1463,35 @@ export class SimulationEngine {
     request.path.push(nodeId)
   }
 
-  private markRequestTerminal(request: Request, status: TerminalRequestStatus): void {
+  private markRequestTerminal(
+    request: Request,
+    status: TerminalRequestStatus,
+    reasonCode?: string | null
+  ): void {
     request.metadata.__terminal = status
     this.markTerminalTombstone(request.id)
     const createdAtMs = microToMs(request.createdAt)
     const terminalAtMs = microToMs(this.clock)
+    const operation = describeRequestOperation(request)
+    const classification = classifyRequestOutcome(status, reasonCode)
+    this.requestOutcomeBreakdown[classification.family]++
     this.retainRequestOutcome({
       requestId: request.id,
       status,
+      reasonCode: reasonCode ?? null,
       createdAtMs,
       terminalAtMs,
       nodeId: request.path.length > 0 ? request.path[request.path.length - 1] : null,
       attempts: (request.retryCount ?? 0) + 1,
-      latencyMs: Math.max(0, terminalAtMs - createdAtMs)
+      latencyMs: Math.max(0, terminalAtMs - createdAtMs),
+      requestType: operation.requestType,
+      method: operation.method,
+      host: operation.host,
+      path: operation.path,
+      operationLabel: operation.operationLabel,
+      outcomeFamily: classification.family,
+      statusClass: classification.statusClass,
+      statusCodeHint: classification.statusCodeHint
     })
     this.requestById.delete(request.id)
   }
@@ -1538,14 +1557,25 @@ export class SimulationEngine {
    */
   private buildRequestOutcomes(): RequestOutcomeRecord[] {
     for (const request of this.requestById.values()) {
+      const operation = describeRequestOperation(request)
+      const classification = classifyRequestOutcome('in-flight')
       this.retainRequestOutcome({
         requestId: request.id,
         status: 'in-flight',
+        reasonCode: null,
         createdAtMs: microToMs(request.createdAt),
         terminalAtMs: null,
         nodeId: request.path.length > 0 ? request.path[request.path.length - 1] : null,
         attempts: (request.retryCount ?? 0) + 1,
-        latencyMs: null
+        latencyMs: null,
+        requestType: operation.requestType,
+        method: operation.method,
+        host: operation.host,
+        path: operation.path,
+        operationLabel: operation.operationLabel,
+        outcomeFamily: classification.family,
+        statusClass: classification.statusClass,
+        statusCodeHint: classification.statusCodeHint
       })
     }
 
@@ -1556,6 +1586,13 @@ export class SimulationEngine {
       if (a.createdAtMs !== b.createdAtMs) return a.createdAtMs - b.createdAtMs
       return a.requestId.localeCompare(b.requestId)
     })
+  }
+
+  private buildRequestOutcomeBreakdown() {
+    return {
+      ...this.requestOutcomeBreakdown,
+      in_flight: this.requestById.size
+    }
   }
 
   private hash32(value: string): number {
@@ -1631,6 +1668,7 @@ export class SimulationEngine {
         statusTimeline: this.buildStatusTimeline(),
         requestOutcomes: this.buildRequestOutcomes(),
         requestOutcomeTotal: this.requestOutcomeTotal,
+        requestOutcomeBreakdown: this.buildRequestOutcomeBreakdown(),
         requestOutcomesSampled: this.requestOutcomeTotal > DEFAULT_MAX_RETAINED_REQUEST_OUTCOMES
       }
     )
@@ -1828,6 +1866,7 @@ export class SimulationEngine {
       clock: this.clock,
       isTargetHealthy: (nodeId) => this.isNodeHealthy(nodeId),
       isEdgeHealthy: (edge) => this.isEdgeHealthy(edge),
+      getInFlight: (nodeId) => this.nodes.get(nodeId)?.getState().totalInSystem ?? 0,
       onTraitDecision: (decision) => {
         this.recordTraitPayloadMetrics(decision.nodeId, decision.payload)
         this.recordTraitDecision(decision.nodeId, request.id, decision.traitName, decision.hook, {

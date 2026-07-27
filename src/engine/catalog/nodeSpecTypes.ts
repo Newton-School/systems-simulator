@@ -60,6 +60,7 @@ export interface NodeSimulationConfig {
   coldStartLatencyMs?: number
   idleTimeoutMs?: number
   maxConcurrency?: number
+  locationId?: string
   routingKeyField?: string
   dnsRoutingPolicy?: 'simple' | 'weighted' | 'failover' | 'latency-based' | 'geolocation'
   dnsCacheTtlSeconds?: number

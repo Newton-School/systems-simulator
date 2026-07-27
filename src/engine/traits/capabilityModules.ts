@@ -198,6 +198,20 @@ const SOURCE_WORKLOAD_MODULE: NodeCapabilityModule = {
         ]
       },
       {
+        id: 'request-templates',
+        title: 'Request Templates',
+        fields: [
+          {
+            path: 'source.requestDistribution',
+            type: 'input',
+            label: 'Requests',
+            renderer: 'request-distribution',
+            inputType: 'text',
+            why: 'Defines the mix of operations this source emits. Type is the coarse request class; method, host, and path add HTTP-aware routing context.'
+          }
+        ]
+      },
+      {
         id: 'pattern',
         title: 'Pattern',
         fields: [
@@ -300,6 +314,50 @@ const ROUTING_STRATEGY_MODULE: NodeCapabilityModule = {
   honesty: {
     simulates: ['route selection strategy at the node level'],
     notModeled: ['per-connection stickiness, protocol-specific balancing heuristics']
+  }
+}
+
+const COMPOSITE_LOCATION_MODULE: NodeCapabilityModule = {
+  name: 'composite.location',
+  appliesWhen: (data) => data.profile === 'composite',
+  config: {
+    sections: [
+      {
+        id: 'location',
+        title: 'Location',
+        note: 'Grouping container — not simulated as a node. It shapes edge latency by where nodes sit: same subnet → same-rack, same AZ → same-dc, same region → cross-zone, different region → cross-region. This only fills an edge’s default latency; a latency set on an edge manually is kept. This field is descriptive metadata for labels/export and renderer-side location rollups; latency math uses containment, not this text. (AZ fault-domain failure and distance-aware cross-region latency are not modeled yet.)',
+        noteTone: 'info',
+        fields: [
+          {
+            path: 'sim.locationId',
+            type: 'input',
+            inputType: 'text',
+            label: (data) =>
+              data.templateId === 'vpc-region'
+                ? 'Region ID'
+                : data.templateId === 'availability-zone'
+                  ? 'AZ ID'
+                  : 'Subnet / CIDR',
+            placeholder: (data) =>
+              data.templateId === 'vpc-region'
+                ? 'e.g. us-east-1'
+                : data.templateId === 'availability-zone'
+                  ? 'e.g. us-east-1a'
+                  : 'e.g. 10.0.1.0/24',
+            why: 'A human label for this boundary. Today it is metadata only; the latency math uses which container a node sits in, not this text.'
+          }
+        ]
+      }
+    ]
+  },
+  defaults: [],
+  honesty: {
+    simulates: ['groups nodes so cross-boundary edge latency can be derived'],
+    notModeled: [
+      'fault-domain failure',
+      'distance-aware cross-region latency',
+      'IP/CIDR validation'
+    ]
   }
 }
 
@@ -580,6 +638,103 @@ const SERVICE_REGISTRY_HONESTY_MODULE: NodeCapabilityModule = {
   }
 }
 
+/**
+ * Builds a config-only "Model" section that states plainly how a node is
+ * simulated versus what its name implies but the engine does not yet model.
+ * These nodes currently fall back to the generic queue/processing model, so the
+ * note prevents the UI from over-promising specialised behaviour that isn't there
+ * (mirroring SERVICE_REGISTRY_HONESTY_MODULE). Adds no engine behaviour.
+ */
+function honestyNoteModule(
+  name: string,
+  types: readonly ComponentType[],
+  note: string,
+  notModeled: readonly string[],
+  simulates: readonly string[] = ['generic request queue behavior only']
+): NodeCapabilityModule {
+  return {
+    name,
+    appliesTo: types,
+    config: {
+      sections: [{ id: 'model', title: 'Model', fields: [], note, noteTone: 'info' }]
+    },
+    defaults: [],
+    honesty: { simulates, notModeled }
+  }
+}
+
+const STREAMING_BROKER_HONESTY_MODULE = honestyNoteModule(
+  'streaming-broker.honesty',
+  ['message-broker', 'pub-sub'],
+  'Broadcast fan-out to every subscriber is modeled, along with concurrency, queueing, and latency. Not yet modeled: partitions, message ordering, consumer groups, or consumer lag. For a backlog/lag model, use the Event Stream node instead.',
+  ['partitions', 'message ordering', 'consumer groups', 'consumer lag'],
+  ['broadcast fan-out plus generic queueing and latency']
+)
+
+const OBSERVABILITY_SINK_HONESTY_MODULE = honestyNoteModule(
+  'observability-sink.honesty',
+  ['metrics-store', 'centralized-logging', 'distributed-tracing', 'alerting-hook'],
+  'Currently simulates as a synchronous request queue: concurrency, queueing, and latency. Not yet modeled: asynchronous fire-and-forget ingestion, sampling, batching, or retention. Because it is synchronous here, a saturated collector can back-pressure its caller, which a real telemetry pipeline usually would not.',
+  ['async fire-and-forget ingestion', 'sampling', 'batching', 'retention']
+)
+
+const NETWORK_GATEWAY_HONESTY_MODULE = honestyNoteModule(
+  'network-gateway.honesty',
+  ['nat-gateway', 'vpn-gateway'],
+  'Currently simulates as a generic router: concurrency, queueing, and latency. Not yet modeled: connection/port-table limits, NAT translation cost, or tunnel/encryption overhead.',
+  ['connection/port-table limits', 'NAT translation cost', 'tunnel/encryption overhead']
+)
+
+const HEALTH_CHECK_MANAGER_HONESTY_MODULE = honestyNoteModule(
+  'health-check-manager.honesty',
+  ['health-check-manager'],
+  'Currently simulates as a generic request queue: concurrency, queueing, and latency. Not yet modeled: active health probing, node health-state transitions, or removing unhealthy targets from rotation.',
+  ['active health probing', 'health-state transitions', 'removing unhealthy targets']
+)
+
+const LLM_GATEWAY_HONESTY_MODULE = honestyNoteModule(
+  'llm-gateway.honesty',
+  ['llm-gateway'],
+  'Currently simulates as a generic request queue: concurrency, queueing, and latency. Not yet modeled: token-based latency and cost, prompt/response sizing, model or provider routing, or provider rate limits.',
+  ['token-based latency and cost', 'model/provider routing', 'provider rate limits']
+)
+
+const AGENT_INFRA_HONESTY_MODULES: readonly NodeCapabilityModule[] = [
+  honestyNoteModule(
+    'agent-orchestrator.honesty',
+    ['agent-orchestrator'],
+    'Currently simulates as a generic request queue: concurrency, queueing, and latency. Not yet modeled: agent planning/tool-calling loops, multi-step orchestration, or fan-out to tools and models.',
+    ['agent planning/tool-calling loops', 'multi-step orchestration', 'tool/model fan-out']
+  ),
+  honestyNoteModule(
+    'memory-fabric.honesty',
+    ['memory-fabric'],
+    'Currently simulates as a generic request queue: concurrency, queueing, and latency. Not yet modeled: vector/semantic retrieval cost, recall vs. write paths, or eviction.',
+    ['vector/semantic retrieval cost', 'recall vs. write paths', 'eviction']
+  ),
+  honestyNoteModule(
+    'tool-registry.honesty',
+    ['tool-registry'],
+    'Currently simulates as a generic request queue: concurrency, queueing, and latency. Not yet modeled: tool discovery/registration, capability lookup, or per-tool latency.',
+    ['tool discovery/registration', 'capability lookup', 'per-tool latency']
+  ),
+  honestyNoteModule(
+    'safety-observability-mesh.honesty',
+    ['safety-observability-mesh'],
+    'Currently simulates as a generic request queue: concurrency, queueing, and latency. Not yet modeled: safety-policy or guardrail evaluation, blocking decisions, or trace/telemetry emission.',
+    ['safety-policy/guardrail evaluation', 'blocking decisions', 'trace/telemetry emission']
+  )
+]
+
+const NODE_HONESTY_MODULES: readonly NodeCapabilityModule[] = [
+  STREAMING_BROKER_HONESTY_MODULE,
+  OBSERVABILITY_SINK_HONESTY_MODULE,
+  NETWORK_GATEWAY_HONESTY_MODULE,
+  HEALTH_CHECK_MANAGER_HONESTY_MODULE,
+  LLM_GATEWAY_HONESTY_MODULE,
+  ...AGENT_INFRA_HONESTY_MODULES
+]
+
 export const TRAIT_CAPABILITY_MODULES: readonly NodeCapabilityModule[] = [
   rateLimiterCapabilityModule,
   contentRoutingCapabilityModule,
@@ -598,13 +753,15 @@ export const TRAIT_CAPABILITY_MODULES: readonly NodeCapabilityModule[] = [
 export const NODE_CONFIG_MODULES: readonly NodeCapabilityModule[] = [
   SOURCE_WORKLOAD_MODULE,
   ROUTING_STRATEGY_MODULE,
+  COMPOSITE_LOCATION_MODULE,
   ...TRAIT_CAPABILITY_MODULES,
   BASE_QUEUE_MODULE,
   PROCESSING_MODULE,
   SECURITY_POLICY_MODULE,
   CHAOS_MODULE,
   SLO_MODULE,
-  SERVICE_REGISTRY_HONESTY_MODULE
+  SERVICE_REGISTRY_HONESTY_MODULE,
+  ...NODE_HONESTY_MODULES
 ]
 
 function moduleIncludesComponentType(

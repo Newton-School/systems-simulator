@@ -198,6 +198,57 @@ describe('SimulationEngine', () => {
     })
   })
 
+  it('least-conn steers traffic away from a congested backend where round-robin would not', () => {
+    const buildTopology = (strategy: string) =>
+      makeTopology({
+        global: {
+          simulationDuration: 2_000,
+          warmupDuration: 0,
+          defaultTimeout: 100_000,
+          traceSampleRate: 0
+        },
+        nodes: [
+          makeNode('source'),
+          makeRouterNode('lb', 'load-balancer', { routingStrategy: strategy }),
+          {
+            ...makeNode('fast'),
+            queue: { workers: 20, capacity: 100, discipline: 'fifo' },
+            processing: { distribution: { type: 'constant', value: 1 }, timeout: 100_000 }
+          },
+          {
+            ...makeNode('slow'),
+            queue: { workers: 1, capacity: 100, discipline: 'fifo' },
+            processing: { distribution: { type: 'constant', value: 20 }, timeout: 100_000 }
+          }
+        ],
+        edges: [
+          makeEdge('source-lb', 'source', 'lb'),
+          makeEdge('lb-fast', 'lb', 'fast'),
+          makeEdge('lb-slow', 'lb', 'slow')
+        ],
+        workload: {
+          sourceNodeId: 'source',
+          pattern: 'constant',
+          baseRps: 200,
+          requestDistribution: [{ type: 'GET', weight: 1, sizeBytes: 100 }]
+        }
+      })
+
+    const leastConn = new SimulationEngine(buildTopology('least-conn')).run()
+    const roundRobin = new SimulationEngine(buildTopology('round-robin')).run()
+
+    const lcFast = leastConn.perNode['fast'].totalArrived
+    const lcSlow = leastConn.perNode['slow'].totalArrived
+    const rrFast = roundRobin.perNode['fast'].totalArrived
+    const rrSlow = roundRobin.perNode['slow'].totalArrived
+
+    // least-conn keeps the congested (high in-flight) backend under-loaded...
+    expect(lcFast).toBeGreaterThan(lcSlow)
+    // ...far more lopsidedly than round-robin, which splits roughly evenly.
+    expect(lcFast / lcSlow).toBeGreaterThan(rrFast / rrSlow)
+    expect(rrFast / rrSlow).toBeLessThan(1.3)
+  })
+
   it('emits rejection events and admission decisions with terminal node snapshots', () => {
     const worker: ComponentNode = {
       ...makeNode('worker'),
@@ -278,10 +329,17 @@ describe('SimulationEngine', () => {
     // Conservation: Σ(rows by status, including in-flight) === generated.
     const summed = Object.values(byStatus).reduce((sum, count) => sum + count, 0)
     expect(summed).toBe(generated)
+    const breakdownSummed = Object.values(output.requestOutcomeBreakdown).reduce(
+      (sum, count) => sum + count,
+      0
+    )
+    expect(breakdownSummed).toBe(output.requestOutcomeTotal)
+    expect(output.requestOutcomeBreakdown.success_2xx).toBe(byStatus.success ?? 0)
 
     // Terminal rows carry a latency and a resolved node; in-flight rows carry neither.
     for (const row of output.requestOutcomes) {
       expect(row.attempts).toBeGreaterThanOrEqual(1)
+      expect(row.operationLabel.length).toBeGreaterThan(0)
       if (row.status === 'in-flight') {
         expect(row.terminalAtMs).toBeNull()
         expect(row.latencyMs).toBeNull()
