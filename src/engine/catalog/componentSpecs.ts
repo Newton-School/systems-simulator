@@ -8,7 +8,10 @@ import type {
   StructuralRole
 } from './nodeSpecTypes'
 import { CACHE_COMPONENT_TYPES } from '../traits/cache'
-import { L4_CONTENT_ROUTING_FORBIDDEN_MESSAGE } from '../traits/contentRouting'
+import {
+  CONTENT_ROUTING_MATCH_FIELDS,
+  L4_CONTENT_ROUTING_FORBIDDEN_MESSAGE
+} from '../traits/contentRouting'
 import { HEALTH_AWARE_COMPONENT_TYPES } from '../traits/healthAwareRouting'
 import { asDistributionConfig } from '../traits/serviceTimeOverride'
 
@@ -595,9 +598,9 @@ function validateSimulationNode(data: CanvasNodeDataV2): string[] {
       errors.push(L4_CONTENT_ROUTING_FORBIDDEN_MESSAGE)
     } else {
       routingRules.forEach((rule, ruleIndex) => {
-        if (!['type', 'path', 'host'].includes(rule.matchField)) {
+        if (!(CONTENT_ROUTING_MATCH_FIELDS as readonly string[]).includes(rule.matchField)) {
           errors.push(
-            `routingRules[${ruleIndex}].matchField must be one of "type", "path", "host".`
+            `routingRules[${ruleIndex}].matchField must be one of ${CONTENT_ROUTING_MATCH_FIELDS.map((field) => `"${field}"`).join(', ')}.`
           )
         }
         if (!rule.matchValue) {

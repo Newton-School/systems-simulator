@@ -10,7 +10,12 @@ export type FieldPath = string
 export type AccuracyClass = 'invariant' | 'default-override' | 'user-parameter' | 'not-simulated'
 export type ConfigAltitude = 'primary' | 'advanced'
 export type ConfigNoteTone = 'info' | 'locked'
-export type ConfigCustomRenderer = 'default' | 'routing-rules' | 'health-preset'
+export type ConfigCustomRenderer =
+  | 'default'
+  | 'routing-rules'
+  | 'health-preset'
+  | 'request-distribution'
+export type ConfigInputType = 'number' | 'text'
 
 export interface ConfigDisplayTransform {
   toDisplay: (rawValue: unknown, data: CanvasNodeDataV2) => unknown
@@ -44,6 +49,7 @@ export type ConfigField =
   | (ConfigFieldBase & {
       type: 'input'
       step?: number
+      inputType?: ConfigInputType
     })
   | (ConfigFieldBase & {
       type: 'boolean'

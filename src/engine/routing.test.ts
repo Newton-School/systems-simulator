@@ -159,6 +159,57 @@ describe('RoutingTable', () => {
     expect(picks.map((route) => route.targetNodeId)).toEqual(['a', 'b', 'c', 'a', 'b', 'c'])
   })
 
+  it('least-conn routes to the target with the fewest in-flight requests', () => {
+    const edges = [makeEdge('e1', 'lb', 'a'), makeEdge('e2', 'lb', 'b'), makeEdge('e3', 'lb', 'c')]
+    const nodes: ComponentNode[] = [
+      { ...makeNode('lb'), config: { routingStrategy: 'least-conn' } }
+    ]
+    const routing = new RoutingTable(edges, createRandom('least-conn'), nodes)
+    const inFlight: Record<string, number> = { a: 5, b: 1, c: 3 }
+
+    const pick = routing.resolveTarget('lb', makeRequest(), {
+      getInFlight: (nodeId) => inFlight[nodeId] ?? 0
+    })[0]
+
+    expect(pick.targetNodeId).toBe('b')
+  })
+
+  it('least-conn breaks ties by rotating through the tied targets', () => {
+    const edges = [makeEdge('e1', 'lb', 'a'), makeEdge('e2', 'lb', 'b'), makeEdge('e3', 'lb', 'c')]
+    const nodes: ComponentNode[] = [
+      { ...makeNode('lb'), config: { routingStrategy: 'least-conn' } }
+    ]
+    const routing = new RoutingTable(edges, createRandom('least-conn-tie'), nodes)
+    // a and c are tied for the minimum; b is heavier and never chosen.
+    const inFlight: Record<string, number> = { a: 2, b: 9, c: 2 }
+    const getInFlight = (nodeId: string) => inFlight[nodeId] ?? 0
+
+    const picks = Array.from(
+      { length: 4 },
+      () => routing.resolveTarget('lb', makeRequest(), { getInFlight })[0].targetNodeId
+    )
+
+    expect(picks).toEqual(['a', 'c', 'a', 'c'])
+  })
+
+  it('passthrough forwards to the first eligible target without balancing', () => {
+    const edges = [
+      makeEdge('e1', 'proxy', 'a'),
+      makeEdge('e2', 'proxy', 'b'),
+      makeEdge('e3', 'proxy', 'c')
+    ]
+    const nodes: ComponentNode[] = [
+      { ...makeNode('proxy'), config: { routingStrategy: 'passthrough' } }
+    ]
+    const routing = new RoutingTable(edges, createRandom('passthrough'), nodes)
+    const picks = Array.from(
+      { length: 5 },
+      () => routing.resolveTarget('proxy', makeRequest())[0].targetNodeId
+    )
+
+    expect(picks).toEqual(['a', 'a', 'a', 'a', 'a'])
+  })
+
   it('plain services do not round-robin just because their id looks like a load balancer', () => {
     const edges = [
       makeEdge('e1', 'lb-ish-thing', 'a'),

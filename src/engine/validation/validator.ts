@@ -7,7 +7,10 @@ import type {
 } from '../core/types'
 import { inferStructuralRole } from '../catalog/componentSpecs'
 import { validateEdgeConstraintSelection } from '../defaults/edgeConstraints'
-import { L4_CONTENT_ROUTING_FORBIDDEN_MESSAGE } from '../traits/contentRouting'
+import {
+  CONTENT_ROUTING_MATCH_FIELDS,
+  L4_CONTENT_ROUTING_FORBIDDEN_MESSAGE
+} from '../traits/contentRouting'
 import { asDistributionConfig } from '../traits/serviceTimeOverride'
 
 const COMPONENT_CATEGORIES = [
@@ -997,10 +1000,14 @@ export const validateTopology = (input: unknown): ValidationResult => {
             matchValue: unknown
             targetNodeId: unknown
           }>
-          if (!['type', 'path', 'host'].includes(candidate?.matchField as string)) {
+          if (
+            !(CONTENT_ROUTING_MATCH_FIELDS as readonly string[]).includes(
+              candidate?.matchField as string
+            )
+          ) {
             errors.push({
               path: `nodes[${index}].config.routingRules[${ruleIndex}].matchField`,
-              message: 'matchField must be one of "type", "path", "host".'
+              message: `matchField must be one of ${CONTENT_ROUTING_MATCH_FIELDS.map((field) => `"${field}"`).join(', ')}.`
             })
           }
           if (typeof candidate?.matchValue !== 'string' || candidate.matchValue.length === 0) {

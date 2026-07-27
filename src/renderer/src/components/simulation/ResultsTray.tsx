@@ -1,5 +1,6 @@
 import { Fragment, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { ButtonHTMLAttributes, CSSProperties, HTMLAttributes } from 'react'
+import { clsx } from 'clsx'
 import {
   ChevronLeft,
   ChevronRight,
@@ -21,8 +22,14 @@ import type {
   DebugEvent,
   RequestOutcomeRecord
 } from '../../../../engine/core/event-stream'
+import type { CanvasNodeDataV2 } from '../../../../engine/catalog/nodeSpecTypes'
+import {
+  REQUEST_OUTCOME_FAMILIES,
+  type RequestOutcomeFamily
+} from '../../../../engine/core/requestOutcomeSemantics'
+import { describeRequestOperation } from '../../../../engine/core/requestSemantics'
 import type { SimulationStatus } from '../../hooks/useSimulation'
-import useStore, { type EdgeFlowRenderEvent } from '../../store/useStore'
+import useStore, { type EdgeFlowRenderEvent, type EdgeFlowState } from '../../store/useStore'
 import { HoverTooltip, TooltipInfo } from '@renderer/components/ui/Tooltip'
 import {
   RESULTS_CONTEXTUAL_TOOLTIPS,
@@ -38,6 +45,15 @@ import {
   dominantTimeToErrorCause
 } from '@renderer/utils/errorCausePresentation'
 import { failureRateLevelFromRatio } from '@renderer/utils/failureRatePresentation'
+import { LocationRollupsPanel } from '@renderer/components/location/LocationRollupsPanel'
+import {
+  buildEdgeLocalityRollups,
+  buildEdgeRollupInputsFromResults,
+  buildLocationTopology,
+  buildNodeLocationRollups,
+  buildNodeRollupInputsFromResults,
+  formatNodeLocation
+} from '@renderer/utils/locationTopology'
 import {
   capacityRank,
   deriveCapacityStatus,
@@ -106,6 +122,16 @@ function fmtCv(value: number | null): string {
   return value === null ? 'N/A' : value.toFixed(2)
 }
 
+function fmtWeight(weight: number): string {
+  return `${(weight * 100).toFixed(weight * 100 < 10 ? 1 : 0)}%`
+}
+
+function fmtBytes(bytes: number): string {
+  if (bytes >= 1_000_000) return `${(bytes / 1_000_000).toFixed(1)} MB`
+  if (bytes >= 1_000) return `${(bytes / 1_000).toFixed(1)} KB`
+  return `${bytes} B`
+}
+
 function fmtLambda(lambda: number): string {
   return lambda === 0 ? '-' : `${lambda.toFixed(2)}`
 }
@@ -122,6 +148,51 @@ function totalReplayEventCount(output: SimulationOutput): number {
   return Object.values(output.eventCountsByType).reduce((sum, count) => sum + count, 0)
 }
 
+function outcomeFamilyLabel(family: RequestOutcomeFamily): string {
+  switch (family) {
+    case 'success_2xx':
+      return '2xx success'
+    case 'client_error_4xx':
+      return '4xx reject'
+    case 'server_error_5xx':
+      return '5xx failure'
+    case 'network_timeout':
+      return 'Timeout'
+    case 'network_drop':
+      return 'Network drop'
+    case 'connection_reset':
+      return 'Reset'
+    case 'in_flight':
+      return 'In flight'
+  }
+}
+
+function outcomeFamilyBadgeClass(family: RequestOutcomeFamily): string {
+  switch (family) {
+    case 'success_2xx':
+      return 'text-nss-success bg-nss-success/10 border-nss-success/20'
+    case 'network_timeout':
+    case 'in_flight':
+      return 'text-nss-warning bg-nss-warning/10 border-nss-warning/20'
+    case 'client_error_4xx':
+      return 'text-nss-primary bg-nss-primary/10 border-nss-primary/20'
+    case 'server_error_5xx':
+    case 'network_drop':
+    case 'connection_reset':
+      return 'text-nss-danger bg-nss-danger/10 border-nss-danger/20'
+  }
+}
+
+function requestMixEntries(workload: ScenarioRunContext['workload']) {
+  return [...workload.requestDistribution]
+    .map((entry) => ({
+      ...describeRequestOperation({ type: entry.type, metadata: entry.metadata }),
+      weight: entry.weight,
+      sizeBytes: entry.sizeBytes
+    }))
+    .sort((a, b) => b.weight - a.weight)
+}
+
 const SECTION_TITLE = 'text-[11px] font-semibold text-nss-muted uppercase tracking-wider'
 const SURFACE_CARD = 'bg-nss-surface border border-nss-border rounded-md'
 const TRAFFIC_EVENT_LOG_SIZE = 24
@@ -133,6 +204,11 @@ const RESULTS_TABS: Array<{ id: ResultsTab; label: string }> = [
 ]
 
 const LIVE_PATTERN_BAR_COUNT = 24
+const RUNTIME_NODE_METRICS_TOOLTIP =
+  'Queueing, service, and error metrics for runtime nodes that actually received post-warmup traffic. Sources are shown separately because they generate offered load instead of receiving arrivals.'
+const SOURCE_DRIVERS_TOOLTIP =
+  'Source nodes define the offered workload. They emit traffic into the graph, so queueing and arrival-based node-local metrics start on the first downstream runtime node instead.'
+
 type TrafficStatusFilter = 'all' | EdgeFlowRenderEvent['status']
 const TRAFFIC_STATUS_FILTERS: Array<{ id: TrafficStatusFilter; label: string }> = [
   { id: 'all', label: 'All' },
@@ -158,6 +234,16 @@ function eventStatusClass(status: DebugEvent['status']): string {
 
 function labelForNode(nodeId: string | undefined, lookup: EventGraphLookup): string | undefined {
   return nodeId ? lookup.nodeLabelById.get(nodeId) : undefined
+}
+
+function sourceEmittedCount(
+  nodeId: string,
+  edges: ReturnType<typeof useStore.getState>['edges'],
+  edgeFlowById: Record<string, EdgeFlowState>
+): number {
+  return edges
+    .filter((edge) => edge.source === nodeId)
+    .reduce((sum, edge) => sum + (edgeFlowById[edge.id]?.totalAttempted ?? 0), 0)
 }
 
 function workloadPatternDetails(workload: ScenarioRunContext['workload']): string[] {
@@ -854,10 +940,8 @@ function RequestOutcomeLog({
 
   const outcomes = output.requestOutcomes
 
-  // Per-request terminal reason (e.g. queue_full, node_error_rate, policy). It is
-  // not on the outcome row — it lives as reasonCode on the request's events — so
-  // we fold the stream into requestId → last reasonCode (highest sequence wins,
-  // which is the terminal one). Empty when the stream was capped for a large run.
+  // Legacy fallback for older retained outcome rows that did not yet carry the
+  // terminal reason inline.
   const reasonByRequestId = useMemo(() => {
     const map = new Map<string, { sequence: number; reason: string }>()
     for (const event of output.eventStream) {
@@ -885,7 +969,7 @@ function RequestOutcomeLog({
     return counts
   }, [outcomes])
 
-  // Chip filter, then free-text search over request id / node label / status.
+  // Chip filter, then free-text search over request id / operation / node / outcome.
   const trimmedQuery = query.trim().toLowerCase()
   const visibleRows = useMemo(() => {
     const byStatus =
@@ -893,9 +977,11 @@ function RequestOutcomeLog({
     if (trimmedQuery === '') return byStatus
     return byStatus.filter((row) => {
       const nodeLabel = row.nodeId ? (labelForNode(row.nodeId, graphLookup) ?? row.nodeId) : ''
-      const reason = reasonByRequestId.get(row.requestId)?.reason ?? ''
+      const reason = row.reasonCode ?? reasonByRequestId.get(row.requestId)?.reason ?? ''
+      const operationLabel = row.operationLabel ?? row.requestType ?? row.requestId
+      const statusFamily = outcomeFamilyLabel(row.outcomeFamily)
       const haystack =
-        `${row.requestId} ${nodeLabel} ${OUTCOME_STATUS_LABEL[row.status]} ${reason}`.toLowerCase()
+        `${row.requestId} ${operationLabel} ${nodeLabel} ${OUTCOME_STATUS_LABEL[row.status]} ${statusFamily} ${row.statusClass} ${reason}`.toLowerCase()
       return haystack.includes(trimmedQuery)
     })
   }, [outcomes, statusFilter, trimmedQuery, graphLookup, reasonByRequestId])
@@ -958,6 +1044,10 @@ function RequestOutcomeLog({
               ? `Showing a sampled request-outcome ledger. ${outcomes.length.toLocaleString()} outcomes are retained from ${totalOutcomeCount.toLocaleString()} total; aggregate metrics above remain exact. Search and pagination only cover retained rows.`
               : 'Final fate of every request this run. Click a row for its lifecycle.'}
           </div>
+          <div className="mt-1 text-[10px] text-nss-muted">
+            Operation labels come from the workload request mix. 4xx and 5xx classes are inferred
+            from current simulator reasons; exact endpoint-specific HTTP codes are not yet modeled.
+          </div>
         </div>
         <span className="text-[10px] text-nss-muted tabular-nums">
           {outcomesSampled
@@ -997,7 +1087,7 @@ function RequestOutcomeLog({
           type="text"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search by request id, node, or status…"
+          placeholder="Search by request id, endpoint, node, or outcome…"
           aria-label="Search request outcomes"
           className="w-full rounded-md border border-nss-border bg-nss-bg py-1.5 pl-8 pr-8 text-[11px] text-nss-text placeholder:text-nss-muted focus:border-nss-primary/50 focus:outline-none focus:ring-1 focus:ring-nss-primary/40"
         />
@@ -1022,7 +1112,7 @@ function RequestOutcomeLog({
                   <th className="px-2 py-1.5 text-left">Request</th>
                   <th className="px-2 py-1.5 text-left">Terminal</th>
                   <th className="px-2 py-1.5 text-left">Node</th>
-                  <th className="px-2 py-1.5 text-left">Status</th>
+                  <th className="px-2 py-1.5 text-left">Outcome</th>
                   <th className="px-2 py-1.5 text-right">Attempts</th>
                   <th className="px-2 py-1.5 text-right">Latency</th>
                 </tr>
@@ -1033,10 +1123,10 @@ function RequestOutcomeLog({
                     ? (labelForNode(row.nodeId, graphLookup) ?? row.nodeId)
                     : '-'
                   const isExpanded = expandedRequestId === row.requestId
-                  // Only failed terminals have a "why"; success and in-flight do not.
+                  const operationLabel = row.operationLabel ?? row.requestType ?? row.requestId
                   const failureReason =
                     row.status !== 'success' && row.status !== 'in-flight'
-                      ? (reasonByRequestId.get(row.requestId)?.reason ?? null)
+                      ? (row.reasonCode ?? reasonByRequestId.get(row.requestId)?.reason ?? null)
                       : null
 
                   return (
@@ -1067,9 +1157,14 @@ function RequestOutcomeLog({
                         }`}
                       >
                         <td className="px-2 py-1 text-nss-text">
-                          <div className="flex items-center gap-1 truncate">
-                            <span className="text-nss-muted">{isExpanded ? '▾' : '▸'}</span>
-                            <span className="truncate">{row.requestId}</span>
+                          <div className="flex items-start gap-1">
+                            <span className="pt-0.5 text-nss-muted">{isExpanded ? '▾' : '▸'}</span>
+                            <div className="min-w-0">
+                              <span className="block truncate">{row.requestId}</span>
+                              <span className="block truncate text-[9px] text-nss-muted">
+                                {operationLabel}
+                              </span>
+                            </div>
                           </div>
                         </td>
                         <td className="px-2 py-1 text-nss-muted">
@@ -1081,15 +1176,15 @@ function RequestOutcomeLog({
                         <td className="px-2 py-1">
                           <div className="flex flex-col items-start gap-0.5">
                             <span
-                              className={`rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${outcomeStatusBadgeClass(row.status)}`}
+                              className={`rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${outcomeFamilyBadgeClass(row.outcomeFamily)}`}
                             >
-                              {OUTCOME_STATUS_LABEL[row.status]}
+                              {outcomeFamilyLabel(row.outcomeFamily)}
                             </span>
-                            {failureReason && (
-                              <span className="text-[9px] text-nss-muted" title={failureReason}>
-                                {failureReason}
-                              </span>
-                            )}
+                            <span className="text-[9px] text-nss-muted">
+                              {OUTCOME_STATUS_LABEL[row.status]}
+                              {row.statusCodeHint ? ` · ${row.statusCodeHint} hint` : ''}
+                              {failureReason ? ` · ${failureReason}` : ''}
+                            </span>
                           </div>
                         </td>
                         <td className="px-2 py-1 text-right text-nss-muted">
@@ -1725,6 +1820,7 @@ function ReplayMonitorPanel({
   const buttonClass =
     'h-7 w-7 inline-flex items-center justify-center rounded border border-nss-border text-nss-muted hover:text-nss-text hover:bg-nss-surface transition-colors disabled:opacity-40 disabled:hover:bg-transparent'
   const patternDetails = workloadPatternDetails(runContext.workload)
+  const requestMix = requestMixEntries(runContext.workload)
 
   return (
     <div className="space-y-3">
@@ -1865,6 +1961,18 @@ function ReplayMonitorPanel({
         {patternDetails.length > 0 && (
           <div className="text-xs text-nss-muted">{patternDetails.join(' • ')}</div>
         )}
+
+        <div className="flex flex-wrap gap-1.5">
+          {requestMix.map((entry, index) => (
+            <span
+              key={`${entry.operationLabel}-${index}`}
+              className="rounded-full border border-nss-border bg-nss-panel px-2 py-1 text-[10px] text-nss-muted"
+            >
+              <span className="font-medium text-nss-text">{entry.operationLabel}</span>{' '}
+              <span>{fmtWeight(entry.weight)}</span>
+            </span>
+          ))}
+        </div>
       </div>
 
       <div className="grid grid-cols-2 gap-2 text-sm xl:grid-cols-4">
@@ -2046,9 +2154,99 @@ function TimeToErrorCard({
   )
 }
 
+function RequestMixPanel({ runContext }: { runContext: ScenarioRunContext }) {
+  const mix = requestMixEntries(runContext.workload)
+
+  return (
+    <div className={`${SURFACE_CARD} p-3`}>
+      <div className="flex items-center gap-1.5">
+        <span className="text-xs font-semibold uppercase tracking-wider text-nss-muted">
+          Request Mix
+        </span>
+        <TooltipInfo
+          label="About request mix"
+          content="Each entry is a request template emitted by the selected source. Method, host, and path are configured at the workload layer, not on an edge, because they describe the operation being sent through the graph."
+        />
+      </div>
+      <div className="mt-3 space-y-2">
+        {mix.map((entry, index) => (
+          <div
+            key={`${entry.operationLabel}-${index}`}
+            className="rounded border border-nss-border bg-nss-panel px-2.5 py-2"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="truncate text-xs font-medium text-nss-text">
+                  {entry.operationLabel}
+                </div>
+                <div className="truncate text-[10px] text-nss-muted">
+                  {entry.requestType ?? 'request'} · {fmtBytes(entry.sizeBytes)}
+                </div>
+              </div>
+              <span className="shrink-0 rounded-full border border-nss-primary/20 bg-nss-primary/10 px-2 py-0.5 text-[10px] font-medium text-nss-primary">
+                {fmtWeight(entry.weight)}
+              </span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function OutcomeBreakdownPanel({ output }: { output: SimulationOutput }) {
+  const total = Math.max(1, output.requestOutcomeTotal)
+  const entries = REQUEST_OUTCOME_FAMILIES.map((family) => ({
+    family,
+    count: output.requestOutcomeBreakdown[family] ?? 0
+  })).filter((entry) => entry.count > 0)
+
+  return (
+    <div className={`${SURFACE_CARD} p-3`}>
+      <div className="flex items-center gap-1.5">
+        <span className="text-xs font-semibold uppercase tracking-wider text-nss-muted">
+          Outcome Classes
+        </span>
+        <TooltipInfo
+          label="About outcome classes"
+          content="This split is exact for the whole run, even when the per-request ledger below is sampled. 4xx and 5xx are current simulator inferences from rejection reasons; exact endpoint-specific codes such as 201 or 404 are not yet modeled."
+        />
+      </div>
+      <div className="mt-3 space-y-2">
+        {entries.map(({ family, count }) => (
+          <div
+            key={family}
+            className="flex items-center justify-between gap-3 rounded border border-nss-border bg-nss-panel px-2.5 py-2"
+          >
+            <div className="flex items-center gap-2">
+              <span
+                className={`rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${outcomeFamilyBadgeClass(family)}`}
+              >
+                {outcomeFamilyLabel(family)}
+              </span>
+            </div>
+            <div className="text-right">
+              <div className="text-xs font-medium tabular-nums text-nss-text">
+                {count.toLocaleString()}
+              </div>
+              <div className="text-[10px] text-nss-muted">{fmtPct(count / total)}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 // ─── Summary Panel ────────────────────────────────────────────────────────────
 
-function SummaryPanel({ output }: { output: SimulationOutput }) {
+function SummaryPanel({
+  output,
+  runContext
+}: {
+  output: SimulationOutput
+  runContext: ScenarioRunContext | null
+}) {
   const { summary } = output
   const l = summary.latency
   // Only show causes that actually fired — a "Node Failed" card appearing while
@@ -2152,6 +2350,11 @@ function SummaryPanel({ output }: { output: SimulationOutput }) {
         </div>
       )}
 
+      <div className={clsx('grid gap-2', runContext ? 'xl:grid-cols-2' : 'xl:grid-cols-1')}>
+        {runContext && <RequestMixPanel runContext={runContext} />}
+        <OutcomeBreakdownPanel output={output} />
+      </div>
+
       <LatencyPopulationSection
         title="Success Latency"
         subtitle="Successful requests only. Read these percentiles together with the paired error rate for the same steady-state window."
@@ -2181,27 +2384,29 @@ function SummaryPanel({ output }: { output: SimulationOutput }) {
         </div>
       </LatencyPopulationSection>
 
-      <LatencyPopulationSection
-        title="Time-to-Error"
-        subtitle="Failed requests only, split by cause so instant rejects, silent timeouts, and connection resets do not blend into one fake latency distribution."
-        sampleCount={summary.timeToErrorSamples}
-        errorRate={summary.latencyWindowErrorRate}
-      >
-        <div className="grid gap-2 md:grid-cols-3">
-          {timeToErrorEntries.map(([cause, metrics]) => (
-            <TimeToErrorCard
-              key={cause}
-              title={ERROR_CAUSE_LABELS[cause]}
-              count={metrics.count}
-              errorRate={metrics.errorRate}
-              shareOfErrors={metrics.shareOfErrors}
-              p50={metrics.p50}
-              p95={metrics.p95}
-              p99={metrics.p99}
-            />
-          ))}
-        </div>
-      </LatencyPopulationSection>
+      {summary.timeToErrorSamples > 0 && (
+        <LatencyPopulationSection
+          title="Time-to-Error"
+          subtitle="Failed requests only, split by cause so instant rejects, silent timeouts, and connection resets do not blend into one fake latency distribution."
+          sampleCount={summary.timeToErrorSamples}
+          errorRate={summary.latencyWindowErrorRate}
+        >
+          <div className="grid gap-2 md:grid-cols-3">
+            {timeToErrorEntries.map(([cause, metrics]) => (
+              <TimeToErrorCard
+                key={cause}
+                title={ERROR_CAUSE_LABELS[cause]}
+                count={metrics.count}
+                errorRate={metrics.errorRate}
+                shareOfErrors={metrics.shareOfErrors}
+                p50={metrics.p50}
+                p95={metrics.p95}
+                p99={metrics.p99}
+              />
+            ))}
+          </div>
+        </LatencyPopulationSection>
+      )}
     </div>
   )
 }
@@ -3823,9 +4028,77 @@ function buildPerNodeFindings(
   return findings
 }
 
-function PerNodeTable({ output }: { output: SimulationOutput }) {
+function SourceDriverCard({
+  label,
+  location,
+  offeredRps,
+  pattern,
+  emitted
+}: {
+  label: string
+  location: string | null
+  offeredRps?: number
+  pattern?: string
+  emitted: number
+}) {
+  return (
+    <div className="rounded-lg border border-nss-border bg-nss-panel p-3">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="truncate text-xs font-semibold text-nss-text">{label}</div>
+          {location && <div className="truncate text-[10px] text-nss-muted">{location}</div>}
+        </div>
+        <span className="shrink-0 rounded-full border border-nss-primary/20 bg-nss-primary/10 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-nss-primary">
+          Source
+        </span>
+      </div>
+
+      <div className="mt-3 grid grid-cols-3 gap-3">
+        <div className="min-w-0">
+          <div className="text-[9px] font-semibold uppercase tracking-wide text-nss-muted">
+            Offered
+          </div>
+          <div className="truncate text-xs font-semibold tabular-nums text-nss-text">
+            {offeredRps === undefined ? 'N/A' : fmtRps(offeredRps)}
+          </div>
+        </div>
+        <div className="min-w-0">
+          <div className="text-[9px] font-semibold uppercase tracking-wide text-nss-muted">
+            Pattern
+          </div>
+          <div className="truncate text-xs font-semibold text-nss-text">{pattern ?? 'N/A'}</div>
+        </div>
+        <div className="min-w-0">
+          <div className="text-[9px] font-semibold uppercase tracking-wide text-nss-muted">
+            Emitted
+          </div>
+          <div className="truncate text-xs font-semibold tabular-nums text-nss-text">
+            {emitted.toLocaleString()}
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-2 text-[10px] leading-snug text-nss-muted">
+        Sources generate load. Queueing, arrivals, and node-local latency begin on the first
+        downstream runtime node.
+      </div>
+    </div>
+  )
+}
+
+function PerNodeTable({
+  output,
+  locationTopology,
+  runContext
+}: {
+  output: SimulationOutput
+  locationTopology: ReturnType<typeof buildLocationTopology>
+  runContext: ScenarioRunContext | null
+}) {
   const [showInactive, setShowInactive] = useState(false)
   const nodes = useStore((state) => state.nodes)
+  const edges = useStore((state) => state.edges)
+  const edgeFlowById = useStore((state) => state.edgeFlowById)
   const entries = Object.entries(output.perNode)
 
   // Source nodes emit traffic rather than receive it, so their `postWarmupArrived`
@@ -3841,6 +4114,7 @@ function PerNodeTable({ output }: { output: SimulationOutput }) {
     }
     return ids
   }, [nodes])
+  const nodeById = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes])
 
   if (entries.length === 0) return null
 
@@ -3849,15 +4123,29 @@ function PerNodeTable({ output }: { output: SimulationOutput }) {
     output.conservationCheck.map((result) => [result.nodeId, result])
   )
 
-  const activeEntries = entries.filter(([, m]) => m.postWarmupArrived > 0)
+  const activeEntries = entries.filter(
+    ([nodeId, m]) => m.postWarmupArrived > 0 && !sourceNodeIds.has(nodeId)
+  )
   const idleEntries = entries.filter(([, m]) => m.postWarmupArrived === 0)
   const sourceEntries = idleEntries.filter(([nodeId]) => sourceNodeIds.has(nodeId))
   const inactiveEntries = idleEntries.filter(([nodeId]) => !sourceNodeIds.has(nodeId))
   const findings = buildPerNodeFindings(entries)
 
   return (
-    <div className="space-y-2">
-      <h3 className={SECTION_TITLE}>Per-node Metrics</h3>
+    <div className="space-y-3">
+      <div className="flex items-center gap-2">
+        <h3 className={SECTION_TITLE}>Runtime Node Metrics</h3>
+        <TooltipInfo
+          label="Explain runtime node metrics"
+          content={RUNTIME_NODE_METRICS_TOOLTIP}
+          width={320}
+          className="h-4 w-4 text-[9px]"
+        />
+      </div>
+      <p className="text-[10px] text-nss-muted">
+        Arrivals, queueing, node-local latency, and errors for nodes that processed post-warmup
+        traffic.
+      </p>
       <div className={`${SURFACE_CARD} p-3`}>
         <div className="mb-2 text-[10px] font-bold uppercase tracking-widest text-nss-muted">
           Top Findings
@@ -3873,145 +4161,194 @@ function PerNodeTable({ output }: { output: SimulationOutput }) {
           ))}
         </div>
       </div>
-      <div className="overflow-x-auto">
-        <table className="w-full text-xs tabular-nums">
-          <thead>
-            <tr className="text-nss-muted border-b border-nss-border">
-              <th className="text-left pb-1 pr-2">Node</th>
-              <MetricHeaderCell
-                label="Arrived"
-                tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.arrived}
-              />
-              <MetricHeaderCell label="Done" tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.done} />
-              <MetricHeaderCell label="Reject" tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.reject} />
-              <MetricHeaderCell label="T.O." tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.timedOut} />
-              <MetricHeaderCell label="Reset" tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.reset} />
-              <MetricHeaderCell
-                label="In Flight"
-                tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.inFlight}
-              />
-              <MetricHeaderCell label="Avg Q" tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.avgQueue} />
-              <MetricHeaderCell label="Util" tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.util} />
-              <MetricHeaderCell
-                label="Err %"
-                tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.errorRate}
-              />
-              <MetricHeaderCell
-                label="Arr CV"
-                tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.arrivalCV}
-              />
-              <MetricHeaderCell label="p50" tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.p50} />
-              <MetricHeaderCell label="p95" tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.p95} />
-              <MetricHeaderCell label="p99" tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.p99} />
-              <MetricHeaderCell label="λ" tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.lambda} />
-              <MetricHeaderCell label="W" tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.w} />
-              <MetricHeaderCell
-                label="L"
-                tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.l}
-                className="text-right pb-1"
-              />
-            </tr>
-          </thead>
-          <tbody>
-            {activeEntries.map(([nodeId, m]) => {
-              const ll = llByNode.get(nodeId)
-              const conservation = conservationByNode.get(nodeId)
-              const inFlight = conservation?.inFlight ?? 0
-              const utilPct = (m.utilization * 100).toFixed(1)
-              const utilColour =
-                m.utilization > 0.9
-                  ? 'text-nss-danger'
-                  : m.utilization > 0.7
-                    ? 'text-nss-warning'
-                    : 'text-nss-success'
-              const arrivalCvWarn =
-                m.arrivalCV !== null &&
-                output.summary.offeredArrivalCV !== null &&
-                m.arrivalCV > output.summary.offeredArrivalCV + 0.05
-              const llViolation = ll && !ll.withinTolerance
+      {sourceEntries.length > 0 && (
+        <div className={`${SURFACE_CARD} p-3`}>
+          <div className="mb-2 flex items-center gap-2">
+            <div className="text-[10px] font-bold uppercase tracking-widest text-nss-muted">
+              Source Drivers
+            </div>
+            <TooltipInfo
+              label="Explain source drivers"
+              content={SOURCE_DRIVERS_TOOLTIP}
+              width={320}
+              className="h-4 w-4 text-[9px]"
+            />
+          </div>
+          <div className="grid gap-2 md:grid-cols-2">
+            {sourceEntries.map(([nodeId, m]) => {
+              const node = nodeById.get(nodeId)
+              const data = node?.data as Partial<CanvasNodeDataV2> | undefined
+              const staticWorkload = data?.source?.defaultWorkload
+              const isRunSource = runContext?.sourceNodeId === nodeId
+              const offeredRps = isRunSource
+                ? runContext?.workload.baseRps
+                : staticWorkload?.baseRps
+              const pattern = isRunSource ? runContext?.workload.pattern : staticWorkload?.pattern
 
               return (
-                <tr key={nodeId} className="border-b border-nss-border hover:bg-nss-surface/70">
-                  <td className="py-1 pr-2 text-nss-text truncate max-w-[100px]">
-                    {m.nodeLabel ?? nodeId}
-                  </td>
-                  <td className="text-right pr-2 text-nss-text">
-                    {m.postWarmupArrived.toLocaleString()}
-                  </td>
-                  <td className="text-right pr-2 text-nss-text">
-                    {m.postWarmupProcessed.toLocaleString()}
-                  </td>
-                  <td className="text-right pr-2 text-nss-muted">
-                    {m.postWarmupRejected.toLocaleString()}
-                  </td>
-                  <td className="text-right pr-2 text-nss-muted">
-                    {m.postWarmupTimedOut.toLocaleString()}
-                  </td>
-                  <td className="text-right pr-2 text-nss-muted">
-                    {m.postWarmupConnectionReset.toLocaleString()}
-                  </td>
-                  <td
-                    className={`text-right pr-2 ${inFlight > 0 ? 'text-nss-warning' : 'text-nss-muted'}`}
-                  >
-                    {inFlight.toLocaleString()}
-                  </td>
-                  <td className="text-right pr-2 text-nss-muted">{m.avgQueueLength.toFixed(1)}</td>
-                  <td className={`text-right pr-2 ${utilColour}`}>{utilPct}%</td>
-                  <td
-                    className={`text-right pr-2 ${
-                      m.errorRate > 0.05
-                        ? 'text-nss-danger'
-                        : m.errorRate > 0.01
-                          ? 'text-nss-warning'
-                          : 'text-nss-muted'
-                    }`}
-                  >
-                    {fmtPct(m.errorRate)}
-                  </td>
-                  <td
-                    className={`text-right pr-2 ${
-                      arrivalCvWarn ? 'text-nss-warning' : 'text-nss-muted'
-                    }`}
-                  >
-                    {fmtCv(m.arrivalCV)}
-                  </td>
-                  <td className="text-right pr-2 text-nss-text">{fmtMs(m.latencyP50)}</td>
-                  <td className="text-right pr-2 text-nss-text">{fmtMs(m.latencyP95)}</td>
-                  <td className="text-right pr-2 text-nss-text">{fmtMs(m.latencyP99)}</td>
-                  <td className="text-right pr-2 text-nss-muted">
-                    {ll ? fmtLambda(ll.lambda) : '-'}
-                  </td>
-                  <td className="text-right pr-2 text-nss-muted">{ll ? fmtW(ll.wSeconds) : '-'}</td>
-                  <td
-                    className={`text-right ${llViolation ? 'text-nss-warning font-medium' : 'text-nss-muted'}`}
-                    title={
-                      llViolation ? `Little's Law: expected ${fmtL(ll!.expectedL)}` : undefined
-                    }
-                  >
-                    {ll ? fmtL(ll.observedL) : '-'}
-                    {llViolation && <span className="ml-0.5">⚠</span>}
-                  </td>
-                </tr>
+                <SourceDriverCard
+                  key={nodeId}
+                  label={m.nodeLabel ?? nodeId}
+                  location={formatNodeLocation(locationTopology.nodeLocations.get(nodeId))}
+                  offeredRps={offeredRps}
+                  pattern={pattern}
+                  emitted={sourceEmittedCount(nodeId, edges, edgeFlowById)}
+                />
               )
             })}
-          </tbody>
-        </table>
-      </div>
-
-      {sourceEntries.length > 0 && (
-        <table className="w-full text-xs tabular-nums mt-1 opacity-60">
-          <tbody>
-            {sourceEntries.map(([nodeId, m]) => (
-              <tr key={nodeId} className="border-b border-nss-border">
-                <td className="py-0.5 pr-2 text-nss-muted">{m.nodeLabel ?? nodeId}</td>
-                <td className="text-right text-nss-muted text-[10px] italic" colSpan={16}>
-                  source · emits traffic (not measured by arrivals)
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+          </div>
+        </div>
       )}
+
+      {activeEntries.length > 0 ? (
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs tabular-nums">
+            <thead>
+              <tr className="text-nss-muted border-b border-nss-border">
+                <th className="text-left pb-1 pr-2">Node</th>
+                <MetricHeaderCell
+                  label="Arrived"
+                  tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.arrived}
+                />
+                <MetricHeaderCell label="Done" tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.done} />
+                <MetricHeaderCell
+                  label="Reject"
+                  tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.reject}
+                />
+                <MetricHeaderCell
+                  label="T.O."
+                  tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.timedOut}
+                />
+                <MetricHeaderCell label="Reset" tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.reset} />
+                <MetricHeaderCell
+                  label="In Flight"
+                  tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.inFlight}
+                />
+                <MetricHeaderCell
+                  label="Avg Q"
+                  tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.avgQueue}
+                />
+                <MetricHeaderCell label="Util" tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.util} />
+                <MetricHeaderCell
+                  label="Err %"
+                  tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.errorRate}
+                />
+                <MetricHeaderCell
+                  label="Arr CV"
+                  tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.arrivalCV}
+                />
+                <MetricHeaderCell label="p50" tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.p50} />
+                <MetricHeaderCell label="p95" tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.p95} />
+                <MetricHeaderCell label="p99" tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.p99} />
+                <MetricHeaderCell label="λ" tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.lambda} />
+                <MetricHeaderCell label="W" tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.w} />
+                <MetricHeaderCell
+                  label="L"
+                  tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.l}
+                  className="text-right pb-1"
+                />
+              </tr>
+            </thead>
+            <tbody>
+              {activeEntries.map(([nodeId, m]) => {
+                const ll = llByNode.get(nodeId)
+                const conservation = conservationByNode.get(nodeId)
+                const inFlight = conservation?.inFlight ?? 0
+                const utilPct = (m.utilization * 100).toFixed(1)
+                const utilColour =
+                  m.utilization > 0.9
+                    ? 'text-nss-danger'
+                    : m.utilization > 0.7
+                      ? 'text-nss-warning'
+                      : 'text-nss-success'
+                const arrivalCvWarn =
+                  m.arrivalCV !== null &&
+                  output.summary.offeredArrivalCV !== null &&
+                  m.arrivalCV > output.summary.offeredArrivalCV + 0.05
+                const llViolation = ll && !ll.withinTolerance
+
+                return (
+                  <tr key={nodeId} className="border-b border-nss-border hover:bg-nss-surface/70">
+                    <td className="py-1 pr-2 text-nss-text max-w-[180px]">
+                      <div className="truncate">{m.nodeLabel ?? nodeId}</div>
+                      {formatNodeLocation(locationTopology.nodeLocations.get(nodeId)) && (
+                        <div className="truncate text-[10px] text-nss-muted">
+                          {formatNodeLocation(locationTopology.nodeLocations.get(nodeId))}
+                        </div>
+                      )}
+                    </td>
+                    <td className="text-right pr-2 text-nss-text">
+                      {m.postWarmupArrived.toLocaleString()}
+                    </td>
+                    <td className="text-right pr-2 text-nss-text">
+                      {m.postWarmupProcessed.toLocaleString()}
+                    </td>
+                    <td className="text-right pr-2 text-nss-muted">
+                      {m.postWarmupRejected.toLocaleString()}
+                    </td>
+                    <td className="text-right pr-2 text-nss-muted">
+                      {m.postWarmupTimedOut.toLocaleString()}
+                    </td>
+                    <td className="text-right pr-2 text-nss-muted">
+                      {m.postWarmupConnectionReset.toLocaleString()}
+                    </td>
+                    <td
+                      className={`text-right pr-2 ${inFlight > 0 ? 'text-nss-warning' : 'text-nss-muted'}`}
+                    >
+                      {inFlight.toLocaleString()}
+                    </td>
+                    <td className="text-right pr-2 text-nss-muted">
+                      {m.avgQueueLength.toFixed(1)}
+                    </td>
+                    <td className={`text-right pr-2 ${utilColour}`}>{utilPct}%</td>
+                    <td
+                      className={`text-right pr-2 ${
+                        m.errorRate > 0.05
+                          ? 'text-nss-danger'
+                          : m.errorRate > 0.01
+                            ? 'text-nss-warning'
+                            : 'text-nss-muted'
+                      }`}
+                    >
+                      {fmtPct(m.errorRate)}
+                    </td>
+                    <td
+                      className={`text-right pr-2 ${
+                        arrivalCvWarn ? 'text-nss-warning' : 'text-nss-muted'
+                      }`}
+                    >
+                      {fmtCv(m.arrivalCV)}
+                    </td>
+                    <td className="text-right pr-2 text-nss-text">{fmtMs(m.latencyP50)}</td>
+                    <td className="text-right pr-2 text-nss-text">{fmtMs(m.latencyP95)}</td>
+                    <td className="text-right pr-2 text-nss-text">{fmtMs(m.latencyP99)}</td>
+                    <td className="text-right pr-2 text-nss-muted">
+                      {ll ? fmtLambda(ll.lambda) : '-'}
+                    </td>
+                    <td className="text-right pr-2 text-nss-muted">
+                      {ll ? fmtW(ll.wSeconds) : '-'}
+                    </td>
+                    <td
+                      className={`text-right ${llViolation ? 'text-nss-warning font-medium' : 'text-nss-muted'}`}
+                      title={
+                        llViolation ? `Little's Law: expected ${fmtL(ll!.expectedL)}` : undefined
+                      }
+                    >
+                      {ll ? fmtL(ll.observedL) : '-'}
+                      {llViolation && <span className="ml-0.5">⚠</span>}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div className={`${SURFACE_CARD} p-4 text-sm text-nss-muted`}>
+          No runtime node received post-warmup traffic in this run.
+        </div>
+      )}
+
       {inactiveEntries.length > 0 && (
         <div>
           <button
@@ -4019,14 +4356,21 @@ function PerNodeTable({ output }: { output: SimulationOutput }) {
             onClick={() => setShowInactive((s) => !s)}
             className="text-[10px] text-nss-muted hover:text-nss-text transition-colors"
           >
-            {showInactive ? '▲' : '▼'} Inactive nodes ({inactiveEntries.length}) - post-warmup
+            {showInactive ? '▲' : '▼'} Inactive runtime nodes ({inactiveEntries.length})
           </button>
           {showInactive && (
             <table className="w-full text-xs tabular-nums mt-1 opacity-50">
               <tbody>
                 {inactiveEntries.map(([nodeId, m]) => (
                   <tr key={nodeId} className="border-b border-nss-border">
-                    <td className="py-0.5 pr-2 text-nss-muted">{m.nodeLabel ?? nodeId}</td>
+                    <td className="py-0.5 pr-2 text-nss-muted">
+                      <div className="truncate">{m.nodeLabel ?? nodeId}</div>
+                      {formatNodeLocation(locationTopology.nodeLocations.get(nodeId)) && (
+                        <div className="truncate text-[10px]">
+                          {formatNodeLocation(locationTopology.nodeLocations.get(nodeId))}
+                        </div>
+                      )}
+                    </td>
                     <td className="text-right text-nss-muted text-[10px] italic" colSpan={16}>
                       no post-warmup traffic
                     </td>
@@ -4100,6 +4444,17 @@ export function ResultsTray({
   const [selectedComponent, setSelectedComponent] = useState<SelectedComponent | null>(null)
   const nodes = useStore((state) => state.nodes)
   const edges = useStore((state) => state.edges)
+  const sourceNodeIds = useMemo(() => {
+    const ids = new Set<string>()
+    for (const node of nodes) {
+      const data = node.data as { structuralRole?: unknown; profile?: unknown } | undefined
+      if (data?.structuralRole === 'source' || data?.profile === 'source') {
+        ids.add(node.id)
+      }
+    }
+    return ids
+  }, [nodes])
+  const locationTopology = useMemo(() => buildLocationTopology(nodes), [nodes])
   const graphLookup = useMemo<EventGraphLookup>(() => {
     const nodeLabelById = new Map<string, string>()
     const edgeById = new Map<string, EventEdgeDisplayInfo>()
@@ -4124,6 +4479,26 @@ export function ResultsTray({
 
     return { nodeLabelById, edgeById }
   }, [nodes, edges])
+  const nodeLocationRollups = useMemo(
+    () =>
+      results
+        ? buildNodeLocationRollups(
+            locationTopology,
+            buildNodeRollupInputsFromResults(results.perNode, sourceNodeIds)
+          )
+        : { region: [], az: [], subnet: [] },
+    [locationTopology, results, sourceNodeIds]
+  )
+  const edgeLocalityRollups = useMemo(
+    () =>
+      results
+        ? buildEdgeLocalityRollups(
+            locationTopology,
+            buildEdgeRollupInputsFromResults(edges, results.perEdge)
+          )
+        : [],
+    [edges, locationTopology, results]
+  )
 
   useEffect(() => {
     if (results) {
@@ -4225,7 +4600,12 @@ export function ResultsTray({
             {activeTab === 'overview' && (
               <>
                 {runContext && <RunContextPanel runContext={runContext} />}
-                <SummaryPanel output={results} />
+                <SummaryPanel output={results} runContext={runContext} />
+                <LocationRollupsPanel
+                  nodeRollups={nodeLocationRollups}
+                  edgeRollups={edgeLocalityRollups}
+                  title="Deployment & Locality"
+                />
                 <SystemWindowCharts output={results} />
               </>
             )}
@@ -4248,7 +4628,11 @@ export function ResultsTray({
 
             {activeTab === 'nodes' && (
               <div className="space-y-4">
-                <PerNodeTable output={results} />
+                <PerNodeTable
+                  output={results}
+                  locationTopology={locationTopology}
+                  runContext={runContext}
+                />
               </div>
             )}
 

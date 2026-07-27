@@ -460,7 +460,7 @@ describe('validateTopology node config validation', () => {
       category: 'network-and-edge',
       role: 'router',
       config: {
-        routingRules: [{ matchField: 'type', matchValue: 'write', targetNodeId: 'service' }]
+        routingRules: [{ matchField: 'method', matchValue: 'POST', targetNodeId: 'service' }]
       }
     }
     const service = makeProcessorNode('service', 'Service')
@@ -514,7 +514,17 @@ describe('validateTopology advanced trait validation', () => {
     topology.workload = {
       ...topology.workload!,
       requestDistribution: [
-        { type: 'lookup', weight: 1, sizeBytes: 256, metadata: { shardKey: 'tenant-a' } }
+        {
+          type: 'lookup',
+          weight: 1,
+          sizeBytes: 256,
+          metadata: {
+            shardKey: 'tenant-a',
+            method: 'GET',
+            host: 'api.internal',
+            path: '/lookup'
+          }
+        }
       ]
     }
 
@@ -522,7 +532,10 @@ describe('validateTopology advanced trait validation', () => {
 
     expect(result.valid).toBe(true)
     expect(result.data?.workload?.requestDistribution[0]?.metadata).toEqual({
-      shardKey: 'tenant-a'
+      shardKey: 'tenant-a',
+      method: 'GET',
+      host: 'api.internal',
+      path: '/lookup'
     })
   })
 

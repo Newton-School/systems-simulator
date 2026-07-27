@@ -9,7 +9,10 @@ import {
 } from '@renderer/config/edgeSemantics'
 import type { CanvasNodeDataV2 } from '../../../../engine/catalog/nodeSpecTypes'
 import { getEdgeConstraints } from '../../../../engine/defaults/edgeConstraints'
-import { inferEdgeDefaults } from '../../../../engine/defaults/edgeDefaults'
+import {
+  getPathTypeLatencyProfile,
+  inferEdgeDefaults
+} from '../../../../engine/defaults/edgeDefaults'
 
 export interface EdgePropertiesPanelValue extends EdgeSimulationData {
   label?: string
@@ -19,6 +22,9 @@ export interface EdgePropertiesPanelProps {
   value: EdgePropertiesPanelValue
   sourceNodeData?: CanvasNodeDataV2
   targetNodeData?: CanvasNodeDataV2
+  sourceLocationLabel?: string | null
+  targetLocationLabel?: string | null
+  containerDerivedPathType?: EdgeSimulationData['pathType']
   title?: string
   leadingAction?: ReactNode
   tabs?: ReactNode
@@ -52,6 +58,10 @@ function logNormalJitterCv(sigma: number): number {
   return Math.sqrt(Math.max(0, Math.exp(sigma * sigma) - 1))
 }
 
+function formatPathTypeLabel(pathType: NonNullable<EdgeSimulationData['pathType']>): string {
+  return pathType.replace(/-/g, ' ')
+}
+
 function EdgeTooltipContent({ entry }: { entry: EdgeHelpEntry }) {
   return (
     <div className="space-y-1 text-[11px] leading-relaxed">
@@ -80,6 +90,9 @@ export const EdgePropertiesPanel = ({
   value,
   sourceNodeData,
   targetNodeData,
+  sourceLocationLabel,
+  targetLocationLabel,
+  containerDerivedPathType,
   title = 'Edge Properties',
   leadingAction,
   tabs,
@@ -105,6 +118,8 @@ export const EdgePropertiesPanel = ({
   const defaultConstantLatencyMs = Number(Math.exp(defaults.latencyDistribution.mu).toFixed(2))
   const selectedLatencyValue = value.latencyValue ?? defaultConstantLatencyMs
   const jitterCv = logNormalJitterCv(selectedLatencySigma)
+  const sourceLabel = sourceNodeData?.label
+  const targetLabel = targetNodeData?.label
   const protocolWarning = !constraints.allowedProtocols.includes(selectedProtocol)
     ? constraints.reasons.protocol[selectedProtocol]
     : null
@@ -115,9 +130,46 @@ export const EdgePropertiesPanel = ({
     selectedLatencyDistributionType === 'constant'
       ? `Constant transit: ${selectedLatencyValue.toFixed(2)}ms on every hop. Use this for a clean, no-jitter edge.`
       : `Log-normal transit: median hop ≈ ${Math.exp(selectedLatencyMu).toFixed(2)}ms, jitter CV ≈ ${jitterCv.toFixed(2)}. Mu is log-space; sigma controls spread.`
-  const selectedPathType = value.pathType ?? defaults.pathType
-  const sourceLabel = sourceNodeData?.label
-  const targetLabel = targetNodeData?.label
+  const autoPathType = (containerDerivedPathType ?? defaults.pathType) as NonNullable<
+    EdgeSimulationData['pathType']
+  >
+  const selectedPathType = (value.pathType ?? autoPathType) as NonNullable<
+    EdgeSimulationData['pathType']
+  >
+  const autoPathSource = containerDerivedPathType ? 'placement' : 'defaults'
+  const autoPathOptionLabel =
+    autoPathSource === 'placement' ? 'Auto (from placement)' : 'Auto (from defaults)'
+  const locationSentence =
+    sourceLocationLabel && targetLocationLabel
+      ? `${sourceLabel || 'Source'} is in ${sourceLocationLabel}; ${targetLabel || 'Target'} is in ${targetLocationLabel}.`
+      : null
+  const pathTypeHelpText =
+    value.pathType === undefined
+      ? autoPathSource === 'placement'
+        ? `Auto selected ${formatPathTypeLabel(selectedPathType)} from composite placement. ${locationSentence ?? ''}`.trim()
+        : `Auto is using the generic ${formatPathTypeLabel(selectedPathType)} default because both endpoints are not fully placed inside region / AZ / subnet containers.`
+      : autoPathSource === 'placement'
+        ? `Manual override. Composite placement would resolve this edge as ${formatPathTypeLabel(containerDerivedPathType!)}. ${locationSentence ?? ''} Switch back to Auto to follow placement again.`
+        : `Manual override. Auto would fall back to the generic ${formatPathTypeLabel(defaults.pathType)} default because placement does not fully resolve this hop.`
+  // "Auto" latency = no explicit latency fields at all, so the serializer derives
+  // it from the (possibly location-derived) path type. This is always reachable
+  // from the toggle below, which is what makes a manual override reversible.
+  const isLatencyAuto =
+    value.latencyMu === undefined &&
+    value.latencySigma === undefined &&
+    value.latencyValue === undefined &&
+    value.latencyDistributionType === undefined
+  const derivedLatencyMedianMs = Math.exp(getPathTypeLatencyProfile(selectedPathType).mu)
+  const autoLatencyText = (() => {
+    if (!isLatencyAuto) return null
+    if (value.pathType !== undefined) {
+      return `Auto latency is using the ${formatPathTypeLabel(selectedPathType)} profile from the edge path type. Median transit ≈ ${derivedLatencyMedianMs.toFixed(2)}ms.`
+    }
+    if (autoPathSource === 'placement') {
+      return `Auto latency is using the ${formatPathTypeLabel(selectedPathType)} profile derived from composite placement. ${locationSentence ?? ''} Median transit ≈ ${derivedLatencyMedianMs.toFixed(2)}ms.`
+    }
+    return `Auto latency is using the ${formatPathTypeLabel(selectedPathType)} profile from the generic edge default because placement does not resolve this hop. Median transit ≈ ${derivedLatencyMedianMs.toFixed(2)}ms.`
+  })()
 
   return (
     <div className="h-full w-full bg-nss-panel border-l border-nss-border flex flex-col text-nss-text font-sans">
@@ -225,12 +277,18 @@ export const EdgePropertiesPanel = ({
             <div className="space-y-1">
               <FieldLabel label="Path Type" help={EDGE_PROPERTY_HELP.pathType} />
               <select
-                value={selectedPathType}
+                value={value.pathType ?? 'auto'}
                 onChange={(e) =>
-                  onChange({ pathType: e.target.value as EdgeSimulationData['pathType'] })
+                  onChange({
+                    pathType:
+                      e.target.value === 'auto'
+                        ? undefined
+                        : (e.target.value as EdgeSimulationData['pathType'])
+                  })
                 }
                 className={CONTROL_CLASS}
               >
+                <option value="auto">{autoPathOptionLabel}</option>
                 {['same-rack', 'same-dc', 'cross-zone', 'cross-region', 'internet'].map(
                   (option) => (
                     <option key={option} value={option}>
@@ -239,6 +297,7 @@ export const EdgePropertiesPanel = ({
                   )
                 )}
               </select>
+              <p className="text-[10px] leading-relaxed text-nss-muted">{pathTypeHelpText}</p>
             </div>
             <div className="space-y-1">
               <FieldLabel label="Condition" help={EDGE_PROPERTY_HELP.condition} />
@@ -253,61 +312,100 @@ export const EdgePropertiesPanel = ({
           </div>
 
           <div className="space-y-1">
-            <FieldLabel label="Latency Model" help={EDGE_PROPERTY_HELP.latencyModel} />
+            <FieldLabel label="Latency" help={EDGE_PROPERTY_HELP.latencyModel} />
             <select
-              value={selectedLatencyDistributionType}
+              value={isLatencyAuto ? 'auto' : 'manual'}
               onChange={(e) =>
-                onChange({
-                  latencyDistributionType: e.target
-                    .value as EdgeSimulationData['latencyDistributionType'],
-                  ...(e.target.value === 'constant' && value.latencyValue === undefined
-                    ? { latencyValue: defaultConstantLatencyMs }
-                    : {})
-                })
+                onChange(
+                  e.target.value === 'auto'
+                    ? {
+                        latencyDistributionType: undefined,
+                        latencyValue: undefined,
+                        latencyMu: undefined,
+                        latencySigma: undefined
+                      }
+                    : {
+                        latencyDistributionType: 'log-normal',
+                        latencyMu: selectedLatencyMu,
+                        latencySigma: selectedLatencySigma
+                      }
+                )
               }
               className={CONTROL_CLASS}
             >
-              <option value="log-normal">Log-normal (jittered)</option>
-              <option value="constant">Constant (no jitter)</option>
+              <option value="auto">Auto (from path type)</option>
+              <option value="manual">Manual</option>
             </select>
           </div>
 
-          {selectedLatencyDistributionType === 'constant' ? (
-            <div className="space-y-1">
-              <FieldLabel label="Latency (ms)" help={EDGE_PROPERTY_HELP.latencyValue} />
-              <input
-                type="number"
-                min={0}
-                step={0.01}
-                value={selectedLatencyValue}
-                onChange={(e) => onChange({ latencyValue: Number(e.target.value) })}
-                className={CONTROL_CLASS}
-              />
-            </div>
+          {isLatencyAuto ? (
+            <p className="text-[10px] leading-relaxed text-nss-muted">
+              {autoLatencyText} Switch to Manual to set an explicit latency; you can switch back to
+              Auto at any time.
+            </p>
           ) : (
-            <div className="grid grid-cols-2 gap-2">
+            <>
               <div className="space-y-1">
-                <FieldLabel label="Latency Mu (log-space)" help={EDGE_PROPERTY_HELP.latencyMu} />
-                <input
-                  type="number"
-                  step={0.01}
-                  value={selectedLatencyMu}
-                  onChange={(e) => onChange({ latencyMu: Number(e.target.value) })}
+                <FieldLabel label="Latency Model" help={EDGE_PROPERTY_HELP.latencyModel} />
+                <select
+                  value={selectedLatencyDistributionType}
+                  onChange={(e) =>
+                    onChange({
+                      latencyDistributionType: e.target
+                        .value as EdgeSimulationData['latencyDistributionType'],
+                      ...(e.target.value === 'constant' && value.latencyValue === undefined
+                        ? { latencyValue: defaultConstantLatencyMs }
+                        : {})
+                    })
+                  }
                   className={CONTROL_CLASS}
-                />
+                >
+                  <option value="log-normal">Log-normal (jittered)</option>
+                  <option value="constant">Constant (no jitter)</option>
+                </select>
               </div>
-              <div className="space-y-1">
-                <FieldLabel label="Jitter Sigma" help={EDGE_PROPERTY_HELP.latencySigma} />
-                <input
-                  type="number"
-                  min={0.01}
-                  step={0.01}
-                  value={selectedLatencySigma}
-                  onChange={(e) => onChange({ latencySigma: Number(e.target.value) })}
-                  className={CONTROL_CLASS}
-                />
-              </div>
-            </div>
+
+              {selectedLatencyDistributionType === 'constant' ? (
+                <div className="space-y-1">
+                  <FieldLabel label="Latency (ms)" help={EDGE_PROPERTY_HELP.latencyValue} />
+                  <input
+                    type="number"
+                    min={0}
+                    step={0.01}
+                    value={selectedLatencyValue}
+                    onChange={(e) => onChange({ latencyValue: Number(e.target.value) })}
+                    className={CONTROL_CLASS}
+                  />
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-1">
+                    <FieldLabel
+                      label="Latency Mu (log-space)"
+                      help={EDGE_PROPERTY_HELP.latencyMu}
+                    />
+                    <input
+                      type="number"
+                      step={0.01}
+                      value={selectedLatencyMu}
+                      onChange={(e) => onChange({ latencyMu: Number(e.target.value) })}
+                      className={CONTROL_CLASS}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <FieldLabel label="Jitter Sigma" help={EDGE_PROPERTY_HELP.latencySigma} />
+                    <input
+                      type="number"
+                      min={0.01}
+                      step={0.01}
+                      value={selectedLatencySigma}
+                      onChange={(e) => onChange({ latencySigma: Number(e.target.value) })}
+                      className={CONTROL_CLASS}
+                    />
+                  </div>
+                </div>
+              )}
+            </>
           )}
 
           <div className="grid grid-cols-2 gap-2">
@@ -362,9 +460,11 @@ export const EdgePropertiesPanel = ({
             </div>
           </div>
 
-          <div className="rounded border border-nss-border bg-nss-surface px-2 py-2 text-[10px] leading-relaxed text-nss-muted">
-            {latencySummary}
-          </div>
+          {!isLatencyAuto && (
+            <div className="rounded border border-nss-border bg-nss-surface px-2 py-2 text-[10px] leading-relaxed text-nss-muted">
+              {latencySummary}
+            </div>
+          )}
         </div>
       )}
     </div>

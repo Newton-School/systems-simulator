@@ -164,10 +164,88 @@ function buildScenarioGlobal(global: ScenarioState['global']): GlobalConfig {
   }
 }
 
+type EdgePathType = EdgeDefinition['latency']['pathType']
+type ContainerLocation = { region?: string; az?: string; subnet?: string }
+
+const CONTAINER_LEVEL_BY_TEMPLATE: Record<string, keyof ContainerLocation> = {
+  'vpc-region': 'region',
+  'availability-zone': 'az',
+  subnet: 'subnet'
+}
+
+/**
+ * Maps each node to the Region/AZ/Subnet container ids it is nested inside, by
+ * walking the React Flow parent chain. Composite containers are not simulated
+ * themselves; this membership is what lets an edge's pathType be derived from
+ * where its endpoints physically sit.
+ */
+export function buildContainerLocations(
+  rfNodes: readonly { id: string; parentNode?: string; data?: unknown }[]
+): Map<string, ContainerLocation> {
+  const byId = new Map(rfNodes.map((node) => [node.id, node]))
+  const levelOf = (node: { data?: unknown }): keyof ContainerLocation | undefined => {
+    const templateId = (node.data as { templateId?: unknown } | undefined)?.templateId
+    return typeof templateId === 'string' ? CONTAINER_LEVEL_BY_TEMPLATE[templateId] : undefined
+  }
+
+  const locations = new Map<string, ContainerLocation>()
+  for (const node of rfNodes) {
+    const location: ContainerLocation = {}
+    let parentId = node.parentNode
+    const seen = new Set<string>()
+    while (parentId && !seen.has(parentId)) {
+      seen.add(parentId)
+      const parent = byId.get(parentId)
+      if (!parent) break
+      const level = levelOf(parent)
+      if (level && !location[level]) location[level] = parent.id
+      parentId = parent.parentNode
+    }
+    locations.set(node.id, location)
+  }
+  return locations
+}
+
+export interface ContainerPathResolution {
+  pathType: EdgePathType
+  /**
+   * For cross-region hops, the ordered [sourceRegion, targetRegion] container
+   * ids. Populated so a future distance-aware model can look up a per-pair RTT
+   * (e.g. us-east↔ap-south costs more than us-east↔us-west) without re-threading
+   * the serializer. v1 ignores it — cross-region uses the flat profile.
+   */
+  regionPair?: readonly [string, string]
+}
+
+/**
+ * Derives an edge's pathType from where its endpoints sit in the container
+ * hierarchy: same subnet → same-rack, same AZ → same-dc, same region →
+ * cross-zone, different region → cross-region. Returns null when membership
+ * doesn't determine it (e.g. an endpoint outside all containers), leaving the
+ * edge's existing/inferred pathType untouched.
+ */
+export function pathTypeFromContainers(
+  locations: Map<string, ContainerLocation>,
+  source: string,
+  target: string
+): ContainerPathResolution | null {
+  const a = locations.get(source)
+  const b = locations.get(target)
+  if (!a || !b) return null
+  if (a.subnet && a.subnet === b.subnet) return { pathType: 'same-rack' }
+  if (a.az && a.az === b.az) return { pathType: 'same-dc' }
+  if (a.region && a.region === b.region) return { pathType: 'cross-zone' }
+  if (a.region && b.region && a.region !== b.region) {
+    return { pathType: 'cross-region', regionPair: [a.region, b.region] }
+  }
+  return null
+}
+
 function serializeEdge(
   rfEdge: Edge,
   serializedNodeIds: Set<string>,
-  dataByNodeId: Map<string, CanvasNodeDataV2>
+  dataByNodeId: Map<string, CanvasNodeDataV2>,
+  containerPath: ContainerPathResolution | null
 ): EdgeDefinition | null {
   const { id, source, target } = rfEdge
   if (!serializedNodeIds.has(source) || !serializedNodeIds.has(target)) {
@@ -178,7 +256,12 @@ function serializeEdge(
   const sourceData = dataByNodeId.get(source)
   const edgeData = (rfEdge.data ?? {}) as EdgeRuntimeData
   const inferredDefaults = inferEdgeDefaults(sourceData, targetData)
-  const pathType = asPathType(edgeData.pathType) ?? inferredDefaults.pathType
+  // Priority: an explicit pathType the user set on the edge wins; otherwise the
+  // location-derived pathType (Region/AZ/Subnet membership); otherwise the
+  // generic inferred default. Explicit latency (mu/sigma/value) still overrides
+  // inside resolveEdgeLatencyDistribution, so manual tuning is never lost.
+  const pathType =
+    asPathType(edgeData.pathType) ?? containerPath?.pathType ?? inferredDefaults.pathType
   const pathLatencyProfile = getPathTypeLatencyProfile(pathType)
   const { distribution, derivedFromPathType } = resolveEdgeLatencyDistribution(
     edgeData,
@@ -315,8 +398,16 @@ export function useTopologySerializer() {
       }
 
       const serializedNodeIds = new Set(engineNodes.map((node) => node.id))
+      const containerLocations = buildContainerLocations(nodes)
       const engineEdges = edges
-        .map((edge) => serializeEdge(edge, serializedNodeIds, dataByNodeId))
+        .map((edge) =>
+          serializeEdge(
+            edge,
+            serializedNodeIds,
+            dataByNodeId,
+            pathTypeFromContainers(containerLocations, edge.source, edge.target)
+          )
+        )
         .filter((edge): edge is EdgeDefinition => edge !== null)
 
       // Only forward faults that target a serializable node in this topology.

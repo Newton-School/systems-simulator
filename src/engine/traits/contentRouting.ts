@@ -1,5 +1,9 @@
+import {
+  REQUEST_MATCH_FIELDS,
+  requestFieldMatches,
+  type RequestMatchField
+} from '../core/requestSemantics'
 import type { ComponentType } from '../core/types'
-import type { TraitContext } from './types'
 import type { NodeBehaviourTrait, NodeCapabilityModule } from './types'
 
 export const CONTENT_ROUTING_COMPONENT_TYPES = [
@@ -8,15 +12,15 @@ export const CONTENT_ROUTING_COMPONENT_TYPES = [
   'ingress-controller'
 ] as const satisfies readonly ComponentType[]
 
-export type ContentRoutingMatchField = 'type' | 'path' | 'host'
+export const CONTENT_ROUTING_MATCH_FIELDS = REQUEST_MATCH_FIELDS
+
+export type ContentRoutingMatchField = RequestMatchField
 
 export interface ContentRoutingRule {
   matchField: ContentRoutingMatchField
   matchValue: string
   targetNodeId: string
 }
-
-const MATCH_FIELDS: readonly ContentRoutingMatchField[] = ['type', 'path', 'host']
 
 export const L4_CONTENT_ROUTING_FORBIDDEN_MESSAGE =
   'L4 operates at the transport layer and cannot inspect HTTP content. Use an L7 Load Balancer for content-based routing.'
@@ -28,7 +32,7 @@ function isContentRoutingRule(value: unknown): value is ContentRoutingRule {
   const rule = value as Partial<ContentRoutingRule>
   return (
     typeof rule.matchField === 'string' &&
-    (MATCH_FIELDS as readonly string[]).includes(rule.matchField) &&
+    (CONTENT_ROUTING_MATCH_FIELDS as readonly string[]).includes(rule.matchField) &&
     typeof rule.matchValue === 'string' &&
     rule.matchValue.length > 0 &&
     typeof rule.targetNodeId === 'string' &&
@@ -43,17 +47,6 @@ export function parseRoutingRules(value: unknown): ContentRoutingRule[] {
   return value.filter(isContentRoutingRule)
 }
 
-function fieldValue(
-  request: TraitContext['request'],
-  field: ContentRoutingMatchField
-): string | undefined {
-  if (field === 'type') {
-    return request.type
-  }
-  const raw = request.metadata?.[field]
-  return typeof raw === 'string' ? raw : undefined
-}
-
 export const contentRoutingTrait: NodeBehaviourTrait = {
   name: 'routing.content',
   filterRoutes: ({ node, request, candidates }) => {
@@ -62,8 +55,8 @@ export const contentRoutingTrait: NodeBehaviourTrait = {
       return { routes: candidates, decision: 'no-rules-configured' }
     }
 
-    const matchedRule = rules.find(
-      (rule) => fieldValue(request, rule.matchField) === rule.matchValue
+    const matchedRule = rules.find((rule) =>
+      requestFieldMatches(request, rule.matchField, rule.matchValue)
     )
     if (!matchedRule) {
       return { routes: candidates, decision: 'no-rule-matched' }
@@ -125,7 +118,7 @@ export const contentRoutingCapabilityModule: NodeCapabilityModule = {
   },
   defaults: [],
   honesty: {
-    simulates: ['request matching by type, path, or host'],
+    simulates: ['request matching by type, method, path, or host'],
     notModeled: ['header transforms, regex matching, SSL termination overhead']
   }
 }

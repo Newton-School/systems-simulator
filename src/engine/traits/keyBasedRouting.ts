@@ -67,6 +67,7 @@ export const keyBasedRoutingCapabilityModule: NodeCapabilityModule = {
           {
             path: 'sim.routingKeyField',
             type: 'input',
+            inputType: 'text',
             label: 'Routing key field',
             placeholder: DEFAULT_ROUTING_KEY_FIELD,
             why: 'Reads the shard key from request metadata so the same key lands on the same shard.'

@@ -407,6 +407,11 @@ export interface LensCardData {
   glyph: '✓' | '⚠' | '✕'
   why: string
   tone: NodeHealthStatus
+  glyphTooltip: {
+    label: string
+    title: string
+    detail: string
+  }
 }
 
 const GLYPH_BY_TONE: Record<NodeHealthStatus, LensCardData['glyph']> = {
@@ -438,11 +443,54 @@ function formatWorkerLimit(workers: number): string {
   return `/ ${workers} worker${workers === 1 ? '' : 's'} avg`
 }
 
+function stripClickHint(text: string): string {
+  return text.replace(/\s*· click for detail$/, '')
+}
+
 function toneFromFailureRatio(value: number): NodeHealthStatus {
   const level = failureRateLevelFromRatio(value)
   if (level === 'crit') return 'critical'
   if (level === 'warn') return 'degraded'
   return 'healthy'
+}
+
+function makeGlyphTooltip(
+  label: string,
+  title: string,
+  detail: string
+): LensCardData['glyphTooltip'] {
+  return { label, title, detail }
+}
+
+function summarizeNodeLocalFailures(
+  metrics: Pick<
+    NodeSimulationMetrics,
+    'postWarmupRejected' | 'postWarmupTimedOut' | 'postWarmupConnectionReset' | 'timeToErrorByCause'
+  >
+): { totalFailures: number; summary: string; dominantFailureText: string } {
+  const rejected = metrics.postWarmupRejected ?? 0
+  const timedOut = metrics.postWarmupTimedOut ?? 0
+  const reset = metrics.postWarmupConnectionReset ?? 0
+  const totalFailures = rejected + timedOut + reset
+  const parts: string[] = []
+
+  if (rejected > 0) {
+    parts.push(`${rejected.toLocaleString()} rejected`)
+  }
+  if (timedOut > 0) {
+    parts.push(`${timedOut.toLocaleString()} timed out`)
+  }
+  if (reset > 0) {
+    parts.push(`${reset.toLocaleString()} reset`)
+  }
+
+  const dominantFailure = dominantTimeToErrorCause(metrics.timeToErrorByCause)
+
+  return {
+    totalFailures,
+    summary: parts.length > 0 ? parts.join(' · ') : 'no node-local failures',
+    dominantFailureText: dominantFailure ? ` · mostly ${ERROR_CAUSE_LABELS[dominantFailure]}` : ''
+  }
 }
 
 type LatencyLensMetrics = Pick<
@@ -532,7 +580,20 @@ export function buildLatencyLensCard(
     limit: 'p95',
     glyph: GLYPH_BY_TONE[tone],
     why,
-    tone
+    tone,
+    glyphTooltip: makeGlyphTooltip(
+      'Explain latency lens status',
+      tone === 'healthy'
+        ? 'Latency: within expectation'
+        : tone === 'degraded'
+          ? 'Latency: needs attention'
+          : 'Latency: breach or failure-heavy',
+      tone === 'healthy'
+        ? `✓ means this node looks healthy under the Latency lens. ${stripClickHint(why)}.`
+        : tone === 'degraded'
+          ? `⚠ means the Latency lens sees drift, partial breach, or enough failures to qualify this node as risky. ${stripClickHint(why)}.`
+          : `✕ means this node is either badly breaching latency expectations or failing so often that success-only latency is no longer representative. ${stripClickHint(why)}.`
+    )
   }
 }
 
@@ -565,7 +626,14 @@ export function getLensCard(
         limit: formatWorkerLimit(workers),
         glyph: capacity.level === 'headroom' ? '✓' : '⚠',
         why: `${capacity.utilizationPercent.toFixed(1)}% average utilization - ${capacity.label.toLowerCase()} · click for detail`,
-        tone
+        tone,
+        glyphTooltip: makeGlyphTooltip(
+          'Explain saturation lens status',
+          tone === 'healthy' ? 'Saturation: headroom' : 'Saturation: pressure building',
+          tone === 'healthy'
+            ? `✓ means this node kept enough worker headroom under the Saturation lens. ${capacity.utilizationPercent.toFixed(1)}% average utilization and ${capacity.label.toLowerCase()}.`
+            : `⚠ means this node is running warm or queueing under the Saturation lens. ${capacity.utilizationPercent.toFixed(1)}% average utilization and ${capacity.label.toLowerCase()}.`
+        )
       }
     }
     case 'latency': {
@@ -578,17 +646,30 @@ export function getLensCard(
       }
       const tone: NodeHealthStatus =
         metrics.errorRate >= 50 ? 'critical' : metrics.errorRate > 0 ? 'degraded' : 'healthy'
-      const reasons = Object.entries(metrics.rejectionsByReason ?? {}).sort((a, b) => b[1] - a[1])
+      const { totalFailures, summary, dominantFailureText } = summarizeNodeLocalFailures(metrics)
       const why =
-        reasons.length > 0
-          ? `${reasons[0][1]} rejected: ${reasons[0][0]} · click for detail`
-          : 'no rejections'
+        totalFailures > 0
+          ? `${summary}${dominantFailureText} · click for detail`
+          : 'no node-local failures'
       return {
         value: formatFailurePercentLabel(metrics.errorRate),
-        limit: `${metrics.totalRejected ?? 0} rejected`,
+        limit: `${totalFailures.toLocaleString()} failed`,
         glyph: GLYPH_BY_TONE[tone],
         why,
-        tone
+        tone,
+        glyphTooltip: makeGlyphTooltip(
+          'Explain errors lens status',
+          tone === 'healthy'
+            ? 'Errors: clean'
+            : tone === 'degraded'
+              ? 'Errors: some failures'
+              : 'Errors: failure-heavy',
+          tone === 'healthy'
+            ? '✓ means this node produced no node-local rejects, timeouts, or resets in the measured run.'
+            : tone === 'degraded'
+              ? `⚠ means some node-local requests failed here, but fewer than half. ${formatFailurePercentLabel(metrics.errorRate)} failed; ${summary}${dominantFailureText}.`
+              : `✕ means at least half of node-local requests failed here. ${formatFailurePercentLabel(metrics.errorRate)} failed; ${summary}${dominantFailureText}.`
+        )
       }
     }
     case 'throughput': {
@@ -608,7 +689,12 @@ export function getLensCard(
         limit: 'req/s',
         glyph: '✓',
         why,
-        tone: 'healthy'
+        tone: 'healthy',
+        glyphTooltip: makeGlyphTooltip(
+          'Explain throughput lens status',
+          'Throughput: informational',
+          `✓ here is informational, not a pass/fail verdict. The Throughput lens shows completed request rate for this node. ${stripClickHint(why)}.`
+        )
       }
     }
     default:

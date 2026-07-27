@@ -5,6 +5,7 @@ import type {
   ConfigCustomRenderer,
   ConfigDisplayTransform,
   ConfigField,
+  ConfigInputType,
   ConfigNoteTone,
   FieldPath
 } from '../../../engine/traits/types'
@@ -28,6 +29,7 @@ export interface ResolvedFieldDefinition {
   renderer: ConfigCustomRenderer
   displayAs?: ConfigDisplayTransform
   placeholder?: string
+  inputType?: ConfigInputType
 }
 
 export interface ResolvedConfigSection {
@@ -79,7 +81,10 @@ function resolveField(field: ConfigField, data: AnyNodeData): ResolvedFieldDefin
     renderer: field.renderer ?? 'default',
     displayAs: field.displayAs,
     placeholder: resolveText(field.placeholder, data)
-  } satisfies Omit<ResolvedFieldDefinition, 'options' | 'min' | 'max' | 'step' | 'defaultValue'>
+  } satisfies Omit<
+    ResolvedFieldDefinition,
+    'options' | 'min' | 'max' | 'step' | 'defaultValue' | 'inputType'
+  >
 
   switch (field.type) {
     case 'slider':
@@ -102,7 +107,8 @@ function resolveField(field: ConfigField, data: AnyNodeData): ResolvedFieldDefin
     default:
       return {
         ...base,
-        step: field.step
+        step: field.step,
+        inputType: field.inputType ?? 'number'
       }
   }
 }

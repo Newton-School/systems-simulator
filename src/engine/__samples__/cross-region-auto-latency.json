@@ -1,0 +1,317 @@
+{
+  "version": "2.0.0",
+  "nodes": [
+    {
+      "id": "region-east",
+      "type": "vpcNode",
+      "position": {
+        "x": 60,
+        "y": 80
+      },
+      "width": 914,
+      "height": 480,
+      "data": {
+        "schemaVersion": 2,
+        "templateId": "vpc-region",
+        "structuralRole": "composite",
+        "profile": "composite",
+        "rendererType": "vpcNode",
+        "label": "US East Region",
+        "subLabel": "Isolated Network",
+        "iconKey": "cloud",
+        "sim": {
+          "locationId": "us-east-1"
+        }
+      },
+      "zIndex": 0,
+      "expandParent": false,
+      "selected": false,
+      "dragging": false,
+      "style": {
+        "width": 914,
+        "height": 480
+      },
+      "resizing": false,
+      "nodes": [
+        {
+          "id": "az-a",
+          "type": "vpcNode",
+          "position": {
+            "x": 31,
+            "y": 80
+          },
+          "width": 349,
+          "height": 368,
+          "data": {
+            "schemaVersion": 2,
+            "templateId": "availability-zone",
+            "structuralRole": "composite",
+            "profile": "composite",
+            "rendererType": "vpcNode",
+            "label": "AZ A",
+            "subLabel": "Fault Domain",
+            "iconKey": "az",
+            "sim": {
+              "locationId": "us-east-1a"
+            }
+          },
+          "extent": "parent",
+          "zIndex": 10,
+          "expandParent": false,
+          "selected": false,
+          "dragging": false,
+          "style": {
+            "width": 349,
+            "height": 368
+          },
+          "resizing": false,
+          "nodes": [
+            {
+              "id": "subnet-a",
+              "type": "vpcNode",
+              "position": {
+                "x": 20,
+                "y": 64
+              },
+              "width": 300,
+              "height": 278,
+              "data": {
+                "schemaVersion": 2,
+                "templateId": "subnet",
+                "structuralRole": "composite",
+                "profile": "composite",
+                "rendererType": "vpcNode",
+                "label": "Private Subnet A",
+                "subLabel": "Network Partition",
+                "iconKey": "subnet",
+                "sim": {
+                  "locationId": "10.0.1.0/24"
+                }
+              },
+              "extent": "parent",
+              "zIndex": 10,
+              "expandParent": false,
+              "selected": false,
+              "dragging": false,
+              "style": {
+                "width": 300,
+                "height": 278
+              },
+              "resizing": false,
+              "nodes": [
+                {
+                  "id": "orders-web",
+                  "type": "serviceNode",
+                  "position": {
+                    "x": 22.617880856482543,
+                    "y": 92.37417002311071
+                  },
+                  "data": {
+                    "schemaVersion": 2,
+                    "templateId": "client-user",
+                    "componentType": "api-endpoint",
+                    "structuralRole": "source",
+                    "profile": "source",
+                    "rendererType": "serviceNode",
+                    "label": "Orders Web",
+                    "subLabel": "Regional Frontend",
+                    "iconKey": "monitor",
+                    "source": {
+                      "requestDistribution": [
+                        {
+                          "type": "GET",
+                          "weight": 1,
+                          "sizeBytes": 1024
+                        }
+                      ],
+                      "defaultWorkload": {
+                        "pattern": "poisson",
+                        "baseRps": 90,
+                        "bursty": {
+                          "burstRps": 500,
+                          "burstDuration": 2000,
+                          "normalDuration": 8000
+                        },
+                        "spike": {
+                          "spikeTime": 30000,
+                          "spikeRps": 900,
+                          "spikeDuration": 5000
+                        },
+                        "sawtooth": {
+                          "peakRps": 300,
+                          "rampDuration": 10000
+                        }
+                      }
+                    }
+                  },
+                  "extent": "parent",
+                  "zIndex": 10,
+                  "expandParent": false,
+                  "selected": false,
+                  "width": 256,
+                  "height": 117,
+                  "positionAbsolute": {
+                    "x": 133.61788085648254,
+                    "y": 316.3741700231107
+                  },
+                  "dragging": false,
+                  "nodes": []
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "az-b",
+          "type": "vpcNode",
+          "position": {
+            "x": 480,
+            "y": 80
+          },
+          "width": 401,
+          "height": 368,
+          "data": {
+            "schemaVersion": 2,
+            "templateId": "availability-zone",
+            "structuralRole": "composite",
+            "profile": "composite",
+            "rendererType": "vpcNode",
+            "label": "AZ B",
+            "subLabel": "Fault Domain",
+            "iconKey": "az",
+            "sim": {
+              "locationId": "us-east-1b"
+            }
+          },
+          "extent": "parent",
+          "zIndex": 10,
+          "expandParent": false,
+          "selected": false,
+          "dragging": false,
+          "style": {
+            "width": 401,
+            "height": 368
+          },
+          "resizing": false,
+          "nodes": [
+            {
+              "id": "subnet-b",
+              "type": "vpcNode",
+              "position": {
+                "x": 20,
+                "y": 64
+              },
+              "width": 356,
+              "height": 276,
+              "data": {
+                "schemaVersion": 2,
+                "templateId": "subnet",
+                "structuralRole": "composite",
+                "profile": "composite",
+                "rendererType": "vpcNode",
+                "label": "Private Subnet B",
+                "subLabel": "Network Partition",
+                "iconKey": "subnet",
+                "sim": {
+                  "locationId": "10.0.2.0/24"
+                }
+              },
+              "extent": "parent",
+              "zIndex": 10,
+              "expandParent": false,
+              "selected": false,
+              "dragging": false,
+              "style": {
+                "width": 356,
+                "height": 276
+              },
+              "resizing": false,
+              "nodes": [
+                {
+                  "id": "orders-api",
+                  "type": "computeNode",
+                  "position": {
+                    "x": 42.585429722209255,
+                    "y": 93.75628916662816
+                  },
+                  "data": {
+                    "schemaVersion": 2,
+                    "templateId": "backend-server",
+                    "componentType": "microservice",
+                    "structuralRole": "processor",
+                    "profile": "compute-service",
+                    "rendererType": "computeNode",
+                    "label": "Orders API",
+                    "subLabel": "AZ B Worker Pool",
+                    "iconKey": "SERVER",
+                    "sim": {
+                      "queue": {
+                        "workers": 6,
+                        "capacity": 30,
+                        "discipline": "fifo"
+                      },
+                      "processing": {
+                        "distribution": {
+                          "type": "constant",
+                          "value": 12
+                        },
+                        "timeout": 400
+                      }
+                    }
+                  },
+                  "extent": "parent",
+                  "zIndex": 10,
+                  "expandParent": false,
+                  "selected": false,
+                  "width": 274,
+                  "height": 116,
+                  "positionAbsolute": {
+                    "x": 602.5854297222093,
+                    "y": 317.75628916662816
+                  },
+                  "dragging": false,
+                  "nodes": []
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "id": "orders-web-to-orders-api",
+      "type": "packet",
+      "source": "orders-web",
+      "target": "orders-api",
+      "sourceHandle": "right-1-source",
+      "targetHandle": "left-1-target",
+      "animated": true,
+      "data": {
+        "protocol": "https",
+        "mode": "synchronous",
+        "bandwidth": 1000,
+        "maxConcurrentRequests": 220,
+        "packetLossRate": 0,
+        "errorRate": 0
+      },
+      "selected": false
+    }
+  ],
+  "scenario": {
+    "global": {
+      "simulationDuration": 60000,
+      "warmupDuration": 5000,
+      "seed": "sample-multi-az-auto-latency",
+      "defaultTimeout": 1000,
+      "traceSampleRate": 0.05
+    },
+    "selectedSourceNodeId": "orders-web",
+    "workloadOverride": {
+      "pattern": "poisson",
+      "baseRps": 90
+    },
+    "faults": []
+  }
+}

@@ -1,6 +1,9 @@
 import directClientServerRaw from '../../../engine/__samples__/direct-client-server.json?raw'
 import directClientServerCleanRaw from '../../../engine/__samples__/direct-client-server-clean.json?raw'
 import directClientServerJitterRaw from '../../../engine/__samples__/direct-client-server-jitter.json?raw'
+import multiAzAutoLatencyRaw from '../../../engine/__samples__/multi-az-auto-latency.json?raw'
+import crossRegionAutoLatencyRaw from '../../../engine/__samples__/cross-region-auto-latency.json?raw'
+import endpointRoutingRequestMixRaw from '../../../engine/__samples__/endpoint-routing-request-mix.json?raw'
 import monolithStackRaw from '../../../engine/__samples__/traditional-single-instance-stack.json?raw'
 import proxyEdgeRaw from '../../../engine/__samples__/proxy-edge.json?raw'
 import l7ScaleOutRaw from '../../../engine/__samples__/horizontal-compute-scaling-l7.json?raw'
@@ -57,6 +60,42 @@ export const SAMPLE_SCENARIOS: SampleScenario[] = [
       'Identical to the clean baseline except the edge is log-normal - now capacity_exceeded rejects appear below nominal capacity. Compare offered vs arrival CV to see why.',
     difficulty: 'starter',
     raw: directClientServerJitterRaw
+  },
+  {
+    id: 'multi-az-auto-latency',
+    name: 'Multi-AZ Auto Latency',
+    subtitle: 'Same Region, Different AZs',
+    diagram: 'Orders Web (AZ A) -> Orders API (AZ B)',
+    primaryUseCase:
+      'Shows that container placement alone resolves the edge to the cross-zone latency profile.',
+    simulatorValue:
+      'Select the edge and keep Path Type plus Latency on Auto. Then move a node into the same subnet or another region to watch the derived path class change without editing the edge.',
+    difficulty: 'intro',
+    raw: multiAzAutoLatencyRaw
+  },
+  {
+    id: 'cross-region-auto-latency',
+    name: 'Cross-Region Auto Latency',
+    subtitle: 'Two Regions, One Edge',
+    diagram: 'Checkout Web (us-east-1) -> Fraud API (eu-west-1)',
+    primaryUseCase:
+      'Shows that nodes in different region containers resolve the edge to the cross-region latency profile.',
+    simulatorValue:
+      'Run it, then inspect the edge. Auto mode keeps the edge configuration minimal while still producing the longer-haul RTT profile; switch to Manual and back to verify reversibility.',
+    difficulty: 'intro',
+    raw: crossRegionAutoLatencyRaw
+  },
+  {
+    id: 'endpoint-routing-request-mix',
+    name: 'Endpoint Routing Mix',
+    subtitle: 'Path-Aware Gateway',
+    diagram: 'Storefront -> API Gateway -> Catalog / Checkout / Fraud',
+    primaryUseCase:
+      'Shows endpoint-aware traffic mix, path-based L7 routing, and outcome classes in one run.',
+    simulatorValue:
+      'Run it, then open Overview and Traffic. You should see real request labels like GET catalog.internal/catalog and POST api.internal/checkout, plus visible 2xx, 4xx, 5xx, and timeout rollups.',
+    difficulty: 'intermediate',
+    raw: endpointRoutingRequestMixRaw
   },
   {
     id: 'traditional-single-instance-stack',

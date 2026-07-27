@@ -7,6 +7,10 @@ import type {
   RequestOutcomeRecord
 } from '../core/event-stream'
 import { createEmptyEventCounts } from '../core/event-stream'
+import {
+  createEmptyRequestOutcomeBreakdown,
+  type RequestOutcomeFamily
+} from '../core/requestOutcomeSemantics'
 import { MetricsCollector, PerEdgeMetrics, PerNodeMetrics, SimulationSummary } from '../metrics'
 import { RequestTrace, RequestTracer } from '../tracer'
 
@@ -169,6 +173,8 @@ export interface SimulationOutput {
   requestOutcomes: RequestOutcomeRecord[]
   /** Total outcome rows before any UI transport sampling. */
   requestOutcomeTotal: number
+  /** Exact counts by request outcome family across the full run. */
+  requestOutcomeBreakdown: Record<RequestOutcomeFamily, number>
   /** True when `requestOutcomes` is a sampled subset of the total outcome ledger. */
   requestOutcomesSampled: boolean
 }
@@ -189,6 +195,7 @@ export function generateSimulationOutput(
     statusTimeline?: StatusWindow[]
     requestOutcomes?: RequestOutcomeRecord[]
     requestOutcomeTotal?: number
+    requestOutcomeBreakdown?: Record<RequestOutcomeFamily, number>
     requestOutcomesSampled?: boolean
   }
 ): SimulationOutput {
@@ -230,6 +237,8 @@ export function generateSimulationOutput(
     debuggedLifecycle: debugData?.debuggedLifecycle ?? null,
     requestOutcomes,
     requestOutcomeTotal: debugData?.requestOutcomeTotal ?? requestOutcomes.length,
+    requestOutcomeBreakdown:
+      debugData?.requestOutcomeBreakdown ?? createEmptyRequestOutcomeBreakdown(),
     requestOutcomesSampled: debugData?.requestOutcomesSampled ?? false
   }
 }
