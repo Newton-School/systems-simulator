@@ -37,7 +37,10 @@ function makeCompletedRequest(overrides: Partial<CompletedRequest> = {}): Comple
 
 describe('projectToVerdict', () => {
   it('projects a grading-safe subset of SimulationOutput', () => {
-    const metrics = new MetricsCollector({ warmupDuration: 0, nodes: [{ id: 'node-a', label: 'API' }] })
+    const metrics = new MetricsCollector({
+      warmupDuration: 0,
+      nodes: [{ id: 'node-a', label: 'API' }]
+    })
     const tracer = new RequestTracer({ sampleRate: 0 })
 
     metrics.recordNodeArrival('node-a', 0n)
