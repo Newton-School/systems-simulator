@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 
 import { readFileSync, writeFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { dirname, resolve } from 'node:path'
 import { SimulationEngine } from '../engine/engine'
 import type { SimulationOutput } from '../engine/analysis/output'
 import { projectToVerdict } from '../engine/analysis/verdict'
+import { evaluateSuite, type PreparedCase } from '../engine/analysis/evaluate'
 import { validateTopology } from '../engine/validation/validator'
 import process from 'node:process'
 
@@ -24,6 +25,13 @@ function main(): void {
   if (args.length === 0 || args.includes('--help') || args.includes('-h')) {
     printUsage()
     process.exit(0)
+  }
+
+  // Subcommand dispatch. `evaluate` runs a suite of cases headlessly; anything
+  // else is the existing single-topology run.
+  if (args[0] === 'evaluate') {
+    runEvaluate(args.slice(1))
+    return
   }
 
   const topologyPath = args[0]
@@ -251,12 +259,116 @@ function fmtMs(ms: number | null): string {
   return `${(ms / 1000).toFixed(2)}s`
 }
 
+// ─── EVALUATE (batch) ───────────────────────────────────────────────────────
+// Runs a suite of cases headlessly and emits an EvaluationBatch of
+// SimulationVerdicts. Grading/rubrics are a separate layer; this only runs the
+// suite deterministically and projects each result to the stable verdict.
+function runEvaluate(args: string[]): void {
+  const suitePath = args.find((arg) => !arg.startsWith('--'))
+  if (!suitePath) {
+    die('Usage: evaluate <suite.json> [--output <file>]')
+  }
+  const outputFlagIndex = args.indexOf('--output')
+  const outputPath = outputFlagIndex !== -1 ? args[outputFlagIndex + 1] : undefined
+
+  let suiteRaw: unknown
+  try {
+    suiteRaw = JSON.parse(readFileSync(resolve(suitePath), 'utf-8'))
+  } catch (err) {
+    die(`Could not read suite file: ${(err as Error).message}`)
+  }
+
+  const suite = (suiteRaw ?? {}) as { name?: unknown; cases?: unknown }
+  if (!Array.isArray(suite.cases) || suite.cases.length === 0) {
+    die('Suite must contain a non-empty "cases" array.')
+  }
+
+  const suiteDir = dirname(resolve(suitePath))
+  const prepared: PreparedCase[] = suite.cases.map((rawCase, index) =>
+    prepareCase(rawCase, index, suiteDir)
+  )
+
+  const batch = evaluateSuite(
+    prepared,
+    (topology) => new SimulationEngine(topology).run(),
+    typeof suite.name === 'string' ? suite.name : undefined
+  )
+
+  const json = JSON.stringify(batch, null, 2)
+  if (outputPath) {
+    writeFileSync(resolve(outputPath), json, 'utf-8')
+    console.error(`${GREEN}✓ Evaluation written to ${outputPath}${RESET}`)
+  } else {
+    process.stdout.write(json + '\n')
+  }
+
+  const { total, succeeded, failed } = batch.summary
+  console.error(
+    `${DIM}Suite: ${total} cases — ${RESET}${GREEN}${succeeded} ok${RESET}` +
+      `${DIM}, ${RESET}${failed > 0 ? RED : DIM}${failed} failed${RESET}`
+  )
+
+  // Non-zero exit when any case could not run, so batch/CI callers can gate on it.
+  if (failed > 0) {
+    process.exit(1)
+  }
+}
+
+// Resolves one suite case into a runnable topology or a load/validation error,
+// applying optional per-case `global` / `workload` overrides. Errors are
+// captured per-case so one bad case never aborts the whole suite.
+function prepareCase(rawCase: unknown, index: number, suiteDir: string): PreparedCase {
+  const spec = (rawCase ?? {}) as {
+    id?: unknown
+    topology?: unknown
+    global?: unknown
+    workload?: unknown
+  }
+  const id = typeof spec.id === 'string' && spec.id.length > 0 ? spec.id : `case-${index + 1}`
+
+  let raw: unknown
+  if (typeof spec.topology === 'string') {
+    try {
+      raw = JSON.parse(readFileSync(resolve(suiteDir, spec.topology), 'utf-8'))
+    } catch (err) {
+      return { id, error: `Could not read topology '${spec.topology}': ${(err as Error).message}` }
+    }
+  } else if (spec.topology && typeof spec.topology === 'object') {
+    raw = spec.topology
+  } else {
+    return { id, error: 'Case is missing a "topology" (file path or inline object).' }
+  }
+
+  const base = raw as Record<string, unknown>
+  const merged: Record<string, unknown> = { ...base }
+  if (spec.global && typeof spec.global === 'object') {
+    merged.global = { ...((base.global as object | undefined) ?? {}), ...(spec.global as object) }
+  }
+  if (spec.workload && typeof spec.workload === 'object') {
+    merged.workload = {
+      ...((base.workload as object | undefined) ?? {}),
+      ...(spec.workload as object)
+    }
+  }
+
+  const validation = validateTopology(merged)
+  if (!validation.valid || !validation.data) {
+    const first = validation.errors?.[0]
+    const detail = first
+      ? `${first.path ? `${first.path}: ` : ''}${first.message}`
+      : 'invalid topology'
+    return { id, error: `Validation failed — ${detail}` }
+  }
+  return { id, topology: validation.data }
+}
+
 function printUsage(): void {
   console.log(`
 ${BOLD}ns-simulator CLI${RESET}
 
 ${BOLD}Usage${RESET}
   npm run simulate -- <topology.json> [options]
+  npm run simulate -- evaluate <suite.json> [--output <file>]
 
 ${BOLD}Options${RESET}
   --json              Print full SimulationOutput as JSON to stdout
@@ -264,11 +376,17 @@ ${BOLD}Options${RESET}
   --output <file>     Write JSON output to a file
   -h, --help          Show this message
 
+${BOLD}Evaluate${RESET} ${DIM}(batch)${RESET}
+  Runs every case in a suite and prints an EvaluationBatch of SimulationVerdicts.
+  A suite is { "name"?, "cases": [{ "id", "topology": <path|object>, "global"?, "workload"? }] }.
+  Exits non-zero if any case fails to load, validate, or run.
+
 ${BOLD}Examples${RESET}
   npm run simulate -- topology.json
-  npm run simulate -- topology.json --json
   npm run simulate -- topology.json --verdict
   npm run simulate -- topology.json --output results.json
+  npm run simulate -- evaluate suite.json
+  npm run simulate -- evaluate suite.json --output batch.json
   npm run simulate -- topology.json --json | jq '.summary'
 `)
 }
