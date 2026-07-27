@@ -454,17 +454,18 @@ function toneFromFailureRatio(value: number): NodeHealthStatus {
   return 'healthy'
 }
 
-function makeGlyphTooltip(label: string, title: string, detail: string): LensCardData['glyphTooltip'] {
+function makeGlyphTooltip(
+  label: string,
+  title: string,
+  detail: string
+): LensCardData['glyphTooltip'] {
   return { label, title, detail }
 }
 
 function summarizeNodeLocalFailures(
   metrics: Pick<
     NodeSimulationMetrics,
-    | 'postWarmupRejected'
-    | 'postWarmupTimedOut'
-    | 'postWarmupConnectionReset'
-    | 'timeToErrorByCause'
+    'postWarmupRejected' | 'postWarmupTimedOut' | 'postWarmupConnectionReset' | 'timeToErrorByCause'
   >
 ): { totalFailures: number; summary: string; dominantFailureText: string } {
   const rejected = metrics.postWarmupRejected ?? 0

@@ -1,8 +1,5 @@
 import type { EventType, SimulationEvent } from './events'
-import type {
-  RequestOutcomeFamily,
-  RequestOutcomeStatusClass
-} from './requestOutcomeSemantics'
+import type { RequestOutcomeFamily, RequestOutcomeStatusClass } from './requestOutcomeSemantics'
 
 export const CANONICAL_EVENT_TYPES = [
   'request-generated',

@@ -9,7 +9,10 @@ import {
 } from '@renderer/config/edgeSemantics'
 import type { CanvasNodeDataV2 } from '../../../../engine/catalog/nodeSpecTypes'
 import { getEdgeConstraints } from '../../../../engine/defaults/edgeConstraints'
-import { getPathTypeLatencyProfile, inferEdgeDefaults } from '../../../../engine/defaults/edgeDefaults'
+import {
+  getPathTypeLatencyProfile,
+  inferEdgeDefaults
+} from '../../../../engine/defaults/edgeDefaults'
 
 export interface EdgePropertiesPanelValue extends EdgeSimulationData {
   label?: string

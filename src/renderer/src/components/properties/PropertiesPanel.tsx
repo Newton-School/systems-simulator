@@ -219,16 +219,12 @@ function EdgeResultsSection({ title, children }: { title: string; children: Reac
   )
 }
 
-function CompactRunSummary({
-  title,
-  children
-}: {
-  title: string
-  children: ReactNode
-}) {
+function CompactRunSummary({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div className="rounded-lg border border-nss-border bg-nss-surface px-3 py-2">
-      <div className="text-[10px] font-semibold uppercase tracking-wide text-nss-muted">{title}</div>
+      <div className="text-[10px] font-semibold uppercase tracking-wide text-nss-muted">
+        {title}
+      </div>
       <div className="mt-2 space-y-1.5">{children}</div>
     </div>
   )
@@ -425,8 +421,12 @@ function InspectorSection({
   return (
     <section className="space-y-3 rounded-xl border border-nss-border bg-nss-surface p-4">
       <div className="space-y-1">
-        <h3 className="text-[11px] font-semibold uppercase tracking-wide text-nss-muted">{title}</h3>
-        {description ? <p className="text-[11px] leading-relaxed text-nss-muted">{description}</p> : null}
+        <h3 className="text-[11px] font-semibold uppercase tracking-wide text-nss-muted">
+          {title}
+        </h3>
+        {description ? (
+          <p className="text-[11px] leading-relaxed text-nss-muted">{description}</p>
+        ) : null}
       </div>
       {children}
     </section>
@@ -642,7 +642,11 @@ function RunInspector({
 
       for (const level of RUN_INSPECTOR_LOCATION_LEVELS) {
         const containerId =
-          level === 'region' ? location.regionId : level === 'az' ? location.azId : location.subnetId
+          level === 'region'
+            ? location.regionId
+            : level === 'az'
+              ? location.azId
+              : location.subnetId
         if (!containerId) continue
         const key = `${level}:${containerId}`
         const current = grouped.get(key)
@@ -658,9 +662,7 @@ function RunInspector({
     }
 
     for (const level of RUN_INSPECTOR_LOCATION_LEVELS) {
-      empty[level].sort(
-        (a, b) => b.memberCount - a.memberCount || a.label.localeCompare(b.label)
-      )
+      empty[level].sort((a, b) => b.memberCount - a.memberCount || a.label.localeCompare(b.label))
     }
 
     return empty
@@ -677,9 +679,9 @@ function RunInspector({
           edge.source,
           edge.target
         )?.pathType
-        const pathType = (data.pathType ??
-          placementPathType ??
-          defaultPathType) as NonNullable<EdgeSimulationData['pathType']>
+        const pathType = (data.pathType ?? placementPathType ?? defaultPathType) as NonNullable<
+          EdgeSimulationData['pathType']
+        >
         const pathSource: ConfiguredEdgeLocality['pathSource'] = data.pathType
           ? 'Manual'
           : placementPathType
@@ -818,7 +820,9 @@ function RunInspector({
                     </span>
                     <span className="shrink-0 text-nss-muted">
                       {entry.count.toLocaleString()}
-                      {outcomeTotal > 0 ? ` · ${((entry.count / outcomeTotal) * 100).toFixed(0)}%` : ''}
+                      {outcomeTotal > 0
+                        ? ` · ${((entry.count / outcomeTotal) * 100).toFixed(0)}%`
+                        : ''}
                     </span>
                   </div>
                 ))}
@@ -1023,7 +1027,10 @@ function RunInspector({
                 {RUN_INSPECTOR_LOCATION_LEVELS.map((level) => {
                   const groups = configuredLocationGroups[level]
                   return (
-                    <div key={level} className="rounded-lg border border-nss-border bg-nss-panel p-3">
+                    <div
+                      key={level}
+                      className="rounded-lg border border-nss-border bg-nss-panel p-3"
+                    >
                       <div className="mb-3 flex items-center justify-between gap-2">
                         <div className="text-[11px] font-semibold uppercase tracking-wide text-nss-muted">
                           {RUN_INSPECTOR_LOCATION_LEVEL_LABELS[level]}
@@ -1432,8 +1439,12 @@ export const PropertiesPanel = ({ results = null }: { results?: SimulationOutput
         }
         sourceNodeData={sourceNodeData}
         targetNodeData={targetNodeData}
-        sourceLocationLabel={formatNodeLocation(locationTopology.nodeLocations.get(selectedEdge.source))}
-        targetLocationLabel={formatNodeLocation(locationTopology.nodeLocations.get(selectedEdge.target))}
+        sourceLocationLabel={formatNodeLocation(
+          locationTopology.nodeLocations.get(selectedEdge.source)
+        )}
+        targetLocationLabel={formatNodeLocation(
+          locationTopology.nodeLocations.get(selectedEdge.target)
+        )}
         containerDerivedPathType={containerDerivedPath}
         value={{
           label: (selectedEdge.label as string) || '',

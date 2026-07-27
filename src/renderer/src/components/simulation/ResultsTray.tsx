@@ -4180,7 +4180,9 @@ function PerNodeTable({
               const data = node?.data as Partial<CanvasNodeDataV2> | undefined
               const staticWorkload = data?.source?.defaultWorkload
               const isRunSource = runContext?.sourceNodeId === nodeId
-              const offeredRps = isRunSource ? runContext?.workload.baseRps : staticWorkload?.baseRps
+              const offeredRps = isRunSource
+                ? runContext?.workload.baseRps
+                : staticWorkload?.baseRps
               const pattern = isRunSource ? runContext?.workload.pattern : staticWorkload?.pattern
 
               return (
@@ -4209,8 +4211,14 @@ function PerNodeTable({
                   tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.arrived}
                 />
                 <MetricHeaderCell label="Done" tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.done} />
-                <MetricHeaderCell label="Reject" tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.reject} />
-                <MetricHeaderCell label="T.O." tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.timedOut} />
+                <MetricHeaderCell
+                  label="Reject"
+                  tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.reject}
+                />
+                <MetricHeaderCell
+                  label="T.O."
+                  tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.timedOut}
+                />
                 <MetricHeaderCell label="Reset" tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.reset} />
                 <MetricHeaderCell
                   label="In Flight"

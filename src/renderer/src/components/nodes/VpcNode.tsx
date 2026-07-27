@@ -37,15 +37,15 @@ const VpcNode = ({ id, data, selected }: NodeProps) => {
   }
 
   return (
-      <div
-        onContextMenu={(e) => {
-          e.preventDefault()
-          e.stopPropagation()
-          setIsMenuOpen(true)
-        }}
-        className="pointer-events-none relative w-full h-full group transition-all duration-200 ease-in-out"
-        style={{ minWidth: minSize.width, minHeight: minSize.height }}
-      >
+    <div
+      onContextMenu={(e) => {
+        e.preventDefault()
+        e.stopPropagation()
+        setIsMenuOpen(true)
+      }}
+      className="pointer-events-none relative w-full h-full group transition-all duration-200 ease-in-out"
+      style={{ minWidth: minSize.width, minHeight: minSize.height }}
+    >
       <VpcToolbar
         isVisible={selected}
         isUngrouped={isUngrouped}
@@ -53,9 +53,9 @@ const VpcNode = ({ id, data, selected }: NodeProps) => {
         onUngroup={handleUngroup}
       />
 
-        <div
-          className={`pointer-events-none absolute inset-0 rounded-xl border-2 border-dashed transition-all duration-300 overflow-visible ${getContainerStyle()}`}
-        >
+      <div
+        className={`pointer-events-none absolute inset-0 rounded-xl border-2 border-dashed transition-all duration-300 overflow-visible ${getContainerStyle()}`}
+      >
         <VpcHeader
           label={data.label}
           isSuccessState={isSuccessState}

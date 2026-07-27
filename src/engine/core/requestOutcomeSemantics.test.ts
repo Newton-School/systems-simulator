@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { classifyRequestOutcome, createEmptyRequestOutcomeBreakdown } from './requestOutcomeSemantics'
+import {
+  classifyRequestOutcome,
+  createEmptyRequestOutcomeBreakdown
+} from './requestOutcomeSemantics'
 
 describe('request outcome semantics', () => {
   it('classifies rate limits as inferred 4xx outcomes', () => {

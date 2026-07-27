@@ -87,21 +87,17 @@ describe('buildLatencyLensCard', () => {
 
 describe('getLensCard', () => {
   it('treats timeouts as failures in the errors lens copy', () => {
-    const card = getLensCard(
-      'errors',
-      { componentType: 'compute-service' } as never,
-      {
-        errorRate: 100,
-        postWarmupRejected: 0,
-        postWarmupTimedOut: 38,
-        postWarmupConnectionReset: 0,
-        totalRejected: 0,
-        timeToErrorByCause: {
-          ...EMPTY_TTE,
-          timeout: { count: 38, errorRate: 1, shareOfErrors: 1, p50: 95, p95: 98, p99: 99 }
-        }
+    const card = getLensCard('errors', { componentType: 'compute-service' } as never, {
+      errorRate: 100,
+      postWarmupRejected: 0,
+      postWarmupTimedOut: 38,
+      postWarmupConnectionReset: 0,
+      totalRejected: 0,
+      timeToErrorByCause: {
+        ...EMPTY_TTE,
+        timeout: { count: 38, errorRate: 1, shareOfErrors: 1, p50: 95, p95: 98, p99: 99 }
       }
-    )
+    })
 
     expect(card).toMatchObject({
       value: '100.0%',

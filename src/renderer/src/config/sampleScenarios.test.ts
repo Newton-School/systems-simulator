@@ -23,7 +23,9 @@ describe('SAMPLE_SCENARIOS composite examples', () => {
     expect(multiAz).toBeDefined()
     expect(crossRegion).toBeDefined()
 
-    const multiAzData = JSON.parse(multiAz!.raw) as { nodes: Array<{ type: string; nodes?: unknown[] }> }
+    const multiAzData = JSON.parse(multiAz!.raw) as {
+      nodes: Array<{ type: string; nodes?: unknown[] }>
+    }
     const crossRegionData = JSON.parse(crossRegion!.raw) as {
       nodes: Array<{ type: string; data?: { sim?: { locationId?: string } }; nodes?: unknown[] }>
     }
@@ -72,8 +74,8 @@ describe('SAMPLE_SCENARIOS composite examples', () => {
       )
     ).toBe(true)
     expect(gatewayNode?.data?.sim?.routingRules).toHaveLength(3)
-    expect(
-      gatewayNode?.data?.sim?.routingRules?.every((rule) => rule.matchField === 'path')
-    ).toBe(true)
+    expect(gatewayNode?.data?.sim?.routingRules?.every((rule) => rule.matchField === 'path')).toBe(
+      true
+    )
   })
 })

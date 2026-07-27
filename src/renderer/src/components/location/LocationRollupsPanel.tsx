@@ -23,7 +23,9 @@ function fmtMs(value: number | null): string {
 }
 
 function fmtPct(value: number | null): string {
-  return typeof value === 'number' && Number.isFinite(value) ? `${(value * 100).toFixed(1)}%` : 'N/A'
+  return typeof value === 'number' && Number.isFinite(value)
+    ? `${(value * 100).toFixed(1)}%`
+    : 'N/A'
 }
 
 function isSourceOnlyRollup(rollup: NodeLocationRollup): boolean {
@@ -130,11 +132,7 @@ export function LocationRollupsPanel({
       <div className="space-y-2">
         <div className="flex items-center gap-2">
           <h3 className="text-xs font-semibold text-nss-text">{title}</h3>
-          <TooltipInfo
-            label={`Explain ${title}`}
-            content={<LocationRollupTooltip />}
-            width={320}
-          />
+          <TooltipInfo label={`Explain ${title}`} content={<LocationRollupTooltip />} width={320} />
         </div>
 
         <div className="space-y-2">
@@ -194,7 +192,9 @@ export function LocationRollupsPanel({
               </div>
 
               {rollups.length === 0 ? (
-                <div className="text-[11px] text-nss-muted">No nodes are grouped at this level.</div>
+                <div className="text-[11px] text-nss-muted">
+                  No nodes are grouped at this level.
+                </div>
               ) : (
                 <div className="space-y-2">
                   {rollups.slice(0, nodeLimit).map((rollup) => {
@@ -242,7 +242,8 @@ export function LocationRollupsPanel({
                   })}
                   {rollups.length > nodeLimit && (
                     <div className="text-[10px] text-nss-muted">
-                      +{(rollups.length - nodeLimit).toLocaleString()} more {LEVEL_LABELS[level].toLowerCase()}
+                      +{(rollups.length - nodeLimit).toLocaleString()} more{' '}
+                      {LEVEL_LABELS[level].toLowerCase()}
                     </div>
                   )}
                 </div>
@@ -262,7 +263,10 @@ export function LocationRollupsPanel({
           </div>
           <div className="grid gap-2 lg:grid-cols-2">
             {edgeRollups.slice(0, edgeLimit).map((rollup) => (
-              <div key={rollup.key} className="rounded border border-nss-border bg-nss-panel px-2.5 py-2">
+              <div
+                key={rollup.key}
+                className="rounded border border-nss-border bg-nss-panel px-2.5 py-2"
+              >
                 <div className="truncate text-xs font-medium text-nss-text">
                   {rollup.pathType} · {rollup.label}
                 </div>

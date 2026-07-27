@@ -33,7 +33,10 @@ import {
   type Request,
   type SimulationEvent
 } from './core/events'
-import { classifyRequestOutcome, createEmptyRequestOutcomeBreakdown } from './core/requestOutcomeSemantics'
+import {
+  classifyRequestOutcome,
+  createEmptyRequestOutcomeBreakdown
+} from './core/requestOutcomeSemantics'
 import { describeRequestOperation } from './core/requestSemantics'
 import { microToMs, msToMicro, secToMicro } from './core/time'
 import { ComponentNode, EdgeDefinition, EventScheduler, TopologyJSON } from './core/types'

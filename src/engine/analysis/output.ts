@@ -237,7 +237,8 @@ export function generateSimulationOutput(
     debuggedLifecycle: debugData?.debuggedLifecycle ?? null,
     requestOutcomes,
     requestOutcomeTotal: debugData?.requestOutcomeTotal ?? requestOutcomes.length,
-    requestOutcomeBreakdown: debugData?.requestOutcomeBreakdown ?? createEmptyRequestOutcomeBreakdown(),
+    requestOutcomeBreakdown:
+      debugData?.requestOutcomeBreakdown ?? createEmptyRequestOutcomeBreakdown(),
     requestOutcomesSampled: debugData?.requestOutcomesSampled ?? false
   }
 }

@@ -160,11 +160,7 @@ describe('RoutingTable', () => {
   })
 
   it('least-conn routes to the target with the fewest in-flight requests', () => {
-    const edges = [
-      makeEdge('e1', 'lb', 'a'),
-      makeEdge('e2', 'lb', 'b'),
-      makeEdge('e3', 'lb', 'c')
-    ]
+    const edges = [makeEdge('e1', 'lb', 'a'), makeEdge('e2', 'lb', 'b'), makeEdge('e3', 'lb', 'c')]
     const nodes: ComponentNode[] = [
       { ...makeNode('lb'), config: { routingStrategy: 'least-conn' } }
     ]
@@ -179,11 +175,7 @@ describe('RoutingTable', () => {
   })
 
   it('least-conn breaks ties by rotating through the tied targets', () => {
-    const edges = [
-      makeEdge('e1', 'lb', 'a'),
-      makeEdge('e2', 'lb', 'b'),
-      makeEdge('e3', 'lb', 'c')
-    ]
+    const edges = [makeEdge('e1', 'lb', 'a'), makeEdge('e2', 'lb', 'b'), makeEdge('e3', 'lb', 'c')]
     const nodes: ComponentNode[] = [
       { ...makeNode('lb'), config: { routingStrategy: 'least-conn' } }
     ]

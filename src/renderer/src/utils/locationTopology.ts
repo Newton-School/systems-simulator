@@ -169,7 +169,7 @@ export function describeEdgeLocality(
   const explicitPathType = asEdgePathType((edge.data as EdgeSimulationData | undefined)?.pathType)
   const derived = explicitPathType
     ? { pathType: explicitPathType }
-    : pathTypeFromContainers(topology.containerLocations, edge.source, edge.target) ?? undefined
+    : (pathTypeFromContainers(topology.containerLocations, edge.source, edge.target) ?? undefined)
   if (!derived) return {}
 
   const sourceMeta = topology.nodeLocations.get(edge.source)
@@ -190,7 +190,7 @@ export function describeEdgeLocality(
       const detailLabel =
         sourceLabel && targetLabel && sourceLabel !== targetLabel
           ? `${sourceLabel} -> ${targetLabel}`
-          : sourceMeta?.regionLabel ?? targetMeta?.regionLabel
+          : (sourceMeta?.regionLabel ?? targetMeta?.regionLabel)
       return {
         pathType: derived.pathType,
         scopeLabel: sourceMeta?.regionLabel ?? targetMeta?.regionLabel,
@@ -201,7 +201,9 @@ export function describeEdgeLocality(
       const sourceLabel = sourceMeta?.regionLabel
       const targetLabel = targetMeta?.regionLabel
       const detailLabel =
-        sourceLabel && targetLabel ? `${sourceLabel} -> ${targetLabel}` : sourceLabel ?? targetLabel
+        sourceLabel && targetLabel
+          ? `${sourceLabel} -> ${targetLabel}`
+          : (sourceLabel ?? targetLabel)
       return {
         pathType: derived.pathType,
         scopeLabel: detailLabel,
@@ -247,7 +249,10 @@ export function buildNodeLocationRollups(
   topology: LocationTopology,
   inputs: readonly NodeRollupInput[]
 ): NodeLocationRollups {
-  const grouped = new Map<string, NodeLocationRollup & { utilizationSum: number; utilizationCount: number }>()
+  const grouped = new Map<
+    string,
+    NodeLocationRollup & { utilizationSum: number; utilizationCount: number }
+  >()
 
   for (const input of inputs) {
     const location = topology.nodeLocations.get(input.nodeId)
@@ -259,25 +264,23 @@ export function buildNodeLocationRollups(
       if (!containerId || !label) continue
 
       const key = `${level}:${containerId}`
-      const current =
-        grouped.get(key) ??
-        {
-          level,
-          containerId,
-          label,
-          nodeCount: 0,
-          activeNodeCount: 0,
-          sourceCount: 0,
-          totalArrived: 0,
-          totalProcessed: 0,
-          totalFailures: 0,
-          totalThroughput: 0,
-          errorRate: null,
-          avgUtilization: null,
-          worstP95: null,
-          utilizationSum: 0,
-          utilizationCount: 0
-        }
+      const current = grouped.get(key) ?? {
+        level,
+        containerId,
+        label,
+        nodeCount: 0,
+        activeNodeCount: 0,
+        sourceCount: 0,
+        totalArrived: 0,
+        totalProcessed: 0,
+        totalFailures: 0,
+        totalThroughput: 0,
+        errorRate: null,
+        avgUtilization: null,
+        worstP95: null,
+        utilizationSum: 0,
+        utilizationCount: 0
+      }
 
       current.nodeCount += 1
       if (input.active) current.activeNodeCount += 1
@@ -353,24 +356,23 @@ export function buildEdgeLocalityRollups(
     if (!locality.pathType) continue
     const label = locality.detailLabel ?? locality.scopeLabel ?? locality.pathType
     const key = `${locality.pathType}:${label}`
-    const current =
-      grouped.get(key) ??
-      {
-        key,
-        pathType: locality.pathType,
-        label,
-        edgeCount: 0,
-        attempts: 0,
-        failures: 0,
-        errorRate: null,
-        worstP95: null
-      }
+    const current = grouped.get(key) ?? {
+      key,
+      pathType: locality.pathType,
+      label,
+      edgeCount: 0,
+      attempts: 0,
+      failures: 0,
+      errorRate: null,
+      worstP95: null
+    }
 
     current.edgeCount += 1
     current.attempts += input.attempts
     current.failures += input.failures
     if (typeof input.p95 === 'number' && Number.isFinite(input.p95)) {
-      current.worstP95 = current.worstP95 === null ? input.p95 : Math.max(current.worstP95, input.p95)
+      current.worstP95 =
+        current.worstP95 === null ? input.p95 : Math.max(current.worstP95, input.p95)
     }
     grouped.set(key, current)
   }
@@ -400,7 +402,9 @@ export function buildNodeRollupInputsFromResults(
     utilization: metric.utilization,
     p95: metric.latencyNodeLocal.p95 ?? metric.latencyP95,
     active:
-      metric.postWarmupArrived > 0 || metric.successLatencySamples > 0 || metric.timeToErrorSamples > 0,
+      metric.postWarmupArrived > 0 ||
+      metric.successLatencySamples > 0 ||
+      metric.timeToErrorSamples > 0,
     isSource: sourceNodeIds.has(nodeId)
   }))
 }
@@ -410,17 +414,17 @@ export function buildEdgeRollupInputsFromResults(
   perEdge: Record<string, PerEdgeMetrics>
 ): EdgeRollupInput[] {
   const inputs: Array<EdgeRollupInput | null> = edges.map((edge) => {
-      const metric = perEdge[edge.id]
-      if (!metric) return null
-      return {
-        edgeId: edge.id,
-        source: edge.source,
-        target: edge.target,
-        data: edge.data,
-        attempts: metric.totalSuccessfulTransits + metric.totalFailedTerminals,
-        failures: metric.totalFailedTerminals,
-        p95: metric.transitLatency.p95
-      }
-    })
+    const metric = perEdge[edge.id]
+    if (!metric) return null
+    return {
+      edgeId: edge.id,
+      source: edge.source,
+      target: edge.target,
+      data: edge.data,
+      attempts: metric.totalSuccessfulTransits + metric.totalFailedTerminals,
+      failures: metric.totalFailedTerminals,
+      p95: metric.transitLatency.p95
+    }
+  })
   return inputs.filter((value): value is EdgeRollupInput => value !== null)
 }
