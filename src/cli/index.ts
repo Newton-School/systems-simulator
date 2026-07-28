@@ -6,6 +6,8 @@ import { SimulationEngine } from '../engine/engine'
 import type { SimulationOutput } from '../engine/analysis/output'
 import { projectToVerdict } from '../engine/analysis/verdict'
 import { evaluateSuite, type PreparedCase } from '../engine/analysis/evaluate'
+import { gradeBatch, type Rubric } from '../engine/analysis/rubric'
+import { gradeAttempt, type QuestionPackage } from '../engine/analysis/question'
 import { validateTopology } from '../engine/validation/validator'
 import process from 'node:process'
 
@@ -27,10 +29,15 @@ function main(): void {
     process.exit(0)
   }
 
-  // Subcommand dispatch. `evaluate` runs a suite of cases headlessly; anything
-  // else is the existing single-topology run.
+  // Subcommand dispatch. `evaluate` runs a suite of cases headlessly, `grade`
+  // grades a student topology against a question package; anything else is the
+  // existing single-topology run.
   if (args[0] === 'evaluate') {
     runEvaluate(args.slice(1))
+    return
+  }
+  if (args[0] === 'grade') {
+    runGrade(args.slice(1))
     return
   }
 
@@ -270,6 +277,8 @@ function runEvaluate(args: string[]): void {
   }
   const outputFlagIndex = args.indexOf('--output')
   const outputPath = outputFlagIndex !== -1 ? args[outputFlagIndex + 1] : undefined
+  const rubricFlagIndex = args.indexOf('--rubric')
+  const rubricPath = rubricFlagIndex !== -1 ? args[rubricFlagIndex + 1] : undefined
 
   let suiteRaw: unknown
   try {
@@ -283,6 +292,18 @@ function runEvaluate(args: string[]): void {
     die('Suite must contain a non-empty "cases" array.')
   }
 
+  let rubric: Rubric | undefined
+  if (rubricPath) {
+    try {
+      rubric = JSON.parse(readFileSync(resolve(rubricPath), 'utf-8')) as Rubric
+    } catch (err) {
+      die(`Could not read rubric file: ${(err as Error).message}`)
+    }
+    if (!Array.isArray(rubric.checks) || rubric.checks.length === 0) {
+      die('Rubric must contain a non-empty "checks" array.')
+    }
+  }
+
   const suiteDir = dirname(resolve(suitePath))
   const prepared: PreparedCase[] = suite.cases.map((rawCase, index) =>
     prepareCase(rawCase, index, suiteDir)
@@ -294,12 +315,29 @@ function runEvaluate(args: string[]): void {
     typeof suite.name === 'string' ? suite.name : undefined
   )
 
-  const json = JSON.stringify(batch, null, 2)
+  // Without a rubric, emit the raw verdict batch; with one, emit the graded batch.
+  const payload = rubric ? gradeBatch(rubric, batch) : batch
+  const json = JSON.stringify(payload, null, 2)
   if (outputPath) {
     writeFileSync(resolve(outputPath), json, 'utf-8')
     console.error(`${GREEN}✓ Evaluation written to ${outputPath}${RESET}`)
   } else {
     process.stdout.write(json + '\n')
+  }
+
+  if (rubric) {
+    const graded = payload as ReturnType<typeof gradeBatch>
+    const { total, ran, errored, passed, failed } = graded.summary
+    console.error(
+      `${DIM}Graded: ${total} cases — ${RESET}${GREEN}${passed} passed${RESET}` +
+        `${DIM}, ${RESET}${failed > 0 ? RED : DIM}${failed} failed${RESET}` +
+        `${DIM} (${errored} could not run)${RESET}`
+    )
+    // Non-zero when any case failed to run OR did not pass the rubric.
+    if (errored > 0 || passed < ran) {
+      process.exit(1)
+    }
+    return
   }
 
   const { total, succeeded, failed } = batch.summary
@@ -362,31 +400,108 @@ function prepareCase(rawCase: unknown, index: number, suiteDir: string): Prepare
   return { id, topology: validation.data }
 }
 
+// ─── GRADE (question attempt) ───────────────────────────────────────────────
+// Grades a student's submitted topology against a QuestionPackage: runs the
+// question's suite (condition overrides applied to the student topology), grades
+// with the package rubric, and prints { graded, contract }. The `contract` is
+// the collapsed boolean host payload; exits non-zero unless every test passes.
+function runGrade(args: string[]): void {
+  const positionals = args.filter((arg) => !arg.startsWith('--'))
+  const questionPath = positionals[0]
+  const topologyPath = positionals[1]
+  if (!questionPath || !topologyPath) {
+    die('Usage: grade <question.json> <student-topology.json> [--output <file>]')
+  }
+  const outputFlagIndex = args.indexOf('--output')
+  const outputPath = outputFlagIndex !== -1 ? args[outputFlagIndex + 1] : undefined
+
+  let pkg: QuestionPackage
+  try {
+    pkg = JSON.parse(readFileSync(resolve(questionPath), 'utf-8')) as QuestionPackage
+  } catch (err) {
+    die(`Could not read question package: ${(err as Error).message}`)
+  }
+  if (!pkg.suite?.cases?.length || !pkg.rubric?.checks?.length) {
+    die('Question package must contain a suite with cases and a rubric with checks.')
+  }
+
+  let topologyRaw: unknown
+  try {
+    topologyRaw = JSON.parse(readFileSync(resolve(topologyPath), 'utf-8'))
+  } catch (err) {
+    die(`Could not read student topology: ${(err as Error).message}`)
+  }
+  const validation = validateTopology(topologyRaw)
+  if (!validation.valid || !validation.data) {
+    console.error(`${RED}${BOLD}Student topology validation failed${RESET}`)
+    for (const error of validation.errors ?? []) {
+      const prefix = error.path ? `${DIM}${error.path}${RESET}: ` : ''
+      console.error(`  ${RED}✗${RESET} ${prefix}${error.message}`)
+    }
+    process.exit(1)
+  }
+
+  const result = gradeAttempt(
+    pkg,
+    validation.data,
+    (topology) => new SimulationEngine(topology).run()
+  )
+
+  const json = JSON.stringify(result, null, 2)
+  if (outputPath) {
+    writeFileSync(resolve(outputPath), json, 'utf-8')
+    console.error(`${GREEN}✓ Grade written to ${outputPath}${RESET}`)
+  } else {
+    process.stdout.write(json + '\n')
+  }
+
+  const { passedTests, totalTests, allPassed } = result.contract
+  console.error(
+    `${DIM}Question ${pkg.id}: ${RESET}${allPassed ? GREEN : RED}${passedTests}/${totalTests} checks passed${RESET}` +
+      `${DIM} — ${allPassed ? 'PASS' : 'FAIL'}${RESET}`
+  )
+  if (!allPassed) {
+    process.exit(1)
+  }
+}
+
 function printUsage(): void {
   console.log(`
 ${BOLD}ns-simulator CLI${RESET}
 
 ${BOLD}Usage${RESET}
   npm run simulate -- <topology.json> [options]
-  npm run simulate -- evaluate <suite.json> [--output <file>]
+  npm run simulate -- evaluate <suite.json> [--rubric <rubric.json>] [--output <file>]
+  npm run simulate -- grade <question.json> <student-topology.json> [--output <file>]
 
 ${BOLD}Options${RESET}
   --json              Print full SimulationOutput as JSON to stdout
   --verdict           Print SimulationVerdict as JSON to stdout
+  --rubric <file>     (evaluate) Grade each case's verdict against a rubric
   --output <file>     Write JSON output to a file
   -h, --help          Show this message
 
 ${BOLD}Evaluate${RESET} ${DIM}(batch)${RESET}
   Runs every case in a suite and prints an EvaluationBatch of SimulationVerdicts.
   A suite is { "name"?, "cases": [{ "id", "topology": <path|object>, "global"?, "workload"? }] }.
-  Exits non-zero if any case fails to load, validate, or run.
+  With --rubric, prints a GradedEvaluationBatch of pass/fail check rows + scores.
+  A rubric is { "id"?, "passThreshold"?, "checks": [{ "id", "description", "metric", "op", "value", "points"? }] }.
+  Exits non-zero if any case fails to run, or (with a rubric) does not pass.
+
+${BOLD}Grade${RESET} ${DIM}(question attempt)${RESET}
+  Grades a student's topology against a QuestionPackage. The question's suite
+  cases carry condition overrides (global/workload/faults) applied to the student
+  topology; the package rubric scores the resulting verdicts. Prints
+  { graded, contract } where contract is the collapsed boolean host payload.
+  Exits non-zero unless every check passes.
 
 ${BOLD}Examples${RESET}
   npm run simulate -- topology.json
   npm run simulate -- topology.json --verdict
   npm run simulate -- topology.json --output results.json
   npm run simulate -- evaluate suite.json
-  npm run simulate -- evaluate suite.json --output batch.json
+  npm run simulate -- evaluate suite.json --rubric rubric.json
+  npm run simulate -- evaluate suite.json --rubric rubric.json --output graded.json
   npm run simulate -- topology.json --json | jq '.summary'
 `)
 }

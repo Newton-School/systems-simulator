@@ -1,5 +1,7 @@
 export * from './evaluate'
 export * from './output'
 export * from './phaseTimeline'
+export * from './question'
 export * from './replay'
+export * from './rubric'
 export * from './verdict'
