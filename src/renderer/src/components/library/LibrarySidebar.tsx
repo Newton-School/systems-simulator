@@ -8,8 +8,7 @@ import {
 } from 'lucide-react'
 import { CATALOG_CONFIG } from '../../config/catalogConfig'
 import { SAMPLE_SCENARIOS } from '../../config/sampleScenarios'
-import { EmbeddedIframeQuestionPreview } from './EmbeddedIframeQuestion'
-import { parseEmbeddedIframeQuestion } from './embeddedIframeQuestionSchema'
+import { QuestionPanel } from '../question/QuestionPanel'
 import { LibraryItem } from './LibraryItem'
 
 type Filter = 'all' | 'common'
@@ -73,11 +72,6 @@ interface LibrarySidebarContentProps {
   onLoadScenario: (scenarioId: string) => Promise<void>
 }
 
-interface QuestionTextPanelProps {
-  questionText: string
-  onQuestionTextChange: (value: string) => void
-}
-
 interface ComponentLibraryPanelProps {
   query: string
   filter: Filter
@@ -139,39 +133,6 @@ export const LibraryActivityRail = memo(function LibraryActivityRail({
     </nav>
   )
 })
-
-function QuestionTextPanel({ questionText, onQuestionTextChange }: QuestionTextPanelProps) {
-  const embeddedQuestion = parseEmbeddedIframeQuestion(questionText)
-
-  return (
-    <>
-      <div className="p-4 pb-3 border-b border-nss-border shrink-0 space-y-1">
-        <h2 className="text-xs font-bold text-nss-muted uppercase tracking-widest">
-          Question Text
-        </h2>
-      </div>
-
-      <div className="flex-1 min-h-0 p-3">
-        <div className="h-full overflow-y-auto space-y-3">
-          <textarea
-            value={questionText}
-            onChange={(event) => onQuestionTextChange(event.target.value)}
-            placeholder="Paste or type the system design question here..."
-            className="min-h-[220px] w-full resize-y rounded-md border border-nss-border bg-nss-input-bg p-3 text-xs leading-relaxed text-nss-text placeholder:text-nss-muted outline-none focus:border-nss-primary"
-          />
-          {embeddedQuestion.error && (
-            <div className="rounded-md border border-nss-danger/30 bg-nss-danger/10 px-3 py-2 text-[11px] leading-relaxed text-nss-danger">
-              {embeddedQuestion.error}
-            </div>
-          )}
-          {embeddedQuestion.question && (
-            <EmbeddedIframeQuestionPreview question={embeddedQuestion.question} />
-          )}
-        </div>
-      </div>
-    </>
-  )
-}
 
 function ComponentLibraryPanel({
   query,
@@ -364,27 +325,30 @@ function ScenarioPanel({
 export function LibrarySidebarContent({ activeTab, onLoadScenario }: LibrarySidebarContentProps) {
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<Filter>('all')
-  const [questionText, setQuestionText] = useState('')
   const [selectedScenarioId, setSelectedScenarioId] = useState('')
 
   return (
     <aside className="h-full w-full min-w-0 bg-nss-panel border-r border-nss-border flex flex-col transition-colors duration-200">
-      {activeTab === 'question' ? (
-        <QuestionTextPanel questionText={questionText} onQuestionTextChange={setQuestionText} />
-      ) : activeTab === 'scenarios' ? (
+      <div className={activeTab === 'question' ? 'flex h-full min-h-0 flex-col' : 'hidden'}>
+        <QuestionPanel />
+      </div>
+
+      <div className={activeTab === 'scenarios' ? 'flex h-full min-h-0 flex-col' : 'hidden'}>
         <ScenarioPanel
           selectedScenarioId={selectedScenarioId}
           onSelectScenario={setSelectedScenarioId}
           onLoadScenario={onLoadScenario}
         />
-      ) : (
+      </div>
+
+      <div className={activeTab === 'library' ? 'flex h-full min-h-0 flex-col' : 'hidden'}>
         <ComponentLibraryPanel
           query={query}
           filter={filter}
           onQueryChange={setQuery}
           onFilterChange={setFilter}
         />
-      )}
+      </div>
     </aside>
   )
 }

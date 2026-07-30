@@ -10,14 +10,16 @@ import { useConfirmDialog } from '@renderer/hooks/useConfirmDialog'
 import { useSimulation } from '@renderer/hooks/useSimulation'
 import { useTopologySerializer } from '@renderer/hooks/useTopologySerializer'
 import { applyAutoLayout } from '@renderer/utils/autoLayout'
+import {
+  isQuestionLaunchContextMessage,
+  postQuestionHostMessage
+} from '@renderer/utils/questionHostMessaging'
 import { validateTopology } from '../../../../engine/validation/validator'
 import type { LatencyPercentiles } from '../../../../engine/metrics'
 import type { TimeSeriesSnapshot } from '../../../../engine/analysis/output'
+import type { AttemptState } from '../../../../engine/analysis/question'
 import type { ValidationError } from '../../../../engine/validation/validator'
-import {
-  hasWorkloadSourceConfig,
-  isSourceComponentData
-} from '../../../../engine/catalog/sourceNodeSemantics'
+import { hasWorkloadSourceConfig, isSourceComponentData } from '../../../../engine/catalog/sourceNodeSemantics'
 
 // Organisms
 import {
@@ -29,6 +31,7 @@ import { FlowCanvas } from '../canvas/FlowCanvas'
 import { Header } from './Header'
 import { SampleScenarioPicker } from '../samples/SampleScenarioPicker'
 import { SAMPLE_SCENARIOS, type SampleScenario } from '@renderer/config/sampleScenarios'
+import { DEFAULT_SCENARIO_STATE } from '@renderer/types/ui'
 
 // Atoms
 import { ResizeHandle } from '../ui/ResizeHandle'
@@ -128,6 +131,20 @@ function PanelFallback({ label }: { label: string }) {
       {label}
     </div>
   )
+}
+
+function buildDraftAttempt(questionId: string, topology: AttemptState['topology']): AttemptState {
+  const now = new Date().toISOString()
+
+  return {
+    attemptId: globalThis.crypto?.randomUUID?.() ?? `attempt-${Date.now()}`,
+    questionId,
+    topology,
+    status: 'DRAFT',
+    startedAt: now,
+    lastSavedAt: now,
+    testRunCount: 0
+  }
 }
 
 function roundNullable(value: number | null): number | null {
@@ -302,6 +319,8 @@ export const WorkspaceLayout = () => {
   const clearSimulationMetrics = useStore((s) => s.clearSimulationMetrics)
   const selectGraphElements = useStore((s) => s.selectGraphElements)
   const requestViewportFit = useStore((s) => s.requestViewportFit)
+  const setActiveQuestion = useStore((s) => s.setActiveQuestion)
+  const setAttemptState = useStore((s) => s.setAttemptState)
   const runInspectorPinned = useStore((s) => s.runInspectorPinned)
   const setRunInspectorPinned = useStore((s) => s.setRunInspectorPinned)
   const routingVisualization = useStore((s) => s.routingStrategyVisualization)
@@ -389,6 +408,67 @@ export const WorkspaceLayout = () => {
   // Simulation
   const sim = useSimulation()
   const { serialize } = useTopologySerializer()
+
+  useEffect(() => {
+    postQuestionHostMessage({ type: 'ns-simulator:ready' })
+  }, [])
+
+  useEffect(() => {
+    const onMessage = (event: MessageEvent<unknown>) => {
+      if (!isQuestionLaunchContextMessage(event.data)) {
+        return
+      }
+
+      const { questionPackage, priorAttempt } = event.data.payload
+
+      void (async () => {
+        const topologyToLoad = priorAttempt?.topology ?? questionPackage.scaffold.topology
+        const launchData =
+          topologyToLoad ??
+          ({
+            version: '2.0.0',
+            nodes: [],
+            edges: [],
+            scenario: DEFAULT_SCENARIO_STATE
+          } as const)
+
+        const loaded = await loadFromData(launchData, `${questionPackage.id}.json`)
+        if (!loaded) {
+          postQuestionHostMessage({
+            type: 'ns-simulator:error',
+            message: 'Could not load the question launch context into the simulator.'
+          })
+          return
+        }
+
+        sim.reset()
+        clearSimulationMetrics()
+        setShowResults(false)
+        setLastRunContext(null)
+        setRunIssues({ messages: [], tone: 'warning' })
+        setRoutingVisualization(null)
+        selectGraphElements({})
+        setIsRightOpen(false)
+        setLeftSidebarTab('question')
+        setIsLeftOpen(true)
+        setActiveQuestion(questionPackage)
+        setAttemptState(
+          priorAttempt ?? (topologyToLoad ? buildDraftAttempt(questionPackage.id, topologyToLoad) : null)
+        )
+      })()
+    }
+
+    window.addEventListener('message', onMessage)
+    return () => window.removeEventListener('message', onMessage)
+  }, [
+    clearSimulationMetrics,
+    loadFromData,
+    selectGraphElements,
+    setActiveQuestion,
+    setAttemptState,
+    setRoutingVisualization,
+    sim
+  ])
   const handleLoadScenario = useCallback(
     async (scenarioId: string) => {
       const sampleId = scenarioId.startsWith('sample:') ? scenarioId.slice('sample:'.length) : ''

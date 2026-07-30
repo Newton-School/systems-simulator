@@ -22,6 +22,7 @@ import type {
 import { DEFAULT_SCENARIO_STATE } from '@renderer/types/ui'
 import type { EdgeFailureCause, EdgeFlowEvent } from '../../../engine/core/events'
 import type { WorkloadProfile } from '../../../engine/core/types'
+import type { AttemptState, QuestionPackage } from '../../../engine/analysis/question'
 import type { RoutingStrategy } from '../../../engine/catalog/nodeSpecTypes'
 
 type FailureCountsByCause = Partial<Record<EdgeFailureCause, number>>
@@ -262,6 +263,12 @@ type RFState = {
   scenario: ScenarioState
   viewportFitVersion: number
 
+  // --- Question mode ---
+  activeQuestion: QuestionPackage | null
+  setActiveQuestion: (question: QuestionPackage | null) => void
+  attemptState: AttemptState | null
+  setAttemptState: (attempt: AttemptState | null) => void
+
   // --- Actions ---
   onNodesChange: OnNodesChange
   onEdgesChange: OnEdgesChange
@@ -314,6 +321,8 @@ const useStore = create<RFState>((set, get) => ({
   isUnsaved: false,
   scenario: DEFAULT_SCENARIO_STATE,
   viewportFitVersion: 0,
+  activeQuestion: null,
+  attemptState: null,
 
   onNodesChange: (changes: NodeChange[]) => {
     set({
@@ -576,6 +585,8 @@ const useStore = create<RFState>((set, get) => ({
     set((state) => ({
       viewportFitVersion: state.viewportFitVersion + 1
     })),
+  setActiveQuestion: (activeQuestion) => set({ activeQuestion }),
+  setAttemptState: (attemptState) => set({ attemptState }),
   updateScenario: (updater) => set((state) => ({ scenario: updater(state.scenario) }))
 }))
 
