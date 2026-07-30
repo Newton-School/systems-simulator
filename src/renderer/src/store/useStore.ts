@@ -22,6 +22,7 @@ import type {
 import { DEFAULT_SCENARIO_STATE } from '@renderer/types/ui'
 import type { EdgeFailureCause, EdgeFlowEvent } from '../../../engine/core/events'
 import type { WorkloadProfile } from '../../../engine/core/types'
+import type { AttemptState, QuestionPackage } from '../../../engine/analysis/question'
 import type { RoutingStrategy } from '../../../engine/catalog/nodeSpecTypes'
 
 type FailureCountsByCause = Partial<Record<EdgeFailureCause, number>>
@@ -261,6 +262,12 @@ type RFState = {
   isUnsaved: boolean
   scenario: ScenarioState
 
+  // --- Question mode ---
+  activeQuestion: QuestionPackage | null
+  setActiveQuestion: (question: QuestionPackage | null) => void
+  attemptState: AttemptState | null
+  setAttemptState: (attempt: AttemptState | null) => void
+
   // --- Actions ---
   onNodesChange: OnNodesChange
   onEdgesChange: OnEdgesChange
@@ -311,6 +318,8 @@ const useStore = create<RFState>((set, get) => ({
   fileName: 'Untitled',
   isUnsaved: false,
   scenario: DEFAULT_SCENARIO_STATE,
+  activeQuestion: null,
+  attemptState: null,
 
   onNodesChange: (changes: NodeChange[]) => {
     set({
@@ -569,6 +578,8 @@ const useStore = create<RFState>((set, get) => ({
   setFileName: (fileName) => set({ fileName }),
   setUnsaved: (isUnsaved) => set({ isUnsaved }),
   setScenario: (scenario) => set({ scenario }),
+  setActiveQuestion: (activeQuestion) => set({ activeQuestion }),
+  setAttemptState: (attemptState) => set({ attemptState }),
   updateScenario: (updater) => set((state) => ({ scenario: updater(state.scenario) }))
 }))
 

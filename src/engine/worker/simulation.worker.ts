@@ -1,4 +1,5 @@
 import { SimulationEngine } from '../engine'
+import { gradeAttempt } from '../analysis/question'
 import type { EdgeFlowEvent } from '../core/events'
 import type { SimulationOutput, TimeSeriesSnapshot } from '../analysis/output'
 import type { RequestOutcomeRecord } from '../core/event-stream'
@@ -196,6 +197,26 @@ self.onmessage = (event: MessageEvent<WorkerInboundMessage>) => {
 
       // Kick off the chunked execution loop (async, doesn't block the thread)
       runChunked()
+      break
+    }
+
+    case 'grade': {
+      if (running) {
+        post({ type: 'error', payload: { message: 'Simulation already running.' } })
+        return
+      }
+
+      try {
+        const grade = gradeAttempt(
+          msg.payload.question,
+          msg.payload.topology,
+          (topology) => new SimulationEngine(topology).run()
+        )
+        post({ type: 'grade-complete', payload: { grade } })
+      } catch (err) {
+        const e = err as Error
+        post({ type: 'error', payload: { message: e.message, stack: e.stack } })
+      }
       break
     }
 
