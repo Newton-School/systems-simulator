@@ -1,8 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import type { Node } from 'reactflow'
-import { recomputeContainment } from './canvasUtils'
+import { findTargetContainer, recomputeContainment } from './canvasUtils'
 
-function container(id: string, x: number, y: number, size: number, parentNode?: string): Node {
+function container(
+  id: string,
+  x: number,
+  y: number,
+  size: number,
+  templateId = 'vpc-region',
+  parentNode?: string
+): Node {
   return {
     id,
     type: 'vpcNode',
@@ -10,7 +17,7 @@ function container(id: string, x: number, y: number, size: number, parentNode?: 
     width: size,
     height: size,
     parentNode,
-    data: {}
+    data: { templateId }
   }
 }
 
@@ -22,57 +29,85 @@ function box(id: string, x: number, y: number, parentNode?: string): Node {
     width: 40,
     height: 40,
     parentNode,
-    data: {}
+    data: { templateId: 'backend-server' }
   }
 }
 
+describe('findTargetContainer', () => {
+  it('uses absolute positions for nested containers', () => {
+    const nodes = [
+      container('region', 0, 0, 400, 'vpc-region'),
+      container('az', 50, 50, 200, 'availability-zone', 'region')
+    ]
+
+    expect(findTargetContainer(nodes, { x: 120, y: 120 })?.id).toBe('az')
+  })
+
+  it('falls back to the nearest valid ancestor for the child template', () => {
+    const nodes = [
+      container('region', 0, 0, 400, 'vpc-region'),
+      container('subnet', 50, 50, 200, 'subnet', 'region')
+    ]
+
+    expect(findTargetContainer(nodes, { x: 120, y: 120 }, undefined, 'availability-zone')?.id).toBe(
+      'region'
+    )
+  })
+})
+
 describe('recomputeContainment (center-inside)', () => {
   it('captures a node whose center falls inside a container', () => {
-    const nodes = [container('vpc', 0, 0, 300), box('n', 140, 140)] // center (160,160) is inside
+    const nodes = [container('vpc', 0, 0, 300), box('n', 140, 140)]
     const result = recomputeContainment(nodes)
-    const n = result.find((x) => x.id === 'n')!
-    expect(n.parentNode).toBe('vpc')
-    // position becomes relative to the container
-    expect(n.position).toEqual({ x: 140, y: 140 })
+    const node = result.find((candidate) => candidate.id === 'n')!
+    expect(node.parentNode).toBe('vpc')
+    expect(node.position).toEqual({ x: 140, y: 140 })
   })
 
   it('does not capture a node whose center is outside the container', () => {
     const nodes = [container('vpc', 0, 0, 100), box('n', 400, 400)]
     const result = recomputeContainment(nodes)
-    expect(result.find((x) => x.id === 'n')!.parentNode).toBeUndefined()
-    // unchanged input returns the same reference
+    expect(result.find((candidate) => candidate.id === 'n')!.parentNode).toBeUndefined()
     expect(result).toBe(nodes)
   })
 
   it('releases a child whose center has been dragged outside its container', () => {
-    // child stored relative to a 300x300 container but positioned far outside it
     const nodes = [container('vpc', 0, 0, 300), box('n', 900, 900, 'vpc')]
     const result = recomputeContainment(nodes)
-    const n = result.find((x) => x.id === 'n')!
-    expect(n.parentNode).toBeUndefined()
-    // released back to absolute coordinates
-    expect(n.position).toEqual({ x: 900, y: 900 })
+    const node = result.find((candidate) => candidate.id === 'n')!
+    expect(node.parentNode).toBeUndefined()
+    expect(node.position).toEqual({ x: 900, y: 900 })
   })
 
-  it('picks the deepest (smallest) container when nested', () => {
+  it('picks the deepest valid container when nested', () => {
     const nodes = [
-      container('region', 0, 0, 400),
-      container('az', 50, 50, 200, 'region'), // abs bounds (50,50)-(250,250)
-      box('n', 100, 100) // center (120,120) inside both; az is smaller
+      container('region', 0, 0, 400, 'vpc-region'),
+      container('az', 50, 50, 200, 'availability-zone', 'region'),
+      box('n', 100, 100)
     ]
     const result = recomputeContainment(nodes)
-    const n = result.find((x) => x.id === 'n')!
-    expect(n.parentNode).toBe('az')
-    expect(n.position).toEqual({ x: 50, y: 50 })
+    const node = result.find((candidate) => candidate.id === 'n')!
+    expect(node.parentNode).toBe('az')
+    expect(node.position).toEqual({ x: 50, y: 50 })
   })
 
-  it('never parents a container into its own descendant (no cycle)', () => {
-    // az currently inside region; even if geometry overlaps, region must not become az's child
+  it('skips invalid container matches and uses the next valid ancestor', () => {
     const nodes = [
-      container('region', 0, 0, 400),
-      container('az', 0, 0, 400, 'region') // same bounds as region
+      container('region', 0, 0, 400, 'vpc-region'),
+      container('subnet', 50, 50, 200, 'subnet', 'region'),
+      container('az', 100, 100, 80, 'availability-zone')
+    ]
+
+    const result = recomputeContainment(nodes)
+    expect(result.find((candidate) => candidate.id === 'az')!.parentNode).toBe('region')
+  })
+
+  it('never parents a container into its own descendant', () => {
+    const nodes = [
+      container('region', 0, 0, 400, 'vpc-region'),
+      container('az', 0, 0, 400, 'availability-zone', 'region')
     ]
     const result = recomputeContainment(nodes)
-    expect(result.find((x) => x.id === 'region')!.parentNode).toBeUndefined()
+    expect(result.find((candidate) => candidate.id === 'region')!.parentNode).toBeUndefined()
   })
 })

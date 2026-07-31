@@ -15,11 +15,10 @@ import ReactFlow, {
 import 'reactflow/dist/style.css'
 
 import EmptyFlowState from '../ui/EmptyFlowState'
+import { RunToast } from '../ui/RunToast'
 import { CanvasLegend } from './CanvasLegend'
 import { MetricLensSwitcher } from './MetricLensSwitcher'
-// Hooks & Config
 import useStore from '@renderer/store/useStore'
-
 import { useFlowStore } from './hooks/useFlowStore'
 import { useFlowDnD } from './hooks/useFlowDnD'
 import { useCopyPaste } from './hooks/useCopyPaste'
@@ -36,6 +35,7 @@ interface FlowCanvasProps {
 
 const FlowCanvasInternal = ({ showMetricLens = false, onNodeDoubleClick }: FlowCanvasProps) => {
   const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance | null>(null)
+  const [validationError, setValidationError] = useState<string | null>(null)
 
   const { nodes, edges, onNodesChange, onEdgesChange, onConnect, addNode, setNodes, setEdges } =
     useFlowStore()
@@ -60,7 +60,8 @@ const FlowCanvasInternal = ({ showMetricLens = false, onNodeDoubleClick }: FlowC
     nodes,
     addNode,
     setNodes,
-    instance: reactFlowInstance
+    instance: reactFlowInstance,
+    onError: setValidationError
   })
 
   const isEmpty = nodes.length === 0
@@ -70,7 +71,6 @@ const FlowCanvasInternal = ({ showMetricLens = false, onNodeDoubleClick }: FlowC
     const isBulkLoad = Math.abs(nodes.length - prevNodeCount.current) > 1
 
     if (reactFlowInstance && isBulkLoad) {
-      // Only fit view when many nodes are added at once (e.g. opening a saved file)
       window.requestAnimationFrame(() => {
         reactFlowInstance.fitView({
           padding: 0.2,
@@ -145,9 +145,14 @@ const FlowCanvasInternal = ({ showMetricLens = false, onNodeDoubleClick }: FlowC
       </ReactFlow>
       {!isEmpty && showMetricLens && <MetricLensSwitcher />}
       {!isEmpty && showMetricLens && <CanvasLegend />}
-
-      {/* Empty State */}
       <EmptyFlowState isEmpty={isEmpty} />
+      {validationError && (
+        <RunToast
+          messages={[validationError]}
+          tone="error"
+          onClose={() => setValidationError(null)}
+        />
+      )}
     </div>
   )
 }
