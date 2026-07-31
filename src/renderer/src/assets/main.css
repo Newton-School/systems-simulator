@@ -320,9 +320,9 @@ body.react-flow-connecting .custom-target-handle.magnetic-snap-winner {
 
 /* Pulsing ring in connection line SVG — shown when cursor is in the drop zone */
 @keyframes connection-snap-ring {
-  0% { r: 8px; opacity: 0.7; }
-  60% { r: 18px; opacity: 0; }
-  100% { r: 18px; opacity: 0; }
+  0%   { r: 8px;  opacity: 0.7; }
+  60%  { r: 18px; opacity: 0;   }
+  100% { r: 18px; opacity: 0;   }
 }
 
 .connection-snap-ring {
