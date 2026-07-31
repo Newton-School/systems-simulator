@@ -96,6 +96,47 @@ function buildSourceDefaults(workload: WorkloadProfile) {
   }
 }
 
+type HandleSide = 'left' | 'right' | 'top' | 'bottom'
+
+function buildHandleId(side: HandleSide, kind: 'source' | 'target'): string {
+  return `${side}-1-${kind}`
+}
+
+function inferHandleSides(
+  sourcePosition: { x: number; y: number },
+  targetPosition: { x: number; y: number }
+): { sourceSide: HandleSide; targetSide: HandleSide } {
+  const dx = targetPosition.x - sourcePosition.x
+  const dy = targetPosition.y - sourcePosition.y
+
+  if (Math.abs(dx) >= Math.abs(dy)) {
+    return dx >= 0
+      ? { sourceSide: 'right', targetSide: 'left' }
+      : { sourceSide: 'left', targetSide: 'right' }
+  }
+
+  return dy >= 0
+    ? { sourceSide: 'bottom', targetSide: 'top' }
+    : { sourceSide: 'top', targetSide: 'bottom' }
+}
+
+function synthesizeEdgeHandles(
+  edge: EdgeDefinition,
+  nodePositions: ReadonlyMap<string, { x: number; y: number }>
+): Pick<Edge, 'sourceHandle' | 'targetHandle'> {
+  const sourcePosition = nodePositions.get(edge.source)
+  const targetPosition = nodePositions.get(edge.target)
+  const inferred =
+    sourcePosition && targetPosition
+      ? inferHandleSides(sourcePosition, targetPosition)
+      : { sourceSide: 'right' as const, targetSide: 'left' as const }
+
+  return {
+    sourceHandle: edge.sourceHandle ?? buildHandleId(inferred.sourceSide, 'source'),
+    targetHandle: edge.targetHandle ?? buildHandleId(inferred.targetSide, 'target')
+  }
+}
+
 function overlaySimulationConfig(
   node: ComponentNode,
   initial: NodeSimulationConfig | undefined
@@ -250,7 +291,7 @@ function convertNode(
 
   data.sim = overlaySimulationConfig(node, data.sim)
 
-  if (data.profile === 'source' && workload && workload.sourceNodeId === node.id) {
+  if (workload && workload.sourceNodeId === node.id) {
     data.source = {
       requestDistribution: structuredClone(workload.requestDistribution),
       defaultWorkload: buildSourceDefaults(workload)
@@ -289,7 +330,12 @@ function edgeDataFromTopology(edge: EdgeDefinition): EdgeSimulationData {
   }
 }
 
-function convertEdge(edge: EdgeDefinition): Edge {
+function convertEdge(
+  edge: EdgeDefinition,
+  nodePositions: ReadonlyMap<string, { x: number; y: number }>
+): Edge {
+  const handles = synthesizeEdgeHandles(edge, nodePositions)
+
   return {
     id: edge.id,
     source: edge.source,
@@ -297,8 +343,8 @@ function convertEdge(edge: EdgeDefinition): Edge {
     label: edge.label,
     data: edgeDataFromTopology(edge),
     animated: edge.animated,
-    sourceHandle: edge.sourceHandle,
-    targetHandle: edge.targetHandle
+    sourceHandle: handles.sourceHandle,
+    targetHandle: handles.targetHandle
   }
 }
 
@@ -333,10 +379,11 @@ export function topologyToCanvasFileData(topology: TopologyJSON): NestedFileData
     .map((node) => convertNode(node, topology.workload))
     .filter((node): node is Node<CanvasNodeDataV2> => node !== null)
     .map((node) => ({ ...node }) as NestedNode)
+  const nodePositions = new Map(nodes.map((node) => [node.id, node.position]))
 
   return {
     nodes,
-    edges: topology.edges.map(convertEdge),
+    edges: topology.edges.map((edge) => convertEdge(edge, nodePositions)),
     scenario: buildScenarioState(topology)
   }
 }

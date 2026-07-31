@@ -18,6 +18,10 @@ import {
   deriveReliabilityStatus
 } from '@renderer/utils/nodeHealthThresholds'
 import type { WorkloadWithoutRuntimeFields } from '@renderer/utils/workloadDefaults'
+import {
+  hasWorkloadSourceConfig,
+  isSourceComponentData
+} from '../../../../engine/catalog/sourceNodeSemantics'
 import { ACK_AND_RELEASE_COMPONENT_TYPES } from '../../../../engine/traits/ackAndRelease'
 import { HEALTH_AWARE_COMPONENT_TYPES } from '../../../../engine/traits/healthAwareRouting'
 
@@ -227,7 +231,7 @@ export function getIdentityChip(
   data: AnyNodeData,
   sourceWorkload?: WorkloadWithoutRuntimeFields
 ): IdentityChip | null {
-  if (data.profile === 'source') {
+  if (hasWorkloadSourceConfig(data)) {
     const workload = sourceWorkload ?? data.source?.defaultWorkload
     const pattern = workload?.pattern
     const baseRps = workload?.baseRps
@@ -361,7 +365,7 @@ export function isPreRunMetricLens(lens: MetricLens): lens is PreRunMetricLens {
 }
 
 export function getPreRunMetric(lens: PreRunMetricLens, data: AnyNodeData): SummaryMetric | null {
-  if (data.profile === 'source') {
+  if (isSourceComponentData(data)) {
     return null
   }
 
