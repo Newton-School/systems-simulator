@@ -90,7 +90,10 @@ const ComputeNode = ({ id, data, selected }: NodeProps<ComputeNodeData>) => {
                 ${hasRuntime ? capacityStyle.iconAccent : `${safeColor} bg-opacity-30 dark:bg-opacity-30`}
               `}
             >
-              <Icon size={16} className={hasRuntime ? undefined : `${safeText} dark:!text-nss-bg`} />
+              <Icon
+                size={16}
+                className={hasRuntime ? undefined : `${safeText} dark:!text-nss-bg`}
+              />
             </div>
 
             <div className="flex flex-col overflow-hidden w-full">
