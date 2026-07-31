@@ -165,8 +165,18 @@ export class WorkloadGenerator {
       deadline: currentTime + msToMicro(this.defaultTimeoutMs),
       path: [],
       spans: [],
+      phaseRecord: {
+        bornAtUs: currentTime,
+        nodes: [],
+        edges: []
+      },
       retryCount: 0,
-      metadata: {}
+      completionSeq: 0,
+      timeoutSeq: 0,
+      metadata:
+        requestType.metadata && typeof requestType.metadata === 'object'
+          ? { ...requestType.metadata }
+          : {}
     }
   }
 

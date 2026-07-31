@@ -1,6 +1,8 @@
 import { LucideIcon } from 'lucide-react'
-import type { GlobalConfig, WorkloadProfile } from '../../../engine/core/types'
+import type { FaultSpec, GlobalConfig, WorkloadProfile } from '../../../engine/core/types'
 import type { CanvasNodeDataV2, RendererNodeType } from '../../../engine/catalog/nodeSpecTypes'
+import type { LatencyPercentiles, TimeToErrorSummary } from '../../../engine/metrics'
+import type { LibraryItemInfo } from '@renderer/config/libraryInfo'
 
 export type AnyNodeData = CanvasNodeDataV2
 export type ServiceNodeData = CanvasNodeDataV2
@@ -8,17 +10,51 @@ export type ComputeNodeData = CanvasNodeDataV2
 export type SecurityNodeData = CanvasNodeDataV2
 export type VpcNodeData = CanvasNodeDataV2
 
+export type PreRunMetricLens = 'concurrency' | 'queueCapacity' | 'timeout'
+export type RuntimeMetricLens = 'traffic' | 'saturation' | 'latency' | 'errors' | 'throughput'
+export type MetricLens = PreRunMetricLens | RuntimeMetricLens
+
 export interface NodeSimulationMetrics {
   throughput?: number
+  postWarmupArrived?: number
+  postWarmupProcessed?: number
+  postWarmupRejected?: number
+  postWarmupTimedOut?: number
+  postWarmupConnectionReset?: number
+  postWarmupInFlight?: number
   queueDepth?: number
   utilization?: number
   errorRate?: number
   active?: boolean
+  // Real, already-computed values that used to be dropped between
+  // PerNodeMetrics and the render store — surfaced so cards/panels can show
+  // what a trait actually did instead of only the generic four numbers.
+  avgServiceTime?: number
+  latencyP50?: number
+  latencyP95?: number
+  latencyP99?: number
+  successLatencySamples?: number
+  timeToErrorSamples?: number
+  latencyWindowErrorRate?: number
+  latencyNodeLocal?: LatencyPercentiles
+  timeToErrorByCause?: TimeToErrorSummary
+  availability?: number
+  cacheHits?: number
+  cacheMisses?: number
+  cacheHitRatio?: number
+  rejectionsByReason?: Record<string, number>
+  traitCounters?: Record<string, number>
+  totalArrived?: number
+  totalRejected?: number
+  peakInSystem?: number
+  finalInSystem?: number
 }
 
 export interface EdgeSimulationData {
   protocol?: 'https' | 'grpc' | 'tcp' | 'udp' | 'websocket' | 'amqp' | 'kafka'
   mode?: 'synchronous' | 'asynchronous' | 'streaming' | 'conditional'
+  latencyDistributionType?: 'log-normal' | 'constant'
+  latencyValue?: number
   latencyMu?: number
   latencySigma?: number
   pathType?: 'same-rack' | 'same-dc' | 'cross-zone' | 'cross-region' | 'internet'
@@ -26,6 +62,7 @@ export interface EdgeSimulationData {
   maxConcurrentRequests?: number
   packetLossRate?: number
   errorRate?: number
+  condition?: string
 }
 
 export type NodeType = RendererNodeType
@@ -44,6 +81,7 @@ export interface CatalogItem {
   subLabel: string
   icon: LucideIcon
   color: ColorTheme
+  info: LibraryItemInfo
 }
 
 export interface CatalogCategory {
@@ -59,12 +97,20 @@ export interface ScenarioState {
   >
   selectedSourceNodeId?: string
   workloadOverride?: Partial<Omit<WorkloadProfile, 'sourceNodeId' | 'requestDistribution'>>
+  /** Chaos faults injected at run time (scheduled node-failure/recovery events). */
+  faults?: FaultSpec[]
 }
 
 export interface SourceNodeOption {
   id: string
   label: string
   workload: NonNullable<CanvasNodeDataV2['source']>['defaultWorkload']
+}
+
+/** A node the operator can target with an injected fault. */
+export interface FaultTargetOption {
+  id: string
+  label: string
 }
 
 export interface ScenarioRunContext {
@@ -83,7 +129,8 @@ export const DEFAULT_SCENARIO_STATE: ScenarioState = {
     traceSampleRate: 0.01
   },
   selectedSourceNodeId: undefined,
-  workloadOverride: {}
+  workloadOverride: {},
+  faults: []
 }
 
 export function normalizeScenarioState(value: unknown): ScenarioState {
@@ -112,6 +159,7 @@ export function normalizeScenarioState(value: unknown): ScenarioState {
       typeof scenario.selectedSourceNodeId === 'string' && scenario.selectedSourceNodeId.length > 0
         ? scenario.selectedSourceNodeId
         : undefined,
-    workloadOverride: workloadOverride ? { ...workloadOverride } : {}
+    workloadOverride: workloadOverride ? { ...workloadOverride } : {},
+    faults: Array.isArray(scenario.faults) ? scenario.faults : []
   }
 }

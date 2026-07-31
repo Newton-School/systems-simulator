@@ -1,5 +1,5 @@
 import { memo } from 'react'
-import { Sidebar, Save, FolderOpen } from 'lucide-react'
+import { FolderOpen, Save, Sidebar } from 'lucide-react'
 
 import { Divider } from '../ui/Divider'
 import { IconButton } from '../ui/IconButton'
@@ -8,7 +8,7 @@ import { Branding } from './Branding'
 import { FileStatus } from './FileStatus'
 import { ThemeToggle } from './ThemeToggle'
 import { SimulationControls } from '../simulation/SimulationControls'
-import type { ScenarioState, SourceNodeOption } from '@renderer/types/ui'
+import type { FaultTargetOption, ScenarioState, SourceNodeOption } from '@renderer/types/ui'
 
 interface HeaderProps {
   // Layout
@@ -25,12 +25,15 @@ interface HeaderProps {
 
   // Simulation
   onRun: () => void
+  onReset: () => void
+  isPostRun: boolean
   onPause: () => void
   onResume: () => void
   onStop: () => void
   isRunning: boolean
   isPaused: boolean
   sourceNodes: SourceNodeOption[]
+  faultTargets: FaultTargetOption[]
   scenario: ScenarioState
   onScenarioChange: (updater: (current: ScenarioState) => ScenarioState) => void
   simulationDisabled?: boolean
@@ -47,12 +50,15 @@ export const Header = memo(
     fileName,
     isUnsaved,
     onRun,
+    onReset,
+    isPostRun,
     onPause,
     onResume,
     onStop,
     isRunning,
     isPaused,
     sourceNodes,
+    faultTargets,
     scenario,
     onScenarioChange,
     simulationDisabled
@@ -84,12 +90,15 @@ export const Header = memo(
 
           <SimulationControls
             onRun={onRun}
+            onReset={onReset}
+            isPostRun={isPostRun}
             onPause={onPause}
             onResume={onResume}
             onStop={onStop}
             isRunning={isRunning}
             isPaused={isPaused}
             sourceNodes={sourceNodes}
+            faultTargets={faultTargets}
             scenario={scenario}
             onScenarioChange={onScenarioChange}
             disabled={simulationDisabled}

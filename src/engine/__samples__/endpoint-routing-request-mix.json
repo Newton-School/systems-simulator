@@ -1,0 +1,358 @@
+{
+  "version": "2.0.0",
+  "nodes": [
+    {
+      "id": "client",
+      "type": "serviceNode",
+      "position": {
+        "x": 80,
+        "y": 340
+      },
+      "data": {
+        "schemaVersion": 2,
+        "templateId": "client-user",
+        "componentType": "api-endpoint",
+        "structuralRole": "source",
+        "profile": "source",
+        "rendererType": "serviceNode",
+        "label": "Storefront Client",
+        "subLabel": "Endpoint Traffic Mix",
+        "iconKey": "monitor",
+        "source": {
+          "requestDistribution": [
+            {
+              "type": "browse-catalog",
+              "weight": 0.55,
+              "sizeBytes": 1200,
+              "metadata": {
+                "method": "GET",
+                "host": "catalog.internal",
+                "path": "/catalog"
+              }
+            },
+            {
+              "type": "submit-checkout",
+              "weight": 0.3,
+              "sizeBytes": 2200,
+              "metadata": {
+                "method": "POST",
+                "host": "api.internal",
+                "path": "/checkout"
+              }
+            },
+            {
+              "type": "fraud-review",
+              "weight": 0.15,
+              "sizeBytes": 1800,
+              "metadata": {
+                "method": "POST",
+                "host": "api.internal",
+                "path": "/fraud/check"
+              }
+            }
+          ],
+          "defaultWorkload": {
+            "pattern": "poisson",
+            "baseRps": 240,
+            "bursty": {
+              "burstRps": 520,
+              "burstDuration": 1500,
+              "normalDuration": 8500
+            },
+            "spike": {
+              "spikeTime": 32000,
+              "spikeRps": 700,
+              "spikeDuration": 4000
+            },
+            "sawtooth": {
+              "peakRps": 340,
+              "rampDuration": 12000
+            }
+          }
+        }
+      },
+      "zIndex": 0,
+      "expandParent": false,
+      "selected": false,
+      "width": 256,
+      "height": 117,
+      "nodes": []
+    },
+    {
+      "id": "api-gateway",
+      "type": "serviceNode",
+      "position": {
+        "x": 620,
+        "y": 320
+      },
+      "data": {
+        "schemaVersion": 2,
+        "templateId": "api-gateway",
+        "componentType": "api-gateway",
+        "structuralRole": "router",
+        "profile": "router",
+        "rendererType": "serviceNode",
+        "label": "API Gateway",
+        "subLabel": "Path Routing + Rate Limit",
+        "iconKey": "globe",
+        "routingStrategy": "round-robin",
+        "sim": {
+          "queue": {
+            "workers": 12,
+            "capacity": 96,
+            "discipline": "fifo"
+          },
+          "processing": {
+            "distribution": {
+              "type": "constant",
+              "value": 2
+            },
+            "timeout": 120
+          },
+          "maxTokens": 48,
+          "refillRatePerSecond": 210,
+          "routingRules": [
+            {
+              "matchField": "path",
+              "matchValue": "/catalog",
+              "targetNodeId": "catalog-api"
+            },
+            {
+              "matchField": "path",
+              "matchValue": "/checkout",
+              "targetNodeId": "checkout-api"
+            },
+            {
+              "matchField": "path",
+              "matchValue": "/fraud/check",
+              "targetNodeId": "fraud-api"
+            }
+          ]
+        }
+      },
+      "zIndex": 0,
+      "expandParent": false,
+      "selected": false,
+      "width": 256,
+      "height": 164,
+      "nodes": []
+    },
+    {
+      "id": "catalog-api",
+      "type": "computeNode",
+      "position": {
+        "x": 1180,
+        "y": 80
+      },
+      "data": {
+        "schemaVersion": 2,
+        "templateId": "backend-server",
+        "componentType": "microservice",
+        "structuralRole": "processor",
+        "profile": "compute-service",
+        "rendererType": "computeNode",
+        "label": "Catalog API",
+        "subLabel": "Fast Read Endpoint",
+        "iconKey": "SERVER",
+        "sim": {
+          "queue": {
+            "workers": 8,
+            "capacity": 80,
+            "discipline": "fifo"
+          },
+          "processing": {
+            "distribution": {
+              "type": "constant",
+              "value": 4
+            },
+            "timeout": 160
+          }
+        }
+      },
+      "zIndex": 0,
+      "expandParent": false,
+      "selected": false,
+      "width": 190,
+      "height": 115,
+      "nodes": []
+    },
+    {
+      "id": "checkout-api",
+      "type": "computeNode",
+      "position": {
+        "x": 1180,
+        "y": 320
+      },
+      "data": {
+        "schemaVersion": 2,
+        "templateId": "backend-server",
+        "componentType": "microservice",
+        "structuralRole": "processor",
+        "profile": "compute-service",
+        "rendererType": "computeNode",
+        "label": "Checkout API",
+        "subLabel": "Write Path Bottleneck",
+        "iconKey": "SERVER",
+        "sim": {
+          "queue": {
+            "workers": 2,
+            "capacity": 12,
+            "discipline": "fifo"
+          },
+          "processing": {
+            "distribution": {
+              "type": "constant",
+              "value": 55
+            },
+            "timeout": 100
+          }
+        }
+      },
+      "zIndex": 0,
+      "expandParent": false,
+      "selected": false,
+      "width": 190,
+      "height": 115,
+      "nodes": []
+    },
+    {
+      "id": "fraud-api",
+      "type": "computeNode",
+      "position": {
+        "x": 1180,
+        "y": 560
+      },
+      "data": {
+        "schemaVersion": 2,
+        "templateId": "backend-server",
+        "componentType": "microservice",
+        "structuralRole": "processor",
+        "profile": "compute-service",
+        "rendererType": "computeNode",
+        "label": "Fraud API",
+        "subLabel": "Slow Review Path",
+        "iconKey": "SERVER",
+        "sim": {
+          "queue": {
+            "workers": 1,
+            "capacity": 8,
+            "discipline": "fifo"
+          },
+          "processing": {
+            "distribution": {
+              "type": "constant",
+              "value": 110
+            },
+            "timeout": 85
+          }
+        }
+      },
+      "zIndex": 0,
+      "expandParent": false,
+      "selected": false,
+      "width": 190,
+      "height": 115,
+      "nodes": []
+    }
+  ],
+  "edges": [
+    {
+      "id": "client-to-api-gateway",
+      "type": "packet",
+      "source": "client",
+      "target": "api-gateway",
+      "sourceHandle": "right-1-source",
+      "targetHandle": "left-1-target",
+      "animated": true,
+      "data": {
+        "protocol": "https",
+        "mode": "synchronous",
+        "pathType": "internet",
+        "latencyMu": 2.7,
+        "latencySigma": 0.4,
+        "bandwidth": 1000,
+        "maxConcurrentRequests": 900,
+        "packetLossRate": 0,
+        "errorRate": 0
+      },
+      "selected": false
+    },
+    {
+      "id": "api-gateway-to-catalog-api",
+      "type": "packet",
+      "source": "api-gateway",
+      "target": "catalog-api",
+      "sourceHandle": "right-0-source",
+      "targetHandle": "left-1-target",
+      "animated": true,
+      "data": {
+        "protocol": "https",
+        "mode": "synchronous",
+        "pathType": "same-dc",
+        "latencyMu": 0.8,
+        "latencySigma": 0.25,
+        "bandwidth": 1000,
+        "maxConcurrentRequests": 500,
+        "packetLossRate": 0,
+        "errorRate": 0
+      },
+      "selected": false
+    },
+    {
+      "id": "api-gateway-to-checkout-api",
+      "type": "packet",
+      "source": "api-gateway",
+      "target": "checkout-api",
+      "sourceHandle": "right-1-source",
+      "targetHandle": "left-1-target",
+      "animated": true,
+      "data": {
+        "protocol": "https",
+        "mode": "synchronous",
+        "pathType": "same-dc",
+        "latencyMu": 0.9,
+        "latencySigma": 0.25,
+        "bandwidth": 1000,
+        "maxConcurrentRequests": 250,
+        "packetLossRate": 0,
+        "errorRate": 0
+      },
+      "selected": false
+    },
+    {
+      "id": "api-gateway-to-fraud-api",
+      "type": "packet",
+      "source": "api-gateway",
+      "target": "fraud-api",
+      "sourceHandle": "right-2-source",
+      "targetHandle": "left-1-target",
+      "animated": true,
+      "data": {
+        "protocol": "https",
+        "mode": "synchronous",
+        "pathType": "same-dc",
+        "latencyMu": 1.1,
+        "latencySigma": 0.3,
+        "bandwidth": 1000,
+        "maxConcurrentRequests": 180,
+        "packetLossRate": 0,
+        "errorRate": 0
+      },
+      "selected": false
+    }
+  ],
+  "scenario": {
+    "global": {
+      "simulationDuration": 60000,
+      "warmupDuration": 5000,
+      "seed": "sample-endpoint-routing-request-mix",
+      "defaultTimeout": 1000,
+      "traceSampleRate": 0.05
+    },
+    "selectedSourceNodeId": "client",
+    "workloadOverride": {
+      "pattern": "poisson",
+      "baseRps": 240
+    }
+  }
+}

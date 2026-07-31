@@ -1,6 +1,11 @@
 import { useCallback } from 'react'
-import { ReactFlowInstance, NodeDragHandler, Node, useReactFlow } from 'reactflow'
-import { findTargetContainer, getId } from '../utils/canvasUtils'
+import { ReactFlowInstance, NodeDragHandler, Node } from 'reactflow'
+import {
+  findTargetContainer,
+  getAbsoluteNodePosition,
+  getId,
+  recomputeContainment
+} from '../utils/canvasUtils'
 import { instantiateTemplate } from '../../../../../engine/catalog/paletteTemplates'
 import { validatePlacement } from '../../../config/hierarchyRules'
 
@@ -13,15 +18,11 @@ interface UseFlowDnDProps {
 }
 
 export const useFlowDnD = ({ nodes, addNode, setNodes, instance, onError }: UseFlowDnDProps) => {
-  const { getIntersectingNodes } = useReactFlow()
-
-  // 1. Drag Over
   const onDragOver = useCallback((event: React.DragEvent) => {
     event.preventDefault()
     event.dataTransfer.dropEffect = 'move'
   }, [])
 
-  // 2. Drop (New Node Creation)
   const onDrop = useCallback(
     (event: React.DragEvent) => {
       event.preventDefault()
@@ -34,13 +35,14 @@ export const useFlowDnD = ({ nodes, addNode, setNodes, instance, onError }: UseF
         y: event.clientY
       }) || { x: 0, y: 0 }
 
-      const targetContainer = findTargetContainer(nodes, position)
-
-      const parentTemplateId = targetContainer ? (targetContainer.data?.templateId || null) : null
+      const targetContainer = findTargetContainer(nodes, position, undefined, templateId)
+      const parentTemplateId = targetContainer
+        ? ((targetContainer.data as { templateId?: string })?.templateId ?? null)
+        : null
       const validation = validatePlacement(templateId, parentTemplateId)
 
       if (!validation.valid) {
-        if (onError && validation.error) onError(validation.error)
+        onError?.(validation.error ?? 'Invalid placement.')
         return
       }
 
@@ -52,80 +54,34 @@ export const useFlowDnD = ({ nodes, addNode, setNodes, instance, onError }: UseF
       }
 
       if (targetContainer) {
+        const containerPosition = getAbsoluteNodePosition(targetContainer, nodes)
         newNode.parentNode = targetContainer.id
         newNode.extent = 'parent'
-        newNode.zIndex = 10 // Lift nested items
+        newNode.zIndex = newNode.type === 'vpcNode' ? 1 : 10
         newNode.position = {
-          x: position.x - targetContainer.position.x,
-          y: position.y - targetContainer.position.y
+          x: position.x - containerPosition.x,
+          y: position.y - containerPosition.y
         }
       }
 
       addNode(newNode)
     },
-    [instance, addNode, nodes, onError]
+    [addNode, instance, nodes, onError]
   )
 
-  // 3. Drag Stop (Re-parenting / Nesting Logic)
   const onNodeDragStop: NodeDragHandler = useCallback(
     (_, node) => {
-      // Find intersections using React Flow's helper, then filter for VPCs
-      const intersections = getIntersectingNodes(node).filter(
-        (n) => n.type === 'vpcNode' && n.id !== node.id
+      const withDraggedPosition = nodes.map((candidate) =>
+        candidate.id === node.id
+          ? { ...candidate, position: node.position, parentNode: node.parentNode }
+          : candidate
       )
-
-      // Manual sort since getIntersectingNodes doesn't guarantee order
-      intersections.sort((a, b) => {
-        const areaA = (a.width || 0) * (a.height || 0)
-        const areaB = (b.width || 0) * (b.height || 0)
-        return areaA - areaB
-      })
-
-      const targetContainer = intersections[0]
-
-      // Scenario A: Attach to Parent
-      if (targetContainer) {
-        // Prevent cycles
-        if (node.id === targetContainer.parentNode) return
-        // Prevent redundant updates
-        if (node.parentNode === targetContainer.id) return
-
-        const childTemplateId = node.data?.templateId
-        const parentTemplateId = targetContainer.data?.templateId || null
-
-        if (childTemplateId) {
-          const validation = validatePlacement(childTemplateId, parentTemplateId)
-          if (!validation.valid) {
-            if (onError && validation.error) onError(validation.error)
-            return
-          }
-        }
-
-        const relativePosition = {
-          x: node.position.x - targetContainer.position.x,
-          y: node.position.y - targetContainer.position.y
-        }
-
-        setNodes(
-          nodes.map((n) =>
-            n.id === node.id
-              ? {
-                  ...n,
-                  parentNode: targetContainer.id,
-                  position: relativePosition,
-                  extent: 'parent',
-                  expandParent: false,
-                  zIndex: 10
-                }
-              : n
-          )
-        )
+      const recomputed = recomputeContainment(withDraggedPosition)
+      if (recomputed !== withDraggedPosition) {
+        setNodes(recomputed)
       }
-
-      // Scenario B: Detach is handled by Ungroup Button (Toolbar)
-      // We purposefully don't auto-detach on drag to prevent accidental removals.
     },
-    [nodes, setNodes, getIntersectingNodes, onError]
+    [nodes, setNodes]
   )
 
   return { onDragOver, onDrop, onNodeDragStop }

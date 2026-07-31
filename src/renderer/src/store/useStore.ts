@@ -16,15 +16,245 @@ import type {
   NodeSimulationMetrics,
   AnyNodeData,
   EdgeSimulationData,
-  ScenarioState
+  ScenarioState,
+  MetricLens
 } from '@renderer/types/ui'
 import { DEFAULT_SCENARIO_STATE } from '@renderer/types/ui'
+import type { EdgeFailureCause, EdgeFlowEvent } from '../../../engine/core/events'
+import type { WorkloadProfile } from '../../../engine/core/types'
+import type { RoutingStrategy } from '../../../engine/catalog/nodeSpecTypes'
+
+type FailureCountsByCause = Partial<Record<EdgeFailureCause, number>>
+const RUNTIME_METRIC_LENSES: ReadonlySet<MetricLens> = new Set([
+  'traffic',
+  'saturation',
+  'latency',
+  'errors',
+  'throughput'
+])
+
+export type EdgeFlowRenderEvent = EdgeFlowEvent & {
+  receivedAtMs: number
+  displayAtMs: number
+  sampleWeight: number
+}
+
+export interface EdgeFlowState {
+  recent: EdgeFlowRenderEvent[]
+  attemptedPerSecond: number
+  successPerSecond: number
+  failedPerSecond: number
+  failureRatio: number
+  totalAttempted: number
+  totalSuccess: number
+  totalFailed: number
+  totalPostWarmupAttempted: number
+  totalPostWarmupSuccess: number
+  totalPostWarmupFailed: number
+  avgAttemptedPerSecond: number
+  avgSuccessPerSecond: number
+  avgFailedPerSecond: number
+  avgPostWarmupSuccessPerSecond: number
+  firstStartedAtMs: number
+  lastStartedAtMs: number
+  totalFailedByCause: FailureCountsByCause
+  totalPostWarmupFailedByCause: FailureCountsByCause
+}
+
+export type EdgeFlowStatus = 'idle' | 'running' | 'complete'
+
+export interface RoutingStrategyVisualizationState {
+  sourceNodeId: string
+  sourceLabel: string
+  strategy: RoutingStrategy
+}
+
+export interface EdgeFlowRunConfig {
+  workload: WorkloadProfile
+  simulationDurationMs: number
+  warmupDurationMs: number
+}
+
+const EDGE_FLOW_WINDOW_MS = 6_000
+const EDGE_FLOW_MAX_EVENTS = 25_000
+const EDGE_FLOW_HISTORY_MAX_EVENTS = 10_000
+const EDGE_FLOW_PLAYBACK_SPEED = 10
+const EDGE_FLOW_LIVE_RETAINED_EVENTS_PER_BATCH = 100
+
+const EMPTY_EDGE_FLOW_STATE: EdgeFlowState = {
+  recent: [],
+  attemptedPerSecond: 0,
+  successPerSecond: 0,
+  failedPerSecond: 0,
+  failureRatio: 0,
+  totalAttempted: 0,
+  totalSuccess: 0,
+  totalFailed: 0,
+  totalPostWarmupAttempted: 0,
+  totalPostWarmupSuccess: 0,
+  totalPostWarmupFailed: 0,
+  avgAttemptedPerSecond: 0,
+  avgSuccessPerSecond: 0,
+  avgFailedPerSecond: 0,
+  avgPostWarmupSuccessPerSecond: 0,
+  firstStartedAtMs: 0,
+  lastStartedAtMs: 0,
+  totalFailedByCause: {},
+  totalPostWarmupFailedByCause: {}
+}
+
+function summarizeEdgeFlow(
+  events: EdgeFlowRenderEvent[]
+): Pick<
+  EdgeFlowState,
+  'attemptedPerSecond' | 'successPerSecond' | 'failedPerSecond' | 'failureRatio'
+> {
+  const lastStartedAtMs = events[events.length - 1]?.startedAtMs
+  const windowedEvents =
+    lastStartedAtMs === undefined
+      ? []
+      : events.filter((event) => lastStartedAtMs - event.startedAtMs <= EDGE_FLOW_WINDOW_MS)
+  let attempted = 0
+  let success = 0
+
+  for (const event of windowedEvents) {
+    const weight = event.sampleWeight
+    attempted += weight
+    if (event.status === 'success') {
+      success += weight
+    }
+  }
+
+  const failed = attempted - success
+  const first = windowedEvents[0]?.startedAtMs
+  const last = windowedEvents[windowedEvents.length - 1]?.startedAtMs
+  const spanSeconds = Math.max(
+    1,
+    first !== undefined && last !== undefined ? (last - first) / 1000 : 1
+  )
+
+  return {
+    attemptedPerSecond: attempted / spanSeconds,
+    successPerSecond: success / spanSeconds,
+    failedPerSecond: failed / spanSeconds,
+    failureRatio: attempted > 0 ? failed / attempted : 0
+  }
+}
+
+function incrementFailureCauseInPlace(
+  counts: FailureCountsByCause,
+  cause: EdgeFailureCause | undefined
+) {
+  if (!cause) {
+    return
+  }
+
+  counts[cause] = (counts[cause] ?? 0) + 1
+}
+
+function mergeEdgeFlowState(
+  previous: EdgeFlowState,
+  countedEvents: EdgeFlowEvent[],
+  retainedEvents: EdgeFlowRenderEvent[],
+  warmupDurationMs: number
+): EdgeFlowState {
+  const lastEvent = countedEvents[countedEvents.length - 1]
+  if (!lastEvent) {
+    return previous
+  }
+
+  const lastRetainedEvent = retainedEvents[retainedEvents.length - 1]
+  const recent = previous.recent
+    .concat(retainedEvents)
+    .filter(
+      (item) =>
+        !lastRetainedEvent ||
+        lastRetainedEvent.displayAtMs - item.displayAtMs <= EDGE_FLOW_WINDOW_MS * 2
+    )
+    .slice(-EDGE_FLOW_MAX_EVENTS)
+  const totalAttempted = previous.totalAttempted + countedEvents.length
+  let totalSuccess = previous.totalSuccess
+  let totalPostWarmupAttempted = previous.totalPostWarmupAttempted
+  let totalPostWarmupSuccess = previous.totalPostWarmupSuccess
+  const totalFailedByCause = { ...previous.totalFailedByCause }
+  const totalPostWarmupFailedByCause = { ...previous.totalPostWarmupFailedByCause }
+
+  for (const event of countedEvents) {
+    const isPostWarmupEvent = event.completedAtMs >= warmupDurationMs
+
+    if (event.status === 'success') {
+      totalSuccess++
+      if (isPostWarmupEvent) {
+        totalPostWarmupSuccess++
+      }
+    }
+
+    if (isPostWarmupEvent) {
+      totalPostWarmupAttempted++
+    }
+
+    incrementFailureCauseInPlace(totalFailedByCause, event.failureCause)
+    if (isPostWarmupEvent) {
+      incrementFailureCauseInPlace(totalPostWarmupFailedByCause, event.failureCause)
+    }
+  }
+
+  const totalFailed = totalAttempted - totalSuccess
+  const totalPostWarmupFailed = totalPostWarmupAttempted - totalPostWarmupSuccess
+  const firstStartedAtMs =
+    previous.totalAttempted === 0 ? (countedEvents[0]?.startedAtMs ?? 0) : previous.firstStartedAtMs
+  const lastStartedAtMs =
+    previous.totalAttempted === 0
+      ? lastEvent.startedAtMs
+      : Math.max(previous.lastStartedAtMs, lastEvent.startedAtMs)
+  const durationSeconds = Math.max(1, (lastStartedAtMs - firstStartedAtMs) / 1000)
+  const postWarmupDurationSeconds = Math.max(
+    1,
+    (Math.max(lastStartedAtMs, warmupDurationMs) - warmupDurationMs) / 1000
+  )
+
+  return {
+    recent,
+    ...summarizeEdgeFlow(recent),
+    totalAttempted,
+    totalSuccess,
+    totalFailed,
+    totalPostWarmupAttempted,
+    totalPostWarmupSuccess,
+    totalPostWarmupFailed,
+    avgAttemptedPerSecond: totalAttempted / durationSeconds,
+    avgSuccessPerSecond: totalSuccess / durationSeconds,
+    avgFailedPerSecond: totalFailed / durationSeconds,
+    avgPostWarmupSuccessPerSecond: totalPostWarmupSuccess / postWarmupDurationSeconds,
+    firstStartedAtMs,
+    lastStartedAtMs,
+    totalFailedByCause,
+    totalPostWarmupFailedByCause
+  }
+}
+
+function shouldRetainEdgeFlowEvent(
+  event: EdgeFlowEvent,
+  index: number,
+  sampleStride: number
+): boolean {
+  return event.status !== 'success' || index % sampleStride === 0
+}
 
 type RFState = {
   // --- Graph Data ---
   nodes: Node[]
   edges: Edge[]
   simulationMetricsByNode: Record<string, NodeSimulationMetrics>
+  metricLens: MetricLens
+  edgeFlowById: Record<string, EdgeFlowState>
+  edgeFlowHistory: EdgeFlowRenderEvent[]
+  edgeFlowPlayback: { wallStartMs: number; simStartMs: number } | null
+  edgeFlowStatus: EdgeFlowStatus
+  edgeFlowRunConfig: EdgeFlowRunConfig | null
+  runInspectorPinned: boolean
+  runInspectorDrilldownActive: boolean
+  routingStrategyVisualization: RoutingStrategyVisualizationState | null
 
   // --- File State ---
   fileName: string | null
@@ -43,6 +273,15 @@ type RFState = {
   ) => void
   setSimulationMetrics: (metrics: Record<string, NodeSimulationMetrics>) => void
   clearSimulationMetrics: () => void
+  setMetricLens: (lens: MetricLens) => void
+  recordEdgeFlowEvent: (event: EdgeFlowEvent) => void
+  recordEdgeFlowEventBatch: (events: EdgeFlowEvent[]) => void
+  setEdgeFlowStatus: (status: EdgeFlowStatus) => void
+  setEdgeFlowRunConfig: (config: EdgeFlowRunConfig) => void
+  setRunInspectorPinned: (pinned: boolean) => void
+  setRunInspectorDrilldownActive: (active: boolean) => void
+  clearEdgeFlow: () => void
+  setRoutingStrategyVisualization: (state: RoutingStrategyVisualizationState | null) => void
   setNodes: (nodes: Node[]) => void
   setEdges: (edges: Edge[]) => void
   selectGraphElements: (selection: { nodeId?: string; edgeId?: string }) => void
@@ -58,6 +297,15 @@ const useStore = create<RFState>((set, get) => ({
   nodes: [],
   edges: [],
   simulationMetricsByNode: {},
+  metricLens: 'concurrency',
+  edgeFlowById: {},
+  edgeFlowHistory: [],
+  edgeFlowPlayback: null,
+  edgeFlowStatus: 'idle',
+  edgeFlowRunConfig: null,
+  runInspectorPinned: false,
+  runInspectorDrilldownActive: false,
+  routingStrategyVisualization: null,
 
   // Initial File State
   fileName: 'Untitled',
@@ -124,6 +372,10 @@ const useStore = create<RFState>((set, get) => ({
 
   selectGraphElements: ({ nodeId, edgeId }) => {
     set({
+      runInspectorPinned:
+        nodeId !== undefined || edgeId !== undefined ? false : get().runInspectorPinned,
+      runInspectorDrilldownActive:
+        nodeId !== undefined || edgeId !== undefined ? false : get().runInspectorDrilldownActive,
       nodes: get().nodes.map((node) => ({
         ...node,
         selected: nodeId !== undefined && node.id === nodeId
@@ -174,11 +426,143 @@ const useStore = create<RFState>((set, get) => ({
   },
 
   setSimulationMetrics: (simulationMetricsByNode) => {
-    set({ simulationMetricsByNode })
+    set((state) => ({
+      simulationMetricsByNode,
+      metricLens: RUNTIME_METRIC_LENSES.has(state.metricLens) ? state.metricLens : 'traffic'
+    }))
+  },
+
+  setMetricLens: (metricLens) => {
+    set({ metricLens })
   },
 
   clearSimulationMetrics: () => {
-    set({ simulationMetricsByNode: {} })
+    set({ simulationMetricsByNode: {}, metricLens: 'concurrency' })
+  },
+
+  recordEdgeFlowEvent: (event) => {
+    get().recordEdgeFlowEventBatch([event])
+  },
+
+  recordEdgeFlowEventBatch: (events) => {
+    if (events.length === 0) {
+      return
+    }
+
+    const receivedAtMs = Date.now()
+
+    set((state) => {
+      const playback = state.edgeFlowPlayback ?? {
+        wallStartMs: receivedAtMs,
+        simStartMs: events[0]?.startedAtMs ?? 0
+      }
+      const countedEventsByEdgeId = new Map<string, EdgeFlowEvent[]>()
+      const retainedEventsByEdgeId = new Map<string, EdgeFlowRenderEvent[]>()
+      const retainedEvents: EdgeFlowRenderEvent[] = []
+
+      for (const event of events) {
+        const counted = countedEventsByEdgeId.get(event.edgeId)
+        if (counted) {
+          counted.push(event)
+        } else {
+          countedEventsByEdgeId.set(event.edgeId, [event])
+        }
+      }
+
+      for (const [edgeId, edgeEvents] of countedEventsByEdgeId) {
+        const retainedTarget = Math.max(
+          1,
+          Math.ceil((EDGE_FLOW_LIVE_RETAINED_EVENTS_PER_BATCH * edgeEvents.length) / events.length)
+        )
+        const sampleStride = Math.max(1, Math.ceil(edgeEvents.length / retainedTarget))
+
+        edgeEvents.forEach((event, index) => {
+          if (!shouldRetainEdgeFlowEvent(event, index, sampleStride)) {
+            return
+          }
+
+          const displayAtMs =
+            playback.wallStartMs +
+            (event.startedAtMs - playback.simStartMs) / EDGE_FLOW_PLAYBACK_SPEED
+          const renderedEvent: EdgeFlowRenderEvent = {
+            ...event,
+            receivedAtMs,
+            displayAtMs,
+            sampleWeight: event.status === 'success' ? sampleStride : 1
+          }
+          const existing = retainedEventsByEdgeId.get(edgeId)
+          if (existing) {
+            existing.push(renderedEvent)
+          } else {
+            retainedEventsByEdgeId.set(edgeId, [renderedEvent])
+          }
+          retainedEvents.push(renderedEvent)
+        })
+      }
+
+      retainedEvents.sort(
+        (first, second) =>
+          first.startedAtMs - second.startedAtMs ||
+          first.sequence - second.sequence ||
+          first.edgeId.localeCompare(second.edgeId)
+      )
+      const edgeFlowById = { ...state.edgeFlowById }
+      const warmupDurationMs = state.edgeFlowRunConfig?.warmupDurationMs ?? 0
+
+      for (const [edgeId, edgeEvents] of countedEventsByEdgeId) {
+        const previous = edgeFlowById[edgeId] ?? EMPTY_EDGE_FLOW_STATE
+        edgeFlowById[edgeId] = mergeEdgeFlowState(
+          previous,
+          edgeEvents,
+          retainedEventsByEdgeId.get(edgeId) ?? [],
+          warmupDurationMs
+        )
+      }
+
+      return {
+        edgeFlowStatus: 'running' as const,
+        edgeFlowPlayback: playback,
+        edgeFlowHistory: state.edgeFlowHistory
+          .concat(retainedEvents)
+          .slice(-EDGE_FLOW_HISTORY_MAX_EVENTS),
+        edgeFlowById
+      }
+    })
+  },
+
+  setEdgeFlowStatus: (status) => {
+    set({ edgeFlowStatus: status })
+  },
+
+  setEdgeFlowRunConfig: (config) => {
+    set({ edgeFlowRunConfig: config })
+  },
+
+  setRunInspectorPinned: (pinned) => {
+    set({
+      runInspectorPinned: pinned,
+      ...(pinned ? { runInspectorDrilldownActive: false } : {})
+    })
+  },
+
+  setRunInspectorDrilldownActive: (active) => {
+    set({ runInspectorDrilldownActive: active })
+  },
+
+  clearEdgeFlow: () => {
+    set({
+      edgeFlowById: {},
+      edgeFlowHistory: [],
+      edgeFlowPlayback: null,
+      edgeFlowStatus: 'idle',
+      edgeFlowRunConfig: null,
+      runInspectorPinned: false,
+      runInspectorDrilldownActive: false
+    })
+  },
+
+  setRoutingStrategyVisualization: (routingStrategyVisualization) => {
+    set({ routingStrategyVisualization })
   },
 
   // File State Setters

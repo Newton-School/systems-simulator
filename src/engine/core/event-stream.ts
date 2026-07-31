@@ -1,4 +1,5 @@
 import type { EventType, SimulationEvent } from './events'
+import type { RequestOutcomeFamily, RequestOutcomeStatusClass } from './requestOutcomeSemantics'
 
 export const CANONICAL_EVENT_TYPES = [
   'request-generated',
@@ -6,19 +7,62 @@ export const CANONICAL_EVENT_TYPES = [
   'request-queued',
   'processing-started',
   'processing-completed',
+  'trait-evaluated',
   'request-forwarded',
   'request-completed',
   'request-timed-out',
   'request-rejected',
   'node-failed',
-  'node-recovered'
+  'node-recovered',
+  'health-probed',
+  'circuit-breaker-open',
+  'circuit-breaker-close'
 ] as const
 
 export type CanonicalEventType = (typeof CANONICAL_EVENT_TYPES)[number]
 
-export type TerminalRequestStatus = 'success' | 'timeout' | 'rejected'
+export type TerminalRequestStatus = 'success' | 'timeout' | 'rejected' | 'connection_reset'
 export type AdmissionDecisionStatus = 'accepted' | 'queued' | 'rejected' | 'timed-out'
 export type DebugEventStatus = 'info' | 'success' | 'timeout' | 'rejected' | 'failure'
+
+/**
+ * Per-request final fate. `in-flight` is not a terminal status — it marks a
+ * request that had not finished (neither completed nor failed) when the run hit
+ * its cutoff. It exists so the outcome log can account for every generated
+ * request explicitly instead of letting unfinished ones silently vanish.
+ */
+export type RequestOutcomeStatus = TerminalRequestStatus | 'in-flight'
+
+/**
+ * A complete, unsampled ledger row for one request's outcome. Sourced from the
+ * engine's terminal funnel (`markRequestTerminal`) plus the in-flight survivors
+ * at cutoff, so `Σ(records by status) === requests generated`. This is the
+ * canonical source for the results-tray Event Log: one row per request, keyed on
+ * terminal fate, carrying attempt count so the retry signal survives the collapse.
+ */
+export interface RequestOutcomeRecord {
+  requestId: string
+  status: RequestOutcomeStatus
+  reasonCode: string | null
+  /** Wall-clock-independent sim time (ms) the request was generated. */
+  createdAtMs: number
+  /** Sim time (ms) the request reached its terminal status; null while in flight. */
+  terminalAtMs: number | null
+  /** Node the request terminated at, or the last node it reached if still in flight. */
+  nodeId: string | null
+  /** Total processing attempts for this request (retries + 1). */
+  attempts: number
+  /** End-to-end latency (ms) for terminal requests; null while in flight. */
+  latencyMs: number | null
+  requestType: string | null
+  method: string | null
+  host: string | null
+  path: string | null
+  operationLabel: string
+  outcomeFamily: RequestOutcomeFamily
+  statusClass: RequestOutcomeStatusClass
+  statusCodeHint: string | null
+}
 
 export type JsonSafeValue =
   | string
@@ -206,6 +250,12 @@ export function toCanonicalEventType(type: EventType): CanonicalEventType | null
       return 'node-failed'
     case 'node-recovery':
       return 'node-recovered'
+    case 'health-check':
+      return 'health-probed'
+    case 'circuit-breaker-open':
+      return 'circuit-breaker-open'
+    case 'circuit-breaker-close':
+      return 'circuit-breaker-close'
     default:
       return null
   }
@@ -261,6 +311,8 @@ function deriveDebugStatus(type: CanonicalEventType): DebugEventStatus {
       return 'rejected'
     case 'node-failed':
       return 'failure'
+    case 'circuit-breaker-open':
+      return 'failure'
     default:
       return 'info'
   }
@@ -282,6 +334,14 @@ function buildDebugMessage(record: CanonicalEventRecord): string {
       return `${subject} started processing${nodeSuffix}`
     case 'processing-completed':
       return `${subject} completed processing${nodeSuffix}`
+    case 'trait-evaluated': {
+      const traitName =
+        typeof record.payload.traitName === 'string' ? record.payload.traitName : 'unknown-trait'
+      const hook = typeof record.payload.hook === 'string' ? record.payload.hook : 'unknown-hook'
+      const decision =
+        typeof record.payload.decision === 'string' ? record.payload.decision : 'unknown-decision'
+      return `${traitName} ${hook} decided ${decision}${nodeSuffix}`
+    }
     case 'request-forwarded':
       return `${subject} forwarded${nodeSuffix}`
     case 'request-completed':
@@ -294,6 +354,14 @@ function buildDebugMessage(record: CanonicalEventRecord): string {
       return `node ${record.nodeId ?? 'unknown'} failed${reasonSuffix}`
     case 'node-recovered':
       return `node ${record.nodeId ?? 'unknown'} recovered`
+    case 'health-probed': {
+      const probedHealthy = record.payload.probedHealthy === true
+      return `health probe of ${record.nodeId ?? 'unknown'} reported ${probedHealthy ? 'healthy' : 'unhealthy'}`
+    }
+    case 'circuit-breaker-open':
+      return `circuit breaker opened at ${record.nodeId ?? 'unknown'}`
+    case 'circuit-breaker-close':
+      return `circuit breaker closed at ${record.nodeId ?? 'unknown'}`
   }
 }
 

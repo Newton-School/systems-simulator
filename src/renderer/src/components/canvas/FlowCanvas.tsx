@@ -9,16 +9,16 @@ import ReactFlow, {
   Edge,
   Connection,
   ConnectionLineType,
-  updateEdge
+  updateEdge,
+  Node
 } from 'reactflow'
 import 'reactflow/dist/style.css'
-import { EdgeSimulationData } from '@renderer/types/ui'
 
 import EmptyFlowState from '../ui/EmptyFlowState'
-// Hooks & Config
-import { EdgePropertiesPanel, EdgePropertiesPanelValue } from '../ui/EdgePropertiesPanel'
 import { RunToast } from '../ui/RunToast'
-
+import { CanvasLegend } from './CanvasLegend'
+import { MetricLensSwitcher } from './MetricLensSwitcher'
+import useStore from '@renderer/store/useStore'
 import { useFlowStore } from './hooks/useFlowStore'
 import { useFlowDnD } from './hooks/useFlowDnD'
 import { useFlowConfig, nodeTypes, GRID_COLOR } from './config/flowConfig'
@@ -27,22 +27,19 @@ import { useHandleProximity } from './hooks/useHandleProximity'
 import MagneticConnectionLine from './MagneticConnectionLine'
 import { MAGNETIC_CONNECTION_RADIUS_PX } from './magneticSnapConfig'
 
-const FlowCanvasInternal = () => {
+interface FlowCanvasProps {
+  showMetricLens?: boolean
+  onNodeDoubleClick?: (event: React.MouseEvent, node: Node) => void
+}
+
+const FlowCanvasInternal = ({ showMetricLens = false, onNodeDoubleClick }: FlowCanvasProps) => {
   const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance | null>(null)
-  const [selectedEdge, setSelectedEdge] = useState<Edge | null>(null)
   const [validationError, setValidationError] = useState<string | null>(null)
 
-  const {
-    nodes,
-    edges,
-    onNodesChange,
-    onEdgesChange,
-    onConnect,
-    addNode,
-    setNodes,
-    setEdges,
-    updateEdgeData
-  } = useFlowStore()
+  const { nodes, edges, onNodesChange, onEdgesChange, onConnect, addNode, setNodes, setEdges } =
+    useFlowStore()
+
+  const selectGraphElements = useStore((state) => state.selectGraphElements)
 
   const { edgeTypes, defaultEdgeOptions } = useFlowConfig()
 
@@ -71,7 +68,6 @@ const FlowCanvasInternal = () => {
     const isBulkLoad = Math.abs(nodes.length - prevNodeCount.current) > 1
 
     if (reactFlowInstance && isBulkLoad) {
-      // Only fit view when many nodes are added at once (e.g. opening a saved file)
       window.requestAnimationFrame(() => {
         reactFlowInstance.fitView({
           padding: 0.2,
@@ -84,46 +80,17 @@ const FlowCanvasInternal = () => {
     prevNodeCount.current = nodes.length
   }, [nodes.length, reactFlowInstance])
 
-  const onEdgeClick = useCallback((event: React.MouseEvent, edge: Edge) => {
-    event.stopPropagation()
-    setSelectedEdge(edge)
-  }, [])
+  const onEdgeClick = useCallback(
+    (event: React.MouseEvent, edge: Edge) => {
+      event.stopPropagation()
+      selectGraphElements({ edgeId: edge.id })
+    },
+    [selectGraphElements]
+  )
 
   const onPaneClick = useCallback(() => {
-    setSelectedEdge(null)
-  }, [])
-
-  const handleEdgePropertiesChange = useCallback(
-    (patch: Partial<EdgePropertiesPanelValue>) => {
-      if (!selectedEdge) return
-
-      const { label, ...dataPatch } = patch
-      const hasDataPatch = Object.keys(dataPatch).length > 0
-
-      updateEdgeData(selectedEdge.id, {
-        ...(label !== undefined ? { label } : {}),
-        ...(hasDataPatch ? { data: dataPatch as Partial<EdgeSimulationData> } : {})
-      })
-
-      setSelectedEdge((prev) =>
-        prev
-          ? {
-              ...prev,
-              ...(label !== undefined ? { label } : {}),
-              ...(hasDataPatch
-                ? {
-                    data: {
-                      ...((prev.data as Record<string, unknown> | undefined) ?? {}),
-                      ...dataPatch
-                    }
-                  }
-                : {})
-            }
-          : null
-      )
-    },
-    [selectedEdge, updateEdgeData]
-  )
+    selectGraphElements({})
+  }, [selectGraphElements])
 
   return (
     <div style={{ width: '100%', height: '100%' }} className="bg-nss-bg relative">
@@ -150,14 +117,15 @@ const FlowCanvasInternal = () => {
         onNodeDragStop={onNodeDragStop}
         onEdgeClick={onEdgeClick}
         onPaneClick={onPaneClick}
+        onNodeDoubleClick={onNodeDoubleClick}
       >
         <Background variant={BackgroundVariant.Dots} gap={30} size={1.2} color={GRID_COLOR} />
         <Controls className="!bg-nss-surface !border-nss-border" />
         <MiniMap className="!bg-nss-surface !border-nss-border" />
       </ReactFlow>
-      {/* Empty State */}
+      {!isEmpty && showMetricLens && <MetricLensSwitcher />}
+      {!isEmpty && showMetricLens && <CanvasLegend />}
       <EmptyFlowState isEmpty={isEmpty} />
-
       {validationError && (
         <RunToast
           messages={[validationError]}
@@ -165,23 +133,12 @@ const FlowCanvasInternal = () => {
           onClose={() => setValidationError(null)}
         />
       )}
-
-      {selectedEdge && (
-        <EdgePropertiesPanel
-          value={{
-            label: (selectedEdge.label as string) || '',
-            ...(((selectedEdge.data as EdgeSimulationData | undefined) ?? {}) as EdgeSimulationData)
-          }}
-          onChange={handleEdgePropertiesChange}
-          onClose={() => setSelectedEdge(null)}
-        />
-      )}
     </div>
   )
 }
 
-export const FlowCanvas = () => (
+export const FlowCanvas = (props: FlowCanvasProps) => (
   <ReactFlowProvider>
-    <FlowCanvasInternal />
+    <FlowCanvasInternal {...props} />
   </ReactFlowProvider>
 )

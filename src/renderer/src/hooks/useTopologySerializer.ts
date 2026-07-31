@@ -1,21 +1,27 @@
 import { useCallback } from 'react'
 import type { Edge } from 'reactflow'
 import type {
+  BaseDistributionConfig,
+  DistributionConfig,
   EdgeDefinition,
   GlobalConfig,
   TopologyJSON,
   WorkloadProfile
 } from '../../../engine/core/types'
 import { getComponentSpec } from '../../../engine/catalog/componentSpecs'
-import { getPaletteTemplate } from '../../../engine/catalog/paletteTemplates'
 import type { CanvasNodeDataV2 } from '../../../engine/catalog/nodeSpecTypes'
+import { getPathTypeLatencyProfile, inferEdgeDefaults } from '../../../engine/defaults/edgeDefaults'
+import { inferCanvasEdgeMode } from '@renderer/config/edgeSemantics'
 import useStore from '../store/useStore'
 import type { ScenarioRunContext, ScenarioState } from '@renderer/types/ui'
 import { normalizeScenarioState } from '@renderer/types/ui'
+import { mergeWorkloadDefaults } from '@renderer/utils/workloadDefaults'
 
 type EdgeRuntimeData = {
   protocol?: EdgeDefinition['protocol']
   mode?: EdgeDefinition['mode']
+  latencyDistributionType?: 'log-normal' | 'constant'
+  latencyValue?: number
   latencyMu?: number
   latencySigma?: number
   pathType?: EdgeDefinition['latency']['pathType']
@@ -23,20 +29,20 @@ type EdgeRuntimeData = {
   maxConcurrentRequests?: number
   packetLossRate?: number
   errorRate?: number
-}
-
-const EDGE_DEFAULTS = {
-  latencyMu: 2.3,
-  latencySigma: 0.5,
-  pathType: 'same-dc' as const,
-  bandwidth: 1000,
-  maxConcurrentRequests: 100,
-  packetLossRatePercent: 0,
-  errorRatePercent: 0.1
+  condition?: string
+  weight?: number
 }
 
 function asPositiveNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null
+}
+
+function asFiniteNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+function asNonNegativeNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null
 }
 
 function asPositiveInt(value: unknown): number | null {
@@ -100,6 +106,53 @@ function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value))
 }
 
+type EdgeLatencyDistribution = Extract<BaseDistributionConfig, { type: 'constant' | 'log-normal' }>
+
+export function resolveEdgeLatencyDistribution(
+  edgeData: Pick<
+    EdgeRuntimeData,
+    'latencyDistributionType' | 'latencyValue' | 'latencyMu' | 'latencySigma'
+  >,
+  pathLatencyProfile: Extract<DistributionConfig, { type: 'log-normal' }>
+): {
+  distribution: EdgeLatencyDistribution
+  derivedFromPathType: boolean
+} {
+  const explicitLatencyValue = asNonNegativeNumber(edgeData.latencyValue)
+  const explicitLatencyMu = asFiniteNumber(edgeData.latencyMu)
+  const explicitLatencySigma = asPositiveNumber(edgeData.latencySigma)
+  const distributionType =
+    edgeData.latencyDistributionType === 'constant'
+      ? 'constant'
+      : edgeData.latencyDistributionType === 'log-normal'
+        ? 'log-normal'
+        : explicitLatencyValue !== null &&
+            explicitLatencyMu === null &&
+            explicitLatencySigma === null
+          ? 'constant'
+          : 'log-normal'
+
+  if (distributionType === 'constant') {
+    return {
+      distribution: {
+        type: 'constant',
+        value: explicitLatencyValue ?? Math.exp(pathLatencyProfile.mu)
+      },
+      derivedFromPathType: false
+    }
+  }
+
+  const hasExplicitLogNormal = explicitLatencyMu !== null || explicitLatencySigma !== null
+  return {
+    distribution: {
+      type: 'log-normal',
+      mu: explicitLatencyMu ?? pathLatencyProfile.mu,
+      sigma: explicitLatencySigma ?? pathLatencyProfile.sigma
+    },
+    derivedFromPathType: !hasExplicitLogNormal
+  }
+}
+
 function buildScenarioGlobal(global: ScenarioState['global']): GlobalConfig {
   return {
     simulationDuration: global.simulationDuration,
@@ -111,76 +164,88 @@ function buildScenarioGlobal(global: ScenarioState['global']): GlobalConfig {
   }
 }
 
-function mergeWorkload(
-  base: NonNullable<CanvasNodeDataV2['source']>['defaultWorkload'],
-  override: ScenarioState['workloadOverride']
-): Omit<WorkloadProfile, 'sourceNodeId' | 'requestDistribution'> {
-  return {
-    ...base,
-    ...override,
-    ...(base.bursty || override?.bursty
-      ? {
-          bursty: {
-            ...(base.bursty ?? { burstRps: 500, burstDuration: 2000, normalDuration: 8000 }),
-            ...override?.bursty
-          }
-        }
-      : {}),
-    ...(base.spike || override?.spike
-      ? {
-          spike: {
-            ...(base.spike ?? { spikeTime: 30_000, spikeRps: 1000, spikeDuration: 5000 }),
-            ...override?.spike
-          }
-        }
-      : {}),
-    ...(base.sawtooth || override?.sawtooth
-      ? {
-          sawtooth: {
-            ...(base.sawtooth ?? { peakRps: 300, rampDuration: 10_000 }),
-            ...override?.sawtooth
-          }
-        }
-      : {}),
-    ...(base.diurnal || override?.diurnal
-      ? {
-          diurnal: {
-            ...(base.diurnal ?? {
-              peakMultiplier: 1,
-              hourlyMultipliers: [
-                0.6, 0.5, 0.45, 0.4, 0.4, 0.5, 0.7, 0.9, 1.1, 1.2, 1.15, 1.05, 1, 1.05, 1.1, 1.2,
-                1.25, 1.3, 1.2, 1.05, 0.95, 0.85, 0.75, 0.65
-              ]
-            }),
-            ...override?.diurnal
-          }
-        }
-      : {})
-  }
+type EdgePathType = EdgeDefinition['latency']['pathType']
+type ContainerLocation = { region?: string; az?: string; subnet?: string }
+
+const CONTAINER_LEVEL_BY_TEMPLATE: Record<string, keyof ContainerLocation> = {
+  'vpc-region': 'region',
+  'availability-zone': 'az',
+  subnet: 'subnet'
 }
 
-function inferProtocol(targetNode: CanvasNodeDataV2 | undefined): EdgeDefinition['protocol'] {
-  if (!targetNode?.componentType) return 'https'
-
-  if (
-    targetNode.componentType === 'queue' ||
-    targetNode.componentType === 'message-broker' ||
-    targetNode.componentType === 'pub-sub'
-  ) {
-    return 'amqp'
+/**
+ * Maps each node to the Region/AZ/Subnet container ids it is nested inside, by
+ * walking the React Flow parent chain. Composite containers are not simulated
+ * themselves; this membership is what lets an edge's pathType be derived from
+ * where its endpoints physically sit.
+ */
+export function buildContainerLocations(
+  rfNodes: readonly { id: string; parentNode?: string; data?: unknown }[]
+): Map<string, ContainerLocation> {
+  const byId = new Map(rfNodes.map((node) => [node.id, node]))
+  const levelOf = (node: { data?: unknown }): keyof ContainerLocation | undefined => {
+    const templateId = (node.data as { templateId?: unknown } | undefined)?.templateId
+    return typeof templateId === 'string' ? CONTAINER_LEVEL_BY_TEMPLATE[templateId] : undefined
   }
 
-  if (targetNode.componentType === 'stream') {
-    return 'kafka'
+  const locations = new Map<string, ContainerLocation>()
+  for (const node of rfNodes) {
+    const location: ContainerLocation = {}
+    let parentId = node.parentNode
+    const seen = new Set<string>()
+    while (parentId && !seen.has(parentId)) {
+      seen.add(parentId)
+      const parent = byId.get(parentId)
+      if (!parent) break
+      const level = levelOf(parent)
+      if (level && !location[level]) location[level] = parent.id
+      parentId = parent.parentNode
+    }
+    locations.set(node.id, location)
   }
+  return locations
+}
 
-  return 'https'
+export interface ContainerPathResolution {
+  pathType: EdgePathType
+  /**
+   * For cross-region hops, the ordered [sourceRegion, targetRegion] container
+   * ids. Populated so a future distance-aware model can look up a per-pair RTT
+   * (e.g. us-east↔ap-south costs more than us-east↔us-west) without re-threading
+   * the serializer. v1 ignores it — cross-region uses the flat profile.
+   */
+  regionPair?: readonly [string, string]
+}
+
+/**
+ * Derives an edge's pathType from where its endpoints sit in the container
+ * hierarchy: same subnet → same-rack, same AZ → same-dc, same region →
+ * cross-zone, different region → cross-region. Returns null when membership
+ * doesn't determine it (e.g. an endpoint outside all containers), leaving the
+ * edge's existing/inferred pathType untouched.
+ */
+export function pathTypeFromContainers(
+  locations: Map<string, ContainerLocation>,
+  source: string,
+  target: string
+): ContainerPathResolution | null {
+  const a = locations.get(source)
+  const b = locations.get(target)
+  if (!a || !b) return null
+  if (a.subnet && a.subnet === b.subnet) return { pathType: 'same-rack' }
+  if (a.az && a.az === b.az) return { pathType: 'same-dc' }
+  if (a.region && a.region === b.region) return { pathType: 'cross-zone' }
+  if (a.region && b.region && a.region !== b.region) {
+    return { pathType: 'cross-region', regionPair: [a.region, b.region] }
+  }
+  return null
 }
 
 function serializeEdge(
   rfEdge: Edge,
   serializedNodeIds: Set<string>,
-  dataByNodeId: Map<string, CanvasNodeDataV2>
+  dataByNodeId: Map<string, CanvasNodeDataV2>,
+  containerPath: ContainerPathResolution | null
 ): EdgeDefinition | null {
   const { id, source, target } = rfEdge
   if (!serializedNodeIds.has(source) || !serializedNodeIds.has(target)) {
@@ -188,13 +253,28 @@ function serializeEdge(
   }
 
   const targetData = dataByNodeId.get(target)
-  const targetTemplate = getPaletteTemplate(targetData?.templateId)
-  const targetSpec = getComponentSpec(targetData?.componentType)
+  const sourceData = dataByNodeId.get(source)
   const edgeData = (rfEdge.data ?? {}) as EdgeRuntimeData
+  const inferredDefaults = inferEdgeDefaults(sourceData, targetData)
+  // Priority: an explicit pathType the user set on the edge wins; otherwise the
+  // location-derived pathType (Region/AZ/Subnet membership); otherwise the
+  // generic inferred default. Explicit latency (mu/sigma/value) still overrides
+  // inside resolveEdgeLatencyDistribution, so manual tuning is never lost.
+  const pathType =
+    asPathType(edgeData.pathType) ?? containerPath?.pathType ?? inferredDefaults.pathType
+  const pathLatencyProfile = getPathTypeLatencyProfile(pathType)
+  const { distribution, derivedFromPathType } = resolveEdgeLatencyDistribution(
+    edgeData,
+    pathLatencyProfile
+  )
 
-  const mode =
-    asEdgeMode(edgeData.mode) ??
-    (targetTemplate?.asyncBoundary || targetSpec?.asyncBoundary ? 'asynchronous' : 'synchronous')
+  const mode = inferCanvasEdgeMode(
+    {
+      mode: asEdgeMode(edgeData.mode) ?? undefined,
+      protocol: asProtocol(edgeData.protocol) ?? undefined
+    },
+    targetData
+  )
 
   return {
     id: id || `${source}->${target}`,
@@ -202,23 +282,25 @@ function serializeEdge(
     target,
     label: typeof rfEdge.label === 'string' ? rfEdge.label : undefined,
     mode,
-    protocol: asProtocol(edgeData.protocol) ?? inferProtocol(targetData),
+    protocol: asProtocol(edgeData.protocol) ?? inferredDefaults.protocol,
     latency: {
-      distribution: {
-        type: 'log-normal',
-        mu: asPositiveNumber(edgeData.latencyMu) ?? EDGE_DEFAULTS.latencyMu,
-        sigma: asPositiveNumber(edgeData.latencySigma) ?? EDGE_DEFAULTS.latencySigma
-      },
-      pathType: asPathType(edgeData.pathType) ?? EDGE_DEFAULTS.pathType
+      distribution,
+      pathType,
+      derivedFromPathType
     },
-    bandwidth: asPositiveNumber(edgeData.bandwidth) ?? EDGE_DEFAULTS.bandwidth,
+    bandwidth: asPositiveNumber(edgeData.bandwidth) ?? inferredDefaults.bandwidth,
     maxConcurrentRequests:
-      asPositiveInt(edgeData.maxConcurrentRequests) ?? EDGE_DEFAULTS.maxConcurrentRequests,
+      asPositiveInt(edgeData.maxConcurrentRequests) ?? inferredDefaults.maxConcurrentRequests,
     packetLossRate: normalizePercentToRatio(
       edgeData.packetLossRate,
-      EDGE_DEFAULTS.packetLossRatePercent
+      inferredDefaults.packetLossRatePercent
     ),
-    errorRate: normalizePercentToRatio(edgeData.errorRate, EDGE_DEFAULTS.errorRatePercent)
+    errorRate: normalizePercentToRatio(edgeData.errorRate, inferredDefaults.errorRatePercent),
+    condition:
+      typeof edgeData.condition === 'string' && edgeData.condition.trim().length > 0
+        ? edgeData.condition.trim()
+        : undefined,
+    weight: asPositiveNumber(edgeData.weight) ?? undefined
   }
 }
 
@@ -309,16 +391,29 @@ export function useTopologySerializer() {
       const workload: WorkloadProfile = {
         sourceNodeId: selectedSourceRfNode.id,
         requestDistribution: selectedSourceData.source.requestDistribution,
-        ...mergeWorkload(
+        ...mergeWorkloadDefaults(
           selectedSourceData.source.defaultWorkload,
           resolvedScenario.workloadOverride
         )
       }
 
       const serializedNodeIds = new Set(engineNodes.map((node) => node.id))
+      const containerLocations = buildContainerLocations(nodes)
       const engineEdges = edges
-        .map((edge) => serializeEdge(edge, serializedNodeIds, dataByNodeId))
+        .map((edge) =>
+          serializeEdge(
+            edge,
+            serializedNodeIds,
+            dataByNodeId,
+            pathTypeFromContainers(containerLocations, edge.source, edge.target)
+          )
+        )
         .filter((edge): edge is EdgeDefinition => edge !== null)
+
+      // Only forward faults that target a serializable node in this topology.
+      const faults = (resolvedScenario.faults ?? []).filter((fault) =>
+        serializedNodeIds.has(fault.targetId)
+      )
 
       const topology: TopologyJSON = {
         id: 'canvas-topology',
@@ -327,7 +422,8 @@ export function useTopologySerializer() {
         global: buildScenarioGlobal(resolvedScenario.global),
         nodes: engineNodes,
         edges: engineEdges,
-        workload
+        workload,
+        ...(faults.length > 0 ? { faults } : {})
       }
 
       return {

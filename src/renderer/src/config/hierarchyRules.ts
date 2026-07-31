@@ -1,65 +1,50 @@
-export type AllowedParents = string[] | 'root'
+const ROOT_PARENT = 'root'
+
+export type AllowedParent = 'vpc-region' | 'availability-zone' | 'subnet' | typeof ROOT_PARENT
 
 export interface HierarchyRule {
-  allowedParents: AllowedParents
+  allowedParents: readonly AllowedParent[]
   errorMessage: string
 }
 
+const DEFAULT_ALLOWED_PARENTS: readonly AllowedParent[] = [
+  ROOT_PARENT,
+  'vpc-region',
+  'availability-zone',
+  'subnet'
+]
+
 export const HIERARCHY_RULES: Record<string, HierarchyRule> = {
   'vpc-region': {
-    allowedParents: 'root',
-    errorMessage: 'VPCs cannot be nested inside another VPC. Use VPC Peering, Transit Gateway, or another connectivity component to connect multiple VPCs.'
+    allowedParents: [ROOT_PARENT],
+    errorMessage: 'VPC Regions can only be placed on the root canvas.'
   },
   'availability-zone': {
-    allowedParents: ['vpc-region'],
-    errorMessage: 'Availability Zones must be placed inside a VPC Region.'
+    allowedParents: [ROOT_PARENT, 'vpc-region'],
+    errorMessage: 'Availability Zones can only be placed on the root canvas or inside a VPC Region.'
   },
-  'subnet': {
-    allowedParents: ['availability-zone', 'vpc-region'],
-    errorMessage: 'Subnets must be placed inside an Availability Zone or VPC Region.'
-  },
-  'nat-gateway': {
-    allowedParents: ['vpc-region', 'subnet', 'root'],
-    errorMessage: 'Gateways must be placed within a VPC Region or Subnet.'
-  },
-  'routing-rule': {
-    allowedParents: ['vpc-region', 'subnet', 'root'],
-    errorMessage: 'Routing rules must be placed within a VPC Region or Subnet.'
-  },
-  'routing-policy': {
-    allowedParents: ['vpc-region', 'subnet', 'root'],
-    errorMessage: 'Routing policies must be placed within a VPC Region or Subnet.'
-  },
-  'vpn-gateway': {
-    allowedParents: ['vpc-region', 'subnet', 'root'],
-    errorMessage: 'Gateways must be placed within a VPC Region or Subnet.'
-  },
-  'api-gateway': {
-    allowedParents: ['vpc-region', 'subnet', 'root'],
-    errorMessage: 'Gateways must be placed within a VPC Region or Subnet.'
-  },
-  'security-group': {
-    allowedParents: ['vpc-region', 'subnet', 'root'],
-    errorMessage: 'Security Groups must be placed within a VPC Region or Subnet.'
-  },
-  '*': {
-    allowedParents: ['subnet', 'root'],
-    errorMessage: 'Resources must be placed within a Subnet or on the root canvas.'
+  subnet: {
+    allowedParents: [ROOT_PARENT, 'vpc-region', 'availability-zone'],
+    errorMessage:
+      'Subnets can only be placed on the root canvas, inside a VPC Region, or inside an Availability Zone.'
   }
 }
 
-export function validatePlacement(childTemplateId: string, parentTemplateId: string | null): { valid: boolean; error?: string } {
-  const rule = HIERARCHY_RULES[childTemplateId] || HIERARCHY_RULES['*']
-  const targetParent = parentTemplateId || 'root'
+export function validatePlacement(
+  childTemplateId?: string | null,
+  parentTemplateId?: string | null
+): { valid: boolean; error?: string } {
+  if (!childTemplateId) return { valid: true }
 
-  if (rule.allowedParents === 'root' && targetParent !== 'root') {
-    return { valid: false, error: rule.errorMessage }
+  const rule = HIERARCHY_RULES[childTemplateId] ?? {
+    allowedParents: DEFAULT_ALLOWED_PARENTS,
+    errorMessage:
+      'Resources can only be placed on the root canvas or inside a Region, Availability Zone, or Subnet.'
   }
+  const targetParent = (parentTemplateId ?? ROOT_PARENT) as AllowedParent
 
-  if (Array.isArray(rule.allowedParents)) {
-    if (!rule.allowedParents.includes(targetParent)) {
-      return { valid: false, error: rule.errorMessage }
-    }
+  if (!rule.allowedParents.includes(targetParent)) {
+    return { valid: false, error: rule.errorMessage }
   }
 
   return { valid: true }

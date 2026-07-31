@@ -1,10 +1,19 @@
 import { memo, useMemo, useState } from 'react'
-import { FileText, Library as LibraryIcon, Search, type LucideIcon } from 'lucide-react'
+import {
+  FileText,
+  FlaskConical,
+  Library as LibraryIcon,
+  Search,
+  type LucideIcon
+} from 'lucide-react'
 import { CATALOG_CONFIG } from '../../config/catalogConfig'
+import { SAMPLE_SCENARIOS } from '../../config/sampleScenarios'
+import { EmbeddedIframeQuestionPreview } from './EmbeddedIframeQuestion'
+import { parseEmbeddedIframeQuestion } from './embeddedIframeQuestionSchema'
 import { LibraryItem } from './LibraryItem'
 
 type Filter = 'all' | 'common'
-export type LibrarySidebarTab = 'question' | 'library'
+export type LibrarySidebarTab = 'question' | 'library' | 'scenarios'
 
 interface ActivityTab {
   id: LibrarySidebarTab
@@ -28,8 +37,31 @@ const COMMON_IDS = new Set([
 const FILTERS: Filter[] = ['common', 'all']
 const ACTIVITY_TABS: ActivityTab[] = [
   { id: 'question', label: 'Question Text', icon: FileText },
-  { id: 'library', label: 'Component Library', icon: LibraryIcon }
+  { id: 'library', label: 'Component Library', icon: LibraryIcon },
+  { id: 'scenarios', label: 'Scenarios', icon: FlaskConical }
 ]
+
+interface SidebarScenario {
+  id: string
+  title: string
+  description: string
+  badge: string
+  subtitle: string
+  diagram: string
+  focusLabel: string
+  focusText: string
+}
+
+const ALL_SIDEBAR_SCENARIOS: SidebarScenario[] = SAMPLE_SCENARIOS.map((scenario) => ({
+  id: `sample:${scenario.id}`,
+  title: scenario.name,
+  description: scenario.primaryUseCase,
+  badge: scenario.difficulty,
+  subtitle: scenario.subtitle,
+  diagram: scenario.diagram,
+  focusLabel: 'Why Run It',
+  focusText: scenario.simulatorValue
+}))
 
 interface LibraryActivityRailProps {
   activeTab: LibrarySidebarTab
@@ -38,6 +70,7 @@ interface LibraryActivityRailProps {
 
 interface LibrarySidebarContentProps {
   activeTab: LibrarySidebarTab
+  onLoadScenario: (scenarioId: string) => Promise<void>
 }
 
 interface QuestionTextPanelProps {
@@ -50,6 +83,12 @@ interface ComponentLibraryPanelProps {
   filter: Filter
   onQueryChange: (value: string) => void
   onFilterChange: (value: Filter) => void
+}
+
+interface ScenarioPanelProps {
+  selectedScenarioId: string
+  onSelectScenario: (value: string) => void
+  onLoadScenario: (scenarioId: string) => Promise<void>
 }
 
 const ActivityButton = memo(function ActivityButton({
@@ -102,6 +141,8 @@ export const LibraryActivityRail = memo(function LibraryActivityRail({
 })
 
 function QuestionTextPanel({ questionText, onQuestionTextChange }: QuestionTextPanelProps) {
+  const embeddedQuestion = parseEmbeddedIframeQuestion(questionText)
+
   return (
     <>
       <div className="p-4 pb-3 border-b border-nss-border shrink-0 space-y-1">
@@ -111,12 +152,22 @@ function QuestionTextPanel({ questionText, onQuestionTextChange }: QuestionTextP
       </div>
 
       <div className="flex-1 min-h-0 p-3">
-        <textarea
-          value={questionText}
-          onChange={(event) => onQuestionTextChange(event.target.value)}
-          placeholder="Paste or type the system design question here..."
-          className="h-full w-full resize-none rounded-md border border-nss-border bg-nss-input-bg p-3 text-xs leading-relaxed text-nss-text placeholder:text-nss-muted outline-none focus:border-nss-primary"
-        />
+        <div className="h-full overflow-y-auto space-y-3">
+          <textarea
+            value={questionText}
+            onChange={(event) => onQuestionTextChange(event.target.value)}
+            placeholder="Paste or type the system design question here..."
+            className="min-h-[220px] w-full resize-y rounded-md border border-nss-border bg-nss-input-bg p-3 text-xs leading-relaxed text-nss-text placeholder:text-nss-muted outline-none focus:border-nss-primary"
+          />
+          {embeddedQuestion.error && (
+            <div className="rounded-md border border-nss-danger/30 bg-nss-danger/10 px-3 py-2 text-[11px] leading-relaxed text-nss-danger">
+              {embeddedQuestion.error}
+            </div>
+          )}
+          {embeddedQuestion.question && (
+            <EmbeddedIframeQuestionPreview question={embeddedQuestion.question} />
+          )}
+        </div>
       </div>
     </>
   )
@@ -214,15 +265,118 @@ function ComponentLibraryPanel({
   )
 }
 
-export function LibrarySidebarContent({ activeTab }: LibrarySidebarContentProps) {
+function ScenarioCard({
+  scenario,
+  isExpanded,
+  onToggle,
+  onLoadScenario
+}: {
+  scenario: SidebarScenario
+  isExpanded: boolean
+  onToggle: () => void
+  onLoadScenario: (scenarioId: string) => Promise<void>
+}) {
+  return (
+    <div
+      className={[
+        'rounded-lg border transition-colors',
+        isExpanded
+          ? 'border-nss-primary bg-nss-surface'
+          : 'border-nss-border bg-nss-panel hover:border-nss-primary/50'
+      ].join(' ')}
+    >
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={isExpanded}
+        className="w-full p-3 text-left"
+      >
+        <div className="flex items-center justify-between gap-2">
+          <h4 className="text-xs font-semibold text-nss-text">{scenario.title}</h4>
+          <span className="shrink-0 rounded border border-nss-border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-nss-muted">
+            {scenario.badge}
+          </span>
+        </div>
+        <p className="mt-1 text-[11px] leading-relaxed text-nss-muted">{scenario.description}</p>
+      </button>
+
+      {isExpanded && (
+        <div className="px-3 pb-3 space-y-2">
+          <div className="rounded-md border border-nss-border bg-nss-panel px-3 py-2">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-nss-muted">
+              {scenario.subtitle}
+            </p>
+            <p className="mt-1 whitespace-pre-wrap text-[11px] leading-relaxed text-nss-text">
+              {scenario.diagram}
+            </p>
+          </div>
+
+          <div className="rounded-md border border-nss-primary/20 bg-nss-primary/10 px-3 py-2">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-nss-primary">
+              {scenario.focusLabel}
+            </p>
+            <p className="mt-1 text-[11px] leading-relaxed text-nss-text">{scenario.focusText}</p>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => void onLoadScenario(scenario.id)}
+            className="w-full rounded-md bg-nss-primary px-3 py-2 text-xs font-semibold text-white transition-colors hover:opacity-90"
+          >
+            Load Scenario
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ScenarioPanel({
+  selectedScenarioId,
+  onSelectScenario,
+  onLoadScenario
+}: ScenarioPanelProps) {
+  return (
+    <>
+      <div className="p-4 pb-3 border-b border-nss-border shrink-0 space-y-1">
+        <h2 className="text-xs font-bold text-nss-muted uppercase tracking-widest">Scenarios</h2>
+        <p className="text-[11px] leading-relaxed text-nss-muted">
+          Pre-built systems you can load onto the canvas. Click one to see what it demonstrates,
+          then load it and press play.
+        </p>
+      </div>
+
+      <div className="flex-1 min-h-0 overflow-y-auto p-3 space-y-2">
+        {ALL_SIDEBAR_SCENARIOS.map((scenario) => (
+          <ScenarioCard
+            key={scenario.id}
+            scenario={scenario}
+            isExpanded={selectedScenarioId === scenario.id}
+            onToggle={() => onSelectScenario(selectedScenarioId === scenario.id ? '' : scenario.id)}
+            onLoadScenario={onLoadScenario}
+          />
+        ))}
+      </div>
+    </>
+  )
+}
+
+export function LibrarySidebarContent({ activeTab, onLoadScenario }: LibrarySidebarContentProps) {
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<Filter>('all')
   const [questionText, setQuestionText] = useState('')
+  const [selectedScenarioId, setSelectedScenarioId] = useState('')
 
   return (
     <aside className="h-full w-full min-w-0 bg-nss-panel border-r border-nss-border flex flex-col transition-colors duration-200">
       {activeTab === 'question' ? (
         <QuestionTextPanel questionText={questionText} onQuestionTextChange={setQuestionText} />
+      ) : activeTab === 'scenarios' ? (
+        <ScenarioPanel
+          selectedScenarioId={selectedScenarioId}
+          onSelectScenario={setSelectedScenarioId}
+          onLoadScenario={onLoadScenario}
+        />
       ) : (
         <ComponentLibraryPanel
           query={query}
