@@ -22,6 +22,7 @@ import useStore from '@renderer/store/useStore'
 
 import { useFlowStore } from './hooks/useFlowStore'
 import { useFlowDnD } from './hooks/useFlowDnD'
+import { useCopyPaste } from './hooks/useCopyPaste'
 import { useFlowConfig, nodeTypes, GRID_COLOR } from './config/flowConfig'
 import { useMagneticSnap } from './hooks/useMagneticSnap'
 import { useHandleProximity } from './hooks/useHandleProximity'
@@ -46,6 +47,7 @@ const FlowCanvasInternal = ({ showMetricLens = false, onNodeDoubleClick }: FlowC
 
   const { onConnectStart, onConnectEnd, onEdgeUpdateStart, onEdgeUpdateEnd } = useMagneticSnap()
   useHandleProximity()
+  useCopyPaste()
 
   const onEdgeUpdate = useCallback(
     (oldEdge: Edge, newConnection: Connection) => {
@@ -134,6 +136,7 @@ const FlowCanvasInternal = ({ showMetricLens = false, onNodeDoubleClick }: FlowC
         onNodeDragStop={onNodeDragStop}
         onEdgeClick={onEdgeClick}
         onPaneClick={onPaneClick}
+        multiSelectionKeyCode="Shift"
         onNodeDoubleClick={onNodeDoubleClick}
       >
         <Background variant={BackgroundVariant.Dots} gap={30} size={1.2} color={GRID_COLOR} />
