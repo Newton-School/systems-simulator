@@ -300,6 +300,8 @@ export const WorkspaceLayout = () => {
   const setNodes = useStore((s) => s.setNodes)
   const setSimulationMetrics = useStore((s) => s.setSimulationMetrics)
   const clearSimulationMetrics = useStore((s) => s.clearSimulationMetrics)
+  const savedSeeds = useStore((s) => s.savedSeeds)
+  const saveSeed = useStore((s) => s.saveSeed)
   const selectGraphElements = useStore((s) => s.selectGraphElements)
   const requestViewportFit = useStore((s) => s.requestViewportFit)
   const runInspectorPinned = useStore((s) => s.runInspectorPinned)
@@ -648,6 +650,8 @@ export const WorkspaceLayout = () => {
         faultTargets={faultTargets}
         scenario={scenario}
         onScenarioChange={updateScenario}
+        savedSeeds={savedSeeds}
+        onSaveSeed={saveSeed}
       />
 
       {runIssues.messages.length > 0 && (

@@ -24,6 +24,7 @@ function buildEvent(
 describe('useStore edge flow batching', () => {
   beforeEach(() => {
     useStore.getState().clearEdgeFlow()
+    useStore.setState({ savedSeeds: [] })
     useStore.getState().setEdgeFlowRunConfig({
       simulationDurationMs: 120_000,
       warmupDurationMs: 50,
@@ -167,5 +168,45 @@ describe('useStore edge flow batching', () => {
     })
 
     expect(useStore.getState().metricLens).toBe('saturation')
+  })
+})
+
+describe('useStore saved seeds', () => {
+  beforeEach(() => {
+    const storage = {
+      getItem: vi.fn(() => null),
+      setItem: vi.fn()
+    }
+    vi.stubGlobal('localStorage', storage)
+    useStore.setState({ savedSeeds: [] })
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  it('persists trimmed custom seeds without duplicates', () => {
+    useStore.getState().saveSeed('  alpha-seed  ')
+    useStore.getState().saveSeed('alpha-seed')
+    useStore.getState().saveSeed('default-seed')
+    useStore.getState().saveSeed('   ')
+
+    expect(useStore.getState().savedSeeds).toEqual(['alpha-seed'])
+    expect(localStorage.setItem).toHaveBeenCalledWith(
+      'ns_simulator_saved_seeds',
+      JSON.stringify(['alpha-seed'])
+    )
+  })
+
+  it('removes persisted seeds', () => {
+    useStore.setState({ savedSeeds: ['alpha-seed', 'beta-seed'] })
+    useStore.getState().removeSeed('alpha-seed')
+
+    expect(useStore.getState().savedSeeds).toEqual(['beta-seed'])
+    expect(localStorage.setItem).toHaveBeenCalledWith(
+      'ns_simulator_saved_seeds',
+      JSON.stringify(['beta-seed'])
+    )
   })
 })
