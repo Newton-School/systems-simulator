@@ -40,6 +40,7 @@ const FlowCanvasInternal = ({ showMetricLens = false, onNodeDoubleClick }: FlowC
     useFlowStore()
 
   const selectGraphElements = useStore((state) => state.selectGraphElements)
+  const viewportFitVersion = useStore((state) => state.viewportFitVersion)
 
   const { edgeTypes, defaultEdgeOptions } = useFlowConfig()
 
@@ -80,6 +81,22 @@ const FlowCanvasInternal = ({ showMetricLens = false, onNodeDoubleClick }: FlowC
     prevNodeCount.current = nodes.length
   }, [nodes.length, reactFlowInstance])
 
+  useEffect(() => {
+    if (!reactFlowInstance) {
+      return
+    }
+
+    window.requestAnimationFrame(() => {
+      reactFlowInstance.fitView({
+        padding: 0.2,
+        maxZoom: 1.2,
+        duration: 500
+      })
+    })
+  }, [reactFlowInstance, viewportFitVersion])
+
+  // Edge selection lives in the shared store so the right-hand inspector
+  // (PropertiesPanel) can render its properties, exactly like node config.
   const onEdgeClick = useCallback(
     (event: React.MouseEvent, edge: Edge) => {
       event.stopPropagation()

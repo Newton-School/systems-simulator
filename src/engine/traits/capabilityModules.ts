@@ -1,4 +1,5 @@
 import type { CanvasNodeDataV2, RoutingStrategy } from '../catalog/nodeSpecTypes'
+import { hasWorkloadSourceConfig, isSourceComponentData } from '../catalog/sourceNodeSemantics'
 import type { ComponentType } from '../core/types'
 import { ackAndReleaseCapabilityModule } from './ackAndRelease'
 import { cacheCapabilityModule } from './cache'
@@ -174,7 +175,7 @@ function percentToRatio(displayValue: unknown): number | undefined {
 
 const SOURCE_WORKLOAD_MODULE: NodeCapabilityModule = {
   name: 'source.workload',
-  appliesWhen: (data) => data.profile === 'source',
+  appliesWhen: (data) => isSourceComponentData(data) || hasWorkloadSourceConfig(data),
   config: {
     sections: [
       {
