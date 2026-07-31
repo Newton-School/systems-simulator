@@ -17,7 +17,10 @@ function cloneValue<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T
 }
 
-function absolutePosition(node: Pick<Node, 'position' | 'parentNode'>, byId: Map<string, Node>): XYPosition {
+function absolutePosition(
+  node: Pick<Node, 'position' | 'parentNode'>,
+  byId: Map<string, Node>
+): XYPosition {
   let { x, y } = node.position
   let parentId = node.parentNode
   const seen = new Set<string>()
@@ -73,25 +76,27 @@ export function materializeClipboardSelection(
     idMap.set(node.id, crypto.randomUUID())
   }
 
-  const nodes = clipboardNodes.map(({ node, absolutePosition: originalAbsolute, parentWasCopied }) => {
-    const pastedNode = cloneValue(node)
-    pastedNode.id = idMap.get(node.id)!
-    pastedNode.selected = true
+  const nodes = clipboardNodes.map(
+    ({ node, absolutePosition: originalAbsolute, parentWasCopied }) => {
+      const pastedNode = cloneValue(node)
+      pastedNode.id = idMap.get(node.id)!
+      pastedNode.selected = true
 
-    if (parentWasCopied && node.parentNode && idMap.has(node.parentNode)) {
-      pastedNode.parentNode = idMap.get(node.parentNode)!
-      pastedNode.position = cloneValue(node.position)
+      if (parentWasCopied && node.parentNode && idMap.has(node.parentNode)) {
+        pastedNode.parentNode = idMap.get(node.parentNode)!
+        pastedNode.position = cloneValue(node.position)
+        return pastedNode
+      }
+
+      pastedNode.parentNode = undefined
+      pastedNode.extent = undefined
+      pastedNode.position = {
+        x: originalAbsolute.x + offsetX,
+        y: originalAbsolute.y + offsetY
+      }
       return pastedNode
     }
-
-    pastedNode.parentNode = undefined
-    pastedNode.extent = undefined
-    pastedNode.position = {
-      x: originalAbsolute.x + offsetX,
-      y: originalAbsolute.y + offsetY
-    }
-    return pastedNode
-  })
+  )
 
   const edges = clipboardEdges.map((edge) => ({
     ...cloneValue(edge),
@@ -159,11 +164,7 @@ export const useCopyPaste = () => {
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement
-      if (
-        target.tagName === 'INPUT' ||
-        target.tagName === 'TEXTAREA' ||
-        target.isContentEditable
-      ) {
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
         return
       }
 
