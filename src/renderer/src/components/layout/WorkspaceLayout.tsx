@@ -9,6 +9,7 @@ import { useFlowPersistence } from '@renderer/hooks/useFlowPersistence'
 import { useConfirmDialog } from '@renderer/hooks/useConfirmDialog'
 import { useSimulation } from '@renderer/hooks/useSimulation'
 import { useTopologySerializer } from '@renderer/hooks/useTopologySerializer'
+import { applyAutoLayout } from '@renderer/utils/autoLayout'
 import { validateTopology } from '../../../../engine/validation/validator'
 import type { LatencyPercentiles } from '../../../../engine/metrics'
 import type { TimeSeriesSnapshot } from '../../../../engine/analysis/output'
@@ -296,9 +297,11 @@ export const WorkspaceLayout = () => {
   const edges = useStore((s) => s.edges)
   const scenario = useStore((s) => s.scenario)
   const updateScenario = useStore((s) => s.updateScenario)
+  const setNodes = useStore((s) => s.setNodes)
   const setSimulationMetrics = useStore((s) => s.setSimulationMetrics)
   const clearSimulationMetrics = useStore((s) => s.clearSimulationMetrics)
   const selectGraphElements = useStore((s) => s.selectGraphElements)
+  const requestViewportFit = useStore((s) => s.requestViewportFit)
   const runInspectorPinned = useStore((s) => s.runInspectorPinned)
   const setRunInspectorPinned = useStore((s) => s.setRunInspectorPinned)
   const routingVisualization = useStore((s) => s.routingStrategyVisualization)
@@ -415,6 +418,15 @@ export const WorkspaceLayout = () => {
     },
     [clearSimulationMetrics, loadFromData, selectGraphElements, setRoutingVisualization, sim]
   )
+
+  const handleAutoLayout = useCallback(() => {
+    if (nodes.length === 0) {
+      return
+    }
+
+    setNodes(applyAutoLayout(nodes, edges))
+    requestViewportFit()
+  }, [edges, nodes, requestViewportFit, setNodes])
 
   useEffect(() => {
     if (sim.results || !sim.snapshot || (sim.status !== 'running' && sim.status !== 'paused')) {
@@ -618,6 +630,7 @@ export const WorkspaceLayout = () => {
         isRightOpen={isRightOpen}
         onSave={handleSave}
         onOpen={handleOpen}
+        onAutoLayout={handleAutoLayout}
         fileName={fileName}
         isUnsaved={isUnsaved}
         onRun={handleRun}

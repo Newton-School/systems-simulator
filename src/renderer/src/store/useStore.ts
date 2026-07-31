@@ -260,6 +260,7 @@ type RFState = {
   fileName: string | null
   isUnsaved: boolean
   scenario: ScenarioState
+  viewportFitVersion: number
 
   // --- Actions ---
   onNodesChange: OnNodesChange
@@ -290,6 +291,7 @@ type RFState = {
   setFileName: (name: string | null) => void
   setUnsaved: (unsaved: boolean) => void
   setScenario: (scenario: ScenarioState) => void
+  requestViewportFit: () => void
   updateScenario: (updater: (scenario: ScenarioState) => ScenarioState) => void
 }
 
@@ -311,6 +313,7 @@ const useStore = create<RFState>((set, get) => ({
   fileName: 'Untitled',
   isUnsaved: false,
   scenario: DEFAULT_SCENARIO_STATE,
+  viewportFitVersion: 0,
 
   onNodesChange: (changes: NodeChange[]) => {
     set({
@@ -569,6 +572,10 @@ const useStore = create<RFState>((set, get) => ({
   setFileName: (fileName) => set({ fileName }),
   setUnsaved: (isUnsaved) => set({ isUnsaved }),
   setScenario: (scenario) => set({ scenario }),
+  requestViewportFit: () =>
+    set((state) => ({
+      viewportFitVersion: state.viewportFitVersion + 1
+    })),
   updateScenario: (updater) => set((state) => ({ scenario: updater(state.scenario) }))
 }))
 
