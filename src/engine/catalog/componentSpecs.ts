@@ -1,4 +1,4 @@
-import type { ComponentNode, ComponentType } from '../core/types'
+import type { ComponentNode, ComponentType, SLOConfig } from '../core/types'
 import type {
   CanvasNodeDataV2,
   ComponentSpec,
@@ -7,6 +7,13 @@ import type {
   SerializeContext,
   StructuralRole
 } from './nodeSpecTypes'
+import { CACHE_COMPONENT_TYPES } from '../traits/cache'
+import {
+  CONTENT_ROUTING_MATCH_FIELDS,
+  L4_CONTENT_ROUTING_FORBIDDEN_MESSAGE
+} from '../traits/contentRouting'
+import { HEALTH_AWARE_COMPONENT_TYPES } from '../traits/healthAwareRouting'
+import { asDistributionConfig } from '../traits/serviceTimeOverride'
 
 const CATEGORY_MIN_SERVICE_MS = {
   'storage-and-data': 3,
@@ -59,6 +66,35 @@ const TYPE_MEAN_SERVICE_MS: Partial<Record<ComponentType, number>> = {
   'alerting-hook': 5
 }
 
+const HEALTH_AWARE_COMPONENT_TYPE_SET = new Set<ComponentType>(HEALTH_AWARE_COMPONENT_TYPES)
+const CACHE_COMPONENT_TYPE_SET = new Set<ComponentType>(CACHE_COMPONENT_TYPES)
+
+function defaultCacheHitRate(componentType: ComponentType): number | null {
+  switch (componentType) {
+    case 'cdn':
+      return 0.9
+    case 'in-memory-cache':
+      return 0.8
+    case 'reverse-proxy':
+      return 0
+    default:
+      return null
+  }
+}
+
+function defaultCacheHitLatencyMs(componentType: ComponentType): number | null {
+  switch (componentType) {
+    case 'cdn':
+      return 1
+    case 'in-memory-cache':
+      return 0.1
+    case 'reverse-proxy':
+      return 1
+    default:
+      return null
+  }
+}
+
 const DEFAULT_UTILIZATION_HINT = 65
 const MAX_DERIVED_WORKERS = 512
 const MAX_DERIVED_CAPACITY = 2_000_000
@@ -84,6 +120,36 @@ function asNonNegativeInt(value: unknown): number | null {
 function asPositiveInt(value: unknown): number | null {
   const num = asNonNegativeInt(value)
   return num !== null && num > 0 ? num : null
+}
+
+function normalizeSLOConfig(slo: SLOConfig | undefined): SLOConfig | undefined {
+  if (!slo) {
+    return undefined
+  }
+
+  const normalized: SLOConfig = {}
+
+  if (typeof slo.latencyP99 === 'number') {
+    normalized.latencyP99 = slo.latencyP99
+  }
+
+  if (typeof slo.availabilityTarget === 'number') {
+    normalized.availabilityTarget = slo.availabilityTarget
+  }
+
+  if (typeof slo.errorBudget === 'number') {
+    normalized.errorBudget = slo.errorBudget
+  }
+
+  if (normalized.availabilityTarget === undefined && typeof normalized.errorBudget === 'number') {
+    normalized.availabilityTarget = clamp(1 - normalized.errorBudget, 0, 1)
+  }
+
+  if (normalized.errorBudget === undefined && typeof normalized.availabilityTarget === 'number') {
+    normalized.errorBudget = clamp(1 - normalized.availabilityTarget, 0, 1)
+  }
+
+  return Object.keys(normalized).length > 0 ? normalized : undefined
 }
 
 function asProbability(value: unknown): number | null {
@@ -169,6 +235,23 @@ export function buildSeededSimulationConfig(
     sim.nodeErrorRate = nodeErrorRate
   }
 
+  if (HEALTH_AWARE_COMPONENT_TYPE_SET.has(componentType)) {
+    sim.healthCheckEnabled = true
+  }
+
+  if (CACHE_COMPONENT_TYPE_SET.has(componentType)) {
+    const cacheHitRate = defaultCacheHitRate(componentType)
+    const cacheHitLatencyMs = defaultCacheHitLatencyMs(componentType)
+
+    if (cacheHitRate !== null) {
+      sim.cacheHitRate = cacheHitRate
+    }
+
+    if (cacheHitLatencyMs !== null) {
+      sim.cacheHitLatencyMs = cacheHitLatencyMs
+    }
+  }
+
   if (blockRate > 0 || droppedPackets > 0) {
     sim.securityPolicy = { blockRate, droppedPackets }
   }
@@ -198,6 +281,7 @@ function buildRuntimeNode(
   ctx: SerializeContext
 ): ComponentNode {
   const config: Record<string, unknown> = {}
+  const resilience: NonNullable<ComponentNode['resilience']> = {}
 
   if (typeof data.sim?.nodeErrorRate === 'number' && Number.isFinite(data.sim.nodeErrorRate)) {
     config.nodeErrorRate = clamp(data.sim.nodeErrorRate, 0, 1)
@@ -215,6 +299,98 @@ function buildRuntimeNode(
     }
   }
 
+  if (typeof data.sim?.healthCheckEnabled === 'boolean') {
+    config.healthCheckEnabled = data.sim.healthCheckEnabled
+  }
+
+  if (typeof data.sim?.cacheHitRate === 'number' && Number.isFinite(data.sim.cacheHitRate)) {
+    config.cacheHitRate = clamp(data.sim.cacheHitRate, 0, 1)
+  }
+
+  if (
+    typeof data.sim?.cacheHitLatencyMs === 'number' &&
+    Number.isFinite(data.sim.cacheHitLatencyMs) &&
+    data.sim.cacheHitLatencyMs > 0
+  ) {
+    config.cacheHitLatencyMs = data.sim.cacheHitLatencyMs
+  }
+
+  if (typeof data.sim?.ttlSeconds === 'number' && Number.isFinite(data.sim.ttlSeconds)) {
+    config.ttlSeconds = Math.max(0, data.sim.ttlSeconds)
+  }
+
+  if (Array.isArray(data.sim?.routingRules) && data.sim.routingRules.length > 0) {
+    config.routingRules = data.sim.routingRules
+  }
+
+  if (typeof data.sim?.maxTokens === 'number' && Number.isFinite(data.sim.maxTokens)) {
+    config.maxTokens = data.sim.maxTokens
+  }
+
+  if (
+    typeof data.sim?.refillRatePerSecond === 'number' &&
+    Number.isFinite(data.sim.refillRatePerSecond)
+  ) {
+    config.refillRatePerSecond = data.sim.refillRatePerSecond
+  }
+
+  if (data.sim?.coldStartLatency) {
+    config.coldStartLatency = data.sim.coldStartLatency
+  } else if (typeof data.sim?.coldStartLatencyMs === 'number' && data.sim.coldStartLatencyMs > 0) {
+    config.coldStartLatency = { type: 'exponential', lambda: 1 / data.sim.coldStartLatencyMs }
+  }
+
+  if (typeof data.sim?.idleTimeoutMs === 'number' && data.sim.idleTimeoutMs > 0) {
+    config.idleTimeoutMs = data.sim.idleTimeoutMs
+  }
+
+  if (typeof data.sim?.maxConcurrency === 'number' && data.sim.maxConcurrency > 0) {
+    config.maxConcurrency = Math.round(data.sim.maxConcurrency)
+    resilience.bulkhead = { maxConcurrent: Math.round(data.sim.maxConcurrency) }
+  }
+
+  if (typeof data.sim?.routingKeyField === 'string' && data.sim.routingKeyField.trim().length > 0) {
+    config.routingKeyField = data.sim.routingKeyField.trim()
+  }
+
+  if (typeof data.sim?.dnsRoutingPolicy === 'string') {
+    config.dnsRoutingPolicy = data.sim.dnsRoutingPolicy
+  }
+
+  if (typeof data.sim?.dnsCacheTtlSeconds === 'number' && data.sim.dnsCacheTtlSeconds >= 0) {
+    config.dnsCacheTtlSeconds = data.sim.dnsCacheTtlSeconds
+  }
+
+  if (data.sim?.circuitBreaker) {
+    resilience.circuitBreaker = {
+      failureThreshold: data.sim.circuitBreaker.failureThreshold,
+      failureCount: Math.round(data.sim.circuitBreaker.failureCount),
+      recoveryTimeout: Math.round(data.sim.circuitBreaker.recoveryTimeout),
+      halfOpenRequests: Math.round(data.sim.circuitBreaker.halfOpenRequests)
+    }
+    config.circuitBreaker = resilience.circuitBreaker
+  }
+
+  if (spec.componentType === 'relational-db') {
+    // "Primary DB" and "Read Replica" share this component type — the
+    // template chosen from the palette is the one truthful signal of role,
+    // since it's fixed at creation time (unlike a freely renamable label).
+    config.replicationRole =
+      data.sim?.replicationRole ?? (data.templateId === 'read-replica' ? 'replica' : 'primary')
+  }
+
+  if (data.sim?.readLatency) {
+    config.readLatency = data.sim.readLatency
+  } else if (typeof data.sim?.readLatencyMs === 'number' && data.sim.readLatencyMs > 0) {
+    config.readLatency = { type: 'exponential', lambda: 1 / data.sim.readLatencyMs }
+  }
+
+  if (data.sim?.writeLatency) {
+    config.writeLatency = data.sim.writeLatency
+  } else if (typeof data.sim?.writeLatencyMs === 'number' && data.sim.writeLatencyMs > 0) {
+    config.writeLatency = { type: 'exponential', lambda: 1 / data.sim.writeLatencyMs }
+  }
+
   return {
     id: ctx.nodeId,
     type: spec.componentType,
@@ -224,7 +400,8 @@ function buildRuntimeNode(
     position: ctx.position,
     queue: data.sim?.queue,
     processing: data.sim?.processing,
-    slo: data.sim?.slo,
+    resilience: Object.keys(resilience).length > 0 ? resilience : undefined,
+    slo: normalizeSLOConfig(data.sim?.slo),
     config: Object.keys(config).length > 0 ? config : undefined
   }
 }
@@ -266,6 +443,174 @@ function validateSimulationNode(data: CanvasNodeDataV2): string[] {
       data.sim.nodeErrorRate > 1)
   ) {
     errors.push('nodeErrorRate must be between 0 and 1.')
+  }
+
+  if (
+    data.sim?.healthCheckEnabled !== undefined &&
+    typeof data.sim.healthCheckEnabled !== 'boolean'
+  ) {
+    errors.push('healthCheckEnabled must be a boolean.')
+  }
+
+  if (
+    data.sim?.cacheHitRate !== undefined &&
+    (!Number.isFinite(data.sim.cacheHitRate) ||
+      data.sim.cacheHitRate < 0 ||
+      data.sim.cacheHitRate > 1)
+  ) {
+    errors.push('cacheHitRate must be between 0 and 1.')
+  }
+
+  if (
+    data.sim?.cacheHitLatencyMs !== undefined &&
+    (!Number.isFinite(data.sim.cacheHitLatencyMs) || data.sim.cacheHitLatencyMs <= 0)
+  ) {
+    errors.push('cacheHitLatencyMs must be greater than 0.')
+  }
+
+  if (
+    data.sim?.ttlSeconds !== undefined &&
+    (!Number.isFinite(data.sim.ttlSeconds) || data.sim.ttlSeconds < 0)
+  ) {
+    errors.push('ttlSeconds must be greater than or equal to 0.')
+  }
+
+  if (data.sim?.readLatency !== undefined && !asDistributionConfig(data.sim.readLatency)) {
+    errors.push('readLatency must be a valid distribution config.')
+  }
+
+  if (data.sim?.writeLatency !== undefined && !asDistributionConfig(data.sim.writeLatency)) {
+    errors.push('writeLatency must be a valid distribution config.')
+  }
+
+  if (
+    data.sim?.readLatencyMs !== undefined &&
+    (!Number.isFinite(data.sim.readLatencyMs) || data.sim.readLatencyMs <= 0)
+  ) {
+    errors.push('readLatencyMs must be greater than 0.')
+  }
+
+  if (
+    data.sim?.writeLatencyMs !== undefined &&
+    (!Number.isFinite(data.sim.writeLatencyMs) || data.sim.writeLatencyMs <= 0)
+  ) {
+    errors.push('writeLatencyMs must be greater than 0.')
+  }
+
+  if (
+    data.sim?.replicationRole !== undefined &&
+    data.sim.replicationRole !== 'primary' &&
+    data.sim.replicationRole !== 'replica'
+  ) {
+    errors.push('replicationRole must be "primary" or "replica".')
+  }
+
+  if (
+    data.sim?.maxTokens !== undefined &&
+    (!Number.isFinite(data.sim.maxTokens) || data.sim.maxTokens <= 0)
+  ) {
+    errors.push('maxTokens must be greater than 0.')
+  }
+
+  if (
+    data.sim?.refillRatePerSecond !== undefined &&
+    (!Number.isFinite(data.sim.refillRatePerSecond) || data.sim.refillRatePerSecond < 0)
+  ) {
+    errors.push('refillRatePerSecond must be greater than or equal to 0.')
+  }
+
+  if (
+    data.sim?.coldStartLatency !== undefined &&
+    !asDistributionConfig(data.sim.coldStartLatency)
+  ) {
+    errors.push('coldStartLatency must be a valid distribution config.')
+  }
+
+  if (
+    data.sim?.coldStartLatencyMs !== undefined &&
+    (!Number.isFinite(data.sim.coldStartLatencyMs) || data.sim.coldStartLatencyMs <= 0)
+  ) {
+    errors.push('coldStartLatencyMs must be greater than 0.')
+  }
+
+  if (
+    data.sim?.idleTimeoutMs !== undefined &&
+    (!Number.isFinite(data.sim.idleTimeoutMs) || data.sim.idleTimeoutMs <= 0)
+  ) {
+    errors.push('idleTimeoutMs must be greater than 0.')
+  }
+
+  if (
+    data.sim?.maxConcurrency !== undefined &&
+    (!Number.isFinite(data.sim.maxConcurrency) || data.sim.maxConcurrency <= 0)
+  ) {
+    errors.push('maxConcurrency must be greater than 0.')
+  }
+
+  if (
+    data.sim?.routingKeyField !== undefined &&
+    (typeof data.sim.routingKeyField !== 'string' || data.sim.routingKeyField.trim().length === 0)
+  ) {
+    errors.push('routingKeyField must be a non-empty string.')
+  }
+
+  if (
+    data.sim?.dnsRoutingPolicy !== undefined &&
+    !['simple', 'weighted', 'failover', 'latency-based', 'geolocation'].includes(
+      data.sim.dnsRoutingPolicy
+    )
+  ) {
+    errors.push(
+      'dnsRoutingPolicy must be one of "simple", "weighted", "failover", "latency-based", "geolocation".'
+    )
+  }
+
+  if (
+    data.sim?.dnsCacheTtlSeconds !== undefined &&
+    (!Number.isFinite(data.sim.dnsCacheTtlSeconds) || data.sim.dnsCacheTtlSeconds < 0)
+  ) {
+    errors.push('dnsCacheTtlSeconds must be greater than or equal to 0.')
+  }
+
+  if (data.sim?.circuitBreaker) {
+    const breaker = data.sim.circuitBreaker
+    if (
+      !Number.isFinite(breaker.failureThreshold) ||
+      breaker.failureThreshold < 0 ||
+      breaker.failureThreshold > 1
+    ) {
+      errors.push('circuitBreaker.failureThreshold must be between 0 and 1.')
+    }
+    if (!Number.isFinite(breaker.failureCount) || breaker.failureCount <= 0) {
+      errors.push('circuitBreaker.failureCount must be greater than 0.')
+    }
+    if (!Number.isFinite(breaker.recoveryTimeout) || breaker.recoveryTimeout <= 0) {
+      errors.push('circuitBreaker.recoveryTimeout must be greater than 0.')
+    }
+    if (!Number.isFinite(breaker.halfOpenRequests) || breaker.halfOpenRequests <= 0) {
+      errors.push('circuitBreaker.halfOpenRequests must be greater than 0.')
+    }
+  }
+
+  const routingRules = data.sim?.routingRules
+  if (routingRules !== undefined) {
+    if (data.componentType === 'load-balancer-l4' && routingRules.length > 0) {
+      errors.push(L4_CONTENT_ROUTING_FORBIDDEN_MESSAGE)
+    } else {
+      routingRules.forEach((rule, ruleIndex) => {
+        if (!(CONTENT_ROUTING_MATCH_FIELDS as readonly string[]).includes(rule.matchField)) {
+          errors.push(
+            `routingRules[${ruleIndex}].matchField must be one of ${CONTENT_ROUTING_MATCH_FIELDS.map((field) => `"${field}"`).join(', ')}.`
+          )
+        }
+        if (!rule.matchValue) {
+          errors.push(`routingRules[${ruleIndex}].matchValue is required.`)
+        }
+        if (!rule.targetNodeId) {
+          errors.push(`routingRules[${ruleIndex}].targetNodeId is required.`)
+        }
+      })
+    }
   }
 
   return errors

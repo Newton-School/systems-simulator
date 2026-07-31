@@ -6,6 +6,7 @@ import type {
   SLOConfig,
   WorkloadProfile
 } from '../core/types'
+import type { ContentRoutingRule } from '../traits/contentRouting'
 
 export type StructuralRole = 'source' | 'processor' | 'storage' | 'router' | 'sink' | 'composite'
 
@@ -48,6 +49,37 @@ export interface NodeSimulationConfig {
     blockRate?: number
     droppedPackets?: number
   }
+  healthCheckEnabled?: boolean
+  cacheHitRate?: number
+  cacheHitLatencyMs?: number
+  ttlSeconds?: number
+  routingRules?: ContentRoutingRule[]
+  maxTokens?: number
+  refillRatePerSecond?: number
+  coldStartLatency?: DistributionConfig
+  coldStartLatencyMs?: number
+  idleTimeoutMs?: number
+  maxConcurrency?: number
+  locationId?: string
+  routingKeyField?: string
+  dnsRoutingPolicy?: 'simple' | 'weighted' | 'failover' | 'latency-based' | 'geolocation'
+  dnsCacheTtlSeconds?: number
+  circuitBreaker?: {
+    failureThreshold: number
+    failureCount: number
+    recoveryTimeout: number
+    halfOpenRequests: number
+  }
+  replicationRole?: 'primary' | 'replica'
+  readLatency?: DistributionConfig
+  writeLatency?: DistributionConfig
+  /**
+   * Canvas-simple mean-latency inputs for ReadWriteSplitTrait - serialized
+   * into readLatency/writeLatency as exponential distributions. JSON-authored
+   * topologies can still set the full DistributionConfig directly.
+   */
+  readLatencyMs?: number
+  writeLatencyMs?: number
   slo?: SLOConfig
 }
 

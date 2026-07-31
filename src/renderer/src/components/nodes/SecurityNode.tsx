@@ -1,20 +1,30 @@
-import { memo, useCallback } from 'react'
+import { memo, useCallback, useMemo } from 'react'
 import { NodeProps } from 'reactflow'
 import { NodeHeader } from '@renderer/components/nodes/NodeHeader'
 import { NodeSettingsMenu } from '@renderer/components/nodes/NodeSettingsMenu'
-import { ProgressBar } from '@renderer/components/ui/ProgressBar'
-import { MetricItem } from '@renderer/components/properties/MetricItem'
 import { SecurityNodeData } from '@renderer/types/ui'
 import { resolveNodeConfig } from '@renderer/config/nodeRegistry'
 import { useNodeMetrics } from '@renderer/hooks/useNodeMetrics'
+import { useEffectiveSourceWorkload } from '@renderer/hooks/useEffectiveSourceWorkload'
+import { useMetricLens } from '@renderer/hooks/useMetricLens'
 import BaseNode from '@renderer/components/nodes/BaseNode'
 import { useFlowStore } from '@renderer/components/canvas/hooks/useFlowStore'
-import { getEffectiveNodeStatus, getPreRunSummary, isRuntimeNodeInactive } from './nodePresentation'
+import { NodeMetricContent } from './NodeMetricContent'
+import {
+  getRuntimeCapacityStyle,
+  getRuntimeReliabilityStatus,
+  getIdentityChip,
+  getLensCard,
+  getPreRunMetric,
+  isPreRunMetricLens,
+  isRuntimeNodeInactive
+} from './nodePresentation'
 
 const SecurityNode = ({ id, data, selected }: NodeProps<SecurityNodeData>) => {
   const { updateNodeData } = useFlowStore()
   const { icon: IconComponent, theme } = resolveNodeConfig(data.templateId || data.iconKey)
-  const summaryMetrics = getPreRunSummary(data)
+  const effectiveSourceWorkload = useEffectiveSourceWorkload(id, data)
+  const identityChip = getIdentityChip(data, effectiveSourceWorkload)
 
   const handleLabelChange = useCallback(
     (newLabel: string) => {
@@ -23,23 +33,63 @@ const SecurityNode = ({ id, data, selected }: NodeProps<SecurityNodeData>) => {
     [id, updateNodeData]
   )
 
-  const { throughput, errorRate, queueDepth, utilization, hasRuntime, active } = useNodeMetrics(id)
-  const status = getEffectiveNodeStatus(data, { utilization, errorRate, queueDepth }, hasRuntime)
+  const metrics = useNodeMetrics(id)
+  const {
+    arrived,
+    completed,
+    errorRate,
+    queueDepth,
+    utilization,
+    postWarmupArrived,
+    successLatencySamples,
+    timeToErrorSamples,
+    latencyWindowErrorRate,
+    timeToErrorByCause,
+    postWarmupRejected,
+    postWarmupTimedOut,
+    hasRuntime,
+    active
+  } = metrics
+  const lens = useMetricLens()
+  const lensCard = hasRuntime && lens !== 'traffic' ? getLensCard(lens, data, metrics) : null
+  const preRunMetric = isPreRunMetricLens(lens) ? getPreRunMetric(lens, data) : null
+  const reliabilityStatus = getRuntimeReliabilityStatus(
+    'healthy',
+    {
+      postWarmupArrived,
+      successLatencySamples,
+      timeToErrorSamples,
+      latencyWindowErrorRate,
+      timeToErrorByCause,
+      errorRate
+    },
+    hasRuntime
+  )
+  const capacityStyle = getRuntimeCapacityStyle({ utilization, queueDepth }, hasRuntime)
   const isInactive = isRuntimeNodeInactive(hasRuntime, active)
+  const containerClassName = useMemo(() => {
+    const base =
+      'group relative w-64 bg-nss-surface rounded-lg border transition-all duration-200 overflow-visible'
+    if (isInactive) return `${base} border-nss-border`
+    if (selected) {
+      return `${base} ${capacityStyle.border} ring-2 ${capacityStyle.ring} ${capacityStyle.shadow}`
+    }
+    return `${base} ${capacityStyle.border} ${capacityStyle.hoverBorder} ${capacityStyle.shadow}`
+  }, [capacityStyle, isInactive, selected])
 
   return (
     <BaseNode
       id={id}
       selected={selected}
       selectionVariant="warning"
-      healthStatus={isInactive ? undefined : status}
+      containerClassName={containerClassName}
     >
       {({ isMenuOpen, onMenuClose, onMenuToggle }) => (
         <div className={isInactive ? 'opacity-40 grayscale' : undefined}>
           <NodeHeader
             label={data.label || 'Security Element'}
             icon={IconComponent}
-            status={status}
+            status={reliabilityStatus}
             color={theme}
             onLabelChange={handleLabelChange}
           >
@@ -52,44 +102,18 @@ const SecurityNode = ({ id, data, selected }: NodeProps<SecurityNodeData>) => {
           </NodeHeader>
 
           <div className="p-4">
-            {isInactive ? (
-              <p className="text-[10px] text-nss-muted italic text-center py-2">
-                No post-warmup traffic
-              </p>
-            ) : hasRuntime ? (
-              <>
-                <div className="grid grid-cols-2 gap-4 mb-3">
-                  <MetricItem label="Throughput" value={throughput} unit="req/s" />
-                  <MetricItem
-                    label="Error Rate"
-                    value={errorRate}
-                    unit="%"
-                    textColor="text-nss-danger"
-                  />
-                  <MetricItem
-                    label="Queue Depth"
-                    value={queueDepth}
-                    unit="req"
-                    textColor="text-nss-warning"
-                  />
-                </div>
-                <ProgressBar label="Utilization" value={utilization} />
-              </>
-            ) : (
-              <>
-                <div className="grid grid-cols-2 gap-4 mb-3">
-                  {summaryMetrics.map((metric) => (
-                    <MetricItem
-                      key={metric.label}
-                      label={metric.label}
-                      value={metric.value}
-                      unit={metric.unit}
-                      textColor={metric.textColor}
-                    />
-                  ))}
-                </div>
-              </>
-            )}
+            <NodeMetricContent
+              isInactive={isInactive}
+              hasRuntime={hasRuntime}
+              lens={lens}
+              arrived={arrived}
+              completed={completed}
+              rejected={postWarmupRejected}
+              timedOut={postWarmupTimedOut}
+              lensCard={lensCard}
+              identityChip={identityChip}
+              preRunMetric={preRunMetric}
+            />
           </div>
         </div>
       )}

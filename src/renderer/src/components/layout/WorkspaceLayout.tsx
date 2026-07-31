@@ -2,7 +2,7 @@ import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react'
 import { Panel, PanelGroup, ImperativePanelHandle } from 'react-resizable-panels'
 
 // Store
-import useStore from '@renderer/store/useStore'
+import useStore, { type EdgeFlowState } from '@renderer/store/useStore'
 
 // Hooks
 import { useFlowPersistence } from '@renderer/hooks/useFlowPersistence'
@@ -10,6 +10,8 @@ import { useConfirmDialog } from '@renderer/hooks/useConfirmDialog'
 import { useSimulation } from '@renderer/hooks/useSimulation'
 import { useTopologySerializer } from '@renderer/hooks/useTopologySerializer'
 import { validateTopology } from '../../../../engine/validation/validator'
+import type { LatencyPercentiles } from '../../../../engine/metrics'
+import type { TimeSeriesSnapshot } from '../../../../engine/analysis/output'
 import type { ValidationError } from '../../../../engine/validation/validator'
 
 // Organisms
@@ -20,13 +22,20 @@ import {
 } from '../library/LibrarySidebar'
 import { FlowCanvas } from '../canvas/FlowCanvas'
 import { Header } from './Header'
+import { SampleScenarioPicker } from '../samples/SampleScenarioPicker'
+import { SAMPLE_SCENARIOS, type SampleScenario } from '@renderer/config/sampleScenarios'
 
 // Atoms
 import { ResizeHandle } from '../ui/ResizeHandle'
 import { RunToast } from '../ui/RunToast'
 import { RoutingVisualizationToast } from '../ui/RoutingVisualizationToast'
 import type { CanvasNodeDataV2 } from '../../../../engine/catalog/nodeSpecTypes'
-import type { ScenarioRunContext, SourceNodeOption } from '@renderer/types/ui'
+import type {
+  FaultTargetOption,
+  NodeSimulationMetrics,
+  ScenarioRunContext,
+  SourceNodeOption
+} from '@renderer/types/ui'
 
 type RunIssueTone = 'warning' | 'error'
 
@@ -44,9 +53,65 @@ const ResultsTray = lazy(async () => {
   return { default: module.ResultsTray }
 })
 
-function formatValidationIssue(error: ValidationError): string {
+function titleCaseField(field: string): string {
+  switch (field) {
+    case 'latencyP99':
+      return 'Latency target (p99)'
+    case 'availabilityTarget':
+      return 'Availability target'
+    case 'errorBudget':
+      return 'Error budget'
+    default:
+      return field.replace(/([A-Z])/g, ' $1').replace(/^./, (c) => c.toUpperCase())
+  }
+}
+
+function formatValidationIssue(
+  error: ValidationError,
+  nodes: ReturnType<typeof useStore.getState>['nodes'],
+  edges: ReturnType<typeof useStore.getState>['edges']
+): string {
   if (error.path === 'workload.sourceNodeId') {
     return error.message
+  }
+
+  const nodeMatch = error.path.match(/^nodes\.(\d+)\.(.+)$/)
+  if (nodeMatch) {
+    const nodeIndex = Number(nodeMatch[1])
+    const node = nodes[nodeIndex]
+    const rawFieldPath = nodeMatch[2]
+    const lastSegment = rawFieldPath.split('.').pop() ?? rawFieldPath
+    const nodeLabel = (node?.data as CanvasNodeDataV2 | undefined)?.label ?? `Node ${nodeIndex + 1}`
+
+    if (error.message.includes('received undefined')) {
+      return `${nodeLabel}: ${titleCaseField(lastSegment)} is missing.`
+    }
+
+    return `${nodeLabel}: ${titleCaseField(lastSegment)} - ${error.message}`
+  }
+
+  const edgeMatch = error.path.match(/^edges(?:\.|\[)(\d+)(?:\]|\.)?(.+)?$/)
+  if (edgeMatch) {
+    const edgeIndex = Number(edgeMatch[1])
+    const edge = edges[edgeIndex]
+    const sourceNode = nodes.find((node) => node.id === edge?.source)
+    const targetNode = nodes.find((node) => node.id === edge?.target)
+    const sourceLabel = (sourceNode?.data as CanvasNodeDataV2 | undefined)?.label ?? edge?.source
+    const targetLabel = (targetNode?.data as CanvasNodeDataV2 | undefined)?.label ?? edge?.target
+    const edgeLabel =
+      typeof edge?.label === 'string' && edge.label.length > 0
+        ? edge.label
+        : sourceLabel && targetLabel
+          ? `${sourceLabel} -> ${targetLabel}`
+          : (edge?.id ?? `Edge ${edgeIndex + 1}`)
+
+    if (error.message.includes('received undefined')) {
+      const rawFieldPath = edgeMatch[2]?.replace(/^\./, '') ?? ''
+      const lastSegment = rawFieldPath.split('.').pop() ?? 'field'
+      return `${edgeLabel}: ${titleCaseField(lastSegment)} is missing.`
+    }
+
+    return `${edgeLabel}: ${error.message}`
   }
 
   return error.path ? `${error.path}: ${error.message}` : error.message
@@ -60,17 +125,152 @@ function PanelFallback({ label }: { label: string }) {
   )
 }
 
+function roundNullable(value: number | null): number | null {
+  return value === null ? null : Math.round(value * 100) / 100
+}
+
+function roundLatencyPercentiles(latency: LatencyPercentiles): LatencyPercentiles {
+  return {
+    p50: roundNullable(latency.p50),
+    p90: roundNullable(latency.p90),
+    p95: roundNullable(latency.p95),
+    p99: roundNullable(latency.p99),
+    min: roundNullable(latency.min),
+    max: roundNullable(latency.max),
+    mean: roundNullable(latency.mean)
+  }
+}
+
+type StoreNode = ReturnType<typeof useStore.getState>['nodes'][number]
+type StoreEdge = ReturnType<typeof useStore.getState>['edges'][number]
+
+function isSourceNode(node: StoreNode): boolean {
+  const data = node.data as Partial<CanvasNodeDataV2>
+  return data.structuralRole === 'source' || data.profile === 'source'
+}
+
+function sumEdgeFlows(
+  edges: StoreEdge[],
+  edgeFlowById: Record<string, EdgeFlowState>
+): Pick<
+  EdgeFlowState,
+  | 'attemptedPerSecond'
+  | 'successPerSecond'
+  | 'failedPerSecond'
+  | 'totalAttempted'
+  | 'totalSuccess'
+  | 'totalFailed'
+> {
+  return edges.reduce(
+    (sum, edge) => {
+      const flow = edgeFlowById[edge.id]
+      if (!flow) return sum
+
+      return {
+        attemptedPerSecond: sum.attemptedPerSecond + flow.attemptedPerSecond,
+        successPerSecond: sum.successPerSecond + flow.successPerSecond,
+        failedPerSecond: sum.failedPerSecond + flow.failedPerSecond,
+        totalAttempted: sum.totalAttempted + flow.totalAttempted,
+        totalSuccess: sum.totalSuccess + flow.totalSuccess,
+        totalFailed: sum.totalFailed + flow.totalFailed
+      }
+    },
+    {
+      attemptedPerSecond: 0,
+      successPerSecond: 0,
+      failedPerSecond: 0,
+      totalAttempted: 0,
+      totalSuccess: 0,
+      totalFailed: 0
+    }
+  )
+}
+
+function buildLiveNodeMetrics({
+  snapshot,
+  nodes,
+  edges,
+  edgeFlowById
+}: {
+  snapshot: TimeSeriesSnapshot
+  nodes: StoreNode[]
+  edges: StoreEdge[]
+  edgeFlowById: Record<string, EdgeFlowState>
+}): Record<string, NodeSimulationMetrics> {
+  return Object.fromEntries(
+    nodes.map((node) => {
+      const nodeSnapshot = snapshot.node[node.id]
+      const incoming = sumEdgeFlows(
+        edges.filter((edge) => edge.target === node.id),
+        edgeFlowById
+      )
+      const outgoing = sumEdgeFlows(
+        edges.filter((edge) => edge.source === node.id),
+        edgeFlowById
+      )
+      const source = isSourceNode(node)
+      const totalInSystem = nodeSnapshot?.totalInSystem ?? 0
+      const arrived = source ? outgoing.totalAttempted : incoming.totalSuccess
+      const completed =
+        source || outgoing.totalAttempted > 0
+          ? outgoing.totalAttempted
+          : Math.max(0, incoming.totalSuccess - totalInSystem)
+      const attempted = source ? outgoing.totalAttempted : incoming.totalAttempted
+      const failed = source ? 0 : incoming.totalFailed
+      const errorRate = attempted > 0 ? Math.round((failed / attempted) * 1000) / 10 : 0
+      const throughput = source
+        ? outgoing.attemptedPerSecond
+        : outgoing.successPerSecond > 0
+          ? outgoing.successPerSecond
+          : incoming.successPerSecond
+
+      return [
+        node.id,
+        {
+          throughput: Math.round(throughput * 10) / 10,
+          postWarmupArrived: arrived,
+          postWarmupProcessed: completed,
+          postWarmupRejected: failed,
+          postWarmupTimedOut: 0,
+          postWarmupConnectionReset: 0,
+          postWarmupInFlight: totalInSystem,
+          queueDepth: Math.round((nodeSnapshot?.queueLength ?? 0) * 10) / 10,
+          utilization: Math.round((nodeSnapshot?.utilization ?? 0) * 1000) / 10,
+          errorRate,
+          active: source ? outgoing.totalAttempted > 0 : arrived > 0 || totalInSystem > 0,
+          latencyNodeLocal: {
+            p50: null,
+            p90: null,
+            p95: null,
+            p99: null,
+            min: null,
+            max: null,
+            mean: null
+          },
+          availability: Math.round((100 - errorRate) * 10) / 10,
+          totalArrived: arrived,
+          totalRejected: failed,
+          peakInSystem: totalInSystem,
+          finalInSystem: totalInSystem
+        }
+      ]
+    })
+  )
+}
+
 export const WorkspaceLayout = () => {
   // Sidebar State
   const [isLeftOpen, setIsLeftOpen] = useState(true)
   const [leftSidebarTab, setLeftSidebarTab] = useState<LibrarySidebarTab>('library')
   const [isRightOpen, setIsRightOpen] = useState(false)
   const [showResults, setShowResults] = useState(false)
+  const [showSamples, setShowSamples] = useState(false)
   const [runIssues, setRunIssues] = useState<{ messages: string[]; tone: RunIssueTone }>({
     messages: [],
     tone: 'warning'
   })
   const [lastRunContext, setLastRunContext] = useState<ScenarioRunContext | null>(null)
+  const lastLiveNodeMetricsSnapshotAtRef = useRef<number | null>(null)
 
   // Panel refs — panels stay in the DOM always; we collapse/expand imperatively
   // so that opening one side never redistributes the other side's size.
@@ -90,11 +290,14 @@ export const WorkspaceLayout = () => {
   const fileName = useStore((s) => s.fileName)
   const isUnsaved = useStore((s) => s.isUnsaved)
   const nodes = useStore((s) => s.nodes)
+  const edges = useStore((s) => s.edges)
   const scenario = useStore((s) => s.scenario)
   const updateScenario = useStore((s) => s.updateScenario)
   const setSimulationMetrics = useStore((s) => s.setSimulationMetrics)
   const clearSimulationMetrics = useStore((s) => s.clearSimulationMetrics)
   const selectGraphElements = useStore((s) => s.selectGraphElements)
+  const runInspectorPinned = useStore((s) => s.runInspectorPinned)
+  const setRunInspectorPinned = useStore((s) => s.setRunInspectorPinned)
   const routingVisualization = useStore((s) => s.routingStrategyVisualization)
   const setRoutingVisualization = useStore((s) => s.setRoutingStrategyVisualization)
   const { confirm, dialog } = useConfirmDialog()
@@ -109,9 +312,10 @@ export const WorkspaceLayout = () => {
     [confirm]
   )
 
-  const { handleSave, handleOpen } = useFlowPersistence(confirmDiscardChanges)
+  const { handleSave, handleOpen, loadFromData } = useFlowPersistence(confirmDiscardChanges)
 
   const selectedNodeId = nodes.find((n) => n.selected)?.id
+  const selectedEdgeId = edges.find((e) => e.selected)?.id
   const hasElectronCloseBridge = typeof window.nssimulator?.onCloseRequest === 'function'
   const handleLeftSidebarTabSelect = useCallback((tab: LibrarySidebarTab) => {
     setLeftSidebarTab(tab)
@@ -142,17 +346,114 @@ export const WorkspaceLayout = () => {
   }, [])
 
   useEffect(() => {
-    if (!selectedNodeId) {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const isMod = event.metaKey || event.ctrlKey
+      if (!isMod || !event.shiftKey || event.key.toLowerCase() !== 'o') {
+        return
+      }
+
+      event.preventDefault()
+      setShowSamples(true)
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [])
+
+  useEffect(() => {
+    if (!selectedNodeId && !selectedEdgeId && !runInspectorPinned) {
       setIsRightOpen(false)
     }
-  }, [selectedNodeId])
+  }, [runInspectorPinned, selectedNodeId, selectedEdgeId])
+
+  useEffect(() => {
+    if (runInspectorPinned) {
+      setIsRightOpen(true)
+    }
+  }, [runInspectorPinned])
+
+  // Selecting an edge opens the inspector on its properties, mirroring how
+  // double-clicking a node opens the node config.
+  useEffect(() => {
+    if (selectedEdgeId) {
+      setIsRightOpen(true)
+    }
+  }, [selectedEdgeId])
 
   // Simulation
   const sim = useSimulation()
   const { serialize } = useTopologySerializer()
+  const handleLoadScenario = useCallback(
+    async (scenarioId: string) => {
+      const sampleId = scenarioId.startsWith('sample:') ? scenarioId.slice('sample:'.length) : ''
+
+      const sampleScenario = SAMPLE_SCENARIOS.find(
+        (entry) => entry.id === sampleId || entry.id === scenarioId
+      )
+
+      if (!sampleScenario) {
+        setRunIssues({ messages: [`Unknown scenario '${scenarioId}'.`], tone: 'error' })
+        return
+      }
+
+      const loaded = await loadFromData(sampleScenario.raw, `${sampleScenario.id}.json`)
+      if (!loaded) {
+        return
+      }
+
+      sim.reset()
+      clearSimulationMetrics()
+      setShowResults(false)
+      setLastRunContext(null)
+      setRunIssues({ messages: [], tone: 'warning' })
+      setRoutingVisualization(null)
+      selectGraphElements({})
+      setIsRightOpen(false)
+    },
+    [clearSimulationMetrics, loadFromData, selectGraphElements, setRoutingVisualization, sim]
+  )
+
+  useEffect(() => {
+    if (sim.results || !sim.snapshot || (sim.status !== 'running' && sim.status !== 'paused')) {
+      return
+    }
+
+    if (lastLiveNodeMetricsSnapshotAtRef.current === sim.snapshot.timestamp) {
+      return
+    }
+    lastLiveNodeMetricsSnapshotAtRef.current = sim.snapshot.timestamp
+
+    setSimulationMetrics(
+      buildLiveNodeMetrics({
+        snapshot: sim.snapshot,
+        nodes,
+        edges,
+        edgeFlowById: useStore.getState().edgeFlowById
+      })
+    )
+    if (!runInspectorPinned && !selectedNodeId && !selectedEdgeId) {
+      setRunInspectorPinned(true)
+    }
+    setIsRightOpen(true)
+  }, [
+    edges,
+    nodes,
+    runInspectorPinned,
+    selectedEdgeId,
+    selectedNodeId,
+    setRunInspectorPinned,
+    setSimulationMetrics,
+    sim.results,
+    sim.snapshot,
+    sim.status
+  ])
 
   useEffect(() => {
     if (!sim.results) return
+    setIsRightOpen(true)
+    const inFlightByNode = new Map(
+      sim.results.conservationCheck.map((result) => [result.nodeId, result.inFlight])
+    )
 
     const metricsByNode = Object.fromEntries(
       Object.entries(sim.results.perNode).map(([nodeId, metrics]) => [
@@ -163,10 +464,31 @@ export const WorkspaceLayout = () => {
           postWarmupProcessed: metrics.postWarmupProcessed,
           postWarmupRejected: metrics.postWarmupRejected,
           postWarmupTimedOut: metrics.postWarmupTimedOut,
+          postWarmupConnectionReset: metrics.postWarmupConnectionReset,
+          postWarmupInFlight: inFlightByNode.get(nodeId) ?? 0,
           queueDepth: Math.round(metrics.avgQueueLength * 10) / 10,
           utilization: Math.round(metrics.utilization * 1000) / 10,
           errorRate: Math.round(metrics.errorRate * 10000) / 100,
-          active: metrics.postWarmupArrived > 0
+          active: metrics.postWarmupArrived > 0,
+          avgServiceTime: Math.round(metrics.avgServiceTime * 100) / 100,
+          latencyP50: Math.round(metrics.latencyP50 * 100) / 100,
+          latencyP95: Math.round(metrics.latencyP95 * 100) / 100,
+          latencyP99: Math.round(metrics.latencyP99 * 100) / 100,
+          successLatencySamples: metrics.successLatencySamples,
+          timeToErrorSamples: metrics.timeToErrorSamples,
+          latencyWindowErrorRate: metrics.latencyWindowErrorRate,
+          latencyNodeLocal: roundLatencyPercentiles(metrics.latencyNodeLocal),
+          timeToErrorByCause: metrics.timeToErrorByCause,
+          availability: Math.round(metrics.availability * 1000) / 10,
+          cacheHits: metrics.cacheHits,
+          cacheMisses: metrics.cacheMisses,
+          cacheHitRatio: Math.round(metrics.cacheHitRatio * 1000) / 10,
+          rejectionsByReason: metrics.rejectionsByReason,
+          traitCounters: metrics.traitCounters,
+          totalArrived: metrics.totalArrived,
+          totalRejected: metrics.totalRejected,
+          peakInSystem: metrics.peakInSystem,
+          finalInSystem: metrics.finalInSystem
         }
       ])
     )
@@ -193,9 +515,9 @@ export const WorkspaceLayout = () => {
 
     const validation = validateTopology(topology)
     if (!validation.valid) {
-      const validationErrors = validation.errors?.map(formatValidationIssue) ?? [
-        'Topology validation failed.'
-      ]
+      const validationErrors = validation.errors?.map((error) =>
+        formatValidationIssue(error, nodes, edges)
+      ) ?? ['Topology validation failed.']
       setRunIssues({ messages: validationErrors, tone: 'error' })
       return
     }
@@ -208,18 +530,50 @@ export const WorkspaceLayout = () => {
     flowStore.clearEdgeFlow()
     flowStore.setEdgeFlowRunConfig({
       workload: runContext.workload,
-      simulationDurationMs: runContext.global.simulationDuration
+      simulationDurationMs: runContext.global.simulationDuration,
+      warmupDurationMs: runContext.global.warmupDuration
     })
     flowStore.setEdgeFlowStatus('running')
     sim.run(topology)
+    flowStore.setRunInspectorPinned(true)
+    setIsRightOpen(true)
   }
 
   function handleRun() {
     startSimulation()
   }
 
+  // Leave the post-run state and return to pre-run setup: discard the run's
+  // results (node metrics, edge flow) and reset the lens back to the pre-run
+  // family. The topology itself is untouched. sim.reset() clears the edge flow
+  // and flips status to idle, which cascades into clearSimulationMetrics.
+  const handleResetRun = useCallback(() => {
+    sim.reset()
+    clearSimulationMetrics()
+    setShowResults(false)
+    setLastRunContext(null)
+    setRunIssues({ messages: [], tone: 'warning' })
+    setRunInspectorPinned(false)
+  }, [clearSimulationMetrics, setRunInspectorPinned, sim])
+
+  const handleSampleLoad = useCallback(
+    async (sample: SampleScenario) => {
+      const loaded = await loadFromData(sample.raw, `${sample.id}.json`)
+      if (!loaded) return
+
+      sim.reset()
+      clearSimulationMetrics()
+      setShowResults(false)
+      setLastRunContext(null)
+      setRunIssues({ messages: [], tone: 'warning' })
+      setShowSamples(false)
+    },
+    [clearSimulationMetrics, loadFromData, sim]
+  )
+
   const isRunning = sim.status === 'running'
   const isPaused = sim.status === 'paused' && !sim.stopped
+  const isPostRun = sim.status === 'complete'
   const sourceNodes: SourceNodeOption[] = nodes
     .filter((node) => (node.data as CanvasNodeDataV2).profile === 'source')
     .map((node) => {
@@ -237,6 +591,20 @@ export const WorkspaceLayout = () => {
       }
     })
 
+  // Non-source components can be targeted with an injected fault.
+  const faultTargets: FaultTargetOption[] = nodes
+    .filter((node) => {
+      const data = node.data as CanvasNodeDataV2
+      return data.profile !== 'source' && data.structuralRole !== 'composite'
+    })
+    .map((node) => {
+      const data = node.data as CanvasNodeDataV2
+      return {
+        id: node.id,
+        label: data.label && data.label.trim().length > 0 ? `${data.label} (${node.id})` : node.id
+      }
+    })
+
   return (
     <div className="h-screen w-screen flex flex-col overflow-hidden bg-nss-bg text-nss-text">
       {/* Header */}
@@ -250,6 +618,8 @@ export const WorkspaceLayout = () => {
         fileName={fileName}
         isUnsaved={isUnsaved}
         onRun={handleRun}
+        onReset={handleResetRun}
+        isPostRun={isPostRun}
         onPause={sim.pause}
         onResume={sim.resume}
         onStop={() => {
@@ -259,6 +629,7 @@ export const WorkspaceLayout = () => {
         isRunning={isRunning}
         isPaused={isPaused}
         sourceNodes={sourceNodes}
+        faultTargets={faultTargets}
         scenario={scenario}
         onScenarioChange={updateScenario}
       />
@@ -297,7 +668,7 @@ export const WorkspaceLayout = () => {
             order={1}
             id="left-panel"
           >
-            <LibrarySidebarContent activeTab={leftSidebarTab} />
+            <LibrarySidebarContent activeTab={leftSidebarTab} onLoadScenario={handleLoadScenario} />
           </Panel>
           <ResizeHandle vertical id="resize-left-catalog" />
 
@@ -306,12 +677,25 @@ export const WorkspaceLayout = () => {
             <PanelGroup direction="vertical" autoSaveId="main-layout-vertical">
               {/* Canvas */}
               <Panel defaultSize={showResults ? 65 : 100} minSize={10} order={1}>
-                <FlowCanvas
-                  onNodeDoubleClick={(_, node) => {
-                    selectGraphElements({ nodeId: node.id })
-                    setIsRightOpen(true)
-                  }}
-                />
+                <div className="relative h-full">
+                  <FlowCanvas
+                    showMetricLens
+                    onNodeDoubleClick={(_, node) => {
+                      selectGraphElements({ nodeId: node.id })
+                      setIsRightOpen(true)
+                    }}
+                  />
+
+                  {!showResults && sim.results && (
+                    <button
+                      type="button"
+                      onClick={() => setShowResults(true)}
+                      className="absolute bottom-4 left-1/2 z-20 -translate-x-1/2 rounded-full border border-nss-border bg-nss-panel/95 px-4 py-2 text-sm font-semibold text-nss-text shadow-lg backdrop-blur transition-colors hover:border-nss-primary/50 hover:text-nss-primary"
+                    >
+                      Show Results
+                    </button>
+                  )}
+                </div>
               </Panel>
 
               {/* Results Tray */}
@@ -325,14 +709,13 @@ export const WorkspaceLayout = () => {
                         stopped={sim.stopped}
                         progress={sim.progress}
                         eventsProcessed={sim.eventsProcessed}
+                        runStartedAtMs={sim.runStartedAtMs}
+                        snapshot={sim.snapshot}
                         results={sim.results}
                         error={sim.error}
                         runContext={lastRunContext}
                         onClose={() => {
                           setShowResults(false)
-                          sim.reset()
-                          clearSimulationMetrics()
-                          setLastRunContext(null)
                         }}
                       />
                     </Suspense>
@@ -354,11 +737,19 @@ export const WorkspaceLayout = () => {
             id="right-panel"
           >
             <Suspense fallback={<PanelFallback label="Loading inspector..." />}>
-              <PropertiesPanel />
+              <PropertiesPanel results={sim.results} />
             </Suspense>
           </Panel>
         </PanelGroup>
       </div>
+
+      {showSamples && (
+        <SampleScenarioPicker
+          samples={SAMPLE_SCENARIOS}
+          onLoad={handleSampleLoad}
+          onClose={() => setShowSamples(false)}
+        />
+      )}
 
       {dialog}
     </div>

@@ -45,7 +45,7 @@ const VpcNode = ({ id, data, selected }: NodeProps) => {
         e.stopPropagation()
         setIsMenuOpen(true)
       }}
-      className="relative w-full h-full group transition-all duration-200 ease-in-out"
+      className="pointer-events-none relative w-full h-full group transition-all duration-200 ease-in-out"
       style={{ minWidth: minSize.width, minHeight: minSize.height }}
     >
       <VpcToolbar
@@ -56,7 +56,7 @@ const VpcNode = ({ id, data, selected }: NodeProps) => {
       />
 
       <div
-        className={`absolute inset-0 rounded-xl border-2 border-dashed transition-all duration-300 overflow-visible ${getContainerStyle()}`}
+        className={`pointer-events-none absolute inset-0 rounded-xl border-2 border-dashed transition-all duration-300 overflow-visible ${getContainerStyle()}`}
       >
         <VpcHeader
           label={data.label}
@@ -82,6 +82,8 @@ const VpcNode = ({ id, data, selected }: NodeProps) => {
         isVisible={selected}
         minWidth={minSize.width}
         minHeight={minSize.height}
+        lineClassName="pointer-events-auto"
+        handleClassName="pointer-events-auto"
         handleStyle={{ width: 12, height: 12, borderRadius: '50%' }}
       />
     </div>

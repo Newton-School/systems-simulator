@@ -45,9 +45,9 @@ export interface SnapshotMessage {
   payload: { snapshot: TimeSeriesSnapshot }
 }
 
-export interface EdgeFlowMessage {
-  type: 'edge-flow'
-  payload: { event: EdgeFlowEvent }
+export interface EdgeFlowBatchMessage {
+  type: 'edge-flow-batch'
+  payload: { events: EdgeFlowEvent[] }
 }
 
 export interface CompleteMessage {
@@ -63,6 +63,6 @@ export interface ErrorMessage {
 export type WorkerOutboundMessage =
   | ProgressMessage
   | SnapshotMessage
-  | EdgeFlowMessage
+  | EdgeFlowBatchMessage
   | CompleteMessage
   | ErrorMessage

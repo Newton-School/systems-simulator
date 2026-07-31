@@ -70,7 +70,7 @@ export const LibraryItem = ({ item }: LibraryItemProps) => {
           draggable
           {...triggerProps}
           onDragStart={(event) => {
-            if (triggerProps.onDragStart) (triggerProps as any).onDragStart()
+            triggerProps.onDragStart()
             onDragStart(event)
           }}
           className="

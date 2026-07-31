@@ -1,12 +1,14 @@
+import type { ReactNode } from 'react'
 import type { AnyNodeData } from '@renderer/types/ui'
 import { resolveNodeConfig } from '@renderer/config/nodeRegistry'
 import { HEALTH_META, getHealthPreset, normalizeErrorRate } from './nodeHealth'
 
 interface PropertiesHeaderProps {
   data: AnyNodeData
+  leadingAction?: ReactNode
 }
 
-export const PropertiesHeader = ({ data }: PropertiesHeaderProps) => {
+export const PropertiesHeader = ({ data, leadingAction }: PropertiesHeaderProps) => {
   const { icon: Icon, theme, label, subLabel } = resolveNodeConfig(data.templateId || data.iconKey)
   const isOverloaded = data.ui?.overloadPreview
   const safeColor = theme.bg || 'bg-nss-primary'
@@ -17,6 +19,7 @@ export const PropertiesHeader = ({ data }: PropertiesHeaderProps) => {
   return (
     <div className="p-5 border-b border-nss-border bg-nss-panel">
       <div className="flex items-center gap-4">
+        {leadingAction}
         <div
           className={`
           shrink-0 transition-all duration-300 rounded-lg shadow-sm flex items-center justify-center
@@ -45,7 +48,7 @@ export const PropertiesHeader = ({ data }: PropertiesHeaderProps) => {
             </span>
           </div>
           <div className="mt-1 flex items-center gap-2">
-            <span className="text-[10px] text-nss-muted font-mono uppercase truncate">
+            <span className="text-[10px] text-nss-muted uppercase truncate">
               {data.subLabel || subLabel}
             </span>
             <span className="text-[10px] px-1.5 py-0.5 rounded border border-nss-border bg-nss-surface text-nss-muted uppercase tracking-wide">

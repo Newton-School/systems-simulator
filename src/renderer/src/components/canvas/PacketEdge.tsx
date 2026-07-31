@@ -1,13 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { BaseEdge, getSmoothStepPath, EdgeProps, EdgeLabelRenderer } from 'reactflow'
+import type { AnyNodeData, EdgeSimulationData } from '@renderer/types/ui'
+import { getEdgeModePresentation, inferCanvasEdgeMode } from '@renderer/config/edgeSemantics'
 import useStore, { type EdgeFlowRunConfig, type EdgeFlowState } from '@renderer/store/useStore'
 import { getRoutingPreviewSnapshot } from '@renderer/utils/routingStrategyPreview'
+import { inferEdgeDefaults } from '../../../../engine/defaults/edgeDefaults'
+import { patternMultiplier } from './edgeFlowPatterns'
+import { resolveEdgeLensProjection } from './edgeLensPresentation'
 
 const EDGE_VISUAL_WINDOW_MS = 3_000
 const FAILED_PULSE_MS = 650
 const MIN_STREAM_DURATION_MS = 2_200
 const MAX_STREAM_DURATION_MS = 5_200
-const PATTERN_VISUAL_SPEED = 4
 const FLOW_SUCCESS_COLOR = 'rgb(var(--nss-success))'
 const FLOW_WARNING_COLOR = 'rgb(var(--nss-warning))'
 const FLOW_DANGER_COLOR = 'rgb(var(--nss-danger))'
@@ -15,30 +19,19 @@ const FLOW_PRIMARY_COLOR = 'rgb(var(--nss-primary))'
 const ROUTING_PREVIEW_DECISION_SAMPLE_LIMIT = 2_000
 const EMPTY_EDGE_FLOW_BY_ID: Record<string, EdgeFlowState> = {}
 
-type PacketEdgeData = {
-  packetLossRate?: number
-  errorRate?: number
-}
-
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value))
 }
 
-function fmtRps(value: number): string {
-  if (value >= 100) return `${Math.round(value)} rps`
-  if (value >= 10) return `${value.toFixed(1)} rps`
-  return `${value.toFixed(2)} rps`
+function compressedPacketCount(arrivalRate: number): number {
+  if (arrivalRate <= 0) return 0
+  return clamp(Math.ceil(Math.log2(arrivalRate + 1) * 0.8), 2, 7)
 }
 
-function compressedPacketCount(rps: number): number {
-  if (rps <= 0) return 0
-  return clamp(Math.ceil(Math.log2(rps + 1) * 0.8), 2, 7)
-}
-
-function streamDurationForRps(rps: number): number {
-  if (rps <= 0) return MAX_STREAM_DURATION_MS
+function streamDurationForRate(arrivalRate: number): number {
+  if (arrivalRate <= 0) return MAX_STREAM_DURATION_MS
   return clamp(
-    MAX_STREAM_DURATION_MS - Math.log2(rps + 1) * 420,
+    MAX_STREAM_DURATION_MS - Math.log2(arrivalRate + 1) * 420,
     MIN_STREAM_DURATION_MS,
     MAX_STREAM_DURATION_MS
   )
@@ -49,18 +42,6 @@ function patternPacketCount(baseCount: number, multiplier: number): number {
   return clamp(Math.round(baseCount * clamp(multiplier, 0.35, 4)), 1, 14)
 }
 
-function percentToRatio(value: unknown): number | null {
-  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return null
-  return clamp(value / 100, 0, 1)
-}
-
-function edgeConfiguredSuccessRatio(data: unknown): number {
-  const edgeData = data as PacketEdgeData | undefined
-  const configuredLossRatio = percentToRatio(edgeData?.packetLossRate)
-  const configuredErrorRatio = percentToRatio(edgeData?.errorRate)
-  return (1 - (configuredLossRatio ?? 0)) * (1 - (configuredErrorRatio ?? 0))
-}
-
 function hash01(input: string): number {
   let hash = 2166136261
   for (let i = 0; i < input.length; i++) {
@@ -68,134 +49,6 @@ function hash01(input: string): number {
     hash = Math.imul(hash, 16777619)
   }
   return (hash >>> 0) / 4294967295
-}
-
-function patternElapsedMs(
-  runConfig: EdgeFlowRunConfig | null,
-  playback: { wallStartMs: number; simStartMs: number } | null,
-  now: number
-): number {
-  if (!runConfig || !playback) return 0
-
-  const duration = Math.max(1, runConfig.simulationDurationMs)
-  const elapsed = playback.simStartMs + (now - playback.wallStartMs) * PATTERN_VISUAL_SPEED
-  return ((elapsed % duration) + duration) % duration
-}
-
-function patternMultiplier(
-  runConfig: EdgeFlowRunConfig | null,
-  playback: { wallStartMs: number; simStartMs: number } | null,
-  now: number,
-  edgeId: string
-): number {
-  if (!runConfig) return 1
-
-  const workload = runConfig.workload
-  const elapsed = patternElapsedMs(runConfig, playback, now)
-  const baseRps = Math.max(1, workload.baseRps)
-
-  switch (workload.pattern) {
-    case 'constant':
-    case 'replay':
-      return 1
-
-    case 'poisson': {
-      const bucket = Math.floor(elapsed / 900)
-      return 0.45 + hash01(`${edgeId}:poisson:${bucket}`) * 1.25
-    }
-
-    case 'bursty': {
-      const burst = workload.bursty
-      if (!burst) return 1
-      const burstDuration = Math.max(1, burst.burstDuration)
-      const normalDuration = Math.max(1, burst.normalDuration)
-      const cycle = burstDuration + normalDuration
-      const inBurst = elapsed % cycle < burstDuration
-      return inBurst ? clamp(burst.burstRps / baseRps, 1.5, 4) : 1
-    }
-
-    case 'spike': {
-      const spike = workload.spike
-      if (!spike) return 1
-      const inSpike = elapsed >= spike.spikeTime && elapsed < spike.spikeTime + spike.spikeDuration
-      return inSpike ? clamp(spike.spikeRps / baseRps, 1.75, 5) : 1
-    }
-
-    case 'sawtooth': {
-      const sawtooth = workload.sawtooth
-      if (!sawtooth) return 1
-      const rampDuration = Math.max(1, sawtooth.rampDuration)
-      const t = (elapsed % rampDuration) / rampDuration
-      const currentRps = baseRps + (sawtooth.peakRps - baseRps) * t
-      return clamp(currentRps / baseRps, 0.45, 5)
-    }
-
-    case 'diurnal': {
-      const multipliers = workload.diurnal?.hourlyMultipliers
-      if (!multipliers) return 1
-      const progress = elapsed / Math.max(1, runConfig.simulationDurationMs)
-      const hourPosition = progress * 24
-      const hour = Math.floor(hourPosition) % 24
-      const nextHour = (hour + 1) % 24
-      const localT = hourPosition - Math.floor(hourPosition)
-      const current = multipliers[hour] ?? 1
-      const next = multipliers[nextHour] ?? current
-      return clamp(current + (next - current) * localT, 0.35, 2.5)
-    }
-
-    default:
-      return 1
-  }
-}
-
-function patternPhaseLabel(
-  runConfig: EdgeFlowRunConfig | null,
-  playback: { wallStartMs: number; simStartMs: number } | null,
-  now: number
-): string | null {
-  if (!runConfig) return null
-
-  const workload = runConfig.workload
-  const elapsed = patternElapsedMs(runConfig, playback, now)
-
-  switch (workload.pattern) {
-    case 'bursty': {
-      const burst = workload.bursty
-      if (!burst) return null
-      const cycle = Math.max(1, burst.burstDuration) + Math.max(1, burst.normalDuration)
-      return elapsed % cycle < Math.max(1, burst.burstDuration) ? 'burst' : 'base'
-    }
-
-    case 'spike': {
-      const spike = workload.spike
-      if (!spike) return null
-      return elapsed >= spike.spikeTime && elapsed < spike.spikeTime + spike.spikeDuration
-        ? 'spike'
-        : 'base'
-    }
-
-    case 'sawtooth': {
-      const sawtooth = workload.sawtooth
-      if (!sawtooth) return null
-      const t = (elapsed % Math.max(1, sawtooth.rampDuration)) / Math.max(1, sawtooth.rampDuration)
-      if (t > 0.66) return 'ramp high'
-      if (t > 0.33) return 'ramp mid'
-      return 'ramp low'
-    }
-
-    case 'diurnal': {
-      const multiplier = patternMultiplier(runConfig, playback, now, 'diurnal-label')
-      if (multiplier > 1.1) return 'peak'
-      if (multiplier < 0.8) return 'low'
-      return 'normal'
-    }
-
-    case 'poisson':
-      return 'jitter'
-
-    default:
-      return null
-  }
 }
 
 function packetOffset(
@@ -223,6 +76,7 @@ function packetSpeedJitter(
 export const PacketEdge = ({
   id,
   source,
+  target,
   sourceX,
   sourceY,
   targetX,
@@ -248,6 +102,7 @@ export const PacketEdge = ({
   const hasLabel = typeof label === 'string' && label.trim().length > 0
   const flow = useStore((state) => state.edgeFlowById[id])
   const flowStatus = useStore((state) => state.edgeFlowStatus)
+  const metricLens = useStore((state) => state.metricLens)
   const runConfig = useStore((state) => state.edgeFlowRunConfig)
   const playback = useStore((state) => state.edgeFlowPlayback)
   const routingVisualization = useStore((state) => state.routingStrategyVisualization)
@@ -259,6 +114,11 @@ export const PacketEdge = ({
   const nodes = useStore((state) => state.nodes)
   const edges = useStore((state) => state.edges)
   const metricsByNode = useStore((state) => state.simulationMetricsByNode)
+  const sourceNodeData = nodes.find((node) => node.id === source)?.data as AnyNodeData | undefined
+  const targetNodeData = nodes.find((node) => node.id === target)?.data as AnyNodeData | undefined
+  const edgeData = (data ?? {}) as EdgeSimulationData
+  const edgeMode = inferCanvasEdgeMode(edgeData, targetNodeData)
+  const edgeModePresentation = getEdgeModePresentation(edgeMode)
   const routingPreview = useMemo(() => {
     if (!routingVisualization || routingVisualization.sourceNodeId !== source) return null
 
@@ -287,7 +147,9 @@ export const PacketEdge = ({
   const [pathLength, setPathLength] = useState(0)
 
   useEffect(() => {
-    if (!isRoutingPreviewEdge && !flow && flowStatus !== 'complete') return
+    if (!isRoutingPreviewEdge && !flow && flowStatus !== 'running' && flowStatus !== 'complete') {
+      return
+    }
     const intervalId = window.setInterval(() => setNow(Date.now()), 33)
     return () => window.clearInterval(intervalId)
   }, [flow, flowStatus, isRoutingPreviewEdge])
@@ -304,75 +166,91 @@ export const PacketEdge = ({
     .filter((event) => event.status !== 'success' && now - event.displayAtMs <= FAILED_PULSE_MS)
     .slice(-12)
 
-  const displaySuccessRps =
-    flowStatus === 'complete'
-      ? (flow?.avgSuccessPerSecond ?? 0)
-      : Math.max(flow?.successPerSecond ?? 0, flow?.avgSuccessPerSecond ?? 0)
-  const displayAttemptedRps =
-    flowStatus === 'complete'
-      ? (flow?.avgAttemptedPerSecond ?? 0)
-      : Math.max(flow?.attemptedPerSecond ?? 0, flow?.avgAttemptedPerSecond ?? 0)
-  const displayFailedRps =
-    flowStatus === 'complete'
-      ? (flow?.avgFailedPerSecond ?? 0)
-      : Math.max(flow?.failedPerSecond ?? 0, flow?.avgFailedPerSecond ?? 0)
-  const failureRatio = displayAttemptedRps > 0 ? displayFailedRps / displayAttemptedRps : 0
-  const configuredSuccessRatio = edgeConfiguredSuccessRatio(data)
-  const observedSuccessRatio =
-    displayAttemptedRps > 0
-      ? clamp(displaySuccessRps / displayAttemptedRps, 0, 1)
-      : configuredSuccessRatio
-  const renderedSuccessRps = displayAttemptedRps * observedSuccessRatio
-  const visualMultiplier = patternMultiplier(runConfig, playback, now, id)
+  const isComplete = flowStatus === 'complete'
+  const liveIncomingRate = Math.max(flow?.attemptedPerSecond ?? 0, flow?.avgAttemptedPerSecond ?? 0)
+  const liveSuccessRate = Math.max(flow?.successPerSecond ?? 0, flow?.avgSuccessPerSecond ?? 0)
+  const postRunPacketRate = flow?.avgPostWarmupSuccessPerSecond ?? 0
+  const arrivedRequestCount = flow?.totalPostWarmupSuccess ?? 0
+  const edgeDefaults = useMemo(
+    () => inferEdgeDefaults(sourceNodeData, targetNodeData),
+    [sourceNodeData, targetNodeData]
+  )
+  const lensProjection = useMemo(
+    () =>
+      resolveEdgeLensProjection({
+        lens: metricLens,
+        flow,
+        config: (data ?? {}) as EdgeSimulationData,
+        defaults: edgeDefaults
+      }),
+    [metricLens, flow, data, edgeDefaults]
+  )
+  const visualMultiplier = patternMultiplier(runConfig, playback, now, id, hash01)
+  const steadyRequestRate = isComplete ? postRunPacketRate : liveSuccessRate
   const previewShare =
     routingPreview && routingPreview.totalCount > 0
       ? routingPreview.selectedCount / routingPreview.maxCount
       : 0
-  const visualSuccessRps = isRoutingPreviewEdge
+  const visualRequestRate = isRoutingPreviewEdge
     ? routingPreview?.isSelected
       ? 40 + previewShare * 140
       : 0
-    : renderedSuccessRps * visualMultiplier
-  const basePacketCount = compressedPacketCount(renderedSuccessRps)
+    : steadyRequestRate * visualMultiplier
+  const basePacketCount = compressedPacketCount(steadyRequestRate)
   const streamPacketCount = isRoutingPreviewEdge
     ? routingPreview?.isSelected
       ? clamp(Math.round(2 + previewShare * 6), 2, 8)
       : 0
     : patternPacketCount(basePacketCount, visualMultiplier)
-  const phaseLabel = patternPhaseLabel(runConfig, playback, now)
   const isInactiveAfterRun = flowStatus === 'complete' && !flow
   const hasFlow = isRoutingPreviewEdge
     ? Boolean(routingPreview?.isSelected)
-    : displayAttemptedRps > 0
+    : isComplete
+      ? arrivedRequestCount > 0
+      : liveIncomingRate > 0
   const trafficStrokeWidth = isRoutingPreviewEdge
     ? hasFlow
       ? clamp(2.5 + previewShare * 1.2, 2.5, 3.7)
       : 2
     : hasFlow
-      ? clamp(3 + Math.log2(visualSuccessRps + 1) * 0.55, selected ? 3.5 : 3, 5)
+      ? clamp(3 + Math.log2(visualRequestRate + 1) * 0.55, selected ? 3.5 : 3, 5)
       : selected
         ? 3
         : 2
+  // Health severity drives the stroke colour and is computed independently of
+  // the active lens, so a failing link stays red even under a non-error lens.
   const failureStroke =
-    failureRatio > 0.5 ? FLOW_DANGER_COLOR : failureRatio > 0.05 ? FLOW_WARNING_COLOR : undefined
+    lensProjection.severity === 'crit'
+      ? FLOW_DANGER_COLOR
+      : lensProjection.severity === 'warn'
+        ? FLOW_WARNING_COLOR
+        : undefined
+  // Node-first lenses (timeout, queue capacity) recede: the edge dims to its
+  // identity and lets the nodes carry the lens.
+  const lensRecedes = !isRoutingPreviewEdge && lensProjection.recedes
   const flowLabelText = isRoutingPreviewEdge
     ? routingPreview?.isSelected
       ? `${routingPreview.selectedCount}/${routingPreview.totalCount} preview`
       : 'not selected'
     : isInactiveAfterRun
       ? 'inactive'
-      : `${fmtRps(displaySuccessRps)}${phaseLabel ? ` - ${phaseLabel}` : ''}${failureRatio > 0 ? ` / ${(failureRatio * 100).toFixed(1)}% fail` : ''}`
+      : lensProjection.headline
+  const flowLabelSub = isRoutingPreviewEdge ? undefined : lensProjection.sub
+  const flowLabelTitle = isRoutingPreviewEdge ? flowLabelText : lensProjection.why
+  const showFlowLabel = isRoutingPreviewEdge || flowLabelText.length > 0
   const flowLabelClassName = [
-    'bg-nss-bg px-2 py-0.5 text-[18px] font-bold leading-none tracking-wide',
+    'rounded-full border px-2 py-0.5 text-[12px] font-semibold leading-none tracking-wide shadow-md',
     isRoutingPreviewEdge
       ? routingPreview?.isSelected
-        ? 'text-nss-success'
-        : 'text-nss-muted'
+        ? 'border-nss-success/40 bg-nss-panel text-nss-success'
+        : 'border-nss-border bg-nss-panel text-nss-muted'
       : isInactiveAfterRun
-        ? 'text-nss-muted'
-        : failureRatio > 0.05
-          ? 'text-nss-warning'
-          : 'text-nss-primary'
+        ? 'border-nss-border bg-nss-panel text-nss-muted'
+        : lensProjection.severity === 'crit'
+          ? 'border-nss-danger/50 bg-nss-panel text-nss-danger'
+          : lensProjection.severity === 'warn'
+            ? 'border-nss-warning/50 bg-nss-panel text-nss-warning'
+            : 'border-nss-primary/40 bg-nss-panel text-nss-primary'
   ].join(' ')
 
   const pointForProgress = (progress: number) => {
@@ -405,17 +283,17 @@ export const PacketEdge = ({
         style={{
           ...style,
           strokeWidth: trafficStrokeWidth,
+          strokeDasharray: edgeModePresentation.strokeDasharray,
           stroke: isRoutingPreviewEdge
             ? 'var(--nss-border-high)'
             : selected
               ? FLOW_PRIMARY_COLOR
               : (failureStroke ?? 'var(--nss-border-high)'),
-          strokeDasharray: 'none',
           opacity: isRoutingPreviewEdge
             ? routingPreview?.isSelected
               ? 1
               : 0.28
-            : isInactiveAfterRun
+            : isInactiveAfterRun || lensRecedes
               ? 0.28
               : 1
         }}
@@ -434,7 +312,7 @@ export const PacketEdge = ({
 
       {Array.from({ length: streamPacketCount }, (_, index) => {
         const speedJitter = packetSpeedJitter(runConfig?.workload.pattern, id, index)
-        const duration = streamDurationForRps(visualSuccessRps) / speedJitter
+        const duration = streamDurationForRate(visualRequestRate) / speedJitter
         const offset = packetOffset(runConfig?.workload.pattern, id, index, streamPacketCount)
         const progress = (((now / duration + offset) % 1) + 1) % 1
         const point = pointForProgress(progress)
@@ -446,7 +324,7 @@ export const PacketEdge = ({
             key={`${id}-packet-${index}`}
             cx={point.x}
             cy={point.y}
-            r={visualSuccessRps > 150 ? 5.25 : 6.75}
+            r={visualRequestRate > 150 ? 5.25 : 6.75}
             fill={FLOW_SUCCESS_COLOR}
             stroke="var(--nss-panel)"
             strokeWidth={1.25}
@@ -495,7 +373,7 @@ export const PacketEdge = ({
         style={{ pointerEvents: 'all', ...(selected ? { opacity: 1 } : {}) }}
       />
 
-      {(hasLabel || isRoutingPreviewEdge || flowStatus === 'complete' || flow) && (
+      {(hasLabel || showFlowLabel) && (
         <EdgeLabelRenderer>
           <div
             style={{
@@ -511,8 +389,15 @@ export const PacketEdge = ({
                   {label.toString()}
                 </span>
               )}
-              {(isRoutingPreviewEdge || flowStatus === 'complete' || flow) && (
-                <span className={flowLabelClassName}>{flowLabelText}</span>
+              {showFlowLabel && (
+                <span className={flowLabelClassName} title={flowLabelTitle}>
+                  {flowLabelText}
+                </span>
+              )}
+              {!isRoutingPreviewEdge && selected && flowLabelSub && (
+                <span className="bg-nss-bg px-2 py-0.5 text-[11px] font-semibold leading-none tracking-wide text-nss-muted">
+                  {flowLabelSub}
+                </span>
               )}
             </div>
           </div>

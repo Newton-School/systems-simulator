@@ -45,6 +45,7 @@ describe('generateSimulationOutput', () => {
     const metrics = new MetricsCollector({ warmupDuration: 0 })
     const tracer = new RequestTracer({ sampleRate: 0 })
 
+    metrics.recordNodeArrival('node-a', 0n)
     metrics.recordRequest(
       makeCompletedRequest({
         id: 'req-little',
@@ -101,8 +102,32 @@ describe('generateSimulationOutput', () => {
     const output = generateSimulationOutput(metrics, tracer, [], null, [], config, 0)
     expect(output.simulationDuration).toBe(60_000)
     expect(output.warmupDuration).toBe(5_000)
+    expect(output.perEdge).toEqual({})
     expect(output.eventLog).toBeNull()
     expect(output.debuggedLifecycle).toBeNull()
+  })
+
+  it('surfaces per-edge metrics on the output', () => {
+    const metrics = new MetricsCollector({
+      warmupDuration: 0,
+      edges: [{ id: 'client-api', source: 'client', target: 'api' }]
+    })
+    const tracer = new RequestTracer({ sampleRate: 0 })
+    const config: GlobalConfig = {
+      simulationDuration: 1_000,
+      seed: 'edge-seed',
+      warmupDuration: 0,
+      timeResolution: 'microsecond',
+      defaultTimeout: 1_000
+    }
+
+    metrics.recordEdgeTransit('client-api', 'client', 'api', 250_000n, 250_000n)
+
+    const output = generateSimulationOutput(metrics, tracer, [], null, [], config, 0)
+
+    expect(output.perEdge['client-api']).toBeDefined()
+    expect(output.perEdge['client-api']?.edgeLabel).toBe('client→api')
+    expect(output.perEdge['client-api']?.successLatencySamples).toBe(1)
   })
 
   it('passes through debug output payload when provided', () => {
@@ -205,17 +230,20 @@ describe('generateSimulationOutput', () => {
 
     // 100 arrived, 80 processed, 5 rejected, 5 timed out → 10 in-flight (10% > 5% threshold)
     for (let i = 0; i < 80; i++) {
+      const ts = BigInt(i) * 1_000n
+      metrics.recordNodeArrival('node-x', ts)
       metrics.recordRequest(
         makeCompletedRequest({
           id: `ok-${i}`,
           status: 'success',
-          createdAt: BigInt(i) * 1_000n,
-          spans: [makeSpan('node-x', BigInt(i) * 1_000n, 0n, 1_000n)]
+          createdAt: ts,
+          spans: [makeSpan('node-x', ts, 0n, 1_000n)]
         })
       )
     }
     for (let i = 0; i < 5; i++) {
       const ts = BigInt(i) * 1_000n
+      metrics.recordNodeArrival('node-x', ts)
       metrics.recordRejection('node-x', 'capacity', {
         requestCreatedAt: ts,
         nodeArrivalTime: ts
@@ -223,6 +251,7 @@ describe('generateSimulationOutput', () => {
     }
     for (let i = 0; i < 5; i++) {
       const ts = BigInt(i) * 1_000n
+      metrics.recordNodeArrival('node-x', ts)
       metrics.recordTimeout(`t-${i}`, 'node-x', {
         requestCreatedAt: ts,
         nodeArrivalTime: ts
@@ -230,15 +259,7 @@ describe('generateSimulationOutput', () => {
     }
     // 10 more arrivals that were never completed (in-flight)
     for (let i = 0; i < 10; i++) {
-      metrics.recordRequest(
-        makeCompletedRequest({
-          id: `inflight-${i}`,
-          status: 'error',
-          createdAt: BigInt(i) * 1_000n,
-          path: ['node-x'],
-          spans: []
-        })
-      )
+      metrics.recordNodeArrival('node-x', BigInt(i) * 1_000n)
     }
 
     const config: GlobalConfig = {
@@ -256,11 +277,41 @@ describe('generateSimulationOutput', () => {
     expect(cons?.balanced).toBe(false)
   })
 
+  it('conservation treats connection resets as terminal, not in-flight', () => {
+    const metrics = new MetricsCollector({ warmupDuration: 0 })
+    const tracer = new RequestTracer({ sampleRate: 0 })
+
+    metrics.recordNodeArrival('node-rst', 0n)
+    metrics.recordConnectionReset('rst-1', 'node-rst', {
+      requestCreatedAt: 0n,
+      nodeArrivalTime: 0n,
+      terminationTimeUs: 5_000n
+    })
+
+    const config: GlobalConfig = {
+      simulationDuration: 1_000,
+      seed: 'rst',
+      warmupDuration: 0,
+      timeResolution: 'millisecond',
+      defaultTimeout: 1_000
+    }
+
+    const output = generateSimulationOutput(metrics, tracer, [], null, [], config, 0)
+    const cons = output.conservationCheck.find((c) => c.nodeId === 'node-rst')
+
+    expect(cons).toBeDefined()
+    expect(cons?.postWarmupConnectionReset).toBe(1)
+    expect(cons?.inFlight).toBe(0)
+    expect(cons?.balanced).toBe(true)
+  })
+
   it('warmupAdequacy flags short warmup relative to p99', () => {
     const metrics = new MetricsCollector({ warmupDuration: 100 })
     const tracer = new RequestTracer({ sampleRate: 0 })
 
-    // One post-warmup request with 200ms latency → recommendedWarmup = 10×200 = 2000ms
+    // One post-warmup request with 200ms node-local latency → recommendedWarmup
+    // = 10×p99 ≈ 2000ms (p99 now from the node histogram, ≤1% bucket error).
+    metrics.recordNodeArrival('node-a', 200_000n)
     metrics.recordRequest(
       makeCompletedRequest({
         id: 'req-1',
@@ -281,6 +332,7 @@ describe('generateSimulationOutput', () => {
 
     const output = generateSimulationOutput(metrics, tracer, [], null, [], config, 1)
     expect(output.warmupAdequacy.adequate).toBe(false)
-    expect(output.warmupAdequacy.recommendedWarmupMs).toBe(2000)
+    expect(output.warmupAdequacy.recommendedWarmupMs).toBeGreaterThan(1970)
+    expect(output.warmupAdequacy.recommendedWarmupMs).toBeLessThanOrEqual(2020)
   })
 })
