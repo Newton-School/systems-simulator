@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { TopologyJSON } from '../../../engine/core/types'
+import orderTopology from '../../../../order-topology.json'
 import { isTopologyJsonLike, topologyToCanvasFileData } from './topologyCanvasAdapter'
 
 const SERVERLESS_COLD_START: TopologyJSON = {
@@ -68,6 +69,63 @@ const SERVERLESS_COLD_START: TopologyJSON = {
   }
 }
 
+const ROUTER_ENTRYPOINT_TOPOLOGY: TopologyJSON = {
+  id: 'router-entrypoint',
+  name: 'Router Entrypoint',
+  version: '2.0.0',
+  global: {
+    simulationDuration: 30_000,
+    warmupDuration: 5_000,
+    seed: 'router-seed',
+    defaultTimeout: 5_000,
+    timeResolution: 'millisecond',
+    traceSampleRate: 0.01
+  },
+  nodes: [
+    {
+      id: 'api-gw',
+      type: 'api-gateway',
+      category: 'network-and-edge',
+      role: 'router',
+      label: 'API Gateway',
+      position: { x: 0, y: 0 }
+    },
+    {
+      id: 'service',
+      type: 'microservice',
+      category: 'compute',
+      role: 'processor',
+      label: 'Orders',
+      position: { x: 260, y: 0 }
+    }
+  ],
+  edges: [
+    {
+      id: 'api-service',
+      source: 'api-gw',
+      target: 'service',
+      mode: 'synchronous',
+      protocol: 'https',
+      latency: {
+        distribution: { type: 'constant', value: 5 },
+        pathType: 'same-dc'
+      },
+      bandwidth: 100,
+      maxConcurrentRequests: 100,
+      packetLossRate: 0,
+      errorRate: 0
+    }
+  ],
+  workload: {
+    sourceNodeId: 'api-gw',
+    pattern: 'poisson',
+    baseRps: 60,
+    requestDistribution: [{ type: 'GET /orders', weight: 1, sizeBytes: 1024 }]
+  }
+}
+
+const ORDER_TOPOLOGY = orderTopology as TopologyJSON
+
 describe('topologyCanvasAdapter', () => {
   it('recognizes topology-json shaped inputs', () => {
     expect(isTopologyJsonLike(SERVERLESS_COLD_START)).toBe(true)
@@ -117,5 +175,40 @@ describe('topologyCanvasAdapter', () => {
       latencyDistributionType: 'constant',
       latencyValue: 12
     })
+  })
+
+  it('hydrates workload overlay state onto non-source components', () => {
+    const canvas = topologyToCanvasFileData(ROUTER_ENTRYPOINT_TOPOLOGY)
+    const apiGateway = canvas.nodes.find((node) => node.id === 'api-gw')
+
+    expect(apiGateway?.data).toMatchObject({
+      componentType: 'api-gateway',
+      profile: 'router',
+      source: {
+        defaultWorkload: {
+          pattern: 'poisson',
+          baseRps: 60
+        }
+      }
+    })
+    expect(canvas.scenario.selectedSourceNodeId).toBe('api-gw')
+  })
+
+  it('synthesizes default handles for topology edges that do not carry canvas metadata', () => {
+    const canvas = topologyToCanvasFileData(ROUTER_ENTRYPOINT_TOPOLOGY)
+
+    expect(canvas.edges[0]).toMatchObject({
+      sourceHandle: 'right-1-source',
+      targetHandle: 'left-1-target'
+    })
+  })
+
+  it('hydrates the real order topology sample into a valid canvas shape', () => {
+    const canvas = topologyToCanvasFileData(ORDER_TOPOLOGY)
+    const sourceNode = canvas.nodes.find((node) => node.id === canvas.scenario.selectedSourceNodeId)
+
+    expect(sourceNode?.data.profile).toBe('router')
+    expect(sourceNode?.data.source).toBeTruthy()
+    expect(canvas.edges.every((edge) => edge.sourceHandle && edge.targetHandle)).toBe(true)
   })
 })

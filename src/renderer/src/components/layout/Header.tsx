@@ -1,5 +1,5 @@
 import { memo } from 'react'
-import { FolderOpen, Save, Sidebar } from 'lucide-react'
+import { FolderOpen, Save, Sidebar, Workflow } from 'lucide-react'
 
 import { Divider } from '../ui/Divider'
 import { IconButton } from '../ui/IconButton'
@@ -20,6 +20,7 @@ interface HeaderProps {
   // File
   onSave: () => void
   onOpen: () => void
+  onAutoLayout: () => void
   fileName: string | null
   isUnsaved: boolean
 
@@ -49,6 +50,7 @@ export const Header = memo(
     isRightOpen,
     onSave,
     onOpen,
+    onAutoLayout,
     fileName,
     isUnsaved,
     onRun,
@@ -106,6 +108,7 @@ export const Header = memo(
           <div className="flex items-center gap-1">
             <IconButton onClick={onOpen} icon={<FolderOpen size={18} />} label="Open (Ctrl+O)" />
             <IconButton onClick={onSave} icon={<Save size={18} />} label="Save (Ctrl+S)" />
+            <IconButton onClick={onAutoLayout} icon={<Workflow size={18} />} label="Auto Layout" />
           </div>
 
           <Divider />

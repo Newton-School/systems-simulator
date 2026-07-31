@@ -282,6 +282,7 @@ type RFState = {
   isUnsaved: boolean
   scenario: ScenarioState
   savedSeeds: string[]
+  viewportFitVersion: number
 
   // --- Actions ---
   onNodesChange: OnNodesChange
@@ -312,6 +313,7 @@ type RFState = {
   setFileName: (name: string | null) => void
   setUnsaved: (unsaved: boolean) => void
   setScenario: (scenario: ScenarioState) => void
+  requestViewportFit: () => void
   updateScenario: (updater: (scenario: ScenarioState) => ScenarioState) => void
   saveSeed: (seed: string) => void
   removeSeed: (seed: string) => void
@@ -336,6 +338,7 @@ const useStore = create<RFState>((set, get) => ({
   isUnsaved: false,
   scenario: DEFAULT_SCENARIO_STATE,
   savedSeeds: loadSavedSeeds(),
+  viewportFitVersion: 0,
 
   onNodesChange: (changes: NodeChange[]) => {
     set({
@@ -594,8 +597,6 @@ const useStore = create<RFState>((set, get) => ({
   setFileName: (fileName) => set({ fileName }),
   setUnsaved: (isUnsaved) => set({ isUnsaved }),
   setScenario: (scenario) => set({ scenario }),
-  updateScenario: (updater) => set((state) => ({ scenario: updater(state.scenario) })),
-
   saveSeed: (seed: string) => {
     const trimmed = seed.trim()
     if (!trimmed || trimmed === 'default-seed') return
@@ -609,7 +610,12 @@ const useStore = create<RFState>((set, get) => ({
     const next = get().savedSeeds.filter((s) => s !== seed)
     persistSeeds(next)
     set({ savedSeeds: next })
-  }
+  },
+  requestViewportFit: () =>
+    set((state) => ({
+      viewportFitVersion: state.viewportFitVersion + 1
+    })),
+  updateScenario: (updater) => set((state) => ({ scenario: updater(state.scenario) }))
 }))
 
 export default useStore
