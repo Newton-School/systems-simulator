@@ -3,6 +3,8 @@ import { Request } from './core/events'
 import { ComponentNode, EdgeDefinition } from './core/types'
 import { RoutingTable } from './routing'
 import { createRandom } from './stochastic/random'
+import { resolveTraits } from './traits/resolveTraits'
+import type { NodeBehaviourTrait, TraitResolver } from './traits/types'
 
 function makeRequest(type = 'GET'): Request {
   return {
@@ -120,21 +122,18 @@ describe('RoutingTable', () => {
     expect(resolved.map((r) => r.targetNodeId).sort()).toEqual(['node-b', 'node-c', 'node-d'])
   })
 
-  it('round-robin cycles through targets using node type metadata', () => {
+  it('round-robin cycles through targets using type-derived routing hints', () => {
     const edges = [
-      makeEdge('e1', 'load-balancer-1', 'a'),
-      makeEdge('e2', 'load-balancer-1', 'b'),
-      makeEdge('e3', 'load-balancer-1', 'c')
+      makeEdge('e1', 'my-router-1', 'a'),
+      makeEdge('e2', 'my-router-1', 'b'),
+      makeEdge('e3', 'my-router-1', 'c')
     ]
-    const nodes = [makeNode('load-balancer-1', 'load-balancer')]
+    const nodes = [makeNode('my-router-1', 'load-balancer')]
 
     const routing = new RoutingTable(edges, createRandom('rr'), nodes)
     const request = makeRequest()
 
-    const picks = Array.from(
-      { length: 7 },
-      () => routing.resolveTarget('load-balancer-1', request)[0]
-    )
+    const picks = Array.from({ length: 7 }, () => routing.resolveTarget('my-router-1', request)[0])
     expect(picks.map((r) => r.targetNodeId)).toEqual(['a', 'b', 'c', 'a', 'b', 'c', 'a'])
   })
 
@@ -160,15 +159,72 @@ describe('RoutingTable', () => {
     expect(picks.map((route) => route.targetNodeId)).toEqual(['a', 'b', 'c', 'a', 'b', 'c'])
   })
 
-  it('round-robin falls back to id heuristic when no nodes provided', () => {
-    const edges = [makeEdge('e1', 'load-balancer-1', 'a'), makeEdge('e2', 'load-balancer-1', 'b')]
+  it('least-conn routes to the target with the fewest in-flight requests', () => {
+    const edges = [makeEdge('e1', 'lb', 'a'), makeEdge('e2', 'lb', 'b'), makeEdge('e3', 'lb', 'c')]
+    const nodes: ComponentNode[] = [
+      { ...makeNode('lb'), config: { routingStrategy: 'least-conn' } }
+    ]
+    const routing = new RoutingTable(edges, createRandom('least-conn'), nodes)
+    const inFlight: Record<string, number> = { a: 5, b: 1, c: 3 }
 
-    const routing = new RoutingTable(edges, createRandom('rr-fallback'))
+    const pick = routing.resolveTarget('lb', makeRequest(), {
+      getInFlight: (nodeId) => inFlight[nodeId] ?? 0
+    })[0]
+
+    expect(pick.targetNodeId).toBe('b')
+  })
+
+  it('least-conn breaks ties by rotating through the tied targets', () => {
+    const edges = [makeEdge('e1', 'lb', 'a'), makeEdge('e2', 'lb', 'b'), makeEdge('e3', 'lb', 'c')]
+    const nodes: ComponentNode[] = [
+      { ...makeNode('lb'), config: { routingStrategy: 'least-conn' } }
+    ]
+    const routing = new RoutingTable(edges, createRandom('least-conn-tie'), nodes)
+    // a and c are tied for the minimum; b is heavier and never chosen.
+    const inFlight: Record<string, number> = { a: 2, b: 9, c: 2 }
+    const getInFlight = (nodeId: string) => inFlight[nodeId] ?? 0
+
     const picks = Array.from(
       { length: 4 },
-      () => routing.resolveTarget('load-balancer-1', makeRequest())[0]
+      () => routing.resolveTarget('lb', makeRequest(), { getInFlight })[0].targetNodeId
     )
-    expect(picks.map((r) => r.targetNodeId)).toEqual(['a', 'b', 'a', 'b'])
+
+    expect(picks).toEqual(['a', 'c', 'a', 'c'])
+  })
+
+  it('passthrough forwards to the first eligible target without balancing', () => {
+    const edges = [
+      makeEdge('e1', 'proxy', 'a'),
+      makeEdge('e2', 'proxy', 'b'),
+      makeEdge('e3', 'proxy', 'c')
+    ]
+    const nodes: ComponentNode[] = [
+      { ...makeNode('proxy'), config: { routingStrategy: 'passthrough' } }
+    ]
+    const routing = new RoutingTable(edges, createRandom('passthrough'), nodes)
+    const picks = Array.from(
+      { length: 5 },
+      () => routing.resolveTarget('proxy', makeRequest())[0].targetNodeId
+    )
+
+    expect(picks).toEqual(['a', 'a', 'a', 'a', 'a'])
+  })
+
+  it('plain services do not round-robin just because their id looks like a load balancer', () => {
+    const edges = [
+      makeEdge('e1', 'lb-ish-thing', 'a'),
+      makeEdge('e2', 'lb-ish-thing', 'b'),
+      makeEdge('e3', 'lb-ish-thing', 'c')
+    ]
+    const nodes = [makeNode('lb-ish-thing', 'microservice')]
+
+    const routing = new RoutingTable(edges, createRandom('not-rr'), nodes)
+    const picks = Array.from(
+      { length: 6 },
+      () => routing.resolveTarget('lb-ish-thing', makeRequest())[0]
+    )
+
+    expect(picks.map((r) => r.targetNodeId)).not.toEqual(['a', 'b', 'c', 'a', 'b', 'c'])
   })
 
   it('conditional routing includes only edges whose condition matches request context', () => {
@@ -232,5 +288,109 @@ describe('RoutingTable', () => {
     const edges = [makeEdge('e1', 'a', 'b')]
     const routing = new RoutingTable(edges, createRandom('sink'))
     expect(routing.resolveTarget('no-outgoing', makeRequest())).toEqual([])
+  })
+
+  it('applies trait-provided route filters before selecting a sync target', () => {
+    const edges = [
+      makeEdge('e1', 'router', 'a'),
+      makeEdge('e2', 'router', 'b'),
+      makeEdge('e3', 'router', 'c')
+    ]
+    const filterTrait: NodeBehaviourTrait = {
+      name: 'test.only-b',
+      filterRoutes: ({ candidates }) => ({
+        routes: candidates.filter((candidate) => candidate.targetNodeId === 'b'),
+        decision: 'filtered-to-b'
+      })
+    }
+    const traitResolver: TraitResolver = (node) => (node.id === 'router' ? [filterTrait] : [])
+
+    const routing = new RoutingTable(
+      edges,
+      createRandom('trait-filter'),
+      [makeNode('router')],
+      traitResolver
+    )
+
+    const resolved = routing.resolveTarget('router', makeRequest())
+    expect(resolved).toHaveLength(1)
+    expect(resolved[0].targetNodeId).toBe('b')
+  })
+
+  it('an L7 LB with a content routing rule sends writes to the rule target and round-robins reads', () => {
+    const edges = [
+      makeEdge('e1', 'gw', 'db-primary'),
+      makeEdge('e2', 'gw', 'db-replica-a'),
+      makeEdge('e3', 'gw', 'db-replica-b')
+    ]
+    const gateway: ComponentNode = {
+      id: 'gw',
+      type: 'load-balancer-l7',
+      category: 'network-and-edge',
+      role: 'router',
+      label: 'L7 LB',
+      position: { x: 0, y: 0 },
+      config: {
+        routingRules: [{ matchField: 'type', matchValue: 'write', targetNodeId: 'db-primary' }]
+      }
+    }
+
+    const routing = new RoutingTable(
+      edges,
+      createRandom('content-routing'),
+      [gateway],
+      resolveTraits
+    )
+
+    for (let i = 0; i < 5; i++) {
+      const writeResult = routing.resolveTarget('gw', makeRequest('write'))
+      expect(writeResult).toHaveLength(1)
+      expect(writeResult[0].targetNodeId).toBe('db-primary')
+    }
+
+    const seenTargets = new Set<string>()
+    for (let i = 0; i < 3; i++) {
+      const readResult = routing.resolveTarget('gw', makeRequest('read'))
+      expect(readResult).toHaveLength(1)
+      seenTargets.add(readResult[0].targetNodeId)
+    }
+    expect(seenTargets).toEqual(new Set(['db-primary', 'db-replica-a', 'db-replica-b']))
+  })
+
+  it('forces edges into observability nodes to async even when misconfigured as synchronous', () => {
+    const edges = [
+      makeEdge('svc-api', 'svc', 'api', { mode: 'synchronous' }),
+      makeEdge('svc-metrics', 'svc', 'metrics', { mode: 'synchronous' })
+    ]
+    const nodes = [makeNode('svc'), makeNode('api'), makeNode('metrics', 'metrics-store')]
+
+    const routing = new RoutingTable(edges, createRandom('async-only'), nodes)
+
+    for (let i = 0; i < 10; i++) {
+      const resolved = routing.resolveTarget('svc', makeRequest())
+      const targets = resolved.map((route) => route.targetNodeId)
+      // Every request reaches BOTH the real business target and the
+      // observability node — the metrics edge never competes for the single
+      // sync selection slot and steals traffic from the real target.
+      expect(targets).toContain('api')
+      expect(targets).toContain('metrics')
+      expect(resolved.find((route) => route.targetNodeId === 'metrics')?.edge.mode).toBe(
+        'asynchronous'
+      )
+    }
+  })
+
+  it('gives the original request id to the sync continuation, not an async observability branch', () => {
+    const edges = [
+      makeEdge('svc-api', 'svc', 'api'),
+      makeEdge('svc-metrics', 'svc', 'metrics', { mode: 'asynchronous' })
+    ]
+    const nodes = [makeNode('svc'), makeNode('api'), makeNode('metrics', 'metrics-store')]
+
+    const routing = new RoutingTable(edges, createRandom('branch-order'), nodes)
+    const resolved = routing.resolveTarget('svc', makeRequest())
+
+    expect(resolved[0].targetNodeId).toBe('api')
+    expect(resolved[1]?.targetNodeId).toBe('metrics')
   })
 })

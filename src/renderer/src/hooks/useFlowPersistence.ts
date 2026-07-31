@@ -1,11 +1,9 @@
 import { useCallback, useEffect, useRef } from 'react'
 import useStore from '@renderer/store/useStore'
 import { useFileHandlers } from './useFileHandlers'
-import {
-  convertFlatToNested,
-  convertNestedToFlat,
-  NestedFileData
-} from '@renderer/utils/nodeTransformers'
+import { convertFlatToNested, convertNestedToFlat } from '@renderer/utils/nodeTransformers'
+import type { NestedFileData } from '@renderer/utils/nodeTransformers'
+import { isTopologyJsonLike, topologyToCanvasFileData } from '@renderer/utils/topologyCanvasAdapter'
 import { migrateCanvasNodes } from '../../../engine/catalog/legacyCanvasMigration'
 import { normalizeScenarioState } from '@renderer/types/ui'
 
@@ -32,7 +30,7 @@ const useKeyboardShortcuts = (onSave: () => void, onOpen: () => void) => {
       if (e.key.toLowerCase() === 's') {
         e.preventDefault()
         onSave()
-      } else if (e.key.toLowerCase() === 'o') {
+      } else if (e.key.toLowerCase() === 'o' && !e.shiftKey) {
         e.preventDefault()
         onOpen()
       }
@@ -63,11 +61,12 @@ export const useFlowPersistence = (confirmDiscardChanges: () => Promise<boolean>
   }, [scenario])
 
   const handleLoadFileData = useCallback(
-    (fileContent: string | object, fileName?: string) => {
+    (fileContent: string | object, fileName?: string): boolean => {
       try {
-        const data = (
-          typeof fileContent === 'string' ? JSON.parse(fileContent) : fileContent
-        ) as NestedFileData
+        const parsedData = typeof fileContent === 'string' ? JSON.parse(fileContent) : fileContent
+        const data = isTopologyJsonLike(parsedData)
+          ? topologyToCanvasFileData(parsedData)
+          : (parsedData as NestedFileData)
 
         if (!data?.nodes) throw new Error('Invalid file format')
 
@@ -99,10 +98,13 @@ export const useFlowPersistence = (confirmDiscardChanges: () => Promise<boolean>
         setTimeout(() => {
           isLoadingRef.current = false
         }, 100)
+
+        return true
       } catch (error) {
         console.error('Failed to load flow:', error)
         alert('Error loading file.')
         isLoadingRef.current = false
+        return false
       }
     },
     [setEdges, setFileName, setNodes, setScenario, setUnsaved]
@@ -133,6 +135,16 @@ export const useFlowPersistence = (confirmDiscardChanges: () => Promise<boolean>
     await handleOpen()
   }, [confirmIfUnsaved, handleOpen])
 
+  const loadFromData = useCallback(
+    async (fileContent: string | object, fileName?: string): Promise<boolean> => {
+      const ok = await confirmIfUnsaved()
+      if (!ok) return false
+
+      return handleLoadFileData(fileContent, fileName)
+    },
+    [confirmIfUnsaved, handleLoadFileData]
+  )
+
   const handleSaveWrapper = useCallback(async () => {
     const savedFile = await innerSave(normalizeSuggestedFileName(useStore.getState().fileName))
 
@@ -158,5 +170,5 @@ export const useFlowPersistence = (confirmDiscardChanges: () => Promise<boolean>
     setUnsaved(currentSnapshot !== lastPersistedContentRef.current)
   }, [edges, handleGetFileData, nodes, scenario, setUnsaved])
 
-  return { handleSave: handleSaveWrapper, handleOpen: handleOpenWithCheckIfSaved }
+  return { handleSave: handleSaveWrapper, handleOpen: handleOpenWithCheckIfSaved, loadFromData }
 }

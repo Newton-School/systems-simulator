@@ -1,4 +1,4 @@
-import { RequestSpan } from './core/events'
+import { cloneRequestPhaseRecord, RequestPhaseRecord, RequestSpan } from './core/events'
 import { microToMs } from './core/time'
 
 export interface RequestTraceSpan {
@@ -13,8 +13,9 @@ export interface RequestTraceSpan {
 export interface RequestTrace {
   requestId: string
   totalLatency: number
-  status: 'success' | 'timeout' | 'rejected' | 'error'
+  status: 'success' | 'timeout' | 'rejected' | 'connection_reset' | 'error'
   spans: RequestTraceSpan[]
+  phaseRecord?: RequestPhaseRecord
 }
 
 interface TraceState {
@@ -22,6 +23,7 @@ interface TraceState {
   spans: RequestSpan[]
   status: RequestTrace['status']
   createdAtUs?: bigint
+  phaseRecord?: RequestPhaseRecord
 }
 
 export class RequestTracer {
@@ -83,6 +85,15 @@ export class RequestTracer {
     state.status = status
   }
 
+  setPhaseRecord(requestId: string, phaseRecord: RequestPhaseRecord | undefined): void {
+    if (!this.shouldTrace(requestId) || !phaseRecord) {
+      return
+    }
+
+    const state = this.ensureTraceState(requestId)
+    state.phaseRecord = cloneRequestPhaseRecord(phaseRecord)
+  }
+
   getTraces(): RequestTrace[] {
     const traces: RequestTrace[] = []
 
@@ -123,7 +134,8 @@ export class RequestTracer {
         requestId: state.requestId,
         totalLatency,
         status: state.status,
-        spans: converted
+        spans: converted,
+        phaseRecord: cloneRequestPhaseRecord(state.phaseRecord)
       })
     }
 

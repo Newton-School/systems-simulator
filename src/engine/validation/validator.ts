@@ -6,6 +6,12 @@ import type {
   TopologyJSON
 } from '../core/types'
 import { inferStructuralRole } from '../catalog/componentSpecs'
+import { validateEdgeConstraintSelection } from '../defaults/edgeConstraints'
+import {
+  CONTENT_ROUTING_MATCH_FIELDS,
+  L4_CONTENT_ROUTING_FORBIDDEN_MESSAGE
+} from '../traits/contentRouting'
+import { asDistributionConfig } from '../traits/serviceTimeOverride'
 
 const COMPONENT_CATEGORIES = [
   'compute',
@@ -273,11 +279,21 @@ const ResilienceConfigSchema = z.object({
     .optional()
 })
 
-const SLOConfigSchema = z.object({
-  latencyP99: z.number().nonnegative(),
-  availabilityTarget: z.number().min(0).max(1),
-  errorBudget: z.number().min(0).max(1)
-})
+const SLOConfigSchema = z
+  .object({
+    latencyP99: z.number().nonnegative().optional(),
+    availabilityTarget: z.number().min(0).max(1).optional(),
+    errorBudget: z.number().min(0).max(1).optional()
+  })
+  .refine(
+    (value) =>
+      value.latencyP99 !== undefined ||
+      value.availabilityTarget !== undefined ||
+      value.errorBudget !== undefined,
+    {
+      message: 'At least one SLO target must be set.'
+    }
+  )
 
 const FailureTriggerSchema = z.object({
   metric: z.string(),
@@ -361,7 +377,8 @@ export const EdgeDefinitionSchema = z.object({
   protocol: z.enum(['https', 'grpc', 'tcp', 'udp', 'websocket', 'amqp', 'kafka']),
   latency: z.object({
     distribution: DistributionConfigSchema,
-    pathType: z.enum(['same-rack', 'same-dc', 'cross-zone', 'cross-region', 'internet'])
+    pathType: z.enum(['same-rack', 'same-dc', 'cross-zone', 'cross-region', 'internet']),
+    derivedFromPathType: z.boolean().optional()
   }),
   bandwidth: z.number().positive(),
   maxConcurrentRequests: z.number().int().positive(),
@@ -441,7 +458,8 @@ export const WorkloadProfileSchema = z.object({
       z.object({
         type: z.string(),
         weight: z.number().nonnegative(),
-        sizeBytes: z.number().positive()
+        sizeBytes: z.number().positive(),
+        metadata: z.record(z.string(), z.unknown()).optional()
       })
     )
     .min(1)
@@ -525,6 +543,7 @@ export const TopologyJSONSchema: z.ZodType<TopologyJSON> = z.object({
 export interface ValidationError {
   path: string
   message: string
+  code?: string
 }
 
 export interface ValidationResult {
@@ -565,6 +584,80 @@ function collectReachableNodeIds(
   }
 
   return visited
+}
+
+function findPureSyncCyclesWithoutExit(topology: TopologyJSON): string[][] {
+  const syncAdjacency = new Map<string, string[]>()
+  const reverseAdjacency = new Map<string, string[]>()
+
+  for (const node of topology.nodes) {
+    syncAdjacency.set(node.id, [])
+    reverseAdjacency.set(node.id, [])
+  }
+
+  for (const edge of topology.edges) {
+    if (edge.mode === 'asynchronous') {
+      continue
+    }
+    syncAdjacency.get(edge.source)?.push(edge.target)
+    reverseAdjacency.get(edge.target)?.push(edge.source)
+  }
+
+  const visited = new Set<string>()
+  const order: string[] = []
+
+  const dfsOrder = (nodeId: string) => {
+    if (visited.has(nodeId)) {
+      return
+    }
+    visited.add(nodeId)
+    for (const next of syncAdjacency.get(nodeId) ?? []) {
+      dfsOrder(next)
+    }
+    order.push(nodeId)
+  }
+
+  for (const node of topology.nodes) {
+    dfsOrder(node.id)
+  }
+
+  const assigned = new Set<string>()
+  const components: string[][] = []
+
+  const dfsComponent = (nodeId: string, component: string[]) => {
+    if (assigned.has(nodeId)) {
+      return
+    }
+    assigned.add(nodeId)
+    component.push(nodeId)
+    for (const next of reverseAdjacency.get(nodeId) ?? []) {
+      dfsComponent(next, component)
+    }
+  }
+
+  for (let index = order.length - 1; index >= 0; index--) {
+    const nodeId = order[index]
+    if (assigned.has(nodeId)) {
+      continue
+    }
+    const component: string[] = []
+    dfsComponent(nodeId, component)
+    if (component.length > 1) {
+      components.push(component)
+    }
+  }
+
+  return components.filter((component) => {
+    const componentSet = new Set(component)
+    return !topology.edges.some(
+      (edge) => componentSet.has(edge.source) && !componentSet.has(edge.target)
+    )
+  })
+}
+
+function displayNodeLabel(node: TopologyJSON['nodes'][number]): string {
+  const trimmedLabel = node.label.trim()
+  return trimmedLabel.length > 0 ? trimmedLabel : node.id
 }
 
 export const validateTopology = (input: unknown): ValidationResult => {
@@ -611,18 +704,19 @@ export const validateTopology = (input: unknown): ValidationResult => {
     }
 
     const role = resolvedRole(node)
+    const nodeLabel = displayNodeLabel(node)
 
     if (role !== 'source') {
       if (!node.queue) {
         warnings.push(
-          `Node '${node.label}' is missing queue config; applying legacy default queue settings.`
+          `Node '${nodeLabel}' is missing queue config; applying legacy default queue settings.`
         )
         node.queue = { workers: 1, capacity: 100, discipline: 'fifo' }
       }
 
       if (!node.processing) {
         warnings.push(
-          `Node '${node.label}' is missing processing config; applying legacy default processing settings.`
+          `Node '${nodeLabel}' is missing processing config; applying legacy default processing settings.`
         )
         node.processing = {
           distribution: { type: 'constant', value: 1 },
@@ -657,6 +751,279 @@ export const validateTopology = (input: unknown): ValidationResult => {
         path: `nodes[${index}].config.nodeErrorRate`,
         message: 'nodeErrorRate must be between 0 and 1.'
       })
+    }
+
+    const healthCheckEnabled = node.config?.['healthCheckEnabled']
+    if (healthCheckEnabled !== undefined && typeof healthCheckEnabled !== 'boolean') {
+      errors.push({
+        path: `nodes[${index}].config.healthCheckEnabled`,
+        message: 'healthCheckEnabled must be a boolean.'
+      })
+    }
+
+    const cacheHitRate = node.config?.['cacheHitRate']
+    if (
+      cacheHitRate !== undefined &&
+      (typeof cacheHitRate !== 'number' ||
+        !Number.isFinite(cacheHitRate) ||
+        cacheHitRate < 0 ||
+        cacheHitRate > 1)
+    ) {
+      errors.push({
+        path: `nodes[${index}].config.cacheHitRate`,
+        message: 'cacheHitRate must be between 0 and 1.'
+      })
+    }
+
+    const cacheHitLatencyMs = node.config?.['cacheHitLatencyMs']
+    if (
+      cacheHitLatencyMs !== undefined &&
+      (typeof cacheHitLatencyMs !== 'number' ||
+        !Number.isFinite(cacheHitLatencyMs) ||
+        cacheHitLatencyMs <= 0)
+    ) {
+      errors.push({
+        path: `nodes[${index}].config.cacheHitLatencyMs`,
+        message: 'cacheHitLatencyMs must be greater than 0.'
+      })
+    }
+
+    const ttlSeconds = node.config?.['ttlSeconds']
+    if (
+      ttlSeconds !== undefined &&
+      (typeof ttlSeconds !== 'number' || !Number.isFinite(ttlSeconds) || ttlSeconds < 0)
+    ) {
+      errors.push({
+        path: `nodes[${index}].config.ttlSeconds`,
+        message: 'ttlSeconds must be greater than or equal to 0.'
+      })
+    }
+
+    const replicationRole = node.config?.['replicationRole']
+    if (
+      replicationRole !== undefined &&
+      replicationRole !== 'primary' &&
+      replicationRole !== 'replica'
+    ) {
+      errors.push({
+        path: `nodes[${index}].config.replicationRole`,
+        message: 'replicationRole must be "primary" or "replica".'
+      })
+    }
+
+    for (const field of ['readLatency', 'writeLatency'] as const) {
+      const value = node.config?.[field]
+      if (value !== undefined && !asDistributionConfig(value)) {
+        errors.push({
+          path: `nodes[${index}].config.${field}`,
+          message: `${field} must be a valid distribution config.`
+        })
+      }
+    }
+
+    const maxTokens = node.config?.['maxTokens']
+    if (
+      maxTokens !== undefined &&
+      (typeof maxTokens !== 'number' || !Number.isFinite(maxTokens) || maxTokens <= 0)
+    ) {
+      errors.push({
+        path: `nodes[${index}].config.maxTokens`,
+        message: 'maxTokens must be greater than 0.'
+      })
+    }
+
+    const refillRatePerSecond = node.config?.['refillRatePerSecond']
+    if (
+      refillRatePerSecond !== undefined &&
+      (typeof refillRatePerSecond !== 'number' ||
+        !Number.isFinite(refillRatePerSecond) ||
+        refillRatePerSecond < 0)
+    ) {
+      errors.push({
+        path: `nodes[${index}].config.refillRatePerSecond`,
+        message: 'refillRatePerSecond must be greater than or equal to 0.'
+      })
+    }
+
+    const coldStartLatency = node.config?.['coldStartLatency']
+    if (coldStartLatency !== undefined && !asDistributionConfig(coldStartLatency)) {
+      errors.push({
+        path: `nodes[${index}].config.coldStartLatency`,
+        message: 'coldStartLatency must be a valid distribution config.'
+      })
+    }
+
+    for (const field of ['idleTimeoutMs', 'maxConcurrency', 'dnsCacheTtlSeconds'] as const) {
+      const value = node.config?.[field]
+      if (
+        value !== undefined &&
+        (typeof value !== 'number' ||
+          !Number.isFinite(value) ||
+          value < 0 ||
+          (field !== 'dnsCacheTtlSeconds' && value <= 0))
+      ) {
+        errors.push({
+          path: `nodes[${index}].config.${field}`,
+          message: `${field} must be ${field === 'dnsCacheTtlSeconds' ? 'greater than or equal to 0' : 'greater than 0'}.`
+        })
+      }
+    }
+
+    const routingKeyField = node.config?.['routingKeyField']
+    if (
+      routingKeyField !== undefined &&
+      (typeof routingKeyField !== 'string' || routingKeyField.trim().length === 0)
+    ) {
+      errors.push({
+        path: `nodes[${index}].config.routingKeyField`,
+        message: 'routingKeyField must be a non-empty string.'
+      })
+    }
+
+    const dnsRoutingPolicy = node.config?.['dnsRoutingPolicy']
+    if (
+      dnsRoutingPolicy !== undefined &&
+      !['simple', 'weighted', 'failover', 'latency-based', 'geolocation'].includes(
+        dnsRoutingPolicy as string
+      )
+    ) {
+      errors.push({
+        path: `nodes[${index}].config.dnsRoutingPolicy`,
+        message:
+          'dnsRoutingPolicy must be one of "simple", "weighted", "failover", "latency-based", "geolocation".'
+      })
+    }
+
+    const dnsGeoTargets = node.config?.['dnsGeoTargets']
+    if (
+      dnsGeoTargets !== undefined &&
+      (!Array.isArray(dnsGeoTargets) ||
+        !dnsGeoTargets.every((entry) => {
+          if (!entry || typeof entry !== 'object') {
+            return false
+          }
+          const candidate = entry as Record<string, unknown>
+          return (
+            typeof candidate.origin === 'string' &&
+            candidate.origin.length > 0 &&
+            typeof candidate.targetNodeId === 'string' &&
+            candidate.targetNodeId.length > 0
+          )
+        }))
+    ) {
+      errors.push({
+        path: `nodes[${index}].config.dnsGeoTargets`,
+        message: 'dnsGeoTargets must be an array of { origin, targetNodeId } entries.'
+      })
+    }
+
+    const circuitBreaker =
+      node.config?.['circuitBreaker'] && typeof node.config['circuitBreaker'] === 'object'
+        ? (node.config['circuitBreaker'] as Record<string, unknown>)
+        : undefined
+    if (circuitBreaker) {
+      const failureThreshold = circuitBreaker.failureThreshold
+      const failureCount = circuitBreaker.failureCount
+      const recoveryTimeout = circuitBreaker.recoveryTimeout
+      const halfOpenRequests = circuitBreaker.halfOpenRequests
+
+      if (
+        typeof failureThreshold !== 'number' ||
+        !Number.isFinite(failureThreshold) ||
+        failureThreshold < 0 ||
+        failureThreshold > 1
+      ) {
+        errors.push({
+          path: `nodes[${index}].config.circuitBreaker.failureThreshold`,
+          message: 'failureThreshold must be between 0 and 1.'
+        })
+      }
+
+      for (const [field, value] of [
+        ['failureCount', failureCount],
+        ['recoveryTimeout', recoveryTimeout],
+        ['halfOpenRequests', halfOpenRequests]
+      ] as const) {
+        if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
+          errors.push({
+            path: `nodes[${index}].config.circuitBreaker.${field}`,
+            message: `${field} must be greater than 0.`
+          })
+        }
+      }
+    }
+
+    if (node.type === 'health-check-manager') {
+      const monitoredNodes = node.config?.['monitoredNodes']
+      if (
+        monitoredNodes !== undefined &&
+        (!Array.isArray(monitoredNodes) ||
+          !monitoredNodes.every((id) => typeof id === 'string' && id.length > 0))
+      ) {
+        errors.push({
+          path: `nodes[${index}].config.monitoredNodes`,
+          message: 'monitoredNodes must be an array of non-empty node IDs.'
+        })
+      }
+
+      for (const field of ['checkIntervalMs', 'unhealthyThreshold', 'healthyThreshold'] as const) {
+        const value = node.config?.[field]
+        if (
+          value !== undefined &&
+          (typeof value !== 'number' || !Number.isFinite(value) || value <= 0)
+        ) {
+          errors.push({
+            path: `nodes[${index}].config.${field}`,
+            message: `${field} must be a positive number.`
+          })
+        }
+      }
+    }
+
+    const routingRules = node.config?.['routingRules']
+    if (routingRules !== undefined) {
+      if (!Array.isArray(routingRules)) {
+        errors.push({
+          path: `nodes[${index}].config.routingRules`,
+          message: 'routingRules must be an array.'
+        })
+      } else if (node.type === 'load-balancer-l4' && routingRules.length > 0) {
+        errors.push({
+          path: `nodes[${index}].config.routingRules`,
+          message: L4_CONTENT_ROUTING_FORBIDDEN_MESSAGE,
+          code: 'l4_content_routing_forbidden'
+        })
+      } else {
+        routingRules.forEach((rule: unknown, ruleIndex: number) => {
+          const candidate = rule as Partial<{
+            matchField: unknown
+            matchValue: unknown
+            targetNodeId: unknown
+          }>
+          if (
+            !(CONTENT_ROUTING_MATCH_FIELDS as readonly string[]).includes(
+              candidate?.matchField as string
+            )
+          ) {
+            errors.push({
+              path: `nodes[${index}].config.routingRules[${ruleIndex}].matchField`,
+              message: `matchField must be one of ${CONTENT_ROUTING_MATCH_FIELDS.map((field) => `"${field}"`).join(', ')}.`
+            })
+          }
+          if (typeof candidate?.matchValue !== 'string' || candidate.matchValue.length === 0) {
+            errors.push({
+              path: `nodes[${index}].config.routingRules[${ruleIndex}].matchValue`,
+              message: 'matchValue is required.'
+            })
+          }
+          if (typeof candidate?.targetNodeId !== 'string' || candidate.targetNodeId.length === 0) {
+            errors.push({
+              path: `nodes[${index}].config.routingRules[${ruleIndex}].targetNodeId`,
+              message: 'targetNodeId is required.'
+            })
+          }
+        })
+      }
     }
 
     if (role === 'sink' && node.config?.['routingStrategy'] !== undefined) {
@@ -726,11 +1093,36 @@ export const validateTopology = (input: unknown): ValidationResult => {
       })
     }
 
+    if (edge.source === edge.target) {
+      errors.push({
+        path: `edges[${index}].target`,
+        message: `Edge '${edge.id}' forms a self-loop on node '${edge.source}'.`
+      })
+    }
+
+    if (edge.mode === 'conditional' && (!edge.condition || edge.condition.trim().length === 0)) {
+      errors.push({
+        path: `edges[${index}].condition`,
+        message: 'Conditional edges must define a condition expression.'
+      })
+    }
+
     if (adjacencyList.has(edge.source) && adjacencyList.has(edge.target)) {
       adjacencyList.get(edge.source)!.push(edge.target)
       outgoingCount.set(edge.source, (outgoingCount.get(edge.source) ?? 0) + 1)
       incomingCount.set(edge.target, (incomingCount.get(edge.target) ?? 0) + 1)
     }
+
+    const sourceNode = nodeById.get(edge.source)
+    const targetNode = nodeById.get(edge.target)
+    const edgeWarnings = validateEdgeConstraintSelection(edge, sourceNode?.type, targetNode?.type)
+    const sourceLabel = sourceNode ? displayNodeLabel(sourceNode) : edge.source
+    const targetLabel = targetNode ? displayNodeLabel(targetNode) : edge.target
+    warnings.push(
+      ...edgeWarnings.map(
+        (message) => `Edge '${edge.id}' (${sourceLabel} → ${targetLabel}): ${message}`
+      )
+    )
   })
 
   topology.nodes.forEach((node, index) => {
@@ -761,6 +1153,14 @@ export const validateTopology = (input: unknown): ValidationResult => {
       message: 'simulationDuration must be greater than warmupDuration.'
     })
   }
+
+  const pureSyncCycles = findPureSyncCyclesWithoutExit(topology)
+  pureSyncCycles.forEach((component, index) => {
+    errors.push({
+      path: `edges[${index}]`,
+      message: `Purely synchronous cycle without an exit detected: ${component.join(' -> ')}. Add an async hop or an external exit path.`
+    })
+  })
 
   if (errors.length === 0 && workloadSourceNodeId) {
     const selectedSourceNode = nodeById.get(workloadSourceNodeId)
@@ -802,10 +1202,6 @@ export const validateTopology = (input: unknown): ValidationResult => {
       return
     }
 
-    if (edge.source === edge.target) {
-      warnings.push(`Edge '${edge.id}' forms a self-loop on node '${sourceNode.label}'.`)
-    }
-
     if (
       edge.source !== edge.target &&
       isSourceNode(sourceNode, topology) &&
@@ -821,25 +1217,24 @@ export const validateTopology = (input: unknown): ValidationResult => {
     const role = resolvedRole(node)
     const incoming = incomingCount.get(node.id) ?? 0
     const outgoing = outgoingCount.get(node.id) ?? 0
+    const nodeLabel = displayNodeLabel(node)
 
     if (role === 'source' && incoming > 0) {
-      warnings.push(`Source node '${node.label}' has ${incoming} incoming edge(s).`)
+      warnings.push(`Source node '${nodeLabel}' has ${incoming} incoming edge(s).`)
     }
 
     if (role === 'sink' && outgoing > 0) {
-      warnings.push(`Sink node '${node.label}' has ${outgoing} outgoing edge(s).`)
+      warnings.push(`Sink node '${nodeLabel}' has ${outgoing} outgoing edge(s).`)
     }
 
     if (role === 'router' && outgoing <= 1 && node.config?.['routingStrategy'] !== undefined) {
       warnings.push(
-        `Router node '${node.label}' exposes routing strategy but has ${outgoing} outgoing edge(s).`
+        `Router node '${nodeLabel}' exposes routing strategy but has ${outgoing} outgoing edge(s).`
       )
     }
 
     if (!visited.has(node.id)) {
-      warnings.push(
-        `Node '${node.id}' (${node.label}) is disconnected and unreachable from any source node.`
-      )
+      warnings.push(`Node '${nodeLabel}' is disconnected and unreachable from any source node.`)
     }
   })
 

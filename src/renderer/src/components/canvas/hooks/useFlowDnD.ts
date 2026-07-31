@@ -1,6 +1,6 @@
 import { useCallback } from 'react'
-import { ReactFlowInstance, NodeDragHandler, Node, useReactFlow } from 'reactflow'
-import { findTargetVpc, getId } from '../utils/canvasUtils'
+import { ReactFlowInstance, NodeDragHandler, Node } from 'reactflow'
+import { findTargetVpc, getId, recomputeContainment } from '../utils/canvasUtils'
 import { instantiateTemplate } from '../../../../../engine/catalog/paletteTemplates'
 
 interface UseFlowDnDProps {
@@ -11,8 +11,6 @@ interface UseFlowDnDProps {
 }
 
 export const useFlowDnD = ({ nodes, addNode, setNodes, instance }: UseFlowDnDProps) => {
-  const { getIntersectingNodes } = useReactFlow()
-
   // 1. Drag Over
   const onDragOver = useCallback((event: React.DragEvent) => {
     event.preventDefault()
@@ -57,55 +55,21 @@ export const useFlowDnD = ({ nodes, addNode, setNodes, instance }: UseFlowDnDPro
     [instance, addNode, nodes]
   )
 
-  // 3. Drag Stop (Re-parenting / Nesting Logic)
+  // 3. Drag Stop — re-derive containment from geometry (center-inside).
+  // Works whether the user dragged a node INTO a container or dragged a
+  // container OVER existing nodes, and releases nodes whose center leaves their
+  // container. Runs over the whole graph so nesting stays consistent.
   const onNodeDragStop: NodeDragHandler = useCallback(
     (_, node) => {
-      // Find intersections using React Flow's helper, then filter for VPCs
-      const intersections = getIntersectingNodes(node).filter(
-        (n) => n.type === 'vpcNode' && n.id !== node.id
+      const withDraggedPosition = nodes.map((n) =>
+        n.id === node.id ? { ...n, position: node.position, parentNode: node.parentNode } : n
       )
-
-      // Manual sort since getIntersectingNodes doesn't guarantee order
-      intersections.sort((a, b) => {
-        const areaA = (a.width || 0) * (a.height || 0)
-        const areaB = (b.width || 0) * (b.height || 0)
-        return areaA - areaB
-      })
-
-      const targetVpc = intersections[0]
-
-      // Scenario A: Attach to Parent
-      if (targetVpc) {
-        // Prevent cycles
-        if (node.id === targetVpc.parentNode) return
-        // Prevent redundant updates
-        if (node.parentNode === targetVpc.id) return
-
-        const relativePosition = {
-          x: node.position.x - targetVpc.position.x,
-          y: node.position.y - targetVpc.position.y
-        }
-
-        setNodes(
-          nodes.map((n) =>
-            n.id === node.id
-              ? {
-                  ...n,
-                  parentNode: targetVpc.id,
-                  position: relativePosition,
-                  extent: 'parent',
-                  expandParent: false,
-                  zIndex: 10
-                }
-              : n
-          )
-        )
+      const recomputed = recomputeContainment(withDraggedPosition)
+      if (recomputed !== withDraggedPosition) {
+        setNodes(recomputed)
       }
-
-      // Scenario B: Detach is handled by Ungroup Button (Toolbar)
-      // We purposefully don't auto-detach on drag to prevent accidental removals.
     },
-    [nodes, setNodes, getIntersectingNodes]
+    [nodes, setNodes]
   )
 
   return { onDragOver, onDrop, onNodeDragStop }

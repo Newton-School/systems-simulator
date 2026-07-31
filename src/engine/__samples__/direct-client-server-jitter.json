@@ -1,0 +1,78 @@
+{
+  "version": "2.0.0",
+  "nodes": [
+    {
+      "id": "client",
+      "type": "serviceNode",
+      "position": { "x": 80, "y": 260 },
+      "data": {
+        "schemaVersion": 2,
+        "templateId": "client-user",
+        "componentType": "api-endpoint",
+        "structuralRole": "source",
+        "profile": "source",
+        "rendererType": "serviceNode",
+        "label": "Client App",
+        "subLabel": "Even (constant) source",
+        "iconKey": "monitor",
+        "source": {
+          "requestDistribution": [{ "type": "GET", "weight": 1, "sizeBytes": 1024 }],
+          "defaultWorkload": { "pattern": "constant", "baseRps": 120 }
+        }
+      }
+    },
+    {
+      "id": "api",
+      "type": "computeNode",
+      "position": { "x": 680, "y": 260 },
+      "data": {
+        "schemaVersion": 2,
+        "templateId": "backend-server",
+        "componentType": "microservice",
+        "structuralRole": "processor",
+        "profile": "compute-service",
+        "rendererType": "computeNode",
+        "label": "API Server",
+        "subLabel": "1 worker, near capacity",
+        "iconKey": "SERVER",
+        "sim": {
+          "queue": { "workers": 1, "capacity": 2, "discipline": "fifo" },
+          "processing": { "distribution": { "type": "constant", "value": 8 }, "timeout": 250 }
+        }
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "client-to-api",
+      "type": "packet",
+      "source": "client",
+      "target": "api",
+      "sourceHandle": "right-1-source",
+      "targetHandle": "left-1-target",
+      "animated": true,
+      "data": {
+        "protocol": "https",
+        "mode": "synchronous",
+        "latencyDistributionType": "log-normal",
+        "latencyMu": 2.1,
+        "latencySigma": 0.35,
+        "bandwidth": 1000,
+        "maxConcurrentRequests": 200,
+        "packetLossRate": 0,
+        "errorRate": 0
+      }
+    }
+  ],
+  "scenario": {
+    "global": {
+      "simulationDuration": 15000,
+      "warmupDuration": 2000,
+      "seed": "sample-direct-client-server-jitter",
+      "defaultTimeout": 1000,
+      "traceSampleRate": 0.05
+    },
+    "selectedSourceNodeId": "client",
+    "workloadOverride": { "pattern": "constant", "baseRps": 120 }
+  }
+}

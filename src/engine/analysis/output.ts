@@ -3,10 +3,15 @@ import type {
   CanonicalEventRecord,
   DebugEvent,
   EventCountsByType,
-  RequestLifecycle
+  RequestLifecycle,
+  RequestOutcomeRecord
 } from '../core/event-stream'
 import { createEmptyEventCounts } from '../core/event-stream'
-import { MetricsCollector, PerNodeMetrics, SimulationSummary } from '../metrics'
+import {
+  createEmptyRequestOutcomeBreakdown,
+  type RequestOutcomeFamily
+} from '../core/requestOutcomeSemantics'
+import { MetricsCollector, PerEdgeMetrics, PerNodeMetrics, SimulationSummary } from '../metrics'
 import { RequestTrace, RequestTracer } from '../tracer'
 
 export interface TimeSeriesSnapshot {
@@ -16,6 +21,7 @@ export interface TimeSeriesSnapshot {
     {
       queueLength: number
       activeWorkers: number
+      totalInSystem: number
       utilization: number
       status: string
     }
@@ -89,7 +95,12 @@ export interface WarmupAdequacy {
 
 /**
  * Per-node conservation check using the post-warmup window only.
- * postWarmupArrived == postWarmupProcessed + postWarmupRejected + postWarmupTimedOut + inFlight
+ * postWarmupArrived
+ *   == postWarmupProcessed
+ *    + postWarmupRejected
+ *    + postWarmupTimedOut
+ *    + postWarmupConnectionReset
+ *    + inFlight
  *
  * All four counters use the same time domain (node-level event time ≥ warmup),
  * so an `inFlight` > 5% of arrivals is a genuine imbalance — typically requests
@@ -102,18 +113,39 @@ export interface ConservationResult {
   postWarmupProcessed: number
   postWarmupRejected: number
   postWarmupTimedOut: number
-  /** postWarmupArrived − processed − rejected − timedOut */
+  postWarmupConnectionReset: number
+  /** postWarmupArrived − processed − rejected − timedOut − connectionReset */
   inFlight: number
   /** True when inFlight / postWarmupArrived < 5% (or postWarmupArrived == 0). */
   balanced: boolean
 }
 
+/**
+ * A component's failure/recovery interval — a first-class run artifact. A
+ * `node-failure` opens the window; the matching `node-recovery` closes it;
+ * windows still open at cutoff close at the simulation horizon. Shading these
+ * on a time axis partitions every metric into before / during / after and makes
+ * the survivor-bias trap self-evident (successes cluster left of the band).
+ */
+export interface StatusWindow {
+  componentId: string
+  /** Failure mode active during the window (reject | blackhole | hang | degraded). */
+  mode: string
+  startMs: number
+  endMs: number
+}
+
 export interface SimulationOutput {
   summary: SimulationSummary
   perNode: Record<string, PerNodeMetrics>
+  perEdge: Record<string, PerEdgeMetrics>
   timeSeries: TimeSeriesSnapshot[]
+  /** Component failure/recovery intervals (ms), for shading outage windows. */
+  statusTimeline: StatusWindow[]
   traces: RequestTrace[]
   causalGraph: CausalGraph | null
+  /** Number of explicitly configured SLO targets evaluated for this run. */
+  sloTargetCount: number
   sloBreaches: SLOBreach[]
   invariantViolations: InvariantViolation[]
   littlesLawCheck: LittlesLawResult[]
@@ -134,6 +166,17 @@ export interface SimulationOutput {
   eventLog: DebugEvent[] | null
   /** Lifecycle assembled for a focused debug request, when one was selected. */
   debuggedLifecycle: RequestLifecycle | null
+  /**
+   * Per-request outcome rows retained for UI inspection. Engine-side callers may
+   * keep this complete; worker/UI payloads may sample it for very large runs.
+   */
+  requestOutcomes: RequestOutcomeRecord[]
+  /** Total outcome rows before any UI transport sampling. */
+  requestOutcomeTotal: number
+  /** Exact counts by request outcome family across the full run. */
+  requestOutcomeBreakdown: Record<RequestOutcomeFamily, number>
+  /** True when `requestOutcomes` is a sampled subset of the total outcome ledger. */
+  requestOutcomesSampled: boolean
 }
 
 export function generateSimulationOutput(
@@ -149,23 +192,35 @@ export function generateSimulationOutput(
   debugData?: {
     eventLog?: DebugEvent[] | null
     debuggedLifecycle?: RequestLifecycle | null
+    statusTimeline?: StatusWindow[]
+    requestOutcomes?: RequestOutcomeRecord[]
+    requestOutcomeTotal?: number
+    requestOutcomeBreakdown?: Record<RequestOutcomeFamily, number>
+    requestOutcomesSampled?: boolean
   }
 ): SimulationOutput {
   const summary = metrics.generateSummary(config.simulationDuration)
   const perNode = Object.fromEntries(
     metrics.getPerNodeMetrics(config.simulationDuration)
   ) as Record<string, PerNodeMetrics>
+  const perEdge = Object.fromEntries(metrics.getPerEdgeMetrics()) as Record<string, PerEdgeMetrics>
   const littlesLawCheck = calculateLittlesLaw(perNode, config)
   const sloBreaches = detectSLOBreaches(metrics, perNode)
+  const sloTargetCount = countSLOTargets(metrics, perNode)
   const warmupAdequacy = assessWarmupAdequacy(perNode, config)
   const conservationCheck = buildConservationCheck(perNode)
+
+  const requestOutcomes = debugData?.requestOutcomes ?? []
 
   return {
     summary,
     perNode,
+    perEdge,
     timeSeries: [...timeSeries],
+    statusTimeline: debugData?.statusTimeline ?? [],
     traces: tracer.getTraces(),
     causalGraph,
+    sloTargetCount,
     sloBreaches,
     invariantViolations: [...invariantViolations],
     littlesLawCheck,
@@ -179,8 +234,33 @@ export function generateSimulationOutput(
     simulationDuration: config.simulationDuration,
     warmupDuration: config.warmupDuration,
     eventLog: debugData?.eventLog ?? null,
-    debuggedLifecycle: debugData?.debuggedLifecycle ?? null
+    debuggedLifecycle: debugData?.debuggedLifecycle ?? null,
+    requestOutcomes,
+    requestOutcomeTotal: debugData?.requestOutcomeTotal ?? requestOutcomes.length,
+    requestOutcomeBreakdown:
+      debugData?.requestOutcomeBreakdown ?? createEmptyRequestOutcomeBreakdown(),
+    requestOutcomesSampled: debugData?.requestOutcomesSampled ?? false
   }
+}
+
+function countSLOTargets(
+  metrics: MetricsCollector,
+  perNode: Record<string, PerNodeMetrics>
+): number {
+  let count = 0
+  for (const nodeId of Object.keys(perNode)) {
+    const slo = metrics.getNodeMetadata(nodeId)?.slo
+    if (!slo) {
+      continue
+    }
+    if (typeof slo.latencyP99 === 'number') {
+      count++
+    }
+    if (typeof slo.availabilityTarget === 'number') {
+      count++
+    }
+  }
+  return count
 }
 
 function detectSLOBreaches(
@@ -198,7 +278,7 @@ function detectSLOBreaches(
 
     const nodeLabel = metadata?.label ?? nodeMetrics.nodeLabel ?? nodeId
 
-    if (nodeMetrics.latencyP99 > slo.latencyP99) {
+    if (typeof slo.latencyP99 === 'number' && nodeMetrics.latencyP99 > slo.latencyP99) {
       breaches.push({
         nodeId,
         nodeLabel,
@@ -209,7 +289,10 @@ function detectSLOBreaches(
       })
     }
 
-    if (nodeMetrics.availability < slo.availabilityTarget) {
+    if (
+      typeof slo.availabilityTarget === 'number' &&
+      nodeMetrics.availability < slo.availabilityTarget
+    ) {
       breaches.push({
         nodeId,
         nodeLabel,
@@ -314,7 +397,12 @@ function assessWarmupAdequacy(
 
 /**
  * Verify conservation over the post-warmup window:
- *   postWarmupArrived == postWarmupProcessed + postWarmupRejected + postWarmupTimedOut + inFlight
+ *   postWarmupArrived
+ *     == postWarmupProcessed
+ *      + postWarmupRejected
+ *      + postWarmupTimedOut
+ *      + postWarmupConnectionReset
+ *      + inFlight
  *
  * All counters use the same node-level event-time gate so the identity must hold.
  * Large in-flight counts indicate requests were still queued at simulation cutoff.
@@ -323,7 +411,11 @@ function buildConservationCheck(perNode: Record<string, PerNodeMetrics>): Conser
   return Object.entries(perNode).map(([nodeId, m]) => {
     const inFlight = Math.max(
       0,
-      m.postWarmupArrived - m.postWarmupProcessed - m.postWarmupRejected - m.postWarmupTimedOut
+      m.postWarmupArrived -
+        m.postWarmupProcessed -
+        m.postWarmupRejected -
+        m.postWarmupTimedOut -
+        m.postWarmupConnectionReset
     )
     const balanced = m.postWarmupArrived === 0 || inFlight / m.postWarmupArrived < 0.05
     return {
@@ -333,6 +425,7 @@ function buildConservationCheck(perNode: Record<string, PerNodeMetrics>): Conser
       postWarmupProcessed: m.postWarmupProcessed,
       postWarmupRejected: m.postWarmupRejected,
       postWarmupTimedOut: m.postWarmupTimedOut,
+      postWarmupConnectionReset: m.postWarmupConnectionReset,
       inFlight,
       balanced
     }

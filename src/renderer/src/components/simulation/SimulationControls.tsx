@@ -1,11 +1,57 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Pause, Play, Square, X } from 'lucide-react'
-import type { WorkloadProfile } from '../../../../engine/core/types'
-import type { ScenarioState, SourceNodeOption } from '@renderer/types/ui'
+import { Pause, Play, RotateCcw, Square, X } from 'lucide-react'
+import type { FaultSpec, WorkloadProfile } from '../../../../engine/core/types'
+import type { FaultTargetOption, ScenarioState, SourceNodeOption } from '@renderer/types/ui'
 import { mergeWorkloadDefaults } from '@renderer/utils/workloadDefaults'
 
 type WorkloadOverride = NonNullable<ScenarioState['workloadOverride']>
 type WorkloadPattern = WorkloadProfile['pattern']
+
+type FailureMode = 'blackhole' | 'hang' | 'reject' | 'degraded'
+const FAILURE_MODE_OPTIONS: { value: FailureMode; label: string }[] = [
+  { value: 'blackhole', label: 'Blackhole (silent, walls at timeout)' },
+  { value: 'hang', label: 'Hang (accept then freeze)' },
+  { value: 'reject', label: 'Reject (instant node_failed)' },
+  { value: 'degraded', label: 'Degraded (slower service)' }
+]
+
+interface SimpleFault {
+  targetId: string
+  atS: number
+  durationS: number
+  mode: FailureMode
+}
+
+function readFault(fault: FaultSpec): SimpleFault {
+  const params = (fault.params ?? {}) as Record<string, unknown>
+  const num = (v: unknown): number => (typeof v === 'number' && v >= 0 ? v : 0)
+  const mode = typeof params.mode === 'string' ? (params.mode as FailureMode) : 'blackhole'
+  return {
+    targetId: fault.targetId,
+    atS: Math.round(num(params.atMs) / 1000),
+    durationS: Math.round(num(params.durationMs) / 1000),
+    mode
+  }
+}
+
+function buildFault(simple: SimpleFault): FaultSpec {
+  return {
+    targetId: simple.targetId,
+    faultType: 'chaos',
+    timing: 'deterministic',
+    duration: simple.durationS > 0 ? 'fixed' : 'permanent',
+    params: {
+      atMs: Math.max(0, simple.atS) * 1000,
+      durationMs: Math.max(0, simple.durationS) * 1000,
+      mode: simple.mode,
+      inFlightPolicy: 'hang',
+      recoveryPolicy: 'reset',
+      ...(simple.mode === 'degraded'
+        ? { degradation: { fraction: 0.3, serviceTimeMultiplier: 10 } }
+        : {})
+    }
+  }
+}
 
 const PATTERN_OPTIONS: { value: WorkloadPattern; label: string }[] = [
   { value: 'constant', label: 'Constant' },
@@ -24,12 +70,15 @@ const ACTION_BUTTON_BASE =
 
 interface SimulationControlsProps {
   onRun: () => void
+  onReset: () => void
+  isPostRun: boolean
   onPause: () => void
   onResume: () => void
   onStop: () => void
   isRunning: boolean
   isPaused: boolean
   sourceNodes: SourceNodeOption[]
+  faultTargets: FaultTargetOption[]
   scenario: ScenarioState
   onScenarioChange: (updater: (current: ScenarioState) => ScenarioState) => void
   disabled?: boolean
@@ -47,12 +96,15 @@ function updateWorkloadOverride(
 
 export function SimulationControls({
   onRun,
+  onReset,
+  isPostRun,
   onPause,
   onResume,
   onStop,
   isRunning,
   isPaused,
   sourceNodes,
+  faultTargets,
   scenario,
   onScenarioChange,
   disabled = false
@@ -135,17 +187,59 @@ export function SimulationControls({
 
   const hasSourceNodes = sourceNodes.length > 0
 
+  // Single injected fault, derived from / written back to scenario.faults[0].
+  const currentFault = scenario.faults?.[0]
+  const faultEnabled = Boolean(currentFault)
+  const fault: SimpleFault = currentFault
+    ? readFault(currentFault)
+    : { targetId: faultTargets[0]?.id ?? '', atS: 5, durationS: 10, mode: 'blackhole' }
+
+  const patchFault = (patch: Partial<SimpleFault>): void => {
+    onScenarioChange((current) => {
+      const base = current.faults?.[0]
+        ? readFault(current.faults[0])
+        : { targetId: faultTargets[0]?.id ?? '', atS: 5, durationS: 10, mode: 'blackhole' as const }
+      const next = { ...base, ...patch }
+      return { ...current, faults: next.targetId ? [buildFault(next)] : [] }
+    })
+  }
+
+  const toggleFault = (enabled: boolean): void => {
+    onScenarioChange((current) => {
+      if (!enabled) return { ...current, faults: [] }
+      const target = faultTargets[0]?.id
+      return target
+        ? {
+            ...current,
+            faults: [buildFault({ targetId: target, atS: 5, durationS: 10, mode: 'blackhole' })]
+          }
+        : current
+    })
+  }
+
   return (
     <div ref={wrapperRef} className="relative flex items-center gap-1.5">
       {!isRunning && !isPaused && (
-        <button
-          onClick={() => setIsOpen((prev) => !prev)}
-          disabled={disabled}
-          className={`${ACTION_BUTTON_BASE} flex items-center gap-1.5 bg-nss-primary text-white border-transparent hover:bg-nss-primary-hover`}
-        >
-          <Play size={12} className="fill-white" />
-          Run
-        </button>
+        <>
+          {isPostRun && (
+            <button
+              onClick={onReset}
+              title="Clear results and return to setup"
+              className={`${ACTION_BUTTON_BASE} flex items-center gap-1.5 bg-nss-surface text-nss-text border-nss-border hover:bg-nss-bg`}
+            >
+              <RotateCcw size={12} />
+              Reset
+            </button>
+          )}
+          <button
+            onClick={() => setIsOpen((prev) => !prev)}
+            disabled={disabled}
+            className={`${ACTION_BUTTON_BASE} flex items-center gap-1.5 bg-nss-primary text-white border-transparent hover:bg-nss-primary-hover`}
+          >
+            <Play size={12} className="fill-white" />
+            {isPostRun ? 'Run again' : 'Run'}
+          </button>
+        </>
       )}
 
       {isRunning && !isPaused && (
@@ -361,6 +455,73 @@ export function SimulationControls({
               className={CONTROL_BASE}
             />
           </Field>
+
+          <div className="h-px bg-nss-border my-3" />
+
+          <label className="flex items-center justify-between mb-2 cursor-pointer">
+            <span className="text-[10px] font-semibold uppercase tracking-widest text-nss-muted">
+              Chaos - inject a failure
+            </span>
+            <input
+              type="checkbox"
+              checked={faultEnabled}
+              disabled={faultTargets.length === 0}
+              onChange={(event) => toggleFault(event.target.checked)}
+              className="accent-nss-danger"
+            />
+          </label>
+          {faultTargets.length === 0 ? (
+            <p className="text-[10px] text-nss-muted mb-3">
+              Add a non-source component to target with a fault.
+            </p>
+          ) : (
+            faultEnabled && (
+              <div className="space-y-2 mb-3">
+                <Field label="Target">
+                  <select
+                    value={fault.targetId}
+                    onChange={(event) => patchFault({ targetId: event.target.value })}
+                    className={CONTROL_BASE}
+                  >
+                    {faultTargets.map((target) => (
+                      <option key={target.id} value={target.id}>
+                        {target.label}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                <Field label="Mode">
+                  <select
+                    value={fault.mode}
+                    onChange={(event) => patchFault({ mode: event.target.value as FailureMode })}
+                    className={CONTROL_BASE}
+                  >
+                    {FAILURE_MODE_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                <div className="grid grid-cols-2 gap-2">
+                  <Field label="Fail at (s)">
+                    <NumberInput
+                      value={fault.atS}
+                      min={0}
+                      onChange={(value) => patchFault({ atS: value })}
+                    />
+                  </Field>
+                  <Field label="Duration (s, 0 = never recovers)">
+                    <NumberInput
+                      value={fault.durationS}
+                      min={0}
+                      onChange={(value) => patchFault({ durationS: value })}
+                    />
+                  </Field>
+                </div>
+              </div>
+            )
+          )}
 
           <button
             onClick={() => {
