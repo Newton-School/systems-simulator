@@ -14,6 +14,10 @@ import { validateTopology } from '../../../../engine/validation/validator'
 import type { LatencyPercentiles } from '../../../../engine/metrics'
 import type { TimeSeriesSnapshot } from '../../../../engine/analysis/output'
 import type { ValidationError } from '../../../../engine/validation/validator'
+import {
+  hasWorkloadSourceConfig,
+  isSourceComponentData
+} from '../../../../engine/catalog/sourceNodeSemantics'
 
 // Organisms
 import {
@@ -146,8 +150,7 @@ type StoreNode = ReturnType<typeof useStore.getState>['nodes'][number]
 type StoreEdge = ReturnType<typeof useStore.getState>['edges'][number]
 
 function isSourceNode(node: StoreNode): boolean {
-  const data = node.data as Partial<CanvasNodeDataV2>
-  return data.structuralRole === 'source' || data.profile === 'source'
+  return isSourceComponentData(node.data as Partial<CanvasNodeDataV2>)
 }
 
 function sumEdgeFlows(
@@ -587,7 +590,7 @@ export const WorkspaceLayout = () => {
   const isPaused = sim.status === 'paused' && !sim.stopped
   const isPostRun = sim.status === 'complete'
   const sourceNodes: SourceNodeOption[] = nodes
-    .filter((node) => (node.data as CanvasNodeDataV2).profile === 'source')
+    .filter((node) => hasWorkloadSourceConfig(node.data as Partial<CanvasNodeDataV2>))
     .map((node) => {
       const data = node.data as CanvasNodeDataV2
       return {

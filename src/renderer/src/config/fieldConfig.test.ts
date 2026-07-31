@@ -208,4 +208,36 @@ describe('getNodeConfigSections', () => {
     expect(requestTemplatesField?.renderer).toBe('request-distribution')
     expect(requestTemplatesField?.inputType).toBe('text')
   })
+
+  it('shows workload config sections for workload-overlay entrypoints', () => {
+    const gateway = makeRuntimeNode({
+      templateId: 'api-gateway',
+      componentType: 'api-gateway',
+      structuralRole: 'router',
+      profile: 'router',
+      label: 'API Gateway',
+      source: {
+        requestDistribution: [{ type: 'GET', weight: 1, sizeBytes: 1024 }],
+        defaultWorkload: {
+          pattern: 'poisson',
+          baseRps: 100,
+          bursty: { burstRps: 500, burstDuration: 2000, normalDuration: 8000 },
+          spike: { spikeTime: 30000, spikeRps: 1000, spikeDuration: 5000 },
+          sawtooth: { peakRps: 300, rampDuration: 10000 },
+          diurnal: {
+            peakMultiplier: 1,
+            hourlyMultipliers: [
+              0.6, 0.5, 0.45, 0.4, 0.4, 0.5, 0.7, 0.9, 1.1, 1.2, 1.15, 1.05, 1, 1.05, 1.1, 1.2,
+              1.25, 1.3, 1.2, 1.05, 0.95, 0.85, 0.75, 0.65
+            ]
+          }
+        }
+      }
+    })
+
+    const sections = getNodeConfigSections(gateway)
+
+    expect(sections.find((section) => section.id === 'workload')).toBeTruthy()
+    expect(sections.find((section) => section.id === 'request-templates')).toBeTruthy()
+  })
 })

@@ -19,10 +19,33 @@ function sourceNode(id: string): { id: string; data: AnyNodeData } {
       label: 'Client App',
       iconKey: 'client-app',
       source: {
-        requestDistribution: 'independent',
+        requestDistribution: [{ type: 'GET', weight: 1, sizeBytes: 1024 }],
         defaultWorkload: {
           pattern: 'poisson',
           baseRps: 120
+        }
+      }
+    } as unknown as AnyNodeData
+  }
+}
+
+function workloadOverlayNode(id: string): { id: string; data: AnyNodeData } {
+  return {
+    id,
+    data: {
+      schemaVersion: '2.0.0',
+      templateId: 'api-gateway',
+      componentType: 'api-gateway',
+      profile: 'router',
+      structuralRole: 'router',
+      rendererType: 'serviceNode',
+      label: 'API Gateway',
+      iconKey: 'api-gateway',
+      source: {
+        requestDistribution: [{ type: 'GET', weight: 1, sizeBytes: 1024 }],
+        defaultWorkload: {
+          pattern: 'poisson',
+          baseRps: 90
         }
       }
     } as unknown as AnyNodeData
@@ -47,6 +70,15 @@ describe('resolveEffectiveSelectedSourceNodeId', () => {
 
     expect(selected).toBe('client-a')
   })
+
+  it('treats workload overlay nodes as valid source selections', () => {
+    const selected = resolveEffectiveSelectedSourceNodeId(
+      [workloadOverlayNode('api-gw'), sourceNode('client-b')],
+      'missing-client'
+    )
+
+    expect(selected).toBe('api-gw')
+  })
 })
 
 describe('resolveDisplayedSourceWorkload', () => {
@@ -69,6 +101,18 @@ describe('resolveDisplayedSourceWorkload', () => {
 
     expect(workload?.baseRps).toBe(120)
   })
+
+  it('resolves displayed workload for non-canonical workload overlay nodes', () => {
+    const workload = resolveDisplayedSourceWorkload(
+      'api-gw',
+      workloadOverlayNode('api-gw').data,
+      'api-gw',
+      { baseRps: 75 }
+    )
+
+    expect(workload?.pattern).toBe('poisson')
+    expect(workload?.baseRps).toBe(75)
+  })
 })
 
 describe('withDisplayedSourceWorkload', () => {
@@ -80,6 +124,16 @@ describe('withDisplayedSourceWorkload', () => {
 
     expect(next.source?.defaultWorkload.baseRps).toBe(100)
     expect(next.source?.defaultWorkload.pattern).toBe('poisson')
+  })
+
+  it('overlays displayed workload onto workload-source overlay nodes', () => {
+    const next = withDisplayedSourceWorkload(workloadOverlayNode('api-gw').data, {
+      pattern: 'poisson',
+      baseRps: 75
+    })
+
+    expect(next.source?.defaultWorkload.baseRps).toBe(75)
+    expect(next.profile).toBe('router')
   })
 })
 

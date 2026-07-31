@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildLatencyLensCard, getLensCard } from './nodePresentation'
+import { buildLatencyLensCard, getIdentityChip, getLensCard } from './nodePresentation'
 
 const EMPTY_LATENCY = {
   p50: null,
@@ -111,5 +111,27 @@ describe('getLensCard', () => {
     expect(card?.why).toContain('38 timed out')
     expect(card?.why).toContain('mostly Timed Out')
     expect(card?.why).not.toContain('no rejections')
+  })
+})
+
+describe('getIdentityChip', () => {
+  it('shows workload identity for workload-overlay entrypoints without changing their profile', () => {
+    const chip = getIdentityChip({
+      profile: 'router',
+      structuralRole: 'router',
+      componentType: 'api-gateway',
+      source: {
+        requestDistribution: [{ type: 'GET', weight: 1, sizeBytes: 1024 }],
+        defaultWorkload: {
+          pattern: 'poisson',
+          baseRps: 80
+        }
+      }
+    } as never)
+
+    expect(chip).toEqual({
+      label: 'Workload',
+      value: 'poisson · 80.0 rps'
+    })
   })
 })
