@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useEffect } from 'react'
 import type { SimulationOutput, TimeSeriesSnapshot } from '../../../engine/analysis/output'
 import type { TopologyJSON } from '../../../engine/core/types'
 import type { WorkerInboundMessage, WorkerOutboundMessage } from '../../../engine/worker/protocols'
+import useStore from '@renderer/store/useStore'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -11,6 +12,7 @@ export interface SimulationState {
   status: SimulationStatus
   progress: number // 0–100
   eventsProcessed: number
+  runStartedAtMs: number | null
   snapshot: TimeSeriesSnapshot | null
   results: SimulationOutput | null
   stopped: boolean
@@ -32,6 +34,7 @@ const INITIAL_STATE: SimulationState = {
   status: 'idle',
   progress: 0,
   eventsProcessed: 0,
+  runStartedAtMs: null,
   snapshot: null,
   results: null,
   stopped: false,
@@ -74,7 +77,14 @@ export function useSimulation(): SimulationState & SimulationControls {
           setState((s) => ({ ...s, snapshot: msg.payload.snapshot }))
           break
 
+        case 'edge-flow-batch':
+          useStore.getState().recordEdgeFlowEventBatch(msg.payload.events)
+          break
+
         case 'complete':
+          useStore.getState().setEdgeFlowStatus('complete')
+          useStore.getState().selectGraphElements({})
+          useStore.getState().setRunInspectorPinned(true)
           setState((s) => ({
             ...s,
             status: 'complete',
@@ -125,11 +135,14 @@ export function useSimulation(): SimulationState & SimulationControls {
     // Terminate any existing worker before starting a new one
     workerRef.current?.terminate()
     workerRef.current = spawnWorker()
+    useStore.getState().selectGraphElements({})
+    useStore.getState().setRunInspectorPinned(false)
 
     setState({
       status: 'running',
       progress: 0,
       eventsProcessed: 0,
+      runStartedAtMs: Date.now(),
       snapshot: null,
       results: null,
       stopped: false,
@@ -164,6 +177,7 @@ export function useSimulation(): SimulationState & SimulationControls {
   const reset = useCallback(() => {
     workerRef.current?.terminate()
     workerRef.current = null
+    useStore.getState().clearEdgeFlow()
     setState(INITIAL_STATE)
   }, [])
 

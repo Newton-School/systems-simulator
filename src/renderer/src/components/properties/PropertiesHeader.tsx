@@ -1,18 +1,24 @@
+import type { ReactNode } from 'react'
 import type { AnyNodeData } from '@renderer/types/ui'
 import { resolveNodeConfig } from '@renderer/config/nodeRegistry'
+import { HEALTH_META, getHealthPreset, normalizeErrorRate } from './nodeHealth'
 
 interface PropertiesHeaderProps {
   data: AnyNodeData
+  leadingAction?: ReactNode
 }
 
-export const PropertiesHeader = ({ data }: PropertiesHeaderProps) => {
+export const PropertiesHeader = ({ data, leadingAction }: PropertiesHeaderProps) => {
   const { icon: Icon, theme, label, subLabel } = resolveNodeConfig(data.templateId || data.iconKey)
   const isOverloaded = data.ui?.overloadPreview
   const safeColor = theme.bg || 'bg-nss-primary'
+  const healthPreset = getHealthPreset(normalizeErrorRate(data.sim?.nodeErrorRate))
+  const healthMeta = HEALTH_META[healthPreset]
 
   return (
     <div className="p-5 border-b border-nss-border bg-nss-panel">
       <div className="flex items-center gap-4">
+        {leadingAction}
         <div
           className={`
           shrink-0 transition-all duration-300 rounded-lg p-2 shadow-sm
@@ -27,15 +33,21 @@ export const PropertiesHeader = ({ data }: PropertiesHeaderProps) => {
         </div>
 
         <div className="flex-1 min-w-0">
-          <div className="flex justify-between items-center">
+          <div className="flex items-center justify-between gap-2">
             <h2
-              className={`font-semibold text-sm leading-tight truncate pr-2 ${isOverloaded ? 'text-nss-danger' : 'text-nss-text'}`}
+              className={`min-w-0 font-semibold text-sm leading-tight truncate ${isOverloaded ? 'text-nss-danger' : 'text-nss-text'}`}
             >
               {data.label || label}
             </h2>
+            <span
+              className={`shrink-0 inline-flex items-center gap-1.5 rounded border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${healthMeta.className}`}
+            >
+              <span className={`h-1.5 w-1.5 rounded-full ${healthMeta.dotClassName}`} />
+              {healthMeta.label}
+            </span>
           </div>
           <div className="mt-1 flex items-center gap-2">
-            <span className="text-[10px] text-nss-muted font-mono uppercase truncate">
+            <span className="text-[10px] text-nss-muted uppercase truncate">
               {data.subLabel || subLabel}
             </span>
             <span className="text-[10px] px-1.5 py-0.5 rounded border border-nss-border bg-nss-surface text-nss-muted uppercase tracking-wide">

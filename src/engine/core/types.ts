@@ -259,9 +259,9 @@ export interface ResilienceConfig {
 }
 
 export interface SLOConfig {
-  latencyP99: number //ms
-  availabilityTarget: number //fraction between 0 and 1.
-  errorBudget: number //fraction between 0 and 1.
+  latencyP99?: number // ms
+  availabilityTarget?: number // fraction between 0 and 1
+  errorBudget?: number // fraction between 0 and 1
 }
 
 export interface FailureMode {
@@ -316,6 +316,7 @@ export interface EdgeDefinition {
   latency: {
     distribution: DistributionConfig
     pathType: 'same-rack' | 'same-dc' | 'cross-zone' | 'cross-region' | 'internet'
+    derivedFromPathType?: boolean
   }
   bandwidth: number //Mbps
   maxConcurrentRequests: number
@@ -409,6 +410,7 @@ export interface WorkloadProfile {
      */
     weight: number
     sizeBytes: number
+    metadata?: Record<string, unknown>
   }>
 }
 

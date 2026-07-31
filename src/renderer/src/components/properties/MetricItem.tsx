@@ -24,7 +24,7 @@ export const MetricItem = ({
       </div>
 
       {/* Value: Uses custom textColor (defaulting to nss-text) */}
-      <div className={clsx('font-mono text-lg truncate', textColor)}>
+      <div className={clsx('text-lg truncate tabular-nums', textColor)}>
         {value}
         {unit && <span className={clsx('text-xs ml-0.5', textColor)}>{unit}</span>}
       </div>

@@ -1,5 +1,13 @@
 import type { Request } from './core/events'
 import type { ComponentNode, EdgeDefinition, RandomGenerator } from './core/types'
+import { isAsyncBoundaryComponentType } from './traits/asyncOnly'
+import { resolveTraits } from './traits/resolveTraits'
+import type {
+  FilterRoutesDecision,
+  NodeBehaviourTrait,
+  TraitResolver,
+  TraitStateStore
+} from './traits/types'
 
 /**
  * Normalized output for a single routing choice.
@@ -14,6 +22,32 @@ export interface ResolveRoute {
    * Concrete edge metadata that was selected.
    */
   edge: EdgeDefinition
+}
+
+export type RouteRejectionReason = 'no_healthy_targets' | 'trait_invalid_reroute'
+
+export interface ResolveTargetOptions {
+  clock?: bigint
+  isTargetHealthy?: (nodeId: string) => boolean
+  isEdgeHealthy?: (edge: EdgeDefinition) => boolean
+  /**
+   * Live in-flight (queued + in-service) count for a target node, used by the
+   * `least-conn` strategy. The engine supplies this from each node's runtime
+   * state; when absent, least-conn degrades to round-robin so it still spreads.
+   */
+  getInFlight?: (nodeId: string) => number
+  onTraitDecision?: (decision: {
+    traitName: string
+    nodeId: string
+    hook: 'filterRoutes'
+    decision: string
+    payload?: Record<string, unknown>
+  }) => void
+}
+
+export interface ResolveTargetResult {
+  routes: ResolveRoute[]
+  rejectionReason?: RouteRejectionReason
 }
 
 /**
@@ -33,10 +67,20 @@ export class RoutingTable {
   private readonly roundRobinIndexBySource = new Map<string, number>()
 
   /**
-   * Set of node IDs that should use round-robin routing, derived from node
-   * config metadata. Only populated when node definitions are provided.
+   * Per-source rotating cursor used to break ties in `least-conn` when several
+   * targets share the smallest in-flight count, mirroring the routing preview.
    */
-  private readonly roundRobinSourceIds: Set<string>
+  private readonly leastConnTieIndexBySource = new Map<string, number>()
+
+  /**
+   * Effective routing strategy per source node, resolved once from explicit
+   * config (`routingStrategy`) with a trait hint fallback. Drives `pickSyncRoute`
+   * so the selector the user picks is what the engine actually runs.
+   */
+  private readonly strategyBySourceId = new Map<string, string>()
+  private readonly nodeById = new Map<string, ComponentNode>()
+  private readonly traitsBySourceId = new Map<string, readonly NodeBehaviourTrait[]>()
+  private readonly traitStateBySourceId = new Map<string, Map<string, unknown>>()
 
   /**
    * @param edges Topology edges used to build routing lookup tables.
@@ -47,22 +91,39 @@ export class RoutingTable {
   constructor(
     edges: EdgeDefinition[],
     private readonly rng: RandomGenerator,
-    nodes: ComponentNode[] = []
+    nodes: ComponentNode[] = [],
+    traitResolver: TraitResolver = resolveTraits
   ) {
+    for (const node of nodes) {
+      this.nodeById.set(node.id, node)
+      this.traitsBySourceId.set(node.id, traitResolver(node))
+    }
+
     for (const edge of edges) {
+      const targetType = this.nodeById.get(edge.target)?.type
+      const resolvedEdge =
+        targetType && isAsyncBoundaryComponentType(targetType) && edge.mode !== 'asynchronous'
+          ? { ...edge, mode: 'asynchronous' as const }
+          : edge
+
       const list = this.outgoingBySource.get(edge.source)
       if (list) {
-        list.push(edge)
+        list.push(resolvedEdge)
       } else {
-        this.outgoingBySource.set(edge.source, [edge])
+        this.outgoingBySource.set(edge.source, [resolvedEdge])
       }
     }
 
-    this.roundRobinSourceIds = new Set(
-      nodes
-        .filter((node) => node.config?.['routingStrategy'] === 'round-robin')
-        .map((node) => node.id)
-    )
+    for (const node of nodes) {
+      const configured = node.config?.['routingStrategy']
+      const traitHint = (this.traitsBySourceId.get(node.id) ?? []).find(
+        (trait) => trait.routingStrategyHint !== undefined
+      )?.routingStrategyHint
+      const strategy = typeof configured === 'string' ? configured : traitHint
+      if (strategy) {
+        this.strategyBySourceId.set(node.id, strategy)
+      }
+    }
   }
 
   /**
@@ -83,49 +144,129 @@ export class RoutingTable {
    * Both groups are evaluated independently, so a mixed topology fans out
    * to all async targets while still picking one sync target.
    */
-  resolveTarget(sourceNodeId: string, request: Request): ResolveRoute[] {
+  resolveTarget(
+    sourceNodeId: string,
+    request: Request,
+    options: ResolveTargetOptions = {}
+  ): ResolveRoute[] {
+    return this.resolveTargetResult(sourceNodeId, request, options).routes
+  }
+
+  resolveTargetResult(
+    sourceNodeId: string,
+    request: Request,
+    options: ResolveTargetOptions = {}
+  ): ResolveTargetResult {
     const outgoing = this.outgoingBySource.get(sourceNodeId)
     if (!outgoing || outgoing.length === 0) {
-      return []
+      return { routes: [] }
     }
 
     const eligible = outgoing.filter((edge) => this.matchesCondition(edge, request))
     if (eligible.length === 0) {
-      return []
+      return { routes: [] }
     }
 
-    const asyncEdges = eligible.filter((edge) => edge.mode === 'asynchronous')
-    const syncEdges = eligible.filter((edge) => edge.mode !== 'asynchronous')
+    const traitFiltered = this.applyTraitRouteFilters(
+      sourceNodeId,
+      eligible.map((edge) => this.toResolved(edge)),
+      request,
+      options
+    )
 
-    const results: ResolveRoute[] = asyncEdges.map((edge) => this.toResolved(edge))
-
-    if (syncEdges.length === 1) {
-      results.push(this.toResolved(syncEdges[0]))
-    } else if (syncEdges.length > 1) {
-      results.push(this.toResolved(this.pickSyncRoute(sourceNodeId, syncEdges)))
+    if (traitFiltered.rejectionReason) {
+      return { routes: [], rejectionReason: traitFiltered.rejectionReason }
     }
 
-    return results
+    if (traitFiltered.routes.length === 0) {
+      return { routes: [] }
+    }
+
+    const asyncRoutes = traitFiltered.routes.filter((route) => route.edge.mode === 'asynchronous')
+    const syncRoutes = traitFiltered.routes.filter((route) => route.edge.mode !== 'asynchronous')
+
+    // Sync route goes first so it inherits the original request ID when the
+    // engine forks branches — the real continuation should never lose its
+    // identity to a side-effect async branch (e.g. telemetry) just because
+    // that branch happened to resolve first.
+    const results: ResolveRoute[] = []
+
+    if (syncRoutes.length === 1) {
+      results.push(syncRoutes[0])
+    } else if (syncRoutes.length > 1) {
+      results.push(this.pickSyncRoute(sourceNodeId, syncRoutes, options.getInFlight))
+    }
+
+    results.push(...asyncRoutes)
+
+    return { routes: results }
   }
 
   /**
-   * Selects one edge from synchronous candidates using round-robin,
-   * weighted, or uniform random strategy.
+   * Selects one edge from synchronous candidates. The node's configured routing
+   * strategy is authoritative: whatever the user picks (and the preview animates)
+   * is what runs here. A source with no explicit strategy honours edge weights
+   * when present and otherwise spreads uniformly at random.
    */
-  private pickSyncRoute(sourceNodeId: string, edges: EdgeDefinition[]): EdgeDefinition {
-    if (this.isRoundRobinSource(sourceNodeId)) {
-      const current = this.roundRobinIndexBySource.get(sourceNodeId) ?? 0
-      const safeIndex = current % edges.length
-      const edge = edges[safeIndex]
-      this.roundRobinIndexBySource.set(sourceNodeId, (safeIndex + 1) % edges.length)
-      return edge
+  private pickSyncRoute(
+    sourceNodeId: string,
+    routes: ResolveRoute[],
+    getInFlight?: (nodeId: string) => number
+  ): ResolveRoute {
+    switch (this.strategyBySourceId.get(sourceNodeId)) {
+      case 'round-robin':
+        return this.pickRoundRobin(sourceNodeId, routes)
+      case 'least-conn':
+        return this.pickLeastConnected(sourceNodeId, routes, getInFlight)
+      case 'weighted':
+        return this.pickByWeight(routes)
+      case 'passthrough':
+        // No balancing: forward to the first eligible target, matching the preview.
+        return routes[0]
+      case 'random':
+        return routes[this.rng.integer(0, routes.length - 1)]
+      default:
+        if (routes.some((route) => route.edge.weight !== undefined)) {
+          return this.pickByWeight(routes)
+        }
+        return routes[this.rng.integer(0, routes.length - 1)]
+    }
+  }
+
+  private pickRoundRobin(sourceNodeId: string, routes: ResolveRoute[]): ResolveRoute {
+    const current = this.roundRobinIndexBySource.get(sourceNodeId) ?? 0
+    const safeIndex = current % routes.length
+    const route = routes[safeIndex]
+    this.roundRobinIndexBySource.set(sourceNodeId, (safeIndex + 1) % routes.length)
+    return route
+  }
+
+  /**
+   * Picks the candidate whose target currently has the fewest in-flight requests.
+   * Ties rotate through the tied set via a per-source cursor, matching the routing
+   * preview's tie-break. Without a live in-flight signal, degrades to round-robin.
+   */
+  private pickLeastConnected(
+    sourceNodeId: string,
+    routes: ResolveRoute[],
+    getInFlight?: (nodeId: string) => number
+  ): ResolveRoute {
+    if (!getInFlight) {
+      return this.pickRoundRobin(sourceNodeId, routes)
     }
 
-    if (edges.some((edge) => edge.weight !== undefined)) {
-      return this.pickByWeight(edges)
+    const loads = routes.map((route) => getInFlight(route.targetNodeId))
+    const minLoad = Math.min(...loads)
+    const tied = routes.filter((_, index) => loads[index] === minLoad)
+
+    if (tied.length === 1) {
+      return tied[0]
     }
 
-    return edges[this.rng.integer(0, edges.length - 1)]
+    const tieIndex = this.leastConnTieIndexBySource.get(sourceNodeId) ?? 0
+    const chosen = tied[tieIndex % tied.length]
+    this.leastConnTieIndexBySource.set(sourceNodeId, (tieIndex + 1) % tied.length)
+    return chosen
   }
 
   /**
@@ -168,18 +309,43 @@ export class RoutingTable {
       }
     }
 
+    const metadataExpr = normalized.match(
+      /^request\.metadata\.([A-Za-z0-9_]+)\s*(===|==|!==|!=)\s*["']([^"']+)["']$/
+    )
+    if (metadataExpr) {
+      const field = metadataExpr[1]
+      const operator = metadataExpr[2]
+      const expectedValue = metadataExpr[3]
+      const actualValue = request.metadata[field]
+      const normalizedActual =
+        typeof actualValue === 'string' || typeof actualValue === 'number'
+          ? String(actualValue)
+          : undefined
+
+      switch (operator) {
+        case '===':
+        case '==':
+          return normalizedActual === expectedValue
+        case '!==':
+        case '!=':
+          return normalizedActual !== expectedValue
+        default:
+          return false
+      }
+    }
+
     return false
   }
 
   /**
    * Picks one edge from a candidate set using relative weight values.
    */
-  private pickByWeight(edges: EdgeDefinition[]): EdgeDefinition {
+  private pickByWeight(routes: ResolveRoute[]): ResolveRoute {
     let total = 0
     const weights: number[] = []
 
-    for (const edge of edges) {
-      const weight = edge.weight ?? 1
+    for (const route of routes) {
+      const weight = route.edge.weight ?? 1
       const normalized = Number.isFinite(weight) && weight > 0 ? weight : 0
       weights.push(normalized)
       total += normalized
@@ -187,38 +353,34 @@ export class RoutingTable {
 
     // If configured weights are unusable, fall back to uniform random
     if (total <= 0) {
-      return edges[this.rng.integer(0, edges.length - 1)]
+      return routes[this.rng.integer(0, routes.length - 1)]
     }
 
     const target = this.rng.next() * total
     let cumulative = 0
 
-    for (let i = 0; i < edges.length; i++) {
+    for (let i = 0; i < routes.length; i++) {
       cumulative += weights[i]
       if (target < cumulative) {
-        return edges[i]
+        return routes[i]
       }
     }
 
-    return edges[edges.length - 1]
+    return routes[routes.length - 1]
   }
 
-  /**
-   * Returns true if the source node should use round-robin routing.
-   * Uses explicit node config when available. Falls back to an ID substring
-   * heuristic for legacy topology JSON that predates routingStrategy.
-   */
-  private isRoundRobinSource(sourceNodeId: string): boolean {
-    if (this.roundRobinSourceIds.size > 0) {
-      return this.roundRobinSourceIds.has(sourceNodeId)
+  private getTraitStateStore(sourceNodeId: string): TraitStateStore {
+    let store = this.traitStateBySourceId.get(sourceNodeId)
+    if (!store) {
+      store = new Map<string, unknown>()
+      this.traitStateBySourceId.set(sourceNodeId, store)
     }
-    const id = sourceNodeId.toLowerCase()
-    return (
-      id.includes('load-balancer') ||
-      id.includes('lb') ||
-      id.includes('ingress') ||
-      id.includes('reverse-proxy')
-    )
+    return {
+      get: <T>(key: string) => store!.get(key) as T | undefined,
+      set: <T>(key: string, value: T) => {
+        store!.set(key, value)
+      }
+    }
   }
 
   /**
@@ -226,5 +388,94 @@ export class RoutingTable {
    */
   private toResolved(edge: EdgeDefinition): ResolveRoute {
     return { targetNodeId: edge.target, edge }
+  }
+
+  private applyTraitRouteFilters(
+    sourceNodeId: string,
+    candidates: ResolveRoute[],
+    request: Request,
+    options: ResolveTargetOptions
+  ): {
+    routes: ResolveRoute[]
+    rejectionReason?: RouteRejectionReason
+  } {
+    const node = this.nodeById.get(sourceNodeId)
+    if (!node) {
+      return { routes: candidates }
+    }
+
+    let filtered = candidates
+    let rejectionReason: RouteRejectionReason | undefined
+    for (const trait of this.traitsBySourceId.get(sourceNodeId) ?? []) {
+      if (!trait.filterRoutes) {
+        continue
+      }
+
+      const result = trait.filterRoutes({
+        node,
+        request,
+        clock: options.clock ?? 0n,
+        random: this.rng.next,
+        candidates: filtered,
+        isTargetHealthy: options.isTargetHealthy,
+        isEdgeHealthy: options.isEdgeHealthy,
+        state: this.getTraitStateStore(sourceNodeId)
+      })
+      const normalized = this.normalizeFilterRoutesDecision(filtered, result)
+      options.onTraitDecision?.({
+        traitName: trait.name,
+        nodeId: sourceNodeId,
+        hook: 'filterRoutes',
+        decision: normalized.decision,
+        payload: normalized.payload
+      })
+      filtered = normalized.routes
+      rejectionReason = normalized.rejectionReason
+
+      if (rejectionReason) {
+        break
+      }
+    }
+
+    return { routes: filtered, rejectionReason }
+  }
+
+  private normalizeFilterRoutesDecision(
+    previousRoutes: ResolveRoute[],
+    decision: FilterRoutesDecision
+  ): {
+    routes: ResolveRoute[]
+    decision: string
+    rejectionReason?: RouteRejectionReason
+    payload: Record<string, unknown>
+  } {
+    if (Array.isArray(decision)) {
+      return {
+        routes: decision,
+        decision: decision.length === previousRoutes.length ? 'continue' : 'filtered',
+        payload: {
+          beforeCandidateCount: previousRoutes.length,
+          afterCandidateCount: decision.length
+        }
+      }
+    }
+
+    return {
+      routes: decision.routes,
+      decision:
+        decision.decision ??
+        (decision.routes.length === previousRoutes.length ? 'continue' : 'filtered'),
+      rejectionReason:
+        decision.rejectionReason === 'no_healthy_targets'
+          ? 'no_healthy_targets'
+          : decision.rejectionReason === 'trait_invalid_reroute'
+            ? 'trait_invalid_reroute'
+            : undefined,
+      payload: {
+        beforeCandidateCount: previousRoutes.length,
+        afterCandidateCount: decision.routes.length,
+        ...(decision.payload ?? {})
+      }
+    }
   }
 }
