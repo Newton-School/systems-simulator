@@ -243,4 +243,56 @@ describe('EmbeddedIframeQuestionPreview', () => {
     expect(container.textContent).toContain('error rate < 10%')
     expect(container.textContent).toContain('1 passed')
   })
+
+  it('ignores malformed submit payloads from allowed origins', () => {
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    root = createRoot(container)
+
+    const question: EmbeddedIframeQuestion = {
+      type: 'embedded-iframe',
+      url: 'https://example.com/embed',
+      title: 'Embedded assignment',
+      allowedOrigins: ['https://example.com'],
+      questionPackage: buildQuestionPackage()
+    }
+
+    act(() => {
+      root?.render(<EmbeddedIframeQuestionPreview question={question} />)
+    })
+
+    const iframe = container.querySelector('iframe')
+    expect(iframe).not.toBeNull()
+
+    Object.defineProperty(iframe as HTMLIFrameElement, 'contentWindow', {
+      value: { postMessage: vi.fn() },
+      configurable: true
+    })
+
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          origin: 'https://example.com',
+          data: { type: 'ns-simulator:ready' }
+        })
+      )
+    })
+
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          origin: 'https://example.com',
+          data: {
+            type: 'ns-simulator:submit',
+            payload: {
+              contract: { totalTests: 1 }
+            }
+          }
+        })
+      )
+    })
+
+    expect(container.textContent).toContain('Launch context sent to the embedded simulator')
+    expect(container.textContent).not.toContain('Submission received.')
+  })
 })
