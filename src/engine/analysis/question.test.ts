@@ -3,14 +3,16 @@ import type { TopologyJSON } from '../core/types'
 import type { SimulationOutput } from './output'
 import {
   buildQuestionTestRows,
+  caseRubricTestId,
   gradeAttempt,
   isAttemptCurrentForTopology,
   resolveVisibleAttemptGrade,
   resolveVisibleAttemptStatus,
+  structuralTestId,
   toHostContract,
   type QuestionPackage
 } from './question'
-import type { GradedEvaluationBatch } from './rubric'
+import { EXECUTION_CHECK_ID, type GradedEvaluationBatch } from './rubric'
 import type { StructuralEvaluation } from './structural'
 
 function fakeOutput(errorRate: number): SimulationOutput {
@@ -103,39 +105,76 @@ describe('gradeAttempt', () => {
     expect(seen).toEqual(['base', 'peak-seed'])
 
     // grading
-    expect(result.graded.summary).toEqual({ total: 2, ran: 2, errored: 0, passed: 1, failed: 1 })
+    expect(result.graded.summary).toMatchObject({
+      total: 2,
+      ran: 2,
+      errored: 0,
+      passed: 1,
+      failed: 1,
+      totalChecks: 4,
+      passedChecks: 3,
+      failedChecks: 1,
+      skippedChecks: 0
+    })
     expect(result.structural).toEqual({ version: '1.0', checks: [], passed: true })
 
-    // collapsed host contract — one row per rubric check across cases
+    // collapsed host contract — execution + authored rubric rows per case
     expect(result.contract.tests).toEqual([
-      { id: 'baseline:err', name: 'error rate < 10%', passed: true },
       {
-        id: 'peak:err',
+        id: caseRubricTestId('baseline', 'execution', EXECUTION_CHECK_ID),
+        name: 'Case baseline execution completed',
+        passed: true
+      },
+      {
+        id: caseRubricTestId('baseline', 'simulation', 'err'),
+        name: 'error rate < 10%',
+        passed: true
+      },
+      {
+        id: caseRubricTestId('peak', 'execution', EXECUTION_CHECK_ID),
+        name: 'Case peak execution completed',
+        passed: true
+      },
+      {
+        id: caseRubricTestId('peak', 'simulation', 'err'),
         name: 'error rate < 10%',
         passed: false,
         detail: 'actual 0.5 does not satisfy summary.errorRate < 0.1'
       }
     ])
-    expect(result.contract).toMatchObject({ totalTests: 2, passedTests: 1, allPassed: false })
+    expect(result.contract).toMatchObject({ totalTests: 4, passedTests: 3, allPassed: false })
   })
 
   it('allPassed is true only when every check across every case passes', () => {
     const result = gradeAttempt(pkg, studentTopology(), () => fakeOutput(0.01))
     expect(result.contract.allPassed).toBe(true)
-    expect(result.contract).toMatchObject({ totalTests: 2, passedTests: 2 })
+    expect(result.contract).toMatchObject({ totalTests: 4, passedTests: 4 })
   })
 
-  it('a case that could not run collapses to a failed did-not-run row', () => {
+  it('a case that could not run emits a failed execution row and skipped authored checks', () => {
     const result = gradeAttempt(pkg, studentTopology(), (t) => {
       if ((t.global as { seed: string }).seed === 'peak-seed') throw new Error('boom')
       return fakeOutput(0.01)
     })
-    const peak = result.contract.tests.find((test) => test.id.startsWith('peak'))
-    expect(peak).toEqual({
-      id: 'peak:did-not-run',
-      name: 'Case peak could not run',
+    expect(
+      result.contract.tests.find(
+        (test) => test.id === caseRubricTestId('peak', 'execution', EXECUTION_CHECK_ID)
+      )
+    ).toEqual({
+      id: caseRubricTestId('peak', 'execution', EXECUTION_CHECK_ID),
+      name: 'Case peak execution completed',
       passed: false,
-      detail: 'boom'
+      detail: 'Execution failed before a verdict was produced.'
+    })
+    expect(
+      result.contract.tests.find(
+        (test) => test.id === caseRubricTestId('peak', 'simulation', 'err')
+      )
+    ).toEqual({
+      id: caseRubricTestId('peak', 'simulation', 'err'),
+      name: 'error rate < 10%',
+      passed: false,
+      detail: 'Check was not evaluated because execution did not complete.'
     })
     expect(result.contract.allPassed).toBe(false)
   })
@@ -164,13 +203,29 @@ describe('gradeAttempt', () => {
     expect(runCount).toBe(0)
     expect(result.structural.passed).toBe(false)
     expect(result.contract.tests.map((test) => test.id)).toEqual([
-      'structural:need-lb',
-      'baseline:did-not-run',
-      'peak:did-not-run'
+      structuralTestId('need-lb'),
+      caseRubricTestId('baseline', 'execution', EXECUTION_CHECK_ID),
+      caseRubricTestId('baseline', 'simulation', 'err'),
+      caseRubricTestId('peak', 'execution', EXECUTION_CHECK_ID),
+      caseRubricTestId('peak', 'simulation', 'err')
     ])
-    expect(result.graded.summary).toEqual({ total: 2, ran: 0, errored: 2, passed: 0, failed: 2 })
-    expect(result.contract.tests.find((test) => test.id === 'baseline:did-not-run')).toMatchObject({
-      detail: 'Skipped because structural rules failed.'
+    expect(result.graded.summary).toMatchObject({
+      total: 2,
+      ran: 0,
+      errored: 2,
+      passed: 0,
+      failed: 2,
+      totalChecks: 4,
+      passedChecks: 0,
+      failedChecks: 0,
+      skippedChecks: 4
+    })
+    expect(
+      result.contract.tests.find(
+        (test) => test.id === caseRubricTestId('baseline', 'execution', EXECUTION_CHECK_ID)
+      )
+    ).toMatchObject({
+      detail: 'Execution was skipped because topology requirements failed before simulation.'
     })
   })
 })
@@ -184,20 +239,35 @@ describe('toHostContract', () => {
     }
     const graded: GradedEvaluationBatch = {
       version: '1.0',
+      score: { earned: 1, possible: 2, fraction: 0.5 },
+      passed: false,
       cases: [
         {
           id: 'c1',
           ran: true,
+          executionStatus: 'completed',
           rubric: {
             version: '1.0',
             checks: [
               {
+                id: EXECUTION_CHECK_ID,
+                description: 'Case execution completed',
+                kind: 'execution',
+                actual: null,
+                status: 'passed',
+                passed: true,
+                points: 0,
+                awarded: 0
+              },
+              {
                 id: 'a',
                 description: 'A',
+                kind: 'simulation',
                 metric: 'm',
                 op: '<',
                 value: 1,
                 actual: 0,
+                status: 'passed',
                 passed: true,
                 points: 1,
                 awarded: 1
@@ -205,10 +275,12 @@ describe('toHostContract', () => {
               {
                 id: 'b',
                 description: 'B',
+                kind: 'simulation',
                 metric: 'm',
                 op: '<',
                 value: 1,
                 actual: 2,
+                status: 'failed',
                 passed: false,
                 points: 1,
                 awarded: 0
@@ -219,11 +291,21 @@ describe('toHostContract', () => {
           }
         }
       ],
-      summary: { total: 1, ran: 1, errored: 0, passed: 0, failed: 1 }
+      summary: {
+        total: 1,
+        ran: 1,
+        errored: 0,
+        passed: 0,
+        failed: 1,
+        totalChecks: 3,
+        passedChecks: 2,
+        failedChecks: 1,
+        skippedChecks: 0
+      }
     }
     const contract = toHostContract(structural, graded)
-    expect(contract.tests.map((t) => t.passed)).toEqual([true, true, false])
-    expect(contract).toMatchObject({ totalTests: 3, passedTests: 2, allPassed: false })
+    expect(contract.tests.map((t) => t.passed)).toEqual([true, true, true, false])
+    expect(contract).toMatchObject({ totalTests: 4, passedTests: 3, allPassed: false })
   })
 })
 
@@ -241,13 +323,13 @@ describe('buildQuestionTestRows', () => {
 
     expect(gradedRows).toEqual([
       {
-        id: 'baseline:err',
+        id: caseRubricTestId('baseline', 'simulation', 'err'),
         name: 'error rate < 10%',
         scope: 'baseline',
         status: 'passed'
       },
       {
-        id: 'peak:err',
+        id: caseRubricTestId('peak', 'simulation', 'err'),
         name: 'error rate < 10%',
         scope: 'peak',
         status: 'failed',

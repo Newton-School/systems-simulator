@@ -1,14 +1,26 @@
 import { z } from 'zod'
 import type { FaultSpec, GlobalConfig, TopologyJSON, WorkloadProfile } from '../core/types'
 import type { SimulationOutput } from './output'
-import { evaluateSuite, mergeTopologyWithOverrides, type PreparedCase } from './evaluate'
 import {
-  gradeBatch,
+  evaluateSuite,
+  mergeTopologyWithOverrides,
+  type EvaluationBatch,
+  type PreparedCase
+} from './evaluate'
+import {
+  EXECUTION_CHECK_ID,
+  EXECUTION_SKIPPED_DETAIL,
+  gradeQuestionBatch,
+  inferRubricCheckKind,
+  isInvariantMetric,
   RUBRIC_VERSION,
   type CheckResult,
+  type CheckResultKind,
+  type CheckStatus,
   type GradedCaseResult,
   type GradedEvaluationBatch,
   type Rubric,
+  type RubricCheck,
   type RubricResult
 } from './rubric'
 import {
@@ -198,6 +210,18 @@ export interface QuestionTestRow {
   detail?: string
 }
 
+export interface AttemptCheckRow {
+  id: string
+  name: string
+  scope: string
+  kind: 'topology' | 'simulation' | 'invariant' | 'execution'
+  status: CheckStatus
+  passed: boolean
+  pointsEarned: number
+  pointsPossible: number
+  detail?: string
+}
+
 function stableSerialize(value: unknown): string {
   if (Array.isArray(value)) {
     return `[${value.map((entry) => stableSerialize(entry)).join(',')}]`
@@ -213,6 +237,46 @@ function stableSerialize(value: unknown): string {
   }
 
   return JSON.stringify(value)
+}
+
+function stableHashToken(value: string): string {
+  let hash = 0x811c9dc5
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index)
+    hash = Math.imul(hash, 0x01000193)
+  }
+
+  return (hash >>> 0).toString(36)
+}
+
+function hostSafeToken(value: string): string {
+  const slug = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+
+  return `${slug || 'item'}-${stableHashToken(value)}`
+}
+
+export function structuralTestId(structuralId: string): string {
+  return `topology.structural.${hostSafeToken(structuralId)}`
+}
+
+export function topologyRubricTestId(checkId: string): string {
+  return `topology.rubric.${hostSafeToken(checkId)}`
+}
+
+export function caseRubricTestId(caseId: string, kind: CheckResultKind, checkId: string): string {
+  return `case.${hostSafeToken(caseId)}.${kind}.${hostSafeToken(checkId)}`
+}
+
+function questionCheckScope(): string {
+  return 'question'
+}
+
+function normalizeQuestionRowStatus(status: CheckStatus): QuestionTestStatus {
+  return status === 'passed' ? 'passed' : 'failed'
 }
 
 const QuestionTypeSchema = z.enum([
@@ -374,14 +438,36 @@ const QuestionSuiteCaseSchema = z.object({
   faults: z.array(FaultSpecSchema).optional()
 })
 
-const RubricCheckSchema = z.object({
-  id: z.string().min(1),
-  description: z.string().min(1),
-  metric: z.string().min(1),
-  op: z.enum(['<', '<=', '>', '>=', '==', '!=']),
-  value: z.number().finite(),
-  points: z.number().int().positive().optional()
-})
+const RubricCheckSchema: z.ZodType<RubricCheck> = z
+  .object({
+    id: z.string().min(1),
+    description: z.string().min(1),
+    kind: z.enum(['topology', 'simulation', 'invariant']).optional(),
+    metric: z.string().min(1),
+    op: z.enum(['<', '<=', '>', '>=', '==', '!=']),
+    value: z.number().finite(),
+    points: z.number().int().positive().optional()
+  })
+  .superRefine((check, ctx) => {
+    const kind = inferRubricCheckKind(check)
+
+    if (kind === 'topology' && !check.metric.startsWith('topology.')) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['metric'],
+        message: "Topology rubric checks must use 'topology.*' metrics."
+      })
+    }
+
+    if (kind === 'invariant' && !isInvariantMetric(check.metric)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['metric'],
+        message:
+          "Invariant rubric checks must use invariant-derived metrics such as 'invariantViolations.count'."
+      })
+    }
+  })
 
 const RubricSchema: z.ZodType<Rubric> = z.object({
   version: z.string().optional(),
@@ -490,10 +576,12 @@ export const HostContractSchema: z.ZodType<HostContract> = z
 const RubricCheckResultSchema = z.object({
   id: z.string().min(1),
   description: z.string().min(1),
-  metric: z.string().min(1),
-  op: z.enum(['<', '<=', '>', '>=', '==', '!=']),
-  value: z.number().finite(),
+  kind: z.enum(['topology', 'simulation', 'invariant', 'execution']),
+  metric: z.string().min(1).optional(),
+  op: z.enum(['<', '<=', '>', '>=', '==', '!=']).optional(),
+  value: z.number().finite().optional(),
   actual: z.union([z.number().finite(), z.null()]),
+  status: z.enum(['passed', 'failed', 'skipped']),
   passed: z.boolean(),
   points: z.number().int().nonnegative(),
   awarded: z.number().int().nonnegative(),
@@ -515,6 +603,7 @@ const RubricResultSchema: z.ZodType<RubricResult> = z.object({
 const GradedCaseResultSchema: z.ZodType<GradedCaseResult> = z.object({
   id: z.string().min(1),
   ran: z.boolean(),
+  executionStatus: z.enum(['completed', 'failed', 'skipped']),
   error: z.string().min(1).optional(),
   rubric: RubricResultSchema.optional()
 })
@@ -524,13 +613,24 @@ export const GradedEvaluationBatchSchema: z.ZodType<GradedEvaluationBatch> = z
     version: z.literal(RUBRIC_VERSION),
     suite: z.string().min(1).optional(),
     rubricId: z.string().min(1).optional(),
+    question: RubricResultSchema.optional(),
     cases: z.array(GradedCaseResultSchema),
+    score: z.object({
+      earned: z.number().finite(),
+      possible: z.number().finite(),
+      fraction: z.number().finite()
+    }),
+    passed: z.boolean(),
     summary: z.object({
       total: z.number().int().nonnegative(),
       ran: z.number().int().nonnegative(),
       errored: z.number().int().nonnegative(),
       passed: z.number().int().nonnegative(),
-      failed: z.number().int().nonnegative()
+      failed: z.number().int().nonnegative(),
+      totalChecks: z.number().int().nonnegative(),
+      passedChecks: z.number().int().nonnegative(),
+      failedChecks: z.number().int().nonnegative(),
+      skippedChecks: z.number().int().nonnegative()
     })
   })
   .superRefine((value, ctx) => {
@@ -539,6 +639,20 @@ export const GradedEvaluationBatchSchema: z.ZodType<GradedEvaluationBatch> = z
     const errored = total - ran
     const passed = value.cases.filter((entry) => entry.rubric?.passed).length
     const failed = total - passed
+    const allChecks = [
+      ...(value.question?.checks ?? []),
+      ...value.cases.flatMap((entry) => entry.rubric?.checks ?? [])
+    ]
+    const passedChecks = allChecks.filter((check) => check.status === 'passed').length
+    const failedChecks = allChecks.filter((check) => check.status === 'failed').length
+    const skippedChecks = allChecks.filter((check) => check.status === 'skipped').length
+    const possible =
+      (value.question?.score.possible ?? 0) +
+      value.cases.reduce((sum, entry) => sum + (entry.rubric?.score.possible ?? 0), 0)
+    const earned =
+      (value.question?.score.earned ?? 0) +
+      value.cases.reduce((sum, entry) => sum + (entry.rubric?.score.earned ?? 0), 0)
+    const fraction = possible > 0 ? earned / possible : 1
 
     if (value.summary.total !== total) {
       ctx.addIssue({
@@ -577,6 +691,62 @@ export const GradedEvaluationBatchSchema: z.ZodType<GradedEvaluationBatch> = z
         code: z.ZodIssueCode.custom,
         path: ['summary', 'failed'],
         message: 'summary.failed must match total - passed.'
+      })
+    }
+
+    if (value.summary.totalChecks !== allChecks.length) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['summary', 'totalChecks'],
+        message: 'summary.totalChecks must match the flattened check count.'
+      })
+    }
+
+    if (value.summary.passedChecks !== passedChecks) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['summary', 'passedChecks'],
+        message: 'summary.passedChecks must match the number of passed checks.'
+      })
+    }
+
+    if (value.summary.failedChecks !== failedChecks) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['summary', 'failedChecks'],
+        message: 'summary.failedChecks must match the number of failed checks.'
+      })
+    }
+
+    if (value.summary.skippedChecks !== skippedChecks) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['summary', 'skippedChecks'],
+        message: 'summary.skippedChecks must match the number of skipped checks.'
+      })
+    }
+
+    if (value.score.earned !== earned) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['score', 'earned'],
+        message: 'score.earned must match aggregated rubric scores.'
+      })
+    }
+
+    if (value.score.possible !== possible) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['score', 'possible'],
+        message: 'score.possible must match aggregated rubric scores.'
+      })
+    }
+
+    if (value.score.fraction !== fraction) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['score', 'fraction'],
+        message: 'score.fraction must match earned / possible.'
       })
     }
   })
@@ -892,67 +1062,107 @@ export function resumePersistedAttempt(
   }
 }
 
-function buildSkippedGradedBatch(pkg: QuestionPackage, reason: string): GradedEvaluationBatch {
-  return {
-    version: RUBRIC_VERSION,
+function buildSkippedGradedBatch(
+  pkg: QuestionPackage,
+  topology: TopologyJSON,
+  reason: string
+): GradedEvaluationBatch {
+  const syntheticBatch: EvaluationBatch = {
+    version: '1.0',
     ...(pkg.suite.name ? { suite: pkg.suite.name } : {}),
-    ...(pkg.rubric.id ? { rubricId: pkg.rubric.id } : {}),
-    cases: pkg.suite.cases.map((testCase) => ({
+    results: pkg.suite.cases.map((testCase) => ({
       id: testCase.id,
-      ran: false,
+      ok: false as const,
       error: reason
     })),
     summary: {
       total: pkg.suite.cases.length,
-      ran: 0,
-      errored: pkg.suite.cases.length,
-      passed: 0,
+      succeeded: 0,
       failed: pkg.suite.cases.length
     }
   }
+
+  return gradeQuestionBatch(pkg.rubric, topology, syntheticBatch, {
+    unresolvedCaseStatus: 'skipped',
+    unresolvedCaseDetail: reason || EXECUTION_SKIPPED_DETAIL
+  })
+}
+
+function flattenStructuralRows(structural: StructuralEvaluation): AttemptCheckRow[] {
+  return structural.checks.map((check) => ({
+    id: structuralTestId(check.id),
+    name: check.description,
+    scope: 'topology',
+    kind: 'topology',
+    status: check.passed ? 'passed' : 'failed',
+    passed: check.passed,
+    pointsEarned: 0,
+    pointsPossible: 0,
+    ...(check.detail ? { detail: check.detail } : {})
+  }))
+}
+
+function flattenQuestionRubricRows(result: RubricResult | undefined): AttemptCheckRow[] {
+  if (!result) {
+    return []
+  }
+
+  return result.checks.map((check) => ({
+    id: topologyRubricTestId(check.id),
+    name: check.description,
+    scope: questionCheckScope(),
+    kind: check.kind,
+    status: check.status,
+    passed: check.passed,
+    pointsEarned: check.awarded,
+    pointsPossible: check.points,
+    ...(check.detail ? { detail: check.detail } : {})
+  }))
+}
+
+function flattenCaseRubricRows(entry: GradedCaseResult): AttemptCheckRow[] {
+  return (entry.rubric?.checks ?? []).map((check) => ({
+    id: caseRubricTestId(entry.id, check.kind, check.id),
+    name:
+      check.id === EXECUTION_CHECK_ID ? `Case ${entry.id} execution completed` : check.description,
+    scope: entry.id,
+    kind: check.kind,
+    status: check.status,
+    passed: check.passed,
+    pointsEarned: check.awarded,
+    pointsPossible: check.points,
+    ...(check.detail ? { detail: check.detail } : {})
+  }))
+}
+
+export function flattenAttemptCheckRows(grade: AttemptGrade): AttemptCheckRow[] {
+  return [
+    ...flattenStructuralRows(grade.structural),
+    ...flattenQuestionRubricRows(grade.graded.question),
+    ...grade.graded.cases.flatMap((entry) => flattenCaseRubricRows(entry))
+  ]
 }
 
 /**
  * Collapses a graded batch to the boolean host contract. Every rubric check
- * across every ran case becomes one test row; a case that could not run becomes
- * a single failed row. `allPassed` is the question-level gate: all rows green.
+ * across topology + question + case scopes becomes one host-visible row.
+ * `allPassed` is the question-level gate: every row must be green.
  */
 export function toHostContract(
   structural: StructuralEvaluation,
   graded: GradedEvaluationBatch
 ): HostContract {
-  const tests: HostTest[] = structural.checks.map((check) => ({
-    id: `structural:${check.id}`,
-    name: check.description,
-    passed: check.passed,
-    ...(check.detail ? { detail: check.detail } : {})
+  const tests: HostTest[] = flattenAttemptCheckRows({
+    structural,
+    graded,
+    contract: { tests: [], totalTests: 0, passedTests: 0, allPassed: false }
+  }).map((row) => ({
+    id: row.id,
+    name: row.name,
+    passed: row.passed,
+    ...(row.detail ? { detail: row.detail } : {})
   }))
 
-  for (const entry of graded.cases) {
-    if (entry.rubric) {
-      for (const check of entry.rubric.checks) {
-        tests.push({
-          id: `${entry.id}:${check.id}`,
-          name: check.description,
-          passed: check.passed,
-          ...(check.detail
-            ? { detail: check.detail }
-            : !check.passed && check.actual !== null
-              ? {
-                  detail: `actual ${check.actual} does not satisfy ${check.metric} ${check.op} ${check.value}`
-                }
-              : {})
-        })
-      }
-    } else {
-      tests.push({
-        id: `${entry.id}:did-not-run`,
-        name: `Case ${entry.id} could not run`,
-        passed: false,
-        ...(entry.error ? { detail: entry.error } : {})
-      })
-    }
-  }
   const passedTests = tests.filter((test) => test.passed).length
   return {
     tests,
@@ -973,18 +1183,28 @@ export function buildQuestionTestRows(
 ): QuestionTestRow[] {
   const authoredRows: QuestionTestRow[] = [
     ...(pkg.structuralRules ?? []).map((rule) => ({
-      id: `structural:${rule.id}`,
+      id: structuralTestId(rule.id),
       name: rule.description,
-      scope: 'structure',
+      scope: 'topology',
       status: 'pending' as const
     })),
-    ...pkg.suite.cases.flatMap((testCase) =>
-      pkg.rubric.checks.map((check) => ({
-        id: `${testCase.id}:${check.id}`,
+    ...pkg.rubric.checks
+      .filter((check) => inferRubricCheckKind(check) === 'topology')
+      .map((check) => ({
+        id: topologyRubricTestId(check.id),
         name: check.description,
-        scope: testCase.id,
+        scope: questionCheckScope(),
         status: 'pending' as const
-      }))
+      })),
+    ...pkg.suite.cases.flatMap((testCase) =>
+      pkg.rubric.checks
+        .filter((check) => inferRubricCheckKind(check) !== 'topology')
+        .map((check) => ({
+          id: caseRubricTestId(testCase.id, inferRubricCheckKind(check), check.id),
+          name: check.description,
+          scope: testCase.id,
+          status: 'pending' as const
+        }))
     )
   ]
 
@@ -992,30 +1212,32 @@ export function buildQuestionTestRows(
     return authoredRows
   }
 
-  const byId = new Map(
-    grade.contract.tests.map((test) => [
-      test.id,
-      {
-        id: test.id,
-        name: test.name,
-        scope: test.id.split(':')[0] ?? 'grade',
-        status: test.passed ? ('passed' as const) : ('failed' as const),
-        ...(test.detail ? { detail: test.detail } : {})
-      }
-    ])
-  )
+  const byId = new Map(flattenAttemptCheckRows(grade).map((row) => [row.id, row]))
 
-  const rows = authoredRows.map((row) => byId.get(row.id) ?? row)
+  const rows = authoredRows.map((row) => {
+    const gradedRow = byId.get(row.id)
+    if (!gradedRow) {
+      return row
+    }
+
+    return {
+      id: gradedRow.id,
+      name: gradedRow.name,
+      scope: gradedRow.scope,
+      status: normalizeQuestionRowStatus(gradedRow.status),
+      ...(gradedRow.detail ? { detail: gradedRow.detail } : {})
+    }
+  })
   const authoredIds = new Set(authoredRows.map((row) => row.id))
-  for (const extra of grade.contract.tests) {
-    if (authoredIds.has(extra.id)) {
+  for (const extra of flattenAttemptCheckRows(grade)) {
+    if (authoredIds.has(extra.id) || extra.status === 'passed') {
       continue
     }
     rows.push({
       id: extra.id,
       name: extra.name,
-      scope: extra.id.split(':')[0] ?? 'grade',
-      status: extra.passed ? 'passed' : 'failed',
+      scope: extra.scope,
+      status: normalizeQuestionRowStatus(extra.status),
       ...(extra.detail ? { detail: extra.detail } : {})
     })
   }
@@ -1077,7 +1299,11 @@ export function gradeAttempt(
       : { version: STRUCTURAL_RULES_VERSION, checks: [], passed: true }
 
   if (!structural.passed) {
-    const graded = buildSkippedGradedBatch(pkg, 'Skipped because structural rules failed.')
+    const graded = buildSkippedGradedBatch(
+      pkg,
+      studentTopology,
+      'Execution was skipped because topology requirements failed before simulation.'
+    )
     return { structural, graded, contract: toHostContract(structural, graded) }
   }
 
@@ -1091,6 +1317,6 @@ export function gradeAttempt(
   }))
 
   const batch = evaluateSuite(cases, runTopology, pkg.suite.name)
-  const graded = gradeBatch(pkg.rubric, batch)
+  const graded = gradeQuestionBatch(pkg.rubric, studentTopology, batch)
   return { structural, graded, contract: toHostContract(structural, graded) }
 }

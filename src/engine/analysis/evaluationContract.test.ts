@@ -11,7 +11,13 @@ import {
   parseScenarioEvaluationContract,
   type ScenarioEvaluationResult
 } from './evaluationContract'
-import type { AttemptGrade, QuestionPackage } from './question'
+import {
+  caseRubricTestId,
+  structuralTestId,
+  type AttemptGrade,
+  type QuestionPackage
+} from './question'
+import { EXECUTION_CHECK_ID } from './rubric'
 
 const fixtures = JSON.parse(
   readFileSync(resolve(__dirname, 'fixtures/evaluation-contracts.json'), 'utf-8')
@@ -103,20 +109,35 @@ function failedGrade(): AttemptGrade {
     graded: {
       version: '1.0',
       suite: 'demo-suite',
+      score: { earned: 2, possible: 4, fraction: 0.5 },
+      passed: false,
       cases: [
         {
           id: 'baseline',
           ran: true,
+          executionStatus: 'completed',
           rubric: {
             version: '1.0',
             checks: [
               {
+                id: EXECUTION_CHECK_ID,
+                description: 'Case execution completed',
+                kind: 'execution',
+                actual: null,
+                status: 'passed',
+                passed: true,
+                points: 0,
+                awarded: 0
+              },
+              {
                 id: 'err',
                 description: 'error rate < 10%',
+                kind: 'simulation',
                 metric: 'summary.errorRate',
                 op: '<',
                 value: 0.1,
                 actual: 0.01,
+                status: 'passed',
                 passed: true,
                 points: 2,
                 awarded: 2
@@ -129,19 +150,82 @@ function failedGrade(): AttemptGrade {
         {
           id: 'peak',
           ran: false,
-          error: 'boom'
+          executionStatus: 'failed',
+          error: 'Execution failed before a verdict was produced.',
+          rubric: {
+            version: '1.0',
+            checks: [
+              {
+                id: EXECUTION_CHECK_ID,
+                description: 'Case execution completed',
+                kind: 'execution',
+                actual: null,
+                status: 'failed',
+                passed: false,
+                points: 0,
+                awarded: 0,
+                detail: 'Execution failed before a verdict was produced.'
+              },
+              {
+                id: 'err',
+                description: 'error rate < 10%',
+                kind: 'simulation',
+                metric: 'summary.errorRate',
+                op: '<',
+                value: 0.1,
+                actual: null,
+                status: 'skipped',
+                passed: false,
+                points: 2,
+                awarded: 0,
+                detail: 'Check was not evaluated because execution did not complete.'
+              }
+            ],
+            score: { earned: 0, possible: 2, fraction: 0 },
+            passed: false
+          }
         }
       ],
-      summary: { total: 2, ran: 1, errored: 1, passed: 1, failed: 1 }
+      summary: {
+        total: 2,
+        ran: 1,
+        errored: 1,
+        passed: 1,
+        failed: 1,
+        totalChecks: 4,
+        passedChecks: 2,
+        failedChecks: 1,
+        skippedChecks: 1
+      }
     },
     contract: {
       tests: [
-        { id: 'structural:shape', name: 'Shape is valid', passed: true },
-        { id: 'baseline:err', name: 'error rate < 10%', passed: true },
-        { id: 'peak:did-not-run', name: 'Case peak could not run', passed: false, detail: 'boom' }
+        { id: structuralTestId('shape'), name: 'Shape is valid', passed: true },
+        {
+          id: caseRubricTestId('baseline', 'execution', EXECUTION_CHECK_ID),
+          name: 'Case baseline execution completed',
+          passed: true
+        },
+        {
+          id: caseRubricTestId('baseline', 'simulation', 'err'),
+          name: 'error rate < 10%',
+          passed: true
+        },
+        {
+          id: caseRubricTestId('peak', 'execution', EXECUTION_CHECK_ID),
+          name: 'Case peak execution completed',
+          passed: false,
+          detail: 'Execution failed before a verdict was produced.'
+        },
+        {
+          id: caseRubricTestId('peak', 'simulation', 'err'),
+          name: 'error rate < 10%',
+          passed: false,
+          detail: 'Check was not evaluated because execution did not complete.'
+        }
       ],
-      totalTests: 3,
-      passedTests: 2,
+      totalTests: 5,
+      passedTests: 3,
       allPassed: false
     }
   }
@@ -162,20 +246,35 @@ describe('buildQuestionEvaluationContract', () => {
         structural: { version: '1.0', passed: true, checks: [] },
         graded: {
           version: '1.0',
+          score: { earned: 2, possible: 2, fraction: 1 },
+          passed: true,
           cases: [
             {
               id: 'baseline',
               ran: true,
+              executionStatus: 'completed',
               rubric: {
                 version: '1.0',
                 checks: [
                   {
+                    id: EXECUTION_CHECK_ID,
+                    description: 'Case execution completed',
+                    kind: 'execution',
+                    actual: null,
+                    status: 'passed',
+                    passed: true,
+                    points: 0,
+                    awarded: 0
+                  },
+                  {
                     id: 'err',
                     description: 'error rate < 10%',
+                    kind: 'simulation',
                     metric: 'summary.errorRate',
                     op: '<',
                     value: 0.1,
                     actual: 0.01,
+                    status: 'passed',
                     passed: true,
                     points: 2,
                     awarded: 2
@@ -186,12 +285,33 @@ describe('buildQuestionEvaluationContract', () => {
               }
             }
           ],
-          summary: { total: 1, ran: 1, errored: 0, passed: 1, failed: 0 }
+          summary: {
+            total: 1,
+            ran: 1,
+            errored: 0,
+            passed: 1,
+            failed: 0,
+            totalChecks: 2,
+            passedChecks: 2,
+            failedChecks: 0,
+            skippedChecks: 0
+          }
         },
         contract: {
-          tests: [{ id: 'baseline:err', name: 'error rate < 10%', passed: true }],
-          totalTests: 1,
-          passedTests: 1,
+          tests: [
+            {
+              id: caseRubricTestId('baseline', 'execution', EXECUTION_CHECK_ID),
+              name: 'Case baseline execution completed',
+              passed: true
+            },
+            {
+              id: caseRubricTestId('baseline', 'simulation', 'err'),
+              name: 'error rate < 10%',
+              passed: true
+            }
+          ],
+          totalTests: 2,
+          passedTests: 2,
           allPassed: true
         }
       },
@@ -258,20 +378,35 @@ describe('buildQuestionEvaluationContract', () => {
           structural: { version: '1.0', passed: true, checks: [] },
           graded: {
             version: '1.0',
+            score: { earned: 2, possible: 2, fraction: 1 },
+            passed: true,
             cases: [
               {
                 id: 'baseline',
                 ran: true,
+                executionStatus: 'completed',
                 rubric: {
                   version: '1.0',
                   checks: [
                     {
+                      id: EXECUTION_CHECK_ID,
+                      description: 'Case execution completed',
+                      kind: 'execution',
+                      actual: null,
+                      status: 'passed',
+                      passed: true,
+                      points: 0,
+                      awarded: 0
+                    },
+                    {
                       id: 'err',
                       description: 'error rate < 10%',
+                      kind: 'simulation',
                       metric: 'summary.errorRate',
                       op: '<',
                       value: 0.1,
                       actual: 0.01,
+                      status: 'passed',
                       passed: true,
                       points: 2,
                       awarded: 2
@@ -282,12 +417,33 @@ describe('buildQuestionEvaluationContract', () => {
                 }
               }
             ],
-            summary: { total: 1, ran: 1, errored: 0, passed: 1, failed: 0 }
+            summary: {
+              total: 1,
+              ran: 1,
+              errored: 0,
+              passed: 1,
+              failed: 0,
+              totalChecks: 2,
+              passedChecks: 2,
+              failedChecks: 0,
+              skippedChecks: 0
+            }
           },
           contract: {
-            tests: [{ id: 'baseline:err', name: 'error rate < 10%', passed: true }],
-            totalTests: 1,
-            passedTests: 1,
+            tests: [
+              {
+                id: caseRubricTestId('baseline', 'execution', EXECUTION_CHECK_ID),
+                name: 'Case baseline execution completed',
+                passed: true
+              },
+              {
+                id: caseRubricTestId('baseline', 'simulation', 'err'),
+                name: 'error rate < 10%',
+                passed: true
+              }
+            ],
+            totalTests: 2,
+            passedTests: 2,
             allPassed: true
           }
         },
