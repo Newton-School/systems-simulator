@@ -17,19 +17,30 @@
       "fraction": 1
     },
     "summary": {
-      "totalTests": 1,
-      "passedTests": 1,
+      "totalTests": 2,
+      "passedTests": 2,
       "failedTests": 0,
-      "structuralFailures": 0,
-      "rubricFailures": 0,
+      "skippedTests": 0,
+      "topologyFailures": 0,
+      "simulationFailures": 0,
+      "invariantFailures": 0,
       "executionFailures": 0
     },
     "tests": [
       {
-        "id": "baseline:err",
+        "id": "case.baseline-1bps56q.execution.execution-1jr2ecx",
+        "name": "Case baseline execution completed",
+        "scope": "baseline",
+        "kind": "execution",
+        "status": "passed",
+        "pointsEarned": 0,
+        "pointsPossible": 0
+      },
+      {
+        "id": "case.baseline-1bps56q.simulation.err-u4ovu4",
         "name": "error rate < 10%",
         "scope": "baseline",
-        "kind": "rubric",
+        "kind": "simulation",
         "status": "passed",
         "pointsEarned": 2,
         "pointsPossible": 2
@@ -38,13 +49,18 @@
     "host": {
       "tests": [
         {
-          "id": "baseline:err",
+          "id": "case.baseline-1bps56q.execution.execution-1jr2ecx",
+          "name": "Case baseline execution completed",
+          "passed": true
+        },
+        {
+          "id": "case.baseline-1bps56q.simulation.err-u4ovu4",
           "name": "error rate < 10%",
           "passed": true
         }
       ],
-      "totalTests": 1,
-      "passedTests": 1,
+      "totalTests": 2,
+      "passedTests": 2,
       "allPassed": true
     },
     "structural": {
@@ -54,20 +70,39 @@
     },
     "graded": {
       "version": "1.0",
+      "score": {
+        "earned": 2,
+        "possible": 2,
+        "fraction": 1
+      },
+      "passed": true,
       "cases": [
         {
           "id": "baseline",
           "ran": true,
+          "executionStatus": "completed",
           "rubric": {
             "version": "1.0",
             "checks": [
               {
+                "id": "__execution__",
+                "description": "Case execution completed",
+                "kind": "execution",
+                "actual": null,
+                "status": "passed",
+                "passed": true,
+                "points": 0,
+                "awarded": 0
+              },
+              {
                 "id": "err",
                 "description": "error rate < 10%",
+                "kind": "simulation",
                 "metric": "summary.errorRate",
                 "op": "<",
                 "value": 0.1,
                 "actual": 0.01,
+                "status": "passed",
                 "passed": true,
                 "points": 2,
                 "awarded": 2
@@ -87,7 +122,11 @@
         "ran": 1,
         "errored": 0,
         "passed": 1,
-        "failed": 0
+        "failed": 0,
+        "totalChecks": 2,
+        "passedChecks": 2,
+        "failedChecks": 0,
+        "skippedChecks": 0
       }
     }
   },
@@ -109,64 +148,96 @@
       "fraction": 0.5
     },
     "summary": {
-      "totalTests": 3,
-      "passedTests": 2,
+      "totalTests": 5,
+      "passedTests": 3,
       "failedTests": 1,
-      "structuralFailures": 0,
-      "rubricFailures": 0,
+      "skippedTests": 1,
+      "topologyFailures": 0,
+      "simulationFailures": 0,
+      "invariantFailures": 0,
       "executionFailures": 1
     },
     "tests": [
       {
-        "id": "structural:shape",
+        "id": "topology.structural.shape-17rvcpy",
         "name": "Shape is valid",
-        "scope": "structure",
-        "kind": "structural",
+        "scope": "topology",
+        "kind": "topology",
         "status": "passed",
         "pointsEarned": 0,
         "pointsPossible": 0
       },
       {
-        "id": "baseline:err",
+        "id": "case.baseline-1bps56q.execution.execution-1jr2ecx",
+        "name": "Case baseline execution completed",
+        "scope": "baseline",
+        "kind": "execution",
+        "status": "passed",
+        "pointsEarned": 0,
+        "pointsPossible": 0
+      },
+      {
+        "id": "case.baseline-1bps56q.simulation.err-u4ovu4",
         "name": "error rate < 10%",
         "scope": "baseline",
-        "kind": "rubric",
+        "kind": "simulation",
         "status": "passed",
         "pointsEarned": 2,
         "pointsPossible": 2
       },
       {
-        "id": "peak:did-not-run",
-        "name": "Case peak could not run",
+        "id": "case.peak-1et639u.execution.execution-1jr2ecx",
+        "name": "Case peak execution completed",
         "scope": "peak",
         "kind": "execution",
         "status": "failed",
         "pointsEarned": 0,
         "pointsPossible": 0,
-        "detail": "boom"
+        "detail": "Execution failed before a verdict was produced."
+      },
+      {
+        "id": "case.peak-1et639u.simulation.err-u4ovu4",
+        "name": "error rate < 10%",
+        "scope": "peak",
+        "kind": "simulation",
+        "status": "skipped",
+        "pointsEarned": 0,
+        "pointsPossible": 2,
+        "detail": "Check was not evaluated because execution did not complete."
       }
     ],
     "host": {
       "tests": [
         {
-          "id": "structural:shape",
+          "id": "topology.structural.shape-17rvcpy",
           "name": "Shape is valid",
           "passed": true
         },
         {
-          "id": "baseline:err",
+          "id": "case.baseline-1bps56q.execution.execution-1jr2ecx",
+          "name": "Case baseline execution completed",
+          "passed": true
+        },
+        {
+          "id": "case.baseline-1bps56q.simulation.err-u4ovu4",
           "name": "error rate < 10%",
           "passed": true
         },
         {
-          "id": "peak:did-not-run",
-          "name": "Case peak could not run",
+          "id": "case.peak-1et639u.execution.execution-1jr2ecx",
+          "name": "Case peak execution completed",
           "passed": false,
-          "detail": "boom"
+          "detail": "Execution failed before a verdict was produced."
+        },
+        {
+          "id": "case.peak-1et639u.simulation.err-u4ovu4",
+          "name": "error rate < 10%",
+          "passed": false,
+          "detail": "Check was not evaluated because execution did not complete."
         }
       ],
-      "totalTests": 3,
-      "passedTests": 2,
+      "totalTests": 5,
+      "passedTests": 3,
       "allPassed": false
     },
     "structural": {
@@ -183,20 +254,39 @@
     "graded": {
       "version": "1.0",
       "suite": "demo-suite",
+      "score": {
+        "earned": 2,
+        "possible": 4,
+        "fraction": 0.5
+      },
+      "passed": false,
       "cases": [
         {
           "id": "baseline",
           "ran": true,
+          "executionStatus": "completed",
           "rubric": {
             "version": "1.0",
             "checks": [
               {
+                "id": "__execution__",
+                "description": "Case execution completed",
+                "kind": "execution",
+                "actual": null,
+                "status": "passed",
+                "passed": true,
+                "points": 0,
+                "awarded": 0
+              },
+              {
                 "id": "err",
                 "description": "error rate < 10%",
+                "kind": "simulation",
                 "metric": "summary.errorRate",
                 "op": "<",
                 "value": 0.1,
                 "actual": 0.01,
+                "status": "passed",
                 "passed": true,
                 "points": 2,
                 "awarded": 2
@@ -213,7 +303,44 @@
         {
           "id": "peak",
           "ran": false,
-          "error": "boom"
+          "executionStatus": "failed",
+          "error": "Execution failed before a verdict was produced.",
+          "rubric": {
+            "version": "1.0",
+            "checks": [
+              {
+                "id": "__execution__",
+                "description": "Case execution completed",
+                "kind": "execution",
+                "actual": null,
+                "status": "failed",
+                "passed": false,
+                "points": 0,
+                "awarded": 0,
+                "detail": "Execution failed before a verdict was produced."
+              },
+              {
+                "id": "err",
+                "description": "error rate < 10%",
+                "kind": "simulation",
+                "metric": "summary.errorRate",
+                "op": "<",
+                "value": 0.1,
+                "actual": null,
+                "status": "skipped",
+                "passed": false,
+                "points": 2,
+                "awarded": 0,
+                "detail": "Check was not evaluated because execution did not complete."
+              }
+            ],
+            "score": {
+              "earned": 0,
+              "possible": 2,
+              "fraction": 0
+            },
+            "passed": false
+          }
         }
       ],
       "summary": {
@@ -221,7 +348,11 @@
         "ran": 1,
         "errored": 1,
         "passed": 1,
-        "failed": 1
+        "failed": 1,
+        "totalChecks": 4,
+        "passedChecks": 2,
+        "failedChecks": 1,
+        "skippedChecks": 1
       }
     }
   },
@@ -243,8 +374,10 @@
       "totalTests": 0,
       "passedTests": 0,
       "failedTests": 0,
-      "structuralFailures": 0,
-      "rubricFailures": 0,
+      "skippedTests": 0,
+      "topologyFailures": 0,
+      "simulationFailures": 0,
+      "invariantFailures": 0,
       "executionFailures": 0
     },
     "tests": [],
@@ -276,8 +409,10 @@
       "totalTests": 0,
       "passedTests": 0,
       "failedTests": 0,
-      "structuralFailures": 0,
-      "rubricFailures": 0,
+      "skippedTests": 0,
+      "topologyFailures": 0,
+      "simulationFailures": 0,
+      "invariantFailures": 0,
       "executionFailures": 0
     },
     "tests": [],
@@ -316,19 +451,30 @@
           "fraction": 1
         },
         "summary": {
-          "totalTests": 1,
-          "passedTests": 1,
+          "totalTests": 2,
+          "passedTests": 2,
           "failedTests": 0,
-          "structuralFailures": 0,
-          "rubricFailures": 0,
+          "skippedTests": 0,
+          "topologyFailures": 0,
+          "simulationFailures": 0,
+          "invariantFailures": 0,
           "executionFailures": 0
         },
         "tests": [
           {
-            "id": "baseline:err",
+            "id": "case.baseline-1bps56q.execution.execution-1jr2ecx",
+            "name": "Case baseline execution completed",
+            "scope": "baseline",
+            "kind": "execution",
+            "status": "passed",
+            "pointsEarned": 0,
+            "pointsPossible": 0
+          },
+          {
+            "id": "case.baseline-1bps56q.simulation.err-u4ovu4",
             "name": "error rate < 10%",
             "scope": "baseline",
-            "kind": "rubric",
+            "kind": "simulation",
             "status": "passed",
             "pointsEarned": 2,
             "pointsPossible": 2
@@ -337,13 +483,18 @@
         "host": {
           "tests": [
             {
-              "id": "baseline:err",
+              "id": "case.baseline-1bps56q.execution.execution-1jr2ecx",
+              "name": "Case baseline execution completed",
+              "passed": true
+            },
+            {
+              "id": "case.baseline-1bps56q.simulation.err-u4ovu4",
               "name": "error rate < 10%",
               "passed": true
             }
           ],
-          "totalTests": 1,
-          "passedTests": 1,
+          "totalTests": 2,
+          "passedTests": 2,
           "allPassed": true
         },
         "structural": {
@@ -353,20 +504,39 @@
         },
         "graded": {
           "version": "1.0",
+          "score": {
+            "earned": 2,
+            "possible": 2,
+            "fraction": 1
+          },
+          "passed": true,
           "cases": [
             {
               "id": "baseline",
               "ran": true,
+              "executionStatus": "completed",
               "rubric": {
                 "version": "1.0",
                 "checks": [
                   {
+                    "id": "__execution__",
+                    "description": "Case execution completed",
+                    "kind": "execution",
+                    "actual": null,
+                    "status": "passed",
+                    "passed": true,
+                    "points": 0,
+                    "awarded": 0
+                  },
+                  {
                     "id": "err",
                     "description": "error rate < 10%",
+                    "kind": "simulation",
                     "metric": "summary.errorRate",
                     "op": "<",
                     "value": 0.1,
                     "actual": 0.01,
+                    "status": "passed",
                     "passed": true,
                     "points": 2,
                     "awarded": 2
@@ -386,7 +556,11 @@
             "ran": 1,
             "errored": 0,
             "passed": 1,
-            "failed": 0
+            "failed": 0,
+            "totalChecks": 2,
+            "passedChecks": 2,
+            "failedChecks": 0,
+            "skippedChecks": 0
           }
         }
       },
@@ -408,8 +582,10 @@
           "totalTests": 0,
           "passedTests": 0,
           "failedTests": 0,
-          "structuralFailures": 0,
-          "rubricFailures": 0,
+          "skippedTests": 0,
+          "topologyFailures": 0,
+          "simulationFailures": 0,
+          "invariantFailures": 0,
           "executionFailures": 0
         },
         "tests": [],
@@ -441,8 +617,10 @@
           "totalTests": 0,
           "passedTests": 0,
           "failedTests": 0,
-          "structuralFailures": 0,
-          "rubricFailures": 0,
+          "skippedTests": 0,
+          "topologyFailures": 0,
+          "simulationFailures": 0,
+          "invariantFailures": 0,
           "executionFailures": 0
         },
         "tests": [],
@@ -475,64 +653,96 @@
           "fraction": 0.5
         },
         "summary": {
-          "totalTests": 3,
-          "passedTests": 2,
+          "totalTests": 5,
+          "passedTests": 3,
           "failedTests": 1,
-          "structuralFailures": 0,
-          "rubricFailures": 0,
+          "skippedTests": 1,
+          "topologyFailures": 0,
+          "simulationFailures": 0,
+          "invariantFailures": 0,
           "executionFailures": 1
         },
         "tests": [
           {
-            "id": "structural:shape",
+            "id": "topology.structural.shape-17rvcpy",
             "name": "Shape is valid",
-            "scope": "structure",
-            "kind": "structural",
+            "scope": "topology",
+            "kind": "topology",
             "status": "passed",
             "pointsEarned": 0,
             "pointsPossible": 0
           },
           {
-            "id": "baseline:err",
+            "id": "case.baseline-1bps56q.execution.execution-1jr2ecx",
+            "name": "Case baseline execution completed",
+            "scope": "baseline",
+            "kind": "execution",
+            "status": "passed",
+            "pointsEarned": 0,
+            "pointsPossible": 0
+          },
+          {
+            "id": "case.baseline-1bps56q.simulation.err-u4ovu4",
             "name": "error rate < 10%",
             "scope": "baseline",
-            "kind": "rubric",
+            "kind": "simulation",
             "status": "passed",
             "pointsEarned": 2,
             "pointsPossible": 2
           },
           {
-            "id": "peak:did-not-run",
-            "name": "Case peak could not run",
+            "id": "case.peak-1et639u.execution.execution-1jr2ecx",
+            "name": "Case peak execution completed",
             "scope": "peak",
             "kind": "execution",
             "status": "failed",
             "pointsEarned": 0,
             "pointsPossible": 0,
-            "detail": "boom"
+            "detail": "Execution failed before a verdict was produced."
+          },
+          {
+            "id": "case.peak-1et639u.simulation.err-u4ovu4",
+            "name": "error rate < 10%",
+            "scope": "peak",
+            "kind": "simulation",
+            "status": "skipped",
+            "pointsEarned": 0,
+            "pointsPossible": 2,
+            "detail": "Check was not evaluated because execution did not complete."
           }
         ],
         "host": {
           "tests": [
             {
-              "id": "structural:shape",
+              "id": "topology.structural.shape-17rvcpy",
               "name": "Shape is valid",
               "passed": true
             },
             {
-              "id": "baseline:err",
+              "id": "case.baseline-1bps56q.execution.execution-1jr2ecx",
+              "name": "Case baseline execution completed",
+              "passed": true
+            },
+            {
+              "id": "case.baseline-1bps56q.simulation.err-u4ovu4",
               "name": "error rate < 10%",
               "passed": true
             },
             {
-              "id": "peak:did-not-run",
-              "name": "Case peak could not run",
+              "id": "case.peak-1et639u.execution.execution-1jr2ecx",
+              "name": "Case peak execution completed",
               "passed": false,
-              "detail": "boom"
+              "detail": "Execution failed before a verdict was produced."
+            },
+            {
+              "id": "case.peak-1et639u.simulation.err-u4ovu4",
+              "name": "error rate < 10%",
+              "passed": false,
+              "detail": "Check was not evaluated because execution did not complete."
             }
           ],
-          "totalTests": 3,
-          "passedTests": 2,
+          "totalTests": 5,
+          "passedTests": 3,
           "allPassed": false
         },
         "structural": {
@@ -549,20 +759,39 @@
         "graded": {
           "version": "1.0",
           "suite": "demo-suite",
+          "score": {
+            "earned": 2,
+            "possible": 4,
+            "fraction": 0.5
+          },
+          "passed": false,
           "cases": [
             {
               "id": "baseline",
               "ran": true,
+              "executionStatus": "completed",
               "rubric": {
                 "version": "1.0",
                 "checks": [
                   {
+                    "id": "__execution__",
+                    "description": "Case execution completed",
+                    "kind": "execution",
+                    "actual": null,
+                    "status": "passed",
+                    "passed": true,
+                    "points": 0,
+                    "awarded": 0
+                  },
+                  {
                     "id": "err",
                     "description": "error rate < 10%",
+                    "kind": "simulation",
                     "metric": "summary.errorRate",
                     "op": "<",
                     "value": 0.1,
                     "actual": 0.01,
+                    "status": "passed",
                     "passed": true,
                     "points": 2,
                     "awarded": 2
@@ -579,7 +808,44 @@
             {
               "id": "peak",
               "ran": false,
-              "error": "boom"
+              "executionStatus": "failed",
+              "error": "Execution failed before a verdict was produced.",
+              "rubric": {
+                "version": "1.0",
+                "checks": [
+                  {
+                    "id": "__execution__",
+                    "description": "Case execution completed",
+                    "kind": "execution",
+                    "actual": null,
+                    "status": "failed",
+                    "passed": false,
+                    "points": 0,
+                    "awarded": 0,
+                    "detail": "Execution failed before a verdict was produced."
+                  },
+                  {
+                    "id": "err",
+                    "description": "error rate < 10%",
+                    "kind": "simulation",
+                    "metric": "summary.errorRate",
+                    "op": "<",
+                    "value": 0.1,
+                    "actual": null,
+                    "status": "skipped",
+                    "passed": false,
+                    "points": 2,
+                    "awarded": 0,
+                    "detail": "Check was not evaluated because execution did not complete."
+                  }
+                ],
+                "score": {
+                  "earned": 0,
+                  "possible": 2,
+                  "fraction": 0
+                },
+                "passed": false
+              }
             }
           ],
           "summary": {
@@ -587,7 +853,11 @@
             "ran": 1,
             "errored": 1,
             "passed": 1,
-            "failed": 1
+            "failed": 1,
+            "totalChecks": 4,
+            "passedChecks": 2,
+            "failedChecks": 1,
+            "skippedChecks": 1
           }
         }
       }

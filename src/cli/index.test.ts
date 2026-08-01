@@ -233,7 +233,9 @@ describe('sim evaluate question CLI', () => {
       topologyId: 'topology-fail',
       status: 'failed',
       summary: {
-        failedTests: 2
+        failedTests: 1,
+        skippedTests: 2,
+        topologyFailures: 1
       }
     })
   })

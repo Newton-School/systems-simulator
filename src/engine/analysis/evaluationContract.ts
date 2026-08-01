@@ -420,8 +420,8 @@ export const ScenarioEvaluationContractSchema: z.ZodType<ScenarioEvaluationContr
     }
   })
 
-const QuestionEvaluationTestKindSchema = z.enum(['structural', 'rubric', 'execution'])
-const QuestionEvaluationTestStatusSchema = z.enum(['passed', 'failed'])
+const QuestionEvaluationTestKindSchema = z.enum(['topology', 'simulation', 'invariant', 'execution'])
+const QuestionEvaluationTestStatusSchema = z.enum(['passed', 'failed', 'skipped'])
 
 export const QuestionEvaluationTestResultSchema: z.ZodType<QuestionEvaluationTestResult> = z
   .object({
@@ -458,8 +458,10 @@ export const QuestionEvaluationSummarySchema: z.ZodType<QuestionEvaluationSummar
     totalTests: z.number().int().nonnegative(),
     passedTests: z.number().int().nonnegative(),
     failedTests: z.number().int().nonnegative(),
-    structuralFailures: z.number().int().nonnegative(),
-    rubricFailures: z.number().int().nonnegative(),
+    skippedTests: z.number().int().nonnegative(),
+    topologyFailures: z.number().int().nonnegative(),
+    simulationFailures: z.number().int().nonnegative(),
+    invariantFailures: z.number().int().nonnegative(),
     executionFailures: z.number().int().nonnegative()
   })
   .strict()
@@ -517,19 +519,35 @@ function validateQuestionSummary(
     })
   }
 
-  if (summary.structuralFailures !== expected.structuralFailures) {
+  if (summary.skippedTests !== expected.skippedTests) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
-      path: ['summary', 'structuralFailures'],
-      message: 'summary.structuralFailures must match failed structural tests.'
+      path: ['summary', 'skippedTests'],
+      message: 'summary.skippedTests must match the number of skipped tests.'
     })
   }
 
-  if (summary.rubricFailures !== expected.rubricFailures) {
+  if (summary.topologyFailures !== expected.topologyFailures) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
-      path: ['summary', 'rubricFailures'],
-      message: 'summary.rubricFailures must match failed rubric tests.'
+      path: ['summary', 'topologyFailures'],
+      message: 'summary.topologyFailures must match failed topology tests.'
+    })
+  }
+
+  if (summary.simulationFailures !== expected.simulationFailures) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['summary', 'simulationFailures'],
+      message: 'summary.simulationFailures must match failed simulation tests.'
+    })
+  }
+
+  if (summary.invariantFailures !== expected.invariantFailures) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['summary', 'invariantFailures'],
+      message: 'summary.invariantFailures must match failed invariant tests.'
     })
   }
 

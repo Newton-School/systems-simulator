@@ -14,11 +14,18 @@ import {
 import { createAttemptState } from './question'
 import type { TopologyJSON } from '../core/types'
 
+type HostProjection = {
+  tests: { id: string; name: string; passed: boolean; detail?: string }[]
+  totalTests: number
+  passedTests: number
+  allPassed: boolean
+}
+
 const fixtures = JSON.parse(
   readFileSync(resolve(__dirname, 'fixtures/evaluation-contracts.json'), 'utf-8')
 ) as {
-  questionPassed: unknown
-  questionFailed: unknown
+  questionPassed: { status: string; host: HostProjection }
+  questionFailed: { status: string; host: HostProjection }
   questionInvalidSubmission: unknown
 }
 
@@ -129,18 +136,20 @@ describe('gamePlayground adapter', () => {
       parseQuestionEvaluationContract(fixtures.questionInvalidSubmission)
     )
 
+    const passedHost = fixtures.questionPassed.host
     expect(passed).toEqual({
       version: GAME_PLAYGROUND_PAYLOAD_VERSION,
       status: 'passed',
-      tests: [{ id: 'baseline:err', name: 'error rate < 10%', passed: true }],
-      totalTests: 1,
-      passedTests: 1,
+      tests: passedHost.tests,
+      totalTests: passedHost.totalTests,
+      passedTests: passedHost.passedTests,
       allPassed: true
     })
 
+    const failedHost = fixtures.questionFailed.host
     expect(failed.status).toBe('failed')
-    expect(failed.totalTests).toBe(3)
-    expect(failed.passedTests).toBe(2)
+    expect(failed.totalTests).toBe(failedHost.totalTests)
+    expect(failed.passedTests).toBe(failedHost.passedTests)
     expect(failed.allPassed).toBe(false)
 
     expect(invalid).toEqual({
