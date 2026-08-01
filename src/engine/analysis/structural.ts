@@ -122,7 +122,10 @@ function getUndirectedAdjacency(topology: TopologyJSON): Map<string, string[]> {
   return adjacency
 }
 
-function collectReachable(startNodeIds: readonly string[], adjacency: Map<string, string[]>): Set<string> {
+function collectReachable(
+  startNodeIds: readonly string[],
+  adjacency: Map<string, string[]>
+): Set<string> {
   const visited = new Set<string>()
   const queue = [...startNodeIds]
 
@@ -151,7 +154,10 @@ function sourceNodeIds(topology: TopologyJSON): string[] {
     }
   }
 
-  if (typeof topology.workload?.sourceNodeId === 'string' && topology.workload.sourceNodeId.length > 0) {
+  if (
+    typeof topology.workload?.sourceNodeId === 'string' &&
+    topology.workload.sourceNodeId.length > 0
+  ) {
     ids.add(topology.workload.sourceNodeId)
   }
 
@@ -315,7 +321,9 @@ function evaluateRule(topology: TopologyJSON, rule: StructuralRule): StructuralC
         passed: count >= rule.count,
         ...(count >= rule.count
           ? {}
-          : { detail: `expected at least ${rule.count} total node${rule.count === 1 ? '' : 's'}, found ${count}.` })
+          : {
+              detail: `expected at least ${rule.count} total node${rule.count === 1 ? '' : 's'}, found ${count}.`
+            })
       }
     }
 
@@ -327,7 +335,9 @@ function evaluateRule(topology: TopologyJSON, rule: StructuralRule): StructuralC
         passed: count <= rule.count,
         ...(count <= rule.count
           ? {}
-          : { detail: `expected at most ${rule.count} total node${rule.count === 1 ? '' : 's'}, found ${count}.` })
+          : {
+              detail: `expected at most ${rule.count} total node${rule.count === 1 ? '' : 's'}, found ${count}.`
+            })
       }
     }
 

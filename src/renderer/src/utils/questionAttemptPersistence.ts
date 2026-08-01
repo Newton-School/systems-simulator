@@ -27,10 +27,7 @@ export function persistAttemptState(attempt: AttemptState): void {
   storage.setItem(attemptStorageKey(attempt.questionId), JSON.stringify(attempt))
 }
 
-export function loadPersistedAttemptState(
-  questionId: string,
-  now?: string
-): AttemptState | null {
+export function loadPersistedAttemptState(questionId: string, now?: string): AttemptState | null {
   const storage = getStorage()
   if (!storage) {
     return null

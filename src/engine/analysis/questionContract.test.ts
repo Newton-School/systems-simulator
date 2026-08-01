@@ -137,7 +137,15 @@ describe('question contract parsing', () => {
         cases: [{ id: 'baseline' }]
       },
       rubric: {
-        checks: [{ id: 'err', description: 'error rate < 10%', metric: 'summary.errorRate', op: '<', value: 0.1 }]
+        checks: [
+          {
+            id: 'err',
+            description: 'error rate < 10%',
+            metric: 'summary.errorRate',
+            op: '<',
+            value: 0.1
+          }
+        ]
       }
     }
 
@@ -171,7 +179,9 @@ describe('question contract parsing', () => {
     }
 
     expect(parseAttemptState(raw).version).toBe('1.0')
-    expect(() => parseAttemptState({ ...raw, submittedAt: undefined })).toThrow(/requires submittedAt/)
+    expect(() => parseAttemptState({ ...raw, submittedAt: undefined })).toThrow(
+      /requires submittedAt/
+    )
   })
 })
 

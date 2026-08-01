@@ -114,7 +114,11 @@ describe('evaluateSuite', () => {
       { id: 'b', topology: topology('seed-b') }
     ]
 
-    const batch = evaluateSuite(cases, (t) => fakeOutput((t.global as { seed: string }).seed), 'demo')
+    const batch = evaluateSuite(
+      cases,
+      (t) => fakeOutput((t.global as { seed: string }).seed),
+      'demo'
+    )
 
     expect(batch.suite).toBe('demo')
     expect(batch.results.map((r) => r.id)).toEqual(['a', 'b'])
@@ -152,7 +156,11 @@ describe('evaluateSuite', () => {
 
     const batch = evaluateSuite(cases, () => fakeOutput('s'))
 
-    expect(batch.results[0]).toEqual({ id: 'unreadable', ok: false, error: 'Could not read topology' })
+    expect(batch.results[0]).toEqual({
+      id: 'unreadable',
+      ok: false,
+      error: 'Could not read topology'
+    })
     expect(batch.summary).toEqual({ total: 2, succeeded: 1, failed: 1 })
   })
 })

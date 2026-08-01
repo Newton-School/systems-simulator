@@ -88,7 +88,11 @@ describe('runScenarioBatchIsolated', () => {
         executeScenario: (scenarioTopology, timeoutMs) => {
           seenSeeds.push(`${scenarioTopology.global.seed}:${timeoutMs}`)
           if (scenarioTopology.global.seed === 'timeout-seed') {
-            return { scenarioId: '', status: 'timeout', error: 'Scenario exceeded timeout of 1234ms' }
+            return {
+              scenarioId: '',
+              status: 'timeout',
+              error: 'Scenario exceeded timeout of 1234ms'
+            }
           }
           if (scenarioTopology.global.seed === 'boom-seed') {
             return { scenarioId: '', status: 'error', error: 'engine blew up' }

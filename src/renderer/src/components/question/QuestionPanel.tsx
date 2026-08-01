@@ -77,8 +77,13 @@ export const QuestionPanel = () => {
   const setAttemptState = useStore((s) => s.setAttemptState)
   const { serialize } = useTopologySerializer()
   const grader = useQuestionGrader()
-  const { status: graderStatus, grade: graderGrade, error: graderError, grade_: gradeQuestion, reset: resetGrader } =
-    grader
+  const {
+    status: graderStatus,
+    grade: graderGrade,
+    error: graderError,
+    grade_: gradeQuestion,
+    reset: resetGrader
+  } = grader
   const [serializeError, setSerializeError] = useState<string | null>(null)
   const [pendingRun, setPendingRun] = useState<PendingRun | null>(null)
   const [panelView, setPanelView] = useState<QuestionPanelView>('brief')
@@ -235,7 +240,9 @@ export const QuestionPanel = () => {
     )
 
   const currentTopology = serialize().topology
-  const hasStaleAttempt = Boolean(attemptState && !isAttemptCurrentForTopology(attemptState, currentTopology))
+  const hasStaleAttempt = Boolean(
+    attemptState && !isAttemptCurrentForTopology(attemptState, currentTopology)
+  )
   const currentStatus =
     pendingRun?.kind || graderStatus === 'grading'
       ? 'GRADING'
@@ -348,7 +355,10 @@ export const QuestionPanel = () => {
                 <h3 className={SECTION_TITLE}>Non-Functional Targets</h3>
                 <div className="space-y-1">
                   {activeQuestion.prompt.nonFunctionalRequirements.map((nfr) => (
-                    <div key={nfr.metric} className="flex items-center justify-between gap-3 text-xs">
+                    <div
+                      key={nfr.metric}
+                      className="flex items-center justify-between gap-3 text-xs"
+                    >
                       <span className="text-nss-muted">{nfr.description}</span>
                       <span className="shrink-0 font-semibold tabular-nums">
                         {nfr.operator} {nfr.value}
@@ -415,7 +425,10 @@ export const QuestionPanel = () => {
 
             <div className="space-y-1">
               {testRows.map((row) => (
-                <div key={row.id} className="rounded border border-nss-border/70 bg-nss-surface/40 p-2">
+                <div
+                  key={row.id}
+                  className="rounded border border-nss-border/70 bg-nss-surface/40 p-2"
+                >
                   <div className="flex items-start gap-2 text-xs">
                     <span
                       className={

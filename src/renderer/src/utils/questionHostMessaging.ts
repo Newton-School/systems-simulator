@@ -55,7 +55,11 @@ function getHostTargetOrigin(): string {
 export function parseQuestionLaunchContextMessage(
   value: unknown
 ): QuestionLaunchContextMessage | null {
-  if (!isRecord(value) || value.type !== 'ns-simulator:launch-context' || !isRecord(value.payload)) {
+  if (
+    !isRecord(value) ||
+    value.type !== 'ns-simulator:launch-context' ||
+    !isRecord(value.payload)
+  ) {
     return null
   }
 

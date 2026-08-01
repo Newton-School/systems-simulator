@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
@@ -69,7 +69,11 @@ function runScenarioVerdictIsolated(
     }
 
     if (child.status !== 0) {
-      const detail = (child.stderr || child.stdout || `Process exited with code ${child.status}`).trim()
+      const detail = (
+        child.stderr ||
+        child.stdout ||
+        `Process exited with code ${child.status}`
+      ).trim()
       return {
         scenarioId: '',
         status: 'error',

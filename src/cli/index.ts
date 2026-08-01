@@ -6,13 +6,13 @@ import { dirname, resolve } from 'node:path'
 import { SimulationEngine } from '../engine/engine'
 import type { SimulationOutput } from '../engine/analysis/output'
 import { projectToVerdict } from '../engine/analysis/verdict'
-import {
-  evaluateSuite,
-  type PreparedCase,
-  type ScenarioSpec
-} from '../engine/analysis/evaluate'
+import { evaluateSuite, type PreparedCase, type ScenarioSpec } from '../engine/analysis/evaluate'
 import { gradeBatch, type Rubric } from '../engine/analysis/rubric'
-import { gradeAttempt, parseQuestionPackage, type QuestionPackage } from '../engine/analysis/question'
+import {
+  gradeAttempt,
+  parseQuestionPackage,
+  type QuestionPackage
+} from '../engine/analysis/question'
 import { validateTopology } from '../engine/validation/validator'
 import process from 'node:process'
 import { runScenarioBatchIsolated } from './scenarioBatch'
@@ -395,8 +395,7 @@ function runScenarioEvaluate(args: string[]): void {
   const outputPath = outputFlagIndex !== -1 ? args[outputFlagIndex + 1] : undefined
   const timeoutFlagIndex = args.indexOf('--timeout-ms')
   const timeoutMsValue = timeoutFlagIndex !== -1 ? args[timeoutFlagIndex + 1] : undefined
-  const timeoutMs =
-    timeoutMsValue !== undefined ? Number.parseInt(timeoutMsValue, 10) : undefined
+  const timeoutMs = timeoutMsValue !== undefined ? Number.parseInt(timeoutMsValue, 10) : undefined
   if (timeoutMsValue !== undefined && (!Number.isFinite(timeoutMs) || timeoutMs! <= 0)) {
     die('--timeout-ms must be a positive integer.')
   }
@@ -464,23 +463,19 @@ function runScenarioEvaluate(args: string[]): void {
       ? batchSpec.timeoutMs
       : undefined)
 
-  const batch = runScenarioBatchIsolated(
-    topologyValidation.data,
-    scenarios,
-    {
-      simulatorVersion: packageJson.version,
-      ...(typeof batchSpec.submissionId === 'string' && batchSpec.submissionId.length > 0
-        ? { submissionId: batchSpec.submissionId }
-        : {}),
-      ...(typeof batchSpec.topologyId === 'string' && batchSpec.topologyId.length > 0
-        ? { topologyId: batchSpec.topologyId }
-        : {}),
-      ...(typeof batchSpec.evaluatedAt === 'string' && batchSpec.evaluatedAt.length > 0
-        ? { evaluatedAt: batchSpec.evaluatedAt }
-        : {}),
-      ...(batchTimeoutMs !== undefined ? { timeoutMs: batchTimeoutMs } : {})
-    }
-  )
+  const batch = runScenarioBatchIsolated(topologyValidation.data, scenarios, {
+    simulatorVersion: packageJson.version,
+    ...(typeof batchSpec.submissionId === 'string' && batchSpec.submissionId.length > 0
+      ? { submissionId: batchSpec.submissionId }
+      : {}),
+    ...(typeof batchSpec.topologyId === 'string' && batchSpec.topologyId.length > 0
+      ? { topologyId: batchSpec.topologyId }
+      : {}),
+    ...(typeof batchSpec.evaluatedAt === 'string' && batchSpec.evaluatedAt.length > 0
+      ? { evaluatedAt: batchSpec.evaluatedAt }
+      : {}),
+    ...(batchTimeoutMs !== undefined ? { timeoutMs: batchTimeoutMs } : {})
+  })
 
   const json = JSON.stringify(batch, null, 2)
   if (outputPath) {
@@ -591,10 +586,8 @@ function runGrade(args: string[]): void {
     process.exit(1)
   }
 
-  const result = gradeAttempt(
-    pkg,
-    validation.data,
-    (topology) => new SimulationEngine(topology).run()
+  const result = gradeAttempt(pkg, validation.data, (topology) =>
+    new SimulationEngine(topology).run()
   )
 
   const json = JSON.stringify(result, null, 2)

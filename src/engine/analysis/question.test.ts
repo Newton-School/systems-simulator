@@ -60,16 +60,32 @@ const pkg: QuestionPackage = {
   title: 'demo',
   difficulty: 'intermediate',
   type: 'open-build',
-  prompt: { text: 'design it', functionalRequirements: [], nonFunctionalRequirements: [], scale: {} },
+  prompt: {
+    text: 'design it',
+    functionalRequirements: [],
+    nonFunctionalRequirements: [],
+    scale: {}
+  },
   scaffold: { type: 'empty' },
   constraints: { canModifyScaffold: true, canRemoveScaffoldNodes: true },
   suite: {
     name: 'demo-suite',
     visibleToStudent: false,
-    cases: [{ id: 'baseline' }, { id: 'peak', global: { seed: 'peak-seed' }, workload: { baseRps: 500 } }]
+    cases: [
+      { id: 'baseline' },
+      { id: 'peak', global: { seed: 'peak-seed' }, workload: { baseRps: 500 } }
+    ]
   },
   rubric: {
-    checks: [{ id: 'err', description: 'error rate < 10%', metric: 'summary.errorRate', op: '<', value: 0.1 }]
+    checks: [
+      {
+        id: 'err',
+        description: 'error rate < 10%',
+        metric: 'summary.errorRate',
+        op: '<',
+        value: 0.1
+      }
+    ]
   }
 }
 
@@ -175,8 +191,28 @@ describe('toHostContract', () => {
           rubric: {
             version: '1.0',
             checks: [
-              { id: 'a', description: 'A', metric: 'm', op: '<', value: 1, actual: 0, passed: true, points: 1, awarded: 1 },
-              { id: 'b', description: 'B', metric: 'm', op: '<', value: 1, actual: 2, passed: false, points: 1, awarded: 0 }
+              {
+                id: 'a',
+                description: 'A',
+                metric: 'm',
+                op: '<',
+                value: 1,
+                actual: 0,
+                passed: true,
+                points: 1,
+                awarded: 1
+              },
+              {
+                id: 'b',
+                description: 'B',
+                metric: 'm',
+                op: '<',
+                value: 1,
+                actual: 2,
+                passed: false,
+                points: 1,
+                awarded: 0
+              }
             ],
             score: { earned: 1, possible: 2, fraction: 0.5 },
             passed: false

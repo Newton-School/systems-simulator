@@ -84,7 +84,15 @@ function questionPackage() {
       cases: [{ id: 'baseline' }]
     },
     rubric: {
-      checks: [{ id: 'err', description: 'error rate < 10%', metric: 'summary.errorRate', op: '<', value: 0.1 }]
+      checks: [
+        {
+          id: 'err',
+          description: 'error rate < 10%',
+          metric: 'summary.errorRate',
+          op: '<',
+          value: 0.1
+        }
+      ]
     }
   }
 }
@@ -97,7 +105,8 @@ describe('parseQuestionLaunchContextMessage', () => {
       attemptId: 'attempt-1',
       now: '2026-08-01T00:00:00.000Z'
     })
-    const { version: _ignored, ...legacyAttempt } = draft
+    const legacyAttempt = { ...draft }
+    delete legacyAttempt.version
 
     const parsed = parseQuestionLaunchContextMessage({
       type: 'ns-simulator:launch-context',

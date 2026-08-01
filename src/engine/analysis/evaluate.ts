@@ -1,9 +1,4 @@
-import type {
-  FaultSpec,
-  GlobalConfig,
-  TopologyJSON,
-  WorkloadProfile
-} from '../core/types'
+import type { FaultSpec, GlobalConfig, TopologyJSON, WorkloadProfile } from '../core/types'
 import type { SimulationOutput } from './output'
 import { projectToVerdict, type SimulationVerdict } from './verdict'
 import { validateTopology } from '../validation/validator'
@@ -33,9 +28,7 @@ export interface ScenarioSpec {
  * both shapes here lets the batch summary be computed in one place regardless of
  * where a case failed.
  */
-export type PreparedCase =
-  | { id: string; topology: TopologyJSON }
-  | { id: string; error: string }
+export type PreparedCase = { id: string; topology: TopologyJSON } | { id: string; error: string }
 
 export type EvaluationCaseResult =
   | { id: string; ok: true; verdict: SimulationVerdict }
@@ -89,7 +82,11 @@ export function mergeTopologyWithOverrides(
           } as WorkloadProfile
         }
       : {}),
-    ...(overrides.faults ? { faults: overrides.faults } : base.faults ? { faults: base.faults } : {})
+    ...(overrides.faults
+      ? { faults: overrides.faults }
+      : base.faults
+        ? { faults: base.faults }
+        : {})
   }
 }
 
@@ -150,7 +147,7 @@ export function evaluateScenarios(
     topologyId?: string
     evaluatedAt?: string
   }
-) : ScenarioEvaluationContract {
+): ScenarioEvaluationContract {
   const verdicts: ScenarioEvaluationResult[] = scenarios.map((scenario, index) => {
     const scenarioId =
       typeof scenario.id === 'string' && scenario.id.length > 0

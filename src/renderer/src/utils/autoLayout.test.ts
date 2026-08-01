@@ -38,9 +38,7 @@ describe('applyAutoLayout', () => {
     expect((byId.get('service')?.position.x ?? 0) > (byId.get('gateway')?.position.x ?? 0)).toBe(
       true
     )
-    expect((byId.get('db')?.position.x ?? 0) > (byId.get('service')?.position.x ?? 0)).toBe(
-      true
-    )
+    expect((byId.get('db')?.position.x ?? 0) > (byId.get('service')?.position.x ?? 0)).toBe(true)
   })
 
   it('stacks sibling nodes vertically in the same layer', () => {

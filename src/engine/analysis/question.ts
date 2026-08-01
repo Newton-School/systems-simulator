@@ -1,10 +1,5 @@
 import { z } from 'zod'
-import type {
-  FaultSpec,
-  GlobalConfig,
-  TopologyJSON,
-  WorkloadProfile
-} from '../core/types'
+import type { FaultSpec, GlobalConfig, TopologyJSON, WorkloadProfile } from '../core/types'
 import type { SimulationOutput } from './output'
 import { evaluateSuite, mergeTopologyWithOverrides, type PreparedCase } from './evaluate'
 import {
@@ -597,7 +592,14 @@ const IsoTimestampSchema = z
   .min(1)
   .refine((value) => !Number.isNaN(Date.parse(value)), 'Expected an ISO timestamp.')
 
-const AttemptStatusSchema = z.enum(['DRAFT', 'AUTOSAVED', 'SUBMITTED', 'GRADING', 'GRADED', 'LOCKED'])
+const AttemptStatusSchema = z.enum([
+  'DRAFT',
+  'AUTOSAVED',
+  'SUBMITTED',
+  'GRADING',
+  'GRADED',
+  'LOCKED'
+])
 
 const LastDryRunSchema = z.object({
   timestamp: IsoTimestampSchema,
@@ -651,7 +653,12 @@ export const AttemptStateSchema: z.ZodType<AttemptState> = z
     grade: GradeSnapshotSchema.optional()
   })
   .superRefine((attempt, ctx) => {
-    if ((attempt.status === 'SUBMITTED' || attempt.status === 'GRADED' || attempt.status === 'LOCKED') && !attempt.submittedAt) {
+    if (
+      (attempt.status === 'SUBMITTED' ||
+        attempt.status === 'GRADED' ||
+        attempt.status === 'LOCKED') &&
+      !attempt.submittedAt
+    ) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['submittedAt'],

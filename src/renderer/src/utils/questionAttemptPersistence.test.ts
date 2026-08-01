@@ -1,10 +1,7 @@
 // @vitest-environment jsdom
 
 import { beforeEach, describe, expect, it } from 'vitest'
-import {
-  createAttemptState,
-  markAttemptGrading
-} from '../../../engine/analysis/question'
+import { createAttemptState, markAttemptGrading } from '../../../engine/analysis/question'
 import type { TopologyJSON } from '../../../engine/core/types'
 import {
   clearPersistedAttemptState,

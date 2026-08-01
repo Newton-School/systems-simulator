@@ -6,8 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AttemptGrade } from '../../../../engine/analysis/question'
 import { EmbeddedIframeQuestionPreview } from './EmbeddedIframeQuestion'
 import type { EmbeddedIframeQuestion } from './embeddedIframeQuestionSchema'
-
-(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 function buildQuestionPackage() {
   return {

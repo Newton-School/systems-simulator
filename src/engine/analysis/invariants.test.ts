@@ -51,16 +51,28 @@ describe('evaluateInvariantViolations', () => {
 
   it('fails closed for unsupported invariant expressions', () => {
     const violations = evaluateInvariantViolations(
-      [{ id: 'expr', description: 'Boolean expr', condition: 'summary.errorRate < 0.1 && summary.throughput > 10' }],
+      [
+        {
+          id: 'expr',
+          description: 'Boolean expr',
+          condition: 'summary.errorRate < 0.1 && summary.throughput > 10'
+        }
+      ],
       fakeOutput(0.01)
     )
 
-    expect(violations[0]?.details).toContain("Unsupported invariant condition")
+    expect(violations[0]?.details).toContain('Unsupported invariant condition')
   })
 
   it('fails closed for self-referential invariant metrics', () => {
     const violations = evaluateInvariantViolations(
-      [{ id: 'self', description: 'No invariant recursion', condition: 'invariantViolations.count == 0' }],
+      [
+        {
+          id: 'self',
+          description: 'No invariant recursion',
+          condition: 'invariantViolations.count == 0'
+        }
+      ],
       fakeOutput(0.01)
     )
 

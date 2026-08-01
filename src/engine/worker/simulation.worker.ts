@@ -208,10 +208,8 @@ self.onmessage = (event: MessageEvent<WorkerInboundMessage>) => {
       // Runs the whole question suite synchronously inside the worker — blocks the
       // worker thread (not the main thread), no live telemetry, then returns the grade.
       try {
-        const grade = gradeAttempt(
-          msg.payload.question,
-          msg.payload.topology,
-          (topology) => new SimulationEngine(topology).run()
+        const grade = gradeAttempt(msg.payload.question, msg.payload.topology, (topology) =>
+          new SimulationEngine(topology).run()
         )
         post({ type: 'grade-complete', payload: { grade } })
       } catch (err) {

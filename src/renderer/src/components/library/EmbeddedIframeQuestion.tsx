@@ -10,7 +10,9 @@ export function EmbeddedIframeQuestionPreview({ question }: { question: Embedded
   const containerRef = useRef<HTMLDivElement | null>(null)
   const [status, setStatus] = useState<FrameStatus>('idle')
   const [statusMessage, setStatusMessage] = useState('Waiting for the embedded app to load.')
-  const [latestAttempt, setLatestAttempt] = useState<AttemptState | null>(question.priorAttempt ?? null)
+  const [latestAttempt, setLatestAttempt] = useState<AttemptState | null>(
+    question.priorAttempt ?? null
+  )
   const latestAttemptRef = useRef<AttemptState | null>(question.priorAttempt ?? null)
 
   useEffect(() => {
@@ -214,7 +216,10 @@ export function EmbeddedIframeQuestionPreview({ question }: { question: Embedded
           </div>
           <div className="space-y-1">
             {testRows.map((row) => (
-              <div key={row.id} className="rounded border border-nss-border bg-nss-surface/50 px-2.5 py-2">
+              <div
+                key={row.id}
+                className="rounded border border-nss-border bg-nss-surface/50 px-2.5 py-2"
+              >
                 <div className="flex items-start gap-2 text-[11px]">
                   <span
                     className={
@@ -233,7 +238,9 @@ export function EmbeddedIframeQuestionPreview({ question }: { question: Embedded
                   </span>
                 </div>
                 {row.detail && (
-                  <p className="mt-1 pl-4 text-[10px] leading-relaxed text-nss-muted">{row.detail}</p>
+                  <p className="mt-1 pl-4 text-[10px] leading-relaxed text-nss-muted">
+                    {row.detail}
+                  </p>
                 )}
               </div>
             ))}

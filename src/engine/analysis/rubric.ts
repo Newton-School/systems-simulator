@@ -132,9 +132,7 @@ export function gradeVerdict(rubric: Rubric, verdict: SimulationVerdict): Rubric
       passed,
       points,
       awarded: passed ? points : 0,
-      ...(actual === null
-        ? { detail: 'metric could not be resolved to a finite number' }
-        : {})
+      ...(actual === null ? { detail: 'metric could not be resolved to a finite number' } : {})
     }
   })
 

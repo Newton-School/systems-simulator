@@ -19,8 +19,20 @@ export const SAMPLE_QUESTION: QuestionPackage = {
       'Persist orders durably'
     ],
     nonFunctionalRequirements: [
-      { metric: 'error_rate', operator: '<', value: 10, unit: 'percent', description: 'Error rate under 10%' },
-      { metric: 'throughput', operator: '>=', value: 100, unit: 'req_per_sec', description: 'Sustains at least 100 req/s' }
+      {
+        metric: 'error_rate',
+        operator: '<',
+        value: 10,
+        unit: 'percent',
+        description: 'Error rate under 10%'
+      },
+      {
+        metric: 'throughput',
+        operator: '>=',
+        value: 100,
+        unit: 'req_per_sec',
+        description: 'Sustains at least 100 req/s'
+      }
     ],
     scale: { peakRps: 1000, readWriteRatio: 80 }
   },
@@ -75,10 +87,35 @@ export const SAMPLE_QUESTION: QuestionPackage = {
     id: 'order-platform-slo',
     passThreshold: 1,
     checks: [
-      { id: 'error-rate', description: 'Error rate under 10%', metric: 'summary.errorRate', op: '<', value: 0.1, points: 2 },
-      { id: 'throughput', description: 'Sustains at least 100 req/s', metric: 'summary.throughput', op: '>=', value: 100 },
-      { id: 'no-invariant-violations', description: 'No invariant violations', metric: 'invariantViolations.count', op: '==', value: 0 },
-      { id: 'node-saturation', description: 'No node pinned at full saturation', metric: 'perNode.maxUtilization', op: '<', value: 1 }
+      {
+        id: 'error-rate',
+        description: 'Error rate under 10%',
+        metric: 'summary.errorRate',
+        op: '<',
+        value: 0.1,
+        points: 2
+      },
+      {
+        id: 'throughput',
+        description: 'Sustains at least 100 req/s',
+        metric: 'summary.throughput',
+        op: '>=',
+        value: 100
+      },
+      {
+        id: 'no-invariant-violations',
+        description: 'No invariant violations',
+        metric: 'invariantViolations.count',
+        op: '==',
+        value: 0
+      },
+      {
+        id: 'node-saturation',
+        description: 'No node pinned at full saturation',
+        metric: 'perNode.maxUtilization',
+        op: '<',
+        value: 1
+      }
     ]
   }
 }
