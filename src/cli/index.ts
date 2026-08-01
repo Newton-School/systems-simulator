@@ -2,20 +2,30 @@
 
 import { readFileSync, writeFileSync } from 'node:fs'
 import packageJson from '../../package.json'
-import { dirname, resolve } from 'node:path'
+import { dirname, parse, resolve } from 'node:path'
 import { SimulationEngine } from '../engine/engine'
+import {
+  buildQuestionEvaluationBatch,
+  buildQuestionEvaluationErrorContract,
+  type QuestionEvaluationContract
+} from '../engine/analysis/evaluationContract'
 import type { SimulationOutput } from '../engine/analysis/output'
 import { projectToVerdict } from '../engine/analysis/verdict'
 import { evaluateSuite, type PreparedCase, type ScenarioSpec } from '../engine/analysis/evaluate'
 import { gradeBatch, type Rubric } from '../engine/analysis/rubric'
-import {
-  gradeAttempt,
-  parseQuestionPackage,
-  type QuestionPackage
-} from '../engine/analysis/question'
+import { parseQuestionPackage, type QuestionPackage } from '../engine/analysis/question'
 import { validateTopology } from '../engine/validation/validator'
 import process from 'node:process'
+import { runQuestionBatchIsolated, type PreparedQuestionEvaluationAttempt } from './questionBatch'
+import { evaluateQuestionSubmission } from './questionEvaluate'
 import { runScenarioBatchIsolated } from './scenarioBatch'
+import {
+  CLI_EXIT_EVALUATION_ERROR,
+  CLI_EXIT_EVALUATION_FAILED,
+  CLI_EXIT_INVALID_SUBMISSION,
+  CLI_EXIT_SUCCESS,
+  CLI_EXIT_USAGE_ERROR
+} from './exitCodes'
 
 // ─── ANSI ─────────────────────────────────────────────────────────────────────
 const BOLD = '\x1b[1m'
@@ -35,9 +45,10 @@ function main(): void {
     process.exit(0)
   }
 
-  // Subcommand dispatch. `evaluate` runs a suite of cases headlessly, `grade`
-  // grades a student topology against a question package; anything else is the
-  // existing single-topology run.
+  // Subcommand dispatch. `evaluate` owns the headless contracts (suite,
+  // scenarios, question, question-batch), `grade` remains as a compatibility
+  // alias for single-question evaluation, and anything else is the existing
+  // single-topology run.
   if (args[0] === 'run') {
     runSingle(args.slice(1))
     return
@@ -280,11 +291,184 @@ function fmtMs(ms: number | null): string {
   return `${(ms / 1000).toFixed(2)}s`
 }
 
+function readJsonFile(filePath: string, label: string): unknown {
+  try {
+    return JSON.parse(readFileSync(resolve(filePath), 'utf-8'))
+  } catch (err) {
+    die(`Could not read ${label}: ${(err as Error).message}`)
+  }
+}
+
+function tryReadJsonFile(
+  filePath: string,
+  label: string
+): { ok: true; value: unknown } | { ok: false; message: string } {
+  try {
+    return { ok: true, value: JSON.parse(readFileSync(resolve(filePath), 'utf-8')) }
+  } catch (err) {
+    return { ok: false, message: `Could not read ${label}: ${(err as Error).message}` }
+  }
+}
+
+function fileToken(filePath: string): string {
+  const token = parse(filePath).name.trim()
+  return token.length > 0 ? token : 'unknown'
+}
+
+function validationErrorDetail(
+  errors: readonly { path?: string; message: string }[] | undefined
+): string {
+  const first = errors?.[0]
+  if (!first) {
+    return 'invalid topology'
+  }
+
+  return `${first.path ? `${first.path}: ` : ''}${first.message}`
+}
+
+function resolveQuestionMetadata(questionPath: string, questionRaw?: unknown) {
+  return {
+    questionId: objectStringField(questionRaw, 'id') ?? fileToken(questionPath),
+    questionVersion: objectStringField(questionRaw, 'version') ?? 'unknown'
+  }
+}
+
+function resolveTopologyMetadata(topologyPath: string, topologyRaw?: unknown) {
+  return {
+    topologyId: objectStringField(topologyRaw, 'id') ?? fileToken(topologyPath),
+    topologySchemaVersion: objectStringField(topologyRaw, 'version') ?? 'unknown'
+  }
+}
+
+function questionEvaluationExitCode(result: Pick<QuestionEvaluationContract, 'status'>): number {
+  switch (result.status) {
+    case 'passed':
+      return CLI_EXIT_SUCCESS
+    case 'failed':
+      return CLI_EXIT_EVALUATION_FAILED
+    case 'invalid_submission':
+      return CLI_EXIT_INVALID_SUBMISSION
+    case 'evaluation_error':
+      return CLI_EXIT_EVALUATION_ERROR
+  }
+}
+
+function questionBatchExitCode(
+  batch: ReturnType<typeof buildQuestionEvaluationBatch>,
+  requirePass: boolean
+): number {
+  if (batch.summary.evaluationErrors > 0) {
+    return CLI_EXIT_EVALUATION_ERROR
+  }
+
+  if (batch.summary.invalidSubmissions > 0) {
+    return CLI_EXIT_INVALID_SUBMISSION
+  }
+
+  if (requirePass && batch.summary.failed > 0) {
+    return CLI_EXIT_EVALUATION_FAILED
+  }
+
+  return CLI_EXIT_SUCCESS
+}
+
+function emitQuestionEvaluationResult(
+  result: QuestionEvaluationContract,
+  outputPath?: string
+): number {
+  const json = JSON.stringify(result, null, 2)
+  if (outputPath) {
+    writeFileSync(resolve(outputPath), json, 'utf-8')
+    console.error(`${GREEN}✓ Evaluation written to ${outputPath}${RESET}`)
+  } else {
+    process.stdout.write(json + '\n')
+  }
+
+  if (result.status === 'passed' || result.status === 'failed') {
+    const { passedTests, totalTests, allPassed } = result.host
+    console.error(
+      `${DIM}Question ${result.questionId}: ${RESET}${allPassed ? GREEN : RED}${passedTests}/${totalTests} checks passed${RESET}` +
+        `${DIM} — ${allPassed ? 'PASS' : 'FAIL'}${RESET}`
+    )
+  } else if ('error' in result) {
+    const accent = result.status === 'invalid_submission' ? YELLOW : RED
+    console.error(
+      `${DIM}Question ${result.questionId}: ${RESET}${accent}${result.status.toUpperCase()}${RESET}` +
+        `${DIM} — ${result.error.message}${RESET}`
+    )
+  }
+
+  return questionEvaluationExitCode(result)
+}
+
+function parseOptionalFlagValue(args: string[], flagName: string): string | undefined {
+  const index = args.indexOf(flagName)
+  if (index === -1) {
+    return undefined
+  }
+
+  const value = args[index + 1]
+  if (!value || value.startsWith('--')) {
+    die(`${flagName} requires a value.`)
+  }
+
+  return value
+}
+
+function parseOptionalPositiveIntFlag(args: string[], flagName: string): number | undefined {
+  const value = parseOptionalFlagValue(args, flagName)
+  if (value === undefined) {
+    return undefined
+  }
+
+  const parsed = Number.parseInt(value, 10)
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    die(`${flagName} must be a positive integer.`)
+  }
+
+  return parsed
+}
+
+function objectStringField(value: unknown, key: string): string | undefined {
+  if (!value || typeof value !== 'object') {
+    return undefined
+  }
+
+  const field = (value as Record<string, unknown>)[key]
+  return typeof field === 'string' && field.length > 0 ? field : undefined
+}
+
+function loadInlineOrFileJson(value: unknown, baseDir: string, label: string): unknown {
+  if (typeof value === 'string') {
+    try {
+      return JSON.parse(readFileSync(resolve(baseDir, value), 'utf-8'))
+    } catch (err) {
+      throw new Error(`Could not read ${label} '${value}': ${(err as Error).message}`)
+    }
+  }
+
+  if (value && typeof value === 'object') {
+    return value
+  }
+
+  throw new Error(`${label} must be a file path or inline object.`)
+}
+
 // ─── EVALUATE (batch) ───────────────────────────────────────────────────────
 // Runs a suite of cases headlessly and emits an EvaluationBatch of
 // SimulationVerdicts. Grading/rubrics are a separate layer; this only runs the
 // suite deterministically and projects each result to the stable verdict.
 function runEvaluate(args: string[]): void {
+  if (args[0] === 'question') {
+    runQuestionEvaluate(args.slice(1))
+    return
+  }
+
+  if (args[0] === 'question-batch') {
+    runQuestionBatchEvaluate(args.slice(1))
+    return
+  }
+
   const scenariosFlagIndex = args.indexOf('--scenarios')
   if (scenariosFlagIndex !== -1) {
     runScenarioEvaluate(args)
@@ -541,70 +725,308 @@ function prepareCase(rawCase: unknown, index: number, suiteDir: string): Prepare
   return { id, topology: validation.data }
 }
 
-// ─── GRADE (question attempt) ───────────────────────────────────────────────
-// Grades a student's submitted topology against a QuestionPackage: runs the
-// question's suite (condition overrides applied to the student topology), grades
-// with the package rubric, and prints the versioned AttemptGrade contract. Exits
-// non-zero unless every host-visible test passes.
-function runGrade(args: string[]): void {
+// ─── QUESTION EVALUATION ─────────────────────────────────────────────────────
+// Grades a student's submitted topology against a QuestionPackage and emits the
+// versioned backend evaluation contract. Exits non-zero unless the submission
+// passes every host-visible check.
+function runQuestionEvaluate(args: string[], usagePrefix = 'evaluate question'): void {
   const positionals = args.filter((arg) => !arg.startsWith('--'))
   const questionPath = positionals[0]
   const topologyPath = positionals[1]
   if (!questionPath || !topologyPath) {
-    die('Usage: grade <question.json> <student-topology.json> [--output <file>]')
+    die(`Usage: ${usagePrefix} <question.json> <student-topology.json> [--output <file>]`)
   }
-  const outputFlagIndex = args.indexOf('--output')
-  const outputPath = outputFlagIndex !== -1 ? args[outputFlagIndex + 1] : undefined
+  const outputPath = parseOptionalFlagValue(args, '--output')
+  const attemptId = parseOptionalFlagValue(args, '--attempt-id')
+  const submissionId = parseOptionalFlagValue(args, '--submission-id')
+  const evaluatedAt = parseOptionalFlagValue(args, '--evaluated-at')
+  const sharedOptions = {
+    simulatorVersion: packageJson.version,
+    ...(attemptId ? { attemptId } : {}),
+    ...(submissionId ? { submissionId } : {}),
+    ...(evaluatedAt ? { evaluatedAt } : {})
+  }
 
-  let pkgRaw: unknown
-  try {
-    pkgRaw = JSON.parse(readFileSync(resolve(questionPath), 'utf-8'))
-  } catch (err) {
-    die(`Could not read question package: ${(err as Error).message}`)
+  const questionFile = tryReadJsonFile(questionPath, 'question package')
+  if (questionFile.ok === false) {
+    const exitCode = emitQuestionEvaluationResult(
+      buildQuestionEvaluationErrorContract({
+        ...resolveQuestionMetadata(questionPath),
+        ...resolveTopologyMetadata(topologyPath),
+        ...sharedOptions,
+        status: 'evaluation_error',
+        message: questionFile.message
+      }),
+      outputPath
+    )
+    process.exit(exitCode)
   }
+
+  const topologyFile = tryReadJsonFile(topologyPath, 'student topology')
 
   let pkg: QuestionPackage
   try {
-    pkg = parseQuestionPackage(pkgRaw)
+    pkg = parseQuestionPackage(questionFile.value)
   } catch (err) {
-    die((err as Error).message)
+    const exitCode = emitQuestionEvaluationResult(
+      buildQuestionEvaluationErrorContract({
+        ...resolveQuestionMetadata(questionPath, questionFile.value),
+        ...(topologyFile.ok
+          ? resolveTopologyMetadata(topologyPath, topologyFile.value)
+          : resolveTopologyMetadata(topologyPath)),
+        ...sharedOptions,
+        status: 'evaluation_error',
+        message: (err as Error).message
+      }),
+      outputPath
+    )
+    process.exit(exitCode)
   }
 
-  let topologyRaw: unknown
+  if (topologyFile.ok === false) {
+    const exitCode = emitQuestionEvaluationResult(
+      buildQuestionEvaluationErrorContract({
+        questionId: pkg.id,
+        questionVersion: pkg.version,
+        ...resolveTopologyMetadata(topologyPath),
+        ...sharedOptions,
+        status: 'invalid_submission',
+        message: topologyFile.message
+      }),
+      outputPath
+    )
+    process.exit(exitCode)
+  }
+
+  const topologyValidation = validateTopology(topologyFile.value)
+  if (!topologyValidation.valid || !topologyValidation.data) {
+    const exitCode = emitQuestionEvaluationResult(
+      buildQuestionEvaluationErrorContract({
+        questionId: pkg.id,
+        questionVersion: pkg.version,
+        ...resolveTopologyMetadata(topologyPath, topologyFile.value),
+        ...sharedOptions,
+        status: 'invalid_submission',
+        message: `Student topology validation failed: ${validationErrorDetail(topologyValidation.errors)}`
+      }),
+      outputPath
+    )
+    process.exit(exitCode)
+  }
+
+  let result: QuestionEvaluationContract
   try {
-    topologyRaw = JSON.parse(readFileSync(resolve(topologyPath), 'utf-8'))
+    result = evaluateQuestionSubmission(pkg, topologyValidation.data, sharedOptions)
   } catch (err) {
-    die(`Could not read student topology: ${(err as Error).message}`)
+    result = buildQuestionEvaluationErrorContract({
+      questionId: pkg.id,
+      questionVersion: pkg.version,
+      topologyId: topologyValidation.data.id,
+      topologySchemaVersion: topologyValidation.data.version,
+      ...sharedOptions,
+      status: 'evaluation_error',
+      message: (err as Error).message
+    })
   }
-  const validation = validateTopology(topologyRaw)
-  if (!validation.valid || !validation.data) {
-    console.error(`${RED}${BOLD}Student topology validation failed${RESET}`)
-    for (const error of validation.errors ?? []) {
-      const prefix = error.path ? `${DIM}${error.path}${RESET}: ` : ''
-      console.error(`  ${RED}✗${RESET} ${prefix}${error.message}`)
+
+  const exitCode = emitQuestionEvaluationResult(result, outputPath)
+  if (exitCode !== CLI_EXIT_SUCCESS) {
+    process.exit(exitCode)
+  }
+}
+
+function runGrade(args: string[]): void {
+  runQuestionEvaluate(args, 'grade')
+}
+
+function runQuestionBatchEvaluate(args: string[]): void {
+  const batchPath = args.find((arg) => !arg.startsWith('--'))
+  if (!batchPath) {
+    die('Usage: evaluate question-batch <batch.json> [--output <file>]')
+  }
+
+  const outputPath = parseOptionalFlagValue(args, '--output')
+  const timeoutMsOverride = parseOptionalPositiveIntFlag(args, '--timeout-ms')
+  const requirePass = args.includes('--require-pass')
+  const batchRaw = readJsonFile(batchPath, 'question batch file')
+  const batchSpec = (batchRaw ?? {}) as {
+    evaluatedAt?: unknown
+    timeoutMs?: unknown
+    attempts?: unknown
+  }
+
+  if (!Array.isArray(batchSpec.attempts) || batchSpec.attempts.length === 0) {
+    die('Question batch file must contain a non-empty "attempts" array.')
+  }
+
+  const batchDir = dirname(resolve(batchPath))
+  const evaluatedAt =
+    parseOptionalFlagValue(args, '--evaluated-at') ??
+    (typeof batchSpec.evaluatedAt === 'string' && batchSpec.evaluatedAt.length > 0
+      ? batchSpec.evaluatedAt
+      : undefined)
+  const timeoutMs =
+    timeoutMsOverride ??
+    (typeof batchSpec.timeoutMs === 'number' && Number.isFinite(batchSpec.timeoutMs)
+      ? batchSpec.timeoutMs
+      : undefined)
+
+  const stagedAttempts: Array<
+    | { kind: 'prepared'; attempt: PreparedQuestionEvaluationAttempt }
+    | { kind: 'invalid'; result: QuestionEvaluationContract }
+  > = batchSpec.attempts.map((entry, index) => {
+    const attemptSpec = (entry ?? {}) as {
+      attemptId?: unknown
+      submissionId?: unknown
+      question?: unknown
+      topology?: unknown
+      questionId?: unknown
+      questionVersion?: unknown
+      topologyId?: unknown
+      topologySchemaVersion?: unknown
     }
-    process.exit(1)
-  }
 
-  const result = gradeAttempt(pkg, validation.data, (topology) =>
-    new SimulationEngine(topology).run()
-  )
+    const metadata = {
+      questionId:
+        (typeof attemptSpec.questionId === 'string' && attemptSpec.questionId.length > 0
+          ? attemptSpec.questionId
+          : undefined) ??
+        objectStringField(attemptSpec.question, 'id') ??
+        `question-${index + 1}`,
+      questionVersion:
+        (typeof attemptSpec.questionVersion === 'string' && attemptSpec.questionVersion.length > 0
+          ? attemptSpec.questionVersion
+          : undefined) ?? objectStringField(attemptSpec.question, 'version'),
+      topologyId:
+        (typeof attemptSpec.topologyId === 'string' && attemptSpec.topologyId.length > 0
+          ? attemptSpec.topologyId
+          : undefined) ??
+        objectStringField(attemptSpec.topology, 'id') ??
+        `topology-${index + 1}`,
+      topologySchemaVersion:
+        (typeof attemptSpec.topologySchemaVersion === 'string' &&
+        attemptSpec.topologySchemaVersion.length > 0
+          ? attemptSpec.topologySchemaVersion
+          : undefined) ?? objectStringField(attemptSpec.topology, 'version'),
+      ...(typeof attemptSpec.attemptId === 'string' && attemptSpec.attemptId.length > 0
+        ? { attemptId: attemptSpec.attemptId }
+        : {}),
+      ...(typeof attemptSpec.submissionId === 'string' && attemptSpec.submissionId.length > 0
+        ? { submissionId: attemptSpec.submissionId }
+        : {})
+    }
 
-  const json = JSON.stringify(result, null, 2)
+    let question: QuestionPackage | null = null
+    try {
+      const questionRaw = loadInlineOrFileJson(
+        attemptSpec.question,
+        batchDir,
+        `question for attempt ${index + 1}`
+      )
+      question = parseQuestionPackage(questionRaw)
+      const topologyRaw = loadInlineOrFileJson(
+        attemptSpec.topology,
+        batchDir,
+        `topology for attempt ${index + 1}`
+      )
+      const topologyValidation = validateTopology(topologyRaw)
+      if (!topologyValidation.valid || !topologyValidation.data) {
+        const first = topologyValidation.errors?.[0]
+        const detail = first
+          ? `${first.path ? `${first.path}: ` : ''}${first.message}`
+          : 'invalid topology'
+        return {
+          kind: 'invalid' as const,
+          result: buildQuestionEvaluationErrorContract({
+            ...metadata,
+            questionId: question.id,
+            questionVersion: question.version,
+            topologyId: metadata.topologyId,
+            topologySchemaVersion: metadata.topologySchemaVersion,
+            simulatorVersion: packageJson.version,
+            evaluatedAt,
+            status: 'invalid_submission',
+            message: `Topology validation failed: ${detail}`
+          })
+        }
+      }
+
+      return {
+        kind: 'prepared' as const,
+        attempt: {
+          question,
+          topology: topologyValidation.data,
+          ...(metadata.attemptId ? { attemptId: metadata.attemptId } : {}),
+          ...(metadata.submissionId ? { submissionId: metadata.submissionId } : {})
+        }
+      }
+    } catch (err) {
+      return {
+        kind: 'invalid' as const,
+        result: buildQuestionEvaluationErrorContract({
+          ...metadata,
+          ...(question
+            ? {
+                questionId: question.id,
+                questionVersion: question.version
+              }
+            : {}),
+          simulatorVersion: packageJson.version,
+          evaluatedAt,
+          status: 'invalid_submission',
+          message: (err as Error).message
+        })
+      }
+    }
+  })
+
+  const preparedAttempts = stagedAttempts
+    .filter(
+      (entry): entry is { kind: 'prepared'; attempt: PreparedQuestionEvaluationAttempt } =>
+        entry.kind === 'prepared'
+    )
+    .map((entry) => entry.attempt)
+  const preparedResults = runQuestionBatchIsolated(preparedAttempts, {
+    simulatorVersion: packageJson.version,
+    evaluatedAt,
+    ...(timeoutMs !== undefined ? { timeoutMs } : {})
+  }).results
+
+  let preparedIndex = 0
+  const results = stagedAttempts.map((entry) => {
+    if (entry.kind === 'invalid') {
+      return entry.result
+    }
+
+    const next = preparedResults[preparedIndex]
+    preparedIndex += 1
+    return next
+  })
+
+  const batch = buildQuestionEvaluationBatch(results, {
+    simulatorVersion: packageJson.version,
+    evaluatedAt
+  })
+  const json = JSON.stringify(batch, null, 2)
+
   if (outputPath) {
     writeFileSync(resolve(outputPath), json, 'utf-8')
-    console.error(`${GREEN}✓ Grade written to ${outputPath}${RESET}`)
+    console.error(`${GREEN}✓ Evaluation written to ${outputPath}${RESET}`)
   } else {
     process.stdout.write(json + '\n')
   }
 
-  const { passedTests, totalTests, allPassed } = result.contract
   console.error(
-    `${DIM}Question ${pkg.id}: ${RESET}${allPassed ? GREEN : RED}${passedTests}/${totalTests} checks passed${RESET}` +
-      `${DIM} — ${allPassed ? 'PASS' : 'FAIL'}${RESET}`
+    `${DIM}Question batch: ${batch.summary.total} total — ${RESET}` +
+      `${GREEN}${batch.summary.passed} passed${RESET}` +
+      `${DIM}, ${RESET}${batch.summary.failed > 0 ? RED : DIM}${batch.summary.failed} failed${RESET}` +
+      `${DIM}, ${RESET}${batch.summary.invalidSubmissions > 0 ? YELLOW : DIM}${batch.summary.invalidSubmissions} invalid${RESET}` +
+      `${DIM}, ${RESET}${batch.summary.evaluationErrors > 0 ? RED : DIM}${batch.summary.evaluationErrors} errors${RESET}`
   )
-  if (!allPassed) {
-    process.exit(1)
+
+  const exitCode = questionBatchExitCode(batch, requirePass)
+  if (exitCode !== CLI_EXIT_SUCCESS) {
+    process.exit(exitCode)
   }
 }
 
@@ -617,6 +1039,8 @@ ${BOLD}Usage${RESET}
   npm run sim -- <topology.json> [options]
   npm run sim -- evaluate <topology.json> --scenarios <scenarios.json> [--output <file>]
   npm run sim -- evaluate <suite.json> [--rubric <rubric.json>] [--output <file>]
+  npm run sim -- evaluate question <question.json> <student-topology.json> [--output <file>]
+  npm run sim -- evaluate question-batch <batch.json> [--output <file>]
   npm run sim -- grade <question.json> <student-topology.json> [--output <file>]
 
 ${BOLD}Options${RESET}
@@ -625,6 +1049,10 @@ ${BOLD}Options${RESET}
   --scenarios <file>  (evaluate) Run one base topology under multiple overrides
   --timeout-ms <n>    (evaluate) Per-scenario wall-clock timeout in milliseconds
   --rubric <file>     (evaluate) Grade each case's verdict against a rubric
+  --attempt-id <id>   (question) Attach a stable attempt id to the output contract
+  --submission-id <id> (question) Attach a stable submission id to the output contract
+  --evaluated-at <ts> (question/batch/scenario) Inject an explicit ISO timestamp
+  --require-pass      (question-batch) Exit non-zero when any valid result fails
   --output <file>     Write JSON output to a file
   -h, --help          Show this message
 
@@ -660,12 +1088,41 @@ ${BOLD}Evaluate${RESET} ${DIM}(suite mode)${RESET}
   A rubric is { "id"?, "passThreshold"?, "checks": [{ "id", "description", "metric", "op", "value", "points"? }] }.
   Exits non-zero if any case fails to run, or (with a rubric) does not pass.
 
-${BOLD}Grade${RESET} ${DIM}(question attempt)${RESET}
-  Grades a student's topology against a QuestionPackage. The question's suite
-  cases carry condition overrides (global/workload/faults) applied to the student
-  topology; the package rubric scores the resulting verdicts. Prints
-  { graded, contract } where contract is the collapsed boolean host payload.
-  Exits non-zero unless every check passes.
+${BOLD}Evaluate${RESET} ${DIM}(question mode)${RESET}
+  Grades one student's topology against a QuestionPackage and prints a versioned
+  QuestionEvaluationContract for backend/host consumption. The question suite
+  carries condition overrides (global/workload/faults) applied to the student's
+  topology; the rubric scores the resulting verdicts. Invalid student input is
+  normalized into an invalid_submission contract instead of a plain CLI crash.
+
+${BOLD}Evaluate${RESET} ${DIM}(question-batch mode)${RESET}
+  Runs many question evaluations headlessly for backend jobs or CI.
+  A batch file is:
+    {
+      "evaluatedAt"?: "2026-08-01T00:00:00.000Z",
+      "timeoutMs"?: 30000,
+      "attempts": [
+        {
+          "attemptId"?: "...",
+          "submissionId"?: "...",
+          "question"?: "<path-to-question.json>" | { ...QuestionPackage },
+          "topology"?: "<path-to-topology.json>" | { ...TopologyJSON }
+        }
+      ]
+    }
+  Each attempt yields an isolated QuestionEvaluationContract row. Invalid input
+  rows become invalid_submission results instead of aborting the whole batch.
+  By default the command exits non-zero only for invalid/error rows; add
+  --require-pass to also gate on failed but valid submissions.
+
+${BOLD}Grade${RESET} ${DIM}(legacy alias)${RESET}
+  Alias for: evaluate question <question.json> <student-topology.json>
+
+${BOLD}Question Exit Codes${RESET}
+  0  passed / successful batch
+  2  valid submission failed grading checks
+  3  invalid submission contract
+  4  evaluation error contract
 
 ${BOLD}Examples${RESET}
   npm run sim -- topology.json
@@ -674,13 +1131,15 @@ ${BOLD}Examples${RESET}
   npm run sim -- evaluate suite.json
   npm run sim -- evaluate suite.json --rubric rubric.json
   npm run sim -- evaluate suite.json --rubric rubric.json --output graded.json
+  npm run sim -- evaluate question question.json student-topology.json --submission-id sub-42
+  npm run sim -- evaluate question-batch grading-batch.json --output results.json
   npm run sim -- topology.json --json | jq '.summary'
 `)
 }
 
 function die(msg: string): never {
   console.error(`${RED}${BOLD}Error:${RESET} ${msg}`)
-  process.exit(1)
+  process.exit(CLI_EXIT_USAGE_ERROR)
 }
 
 main()

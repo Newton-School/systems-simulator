@@ -5,6 +5,10 @@ import { useQuestionGrader } from '@renderer/hooks/useQuestionGrader'
 import { SAMPLE_QUESTION } from '@renderer/config/sampleQuestion'
 import { postQuestionHostMessage } from '@renderer/utils/questionHostMessaging'
 import {
+  buildGamePlaygroundResult,
+  buildGamePlaygroundSubmitPayload
+} from '../../../../engine/analysis/gamePlayground'
+import {
   autosaveAttempt,
   buildQuestionTestRows,
   createAttemptState,
@@ -151,10 +155,11 @@ export const QuestionPanel = () => {
         setAttemptState(completedAttempt)
         postQuestionHostMessage({
           type: 'ns-simulator:submit',
-          payload: {
-            contract: graderGrade.contract,
-            attemptState: completedAttempt
-          }
+          payload: buildGamePlaygroundSubmitPayload(
+            activeQuestion,
+            completedAttempt,
+            buildGamePlaygroundResult(graderGrade.contract)
+          )
         })
       }
 

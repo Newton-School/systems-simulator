@@ -426,7 +426,7 @@ const StructuralCheckResultSchema = z.object({
   detail: z.string().min(1).optional()
 })
 
-const StructuralEvaluationSchema: z.ZodType<StructuralEvaluation> = z
+export const StructuralEvaluationSchema: z.ZodType<StructuralEvaluation> = z
   .object({
     version: z.literal(STRUCTURAL_RULES_VERSION),
     checks: z.array(StructuralCheckResultSchema),
@@ -443,14 +443,14 @@ const StructuralEvaluationSchema: z.ZodType<StructuralEvaluation> = z
     }
   })
 
-const HostTestSchema: z.ZodType<HostTest> = z.object({
+export const HostTestSchema: z.ZodType<HostTest> = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
   passed: z.boolean(),
   detail: z.string().min(1).optional()
 })
 
-const HostContractSchema: z.ZodType<HostContract> = z
+export const HostContractSchema: z.ZodType<HostContract> = z
   .object({
     tests: z.array(HostTestSchema),
     totalTests: z.number().int().nonnegative(),
@@ -519,7 +519,7 @@ const GradedCaseResultSchema: z.ZodType<GradedCaseResult> = z.object({
   rubric: RubricResultSchema.optional()
 })
 
-const GradedEvaluationBatchSchema: z.ZodType<GradedEvaluationBatch> = z
+export const GradedEvaluationBatchSchema: z.ZodType<GradedEvaluationBatch> = z
   .object({
     version: z.literal(RUBRIC_VERSION),
     suite: z.string().min(1).optional(),

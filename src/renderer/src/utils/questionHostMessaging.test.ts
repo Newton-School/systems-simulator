@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { GAME_PLAYGROUND_PAYLOAD_VERSION } from '../../../engine/analysis/gamePlayground'
 import { createAttemptState } from '../../../engine/analysis/question'
 import type { TopologyJSON } from '../../../engine/core/types'
 import {
@@ -114,6 +115,7 @@ describe('parseQuestionLaunchContextMessage', () => {
     const parsed = parseQuestionLaunchContextMessage({
       type: 'ns-simulator:launch-context',
       payload: {
+        version: GAME_PLAYGROUND_PAYLOAD_VERSION,
         questionPackage: questionPackage(),
         priorAttempt: legacyAttempt
       }
@@ -126,6 +128,7 @@ describe('parseQuestionLaunchContextMessage', () => {
       parseQuestionLaunchContextMessage({
         type: 'ns-simulator:launch-context',
         payload: {
+          version: GAME_PLAYGROUND_PAYLOAD_VERSION,
           questionPackage: questionPackage(),
           priorAttempt: { ...legacyAttempt, questionId: 'other-question' }
         }
@@ -147,7 +150,13 @@ describe('parseQuestionHostOutboundMessage', () => {
       {
         type: 'ns-simulator:submit',
         payload: {
-          contract: {
+          version: GAME_PLAYGROUND_PAYLOAD_VERSION,
+          questionId: 'q1',
+          questionVersion: '1.0',
+          attemptId: 'attempt-1',
+          result: {
+            version: GAME_PLAYGROUND_PAYLOAD_VERSION,
+            status: 'passed',
             tests: [{ id: 'baseline:err', name: 'error rate < 10%', passed: true }],
             totalTests: 1,
             passedTests: 1,
@@ -160,6 +169,30 @@ describe('parseQuestionHostOutboundMessage', () => {
     )
 
     expect(parsed?.type).toBe('ns-simulator:submit')
+    if (!parsed || parsed.type !== 'ns-simulator:submit') {
+      throw new Error('Expected a parsed submit message.')
+    }
+    expect(parsed.payload.result.status).toBe('passed')
+
+    const legacy = parseQuestionHostOutboundMessage(
+      {
+        type: 'ns-simulator:submit',
+        payload: {
+          contract: {
+            tests: [{ id: 'baseline:err', name: 'error rate < 10%', passed: true }],
+            totalTests: 1,
+            passedTests: 1,
+            allPassed: true
+          },
+          attemptState
+        }
+      },
+      'q1'
+    )
+    if (!legacy || legacy.type !== 'ns-simulator:submit') {
+      throw new Error('Expected a legacy submit message to parse.')
+    }
+    expect(legacy.payload.result.status).toBe('passed')
 
     expect(
       parseQuestionHostOutboundMessage({

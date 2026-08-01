@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { EmbeddedIframeQuestion } from './embeddedIframeQuestionSchema'
 import { buildQuestionTestRows, type AttemptState } from '../../../../engine/analysis/question'
-import { parseQuestionHostOutboundMessage } from '@renderer/utils/questionHostMessaging'
+import {
+  buildGamePlaygroundLaunchPayload,
+  parseQuestionHostOutboundMessage
+} from '@renderer/utils/questionHostMessaging'
 
 type FrameStatus = 'idle' | 'loading' | 'ready' | 'error'
 
@@ -64,10 +67,9 @@ export function EmbeddedIframeQuestionPreview({ question }: { question: Embedded
           iframeRef.current?.contentWindow?.postMessage(
             {
               type: 'ns-simulator:launch-context',
-              payload: {
-                questionPackage: question.questionPackage,
+              payload: buildGamePlaygroundLaunchPayload(question.questionPackage, {
                 ...(latestAttemptRef.current ? { priorAttempt: latestAttemptRef.current } : {})
-              }
+              })
             },
             event.origin
           )
@@ -80,7 +82,7 @@ export function EmbeddedIframeQuestionPreview({ question }: { question: Embedded
         setStatus('ready')
         setLatestAttempt(message.payload.attemptState)
         setStatusMessage(
-          `Submission received. ${message.payload.contract.passedTests}/${message.payload.contract.totalTests} checks passed.`
+          `Submission received. ${message.payload.result.passedTests}/${message.payload.result.totalTests} checks passed.`
         )
       } else if (type === 'ns-simulator:error') {
         window.clearTimeout(timeout)
