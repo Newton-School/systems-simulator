@@ -3,9 +3,9 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import {
-  QUESTION_EVALUATION_CONTRACT_VERSION,
   buildQuestionEvaluationBatch,
   buildQuestionEvaluationErrorContract,
+  parseQuestionEvaluationContract,
   type QuestionEvaluationBatch,
   type QuestionEvaluationContract
 } from '../engine/analysis/evaluationContract'
@@ -44,22 +44,12 @@ function attemptMetadata(attempt: PreparedQuestionEvaluationAttempt, fallbackInd
   }
 }
 
-function parseQuestionEvaluationContract(stdout: string): QuestionEvaluationContract | null {
+function parseQuestionEvaluationContractStdout(stdout: string): QuestionEvaluationContract | null {
   try {
-    const parsed = JSON.parse(stdout) as Partial<QuestionEvaluationContract>
-    if (
-      parsed &&
-      parsed.version === QUESTION_EVALUATION_CONTRACT_VERSION &&
-      parsed.mode === 'question' &&
-      typeof parsed.status === 'string'
-    ) {
-      return parsed as QuestionEvaluationContract
-    }
+    return parseQuestionEvaluationContract(JSON.parse(stdout))
   } catch {
     return null
   }
-
-  return null
 }
 
 function runQuestionEvaluationIsolated(
@@ -99,7 +89,7 @@ function runQuestionEvaluationIsolated(
       }
     )
 
-    const parsed = parseQuestionEvaluationContract(child.stdout)
+    const parsed = parseQuestionEvaluationContractStdout(child.stdout)
     if (parsed) {
       return parsed
     }
