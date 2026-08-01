@@ -1,12 +1,28 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   buildQuestionEvaluationBatch,
   buildQuestionEvaluationContract,
   buildQuestionEvaluationErrorContract,
   buildScenarioEvaluationContract,
+  parseQuestionEvaluationBatch,
+  parseQuestionEvaluationContract,
+  parseScenarioEvaluationContract,
   type ScenarioEvaluationResult
 } from './evaluationContract'
 import type { AttemptGrade, QuestionPackage } from './question'
+
+const fixtures = JSON.parse(
+  readFileSync(resolve(__dirname, 'fixtures/evaluation-contracts.json'), 'utf-8')
+) as {
+  questionPassed: unknown
+  questionFailed: unknown
+  questionInvalidSubmission: unknown
+  questionEvaluationError: unknown
+  questionBatch: unknown
+  scenarioEvaluation: unknown
+}
 
 describe('buildScenarioEvaluationContract', () => {
   const topology = {
@@ -23,18 +39,14 @@ describe('buildScenarioEvaluationContract', () => {
 
     const contract = buildScenarioEvaluationContract(topology, verdicts, {
       simulatorVersion: '1.2.3',
-      submissionId: 'sub-1'
+      submissionId: 'sub-1',
+      evaluatedAt: '2026-08-01T00:00:00.000Z'
     })
 
-    expect(contract).toMatchObject({
-      version: '1.0',
-      simulatorVersion: '1.2.3',
-      topologyId: 'student-topology',
-      topologySchemaVersion: '2.0.0',
-      submissionId: 'sub-1',
-      summary: { total: 3, completed: 1, errored: 1, timedOut: 1 }
-    })
-    expect('evaluatedAt' in contract).toBe(false)
+    expect(contract).toEqual(fixtures.scenarioEvaluation)
+    expect(parseScenarioEvaluationContract(fixtures.scenarioEvaluation)).toEqual(
+      fixtures.scenarioEvaluation
+    )
   })
 
   it('includes an explicit evaluatedAt only when the caller provides one', () => {
@@ -136,6 +148,67 @@ function failedGrade(): AttemptGrade {
 }
 
 describe('buildQuestionEvaluationContract', () => {
+  it('builds the exact passed contract fixture for a single-case question', () => {
+    const baseQuestion = questionPackage()
+    const singleCaseQuestion: QuestionPackage = {
+      ...baseQuestion,
+      suite: { ...baseQuestion.suite, cases: [{ id: 'baseline' }] }
+    }
+
+    const contract = buildQuestionEvaluationContract(
+      singleCaseQuestion,
+      { id: 'topology-1', version: '2.0.0' },
+      {
+        structural: { version: '1.0', passed: true, checks: [] },
+        graded: {
+          version: '1.0',
+          cases: [
+            {
+              id: 'baseline',
+              ran: true,
+              rubric: {
+                version: '1.0',
+                checks: [
+                  {
+                    id: 'err',
+                    description: 'error rate < 10%',
+                    metric: 'summary.errorRate',
+                    op: '<',
+                    value: 0.1,
+                    actual: 0.01,
+                    passed: true,
+                    points: 2,
+                    awarded: 2
+                  }
+                ],
+                score: { earned: 2, possible: 2, fraction: 1 },
+                passed: true
+              }
+            }
+          ],
+          summary: { total: 1, ran: 1, errored: 0, passed: 1, failed: 0 }
+        },
+        contract: {
+          tests: [{ id: 'baseline:err', name: 'error rate < 10%', passed: true }],
+          totalTests: 1,
+          passedTests: 1,
+          allPassed: true
+        }
+      },
+      {
+        simulatorVersion: '1.2.3',
+        attemptId: 'attempt-pass',
+        submissionId: 'sub-pass',
+        evaluatedAt: '2026-08-01T00:00:00.000Z'
+      }
+    )
+
+    expect(contract).toEqual(fixtures.questionPassed)
+    expect(parseQuestionEvaluationContract(fixtures.questionPassed)).toEqual(
+      fixtures.questionPassed
+    )
+  })
+
   it('builds a stable question evaluation contract with score, summary, and normalized tests', () => {
     const contract = buildQuestionEvaluationContract(
       questionPackage(),
@@ -149,58 +222,10 @@ describe('buildQuestionEvaluationContract', () => {
       }
     )
 
-    expect(contract).toMatchObject({
-      version: '1.0',
-      mode: 'question',
-      simulatorVersion: '1.2.3',
-      questionId: 'q1',
-      questionVersion: '1.0',
-      topologyId: 'student-topology',
-      topologySchemaVersion: '2.0.0',
-      attemptId: 'attempt-1',
-      submissionId: 'sub-1',
-      evaluatedAt: '2026-08-01T00:00:00.000Z',
-      status: 'failed',
-      score: { earned: 2, possible: 4, fraction: 0.5 },
-      summary: {
-        totalTests: 3,
-        passedTests: 2,
-        failedTests: 1,
-        structuralFailures: 0,
-        rubricFailures: 0,
-        executionFailures: 1
-      }
-    })
-    expect(contract.tests).toEqual([
-      {
-        id: 'structural:shape',
-        name: 'Shape is valid',
-        scope: 'structure',
-        kind: 'structural',
-        status: 'passed',
-        pointsEarned: 0,
-        pointsPossible: 0
-      },
-      {
-        id: 'baseline:err',
-        name: 'error rate < 10%',
-        scope: 'baseline',
-        kind: 'rubric',
-        status: 'passed',
-        pointsEarned: 2,
-        pointsPossible: 2
-      },
-      {
-        id: 'peak:did-not-run',
-        name: 'Case peak could not run',
-        scope: 'peak',
-        kind: 'execution',
-        status: 'failed',
-        pointsEarned: 0,
-        pointsPossible: 0,
-        detail: 'boom'
-      }
-    ])
+    expect(contract).toEqual(fixtures.questionFailed)
+    expect(parseQuestionEvaluationContract(fixtures.questionFailed)).toEqual(
+      fixtures.questionFailed
+    )
   })
 
   it('builds explicit error contracts for invalid submissions or evaluation failures', () => {
@@ -212,27 +237,10 @@ describe('buildQuestionEvaluationContract', () => {
       evaluatedAt: '2026-08-01T00:00:00.000Z'
     })
 
-    expect(contract).toMatchObject({
-      version: '1.0',
-      mode: 'question',
-      questionId: 'q1',
-      topologyId: 'student-topology',
-      status: 'invalid_submission',
-      score: { earned: 0, possible: 0, fraction: 0 },
-      summary: {
-        totalTests: 0,
-        passedTests: 0,
-        failedTests: 0,
-        structuralFailures: 0,
-        rubricFailures: 0,
-        executionFailures: 0
-      },
-      error: {
-        code: 'INVALID_SUBMISSION',
-        message: 'Question package validation failed'
-      }
-    })
-    expect(contract.host.allPassed).toBe(false)
+    expect(contract).toEqual(fixtures.questionInvalidSubmission)
+    expect(parseQuestionEvaluationContract(fixtures.questionInvalidSubmission)).toEqual(
+      fixtures.questionInvalidSubmission
+    )
   })
 
   it('aggregates question result statuses into a batch summary', () => {
@@ -282,13 +290,20 @@ describe('buildQuestionEvaluationContract', () => {
             passedTests: 1,
             allPassed: true
           }
+        },
+        {
+          simulatorVersion: '1.2.3',
+          attemptId: 'attempt-pass',
+          submissionId: 'sub-pass',
+          evaluatedAt: '2026-08-01T00:00:00.000Z'
         }
       ),
       buildQuestionEvaluationErrorContract({
-        questionId: 'q2',
-        topologyId: 'topology-2',
+        questionId: 'q1',
+        topologyId: 'student-topology',
         status: 'invalid_submission',
-        message: 'bad topology'
+        message: 'Question package validation failed',
+        evaluatedAt: '2026-08-01T00:00:00.000Z'
       }),
       buildQuestionEvaluationErrorContract({
         questionId: 'q3',
@@ -298,21 +313,50 @@ describe('buildQuestionEvaluationContract', () => {
       }),
       buildQuestionEvaluationContract(
         questionPackage(),
-        { id: 'topology-4', version: '2.0.0' },
-        failedGrade()
+        { id: 'student-topology', version: '2.0.0' },
+        failedGrade(),
+        {
+          simulatorVersion: '1.2.3',
+          attemptId: 'attempt-1',
+          submissionId: 'sub-1',
+          evaluatedAt: '2026-08-01T00:00:00.000Z'
+        }
       )
-    ])
-
-    expect(batch).toMatchObject({
-      version: '1.0',
-      mode: 'question-batch',
-      summary: {
-        total: 4,
-        passed: 1,
-        failed: 1,
-        invalidSubmissions: 1,
-        evaluationErrors: 1
-      }
+    ],
+    {
+      simulatorVersion: '1.2.3',
+      evaluatedAt: '2026-08-01T00:00:00.000Z'
     })
+
+    expect(batch).toEqual(fixtures.questionBatch)
+    expect(parseQuestionEvaluationBatch(fixtures.questionBatch)).toEqual(fixtures.questionBatch)
+  })
+
+  it('rejects malformed question contract summaries and malformed batch summaries', () => {
+    expect(() =>
+      parseQuestionEvaluationContract({
+        ...(fixtures.questionFailed as Record<string, unknown>),
+        summary: {
+          ...((fixtures.questionFailed as Record<string, unknown>).summary as Record<
+            string,
+            unknown
+          >),
+          passedTests: 99
+        }
+      })
+    ).toThrow(/summary\.passedTests/i)
+
+    expect(() =>
+      parseQuestionEvaluationBatch({
+        ...(fixtures.questionBatch as Record<string, unknown>),
+        summary: {
+          ...((fixtures.questionBatch as Record<string, unknown>).summary as Record<
+            string,
+            unknown
+          >),
+          invalidSubmissions: 99
+        }
+      })
+    ).toThrow(/summary\.invalidSubmissions/i)
   })
 })

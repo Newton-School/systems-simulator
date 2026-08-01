@@ -4,6 +4,10 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
+  parseQuestionEvaluationBatch,
+  parseQuestionEvaluationContract
+} from '../engine/analysis/evaluationContract'
+import {
   CLI_EXIT_EVALUATION_ERROR,
   CLI_EXIT_EVALUATION_FAILED,
   CLI_EXIT_INVALID_SUBMISSION,
@@ -187,7 +191,7 @@ describe('sim evaluate question CLI', () => {
     expect(result.status).toBe(CLI_EXIT_SUCCESS)
     expect(stripAnsi(result.stderr)).toContain('Question q-pass:')
 
-    const parsed = JSON.parse(result.stdout)
+    const parsed = parseQuestionEvaluationContract(JSON.parse(result.stdout))
     expect(parsed).toMatchObject({
       version: '1.0',
       mode: 'question',
@@ -223,7 +227,7 @@ describe('sim evaluate question CLI', () => {
 
     expect(result.status).toBe(CLI_EXIT_EVALUATION_FAILED)
 
-    const parsed = JSON.parse(result.stdout)
+    const parsed = parseQuestionEvaluationContract(JSON.parse(result.stdout))
     expect(parsed).toMatchObject({
       questionId: 'q-fail',
       topologyId: 'topology-fail',
@@ -245,7 +249,7 @@ describe('sim evaluate question CLI', () => {
 
     expect(result.status).toBe(CLI_EXIT_INVALID_SUBMISSION)
 
-    const parsed = JSON.parse(result.stdout)
+    const parsed = parseQuestionEvaluationContract(JSON.parse(result.stdout))
     expect(parsed).toMatchObject({
       questionId: 'q-invalid-topology',
       topologyId: 'bad-topology',
@@ -255,6 +259,9 @@ describe('sim evaluate question CLI', () => {
         code: 'INVALID_SUBMISSION'
       }
     })
+    if (!('error' in parsed)) {
+      throw new Error('Expected an invalid_submission contract to include an error payload.')
+    }
     expect(parsed.error.message).toContain('Student topology validation failed:')
   })
 
@@ -269,7 +276,7 @@ describe('sim evaluate question CLI', () => {
 
     expect(result.status).toBe(CLI_EXIT_EVALUATION_ERROR)
 
-    const parsed = JSON.parse(result.stdout)
+    const parsed = parseQuestionEvaluationContract(JSON.parse(result.stdout))
     expect(parsed).toMatchObject({
       questionId: 'broken-question',
       topologyId: 'topology-pass',
@@ -310,7 +317,7 @@ describe('sim evaluate question-batch CLI', () => {
 
     expect(result.status).toBe(CLI_EXIT_EVALUATION_FAILED)
 
-    const parsed = JSON.parse(result.stdout)
+    const parsed = parseQuestionEvaluationBatch(JSON.parse(result.stdout))
     expect(parsed).toMatchObject({
       mode: 'question-batch',
       summary: {
@@ -343,7 +350,7 @@ describe('sim evaluate question-batch CLI', () => {
 
     expect(result.status).toBe(CLI_EXIT_INVALID_SUBMISSION)
 
-    const parsed = JSON.parse(result.stdout)
+    const parsed = parseQuestionEvaluationBatch(JSON.parse(result.stdout))
     expect(parsed).toMatchObject({
       mode: 'question-batch',
       summary: {
