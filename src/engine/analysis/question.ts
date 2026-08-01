@@ -443,7 +443,7 @@ export const StructuralEvaluationSchema: z.ZodType<StructuralEvaluation> = z
     }
   })
 
-const HostTestSchema: z.ZodType<HostTest> = z.object({
+export const HostTestSchema: z.ZodType<HostTest> = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
   passed: z.boolean(),

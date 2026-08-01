@@ -1,5 +1,6 @@
 export * from './evaluate'
 export * from './evaluationContract'
+export * from './gamePlayground'
 export * from './invariants'
 export * from './output'
 export * from './phaseTimeline'
