@@ -27,7 +27,8 @@
     "postinstall": "node scripts/postinstall.mjs",
     "test": "vitest run --root .",
     "test:perf": "RUN_PERF_TESTS=true vitest run --root .",
-    "simulate": "tsx src/cli/index.ts"
+    "simulate": "tsx src/cli/index.ts",
+    "sim": "tsx src/cli/index.ts"
   },
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.2",

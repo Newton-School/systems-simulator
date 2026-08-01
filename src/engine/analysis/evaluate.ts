@@ -1,8 +1,31 @@
-import type { TopologyJSON } from '../core/types'
+import type {
+  FaultSpec,
+  GlobalConfig,
+  TopologyJSON,
+  WorkloadProfile
+} from '../core/types'
 import type { SimulationOutput } from './output'
 import { projectToVerdict, type SimulationVerdict } from './verdict'
+import { validateTopology } from '../validation/validator'
+import {
+  buildScenarioEvaluationContract,
+  type ScenarioEvaluationContract,
+  type ScenarioEvaluationResult
+} from './evaluationContract'
 
 export const EVALUATION_BATCH_VERSION = '1.0' as const
+
+export interface ScenarioOverrides {
+  global?: Partial<GlobalConfig>
+  workload?: Partial<WorkloadProfile>
+  faults?: FaultSpec[]
+}
+
+export interface ScenarioSpec {
+  id: string
+  name?: string
+  overrides?: ScenarioOverrides
+}
 
 /**
  * A single case ready to be evaluated: either a fully-resolved topology to run,
@@ -26,6 +49,47 @@ export interface EvaluationBatch {
     total: number
     succeeded: number
     failed: number
+  }
+}
+
+function firstValidationErrorDetail(raw: unknown): string {
+  const validation = validateTopology(raw)
+  if (validation.valid) {
+    return ''
+  }
+
+  const first = validation.errors?.[0]
+  if (!first) {
+    return 'invalid topology'
+  }
+
+  return `${first.path ? `${first.path}: ` : ''}${first.message}`
+}
+
+/**
+ * Shared override merge used by both headless CLI batch evaluation and
+ * question grading. `faults` are intentionally replace-only because each
+ * scenario defines the full injected-failure set for that run.
+ */
+export function mergeTopologyWithOverrides(
+  base: TopologyJSON,
+  overrides: ScenarioOverrides = {}
+): TopologyJSON {
+  return {
+    ...base,
+    global: {
+      ...base.global,
+      ...(overrides.global ?? {})
+    },
+    ...(base.workload || overrides.workload
+      ? {
+          workload: {
+            ...(base.workload ?? ({} as WorkloadProfile)),
+            ...(overrides.workload ?? {})
+          } as WorkloadProfile
+        }
+      : {}),
+    ...(overrides.faults ? { faults: overrides.faults } : base.faults ? { faults: base.faults } : {})
   }
 }
 
@@ -67,4 +131,61 @@ export function evaluateSuite(
       failed: results.length - succeeded
     }
   }
+}
+
+/**
+ * Runs a validated base topology under a list of named scenario overrides and
+ * emits the backend-facing verdict envelope: one row per scenario, each either
+ * a completed SimulationVerdict or an isolated per-scenario error. Unlike the
+ * older suite-of-topologies flow, this keeps the student's topology as the
+ * single source of truth and varies only the scenario conditions.
+ */
+export function evaluateScenarios(
+  baseTopology: TopologyJSON,
+  scenarios: readonly ScenarioSpec[],
+  runTopology: (topology: TopologyJSON) => SimulationOutput,
+  options?: {
+    simulatorVersion?: string
+    submissionId?: string
+    topologyId?: string
+    evaluatedAt?: string
+  }
+) : ScenarioEvaluationContract {
+  const verdicts: ScenarioEvaluationResult[] = scenarios.map((scenario, index) => {
+    const scenarioId =
+      typeof scenario.id === 'string' && scenario.id.length > 0
+        ? scenario.id
+        : `scenario-${index + 1}`
+    const scenarioName = scenario.name
+
+    try {
+      const merged = mergeTopologyWithOverrides(baseTopology, scenario.overrides)
+      const validation = validateTopology(merged)
+      if (!validation.valid || !validation.data) {
+        return {
+          scenarioId,
+          ...(scenarioName ? { scenarioName } : {}),
+          status: 'error' as const,
+          error: `Validation failed: ${firstValidationErrorDetail(merged)}`
+        }
+      }
+
+      const output = runTopology(validation.data)
+      return {
+        scenarioId,
+        ...(scenarioName ? { scenarioName } : {}),
+        status: 'completed' as const,
+        verdict: projectToVerdict(output)
+      }
+    } catch (err) {
+      return {
+        scenarioId,
+        ...(scenarioName ? { scenarioName } : {}),
+        status: 'error' as const,
+        error: (err as Error).message
+      }
+    }
+  })
+
+  return buildScenarioEvaluationContract(baseTopology, verdicts, options)
 }

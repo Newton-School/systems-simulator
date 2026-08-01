@@ -1,7 +1,57 @@
 import { describe, expect, it } from 'vitest'
-import type { TopologyJSON } from '../core/types'
+import type { ComponentNode, EdgeDefinition, TopologyJSON } from '../core/types'
 import type { SimulationOutput } from './output'
-import { evaluateSuite, type PreparedCase } from './evaluate'
+import {
+  evaluateScenarios,
+  evaluateSuite,
+  mergeTopologyWithOverrides,
+  type PreparedCase
+} from './evaluate'
+
+function sourceNode(id: string): ComponentNode {
+  return {
+    id,
+    type: 'api-endpoint',
+    category: 'compute',
+    role: 'source',
+    label: id,
+    position: { x: 0, y: 0 }
+  }
+}
+
+function processorNode(id: string): ComponentNode {
+  return {
+    id,
+    type: 'microservice',
+    category: 'compute',
+    role: 'processor',
+    label: id,
+    position: { x: 120, y: 0 },
+    queue: { workers: 1, capacity: 10, discipline: 'fifo' },
+    processing: {
+      distribution: { type: 'constant', value: 5 },
+      timeout: 1_000
+    }
+  }
+}
+
+function edge(id: string, source: string, target: string): EdgeDefinition {
+  return {
+    id,
+    source,
+    target,
+    mode: 'synchronous',
+    protocol: 'https',
+    latency: {
+      distribution: { type: 'constant', value: 1 },
+      pathType: 'same-dc'
+    },
+    bandwidth: 1_000,
+    maxConcurrentRequests: 100,
+    packetLossRate: 0,
+    errorRate: 0
+  }
+}
 
 // Minimal SimulationOutput stub carrying only the fields projectToVerdict reads.
 function fakeOutput(seed: string): SimulationOutput {
@@ -35,7 +85,26 @@ function fakeOutput(seed: string): SimulationOutput {
 }
 
 function topology(seed: string): TopologyJSON {
-  return { global: { seed } } as unknown as TopologyJSON
+  return {
+    id: 'topology-under-test',
+    name: 'Topology Under Test',
+    version: '2.0.0',
+    global: {
+      seed,
+      simulationDuration: 1000,
+      warmupDuration: 0,
+      timeResolution: 'millisecond',
+      defaultTimeout: 1000
+    },
+    nodes: [sourceNode('client'), processorNode('api')],
+    edges: [edge('client-api', 'client', 'api')],
+    workload: {
+      sourceNodeId: 'client',
+      pattern: 'constant',
+      baseRps: 100,
+      requestDistribution: [{ type: 'GET', weight: 1, sizeBytes: 1024 }]
+    }
+  } as TopologyJSON
 }
 
 describe('evaluateSuite', () => {
@@ -85,5 +154,109 @@ describe('evaluateSuite', () => {
 
     expect(batch.results[0]).toEqual({ id: 'unreadable', ok: false, error: 'Could not read topology' })
     expect(batch.summary).toEqual({ total: 2, succeeded: 1, failed: 1 })
+  })
+})
+
+describe('mergeTopologyWithOverrides', () => {
+  it('merges global/workload overrides and replaces faults without mutating the base topology', () => {
+    const base: TopologyJSON = {
+      ...topology('base-seed'),
+      faults: [
+        {
+          targetId: 'db',
+          faultType: 'node-failure',
+          timing: 'deterministic',
+          duration: 'fixed',
+          params: { atMs: 1000 }
+        }
+      ]
+    }
+
+    const merged = mergeTopologyWithOverrides(base, {
+      global: { seed: 'override-seed' },
+      workload: { baseRps: 500 },
+      faults: [
+        {
+          targetId: 'cache',
+          faultType: 'blackhole',
+          timing: 'deterministic',
+          duration: 'permanent',
+          params: {}
+        }
+      ]
+    })
+
+    expect(base.global.seed).toBe('base-seed')
+    expect(base.workload?.baseRps).toBe(100)
+    expect(base.faults?.[0]?.targetId).toBe('db')
+
+    expect(merged.global.seed).toBe('override-seed')
+    expect(merged.workload?.baseRps).toBe(500)
+    expect(merged.faults?.[0]?.targetId).toBe('cache')
+  })
+})
+
+describe('evaluateScenarios', () => {
+  it('runs one base topology under many scenarios and emits the backend-facing verdict envelope', () => {
+    const batch = evaluateScenarios(
+      topology('base-seed'),
+      [
+        { id: 'baseline', name: 'Baseline' },
+        { id: 'peak', overrides: { global: { seed: 'peak-seed' }, workload: { baseRps: 1000 } } }
+      ],
+      (t) => fakeOutput(t.global.seed),
+      { submissionId: 'sub-123', evaluatedAt: '2026-08-01T00:00:00.000Z' }
+    )
+
+    expect(batch).toMatchObject({
+      version: '1.0',
+      submissionId: 'sub-123',
+      topologyId: 'topology-under-test',
+      evaluatedAt: '2026-08-01T00:00:00.000Z',
+      summary: { total: 2, completed: 2, errored: 0, timedOut: 0 }
+    })
+    expect(batch.verdicts[0]).toMatchObject({
+      scenarioId: 'baseline',
+      scenarioName: 'Baseline',
+      status: 'completed'
+    })
+    const peak = batch.verdicts[1]
+    expect(peak.status).toBe('completed')
+    if (peak.status === 'completed') {
+      expect(peak.verdict.meta.seed).toBe('peak-seed')
+    }
+  })
+
+  it('isolates per-scenario validation failures and engine exceptions without aborting later scenarios', () => {
+    const batch = evaluateScenarios(
+      topology('base-seed'),
+      [
+        { id: 'invalid', overrides: { workload: { sourceNodeId: '' } } },
+        { id: 'boom', overrides: { global: { seed: 'explode' } } },
+        { id: 'ok', overrides: { global: { seed: 'safe' } } }
+      ],
+      (t) => {
+        if (t.global.seed === 'explode') {
+          throw new Error('engine blew up')
+        }
+        return fakeOutput(t.global.seed)
+      },
+      { evaluatedAt: '2026-08-01T00:00:00.000Z' }
+    )
+
+    expect(batch.summary).toEqual({ total: 3, completed: 1, errored: 2, timedOut: 0 })
+    expect(batch.verdicts[0]).toMatchObject({
+      scenarioId: 'invalid',
+      status: 'error'
+    })
+    expect(batch.verdicts[1]).toEqual({
+      scenarioId: 'boom',
+      status: 'error',
+      error: 'engine blew up'
+    })
+    expect(batch.verdicts[2]).toMatchObject({
+      scenarioId: 'ok',
+      status: 'completed'
+    })
   })
 })
