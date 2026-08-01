@@ -370,119 +370,121 @@ describe('buildQuestionEvaluationContract', () => {
       suite: { ...baseQuestion.suite, cases: [{ id: 'baseline' }] }
     }
 
-    const batch = buildQuestionEvaluationBatch([
-      buildQuestionEvaluationContract(
-        singleCaseQuestion,
-        { id: 'topology-1', version: '2.0.0' },
-        {
-          structural: { version: '1.0', passed: true, checks: [] },
-          graded: {
-            version: '1.0',
-            score: { earned: 2, possible: 2, fraction: 1 },
-            passed: true,
-            cases: [
-              {
-                id: 'baseline',
-                ran: true,
-                executionStatus: 'completed',
-                rubric: {
-                  version: '1.0',
-                  checks: [
-                    {
-                      id: EXECUTION_CHECK_ID,
-                      description: 'Case execution completed',
-                      kind: 'execution',
-                      actual: null,
-                      status: 'passed',
-                      passed: true,
-                      points: 0,
-                      awarded: 0
-                    },
-                    {
-                      id: 'err',
-                      description: 'error rate < 10%',
-                      kind: 'simulation',
-                      metric: 'summary.errorRate',
-                      op: '<',
-                      value: 0.1,
-                      actual: 0.01,
-                      status: 'passed',
-                      passed: true,
-                      points: 2,
-                      awarded: 2
-                    }
-                  ],
-                  score: { earned: 2, possible: 2, fraction: 1 },
+    const batch = buildQuestionEvaluationBatch(
+      [
+        buildQuestionEvaluationContract(
+          singleCaseQuestion,
+          { id: 'topology-1', version: '2.0.0' },
+          {
+            structural: { version: '1.0', passed: true, checks: [] },
+            graded: {
+              version: '1.0',
+              score: { earned: 2, possible: 2, fraction: 1 },
+              passed: true,
+              cases: [
+                {
+                  id: 'baseline',
+                  ran: true,
+                  executionStatus: 'completed',
+                  rubric: {
+                    version: '1.0',
+                    checks: [
+                      {
+                        id: EXECUTION_CHECK_ID,
+                        description: 'Case execution completed',
+                        kind: 'execution',
+                        actual: null,
+                        status: 'passed',
+                        passed: true,
+                        points: 0,
+                        awarded: 0
+                      },
+                      {
+                        id: 'err',
+                        description: 'error rate < 10%',
+                        kind: 'simulation',
+                        metric: 'summary.errorRate',
+                        op: '<',
+                        value: 0.1,
+                        actual: 0.01,
+                        status: 'passed',
+                        passed: true,
+                        points: 2,
+                        awarded: 2
+                      }
+                    ],
+                    score: { earned: 2, possible: 2, fraction: 1 },
+                    passed: true
+                  }
+                }
+              ],
+              summary: {
+                total: 1,
+                ran: 1,
+                errored: 0,
+                passed: 1,
+                failed: 0,
+                totalChecks: 2,
+                passedChecks: 2,
+                failedChecks: 0,
+                skippedChecks: 0
+              }
+            },
+            contract: {
+              tests: [
+                {
+                  id: caseRubricTestId('baseline', 'execution', EXECUTION_CHECK_ID),
+                  name: 'Case baseline execution completed',
+                  passed: true
+                },
+                {
+                  id: caseRubricTestId('baseline', 'simulation', 'err'),
+                  name: 'error rate < 10%',
                   passed: true
                 }
-              }
-            ],
-            summary: {
-              total: 1,
-              ran: 1,
-              errored: 0,
-              passed: 1,
-              failed: 0,
-              totalChecks: 2,
-              passedChecks: 2,
-              failedChecks: 0,
-              skippedChecks: 0
+              ],
+              totalTests: 2,
+              passedTests: 2,
+              allPassed: true
             }
           },
-          contract: {
-            tests: [
-              {
-                id: caseRubricTestId('baseline', 'execution', EXECUTION_CHECK_ID),
-                name: 'Case baseline execution completed',
-                passed: true
-              },
-              {
-                id: caseRubricTestId('baseline', 'simulation', 'err'),
-                name: 'error rate < 10%',
-                passed: true
-              }
-            ],
-            totalTests: 2,
-            passedTests: 2,
-            allPassed: true
+          {
+            simulatorVersion: '1.2.3',
+            attemptId: 'attempt-pass',
+            submissionId: 'sub-pass',
+            evaluatedAt: '2026-08-01T00:00:00.000Z'
           }
-        },
-        {
-          simulatorVersion: '1.2.3',
-          attemptId: 'attempt-pass',
-          submissionId: 'sub-pass',
+        ),
+        buildQuestionEvaluationErrorContract({
+          questionId: 'q1',
+          topologyId: 'student-topology',
+          status: 'invalid_submission',
+          message: 'Question package validation failed',
           evaluatedAt: '2026-08-01T00:00:00.000Z'
-        }
-      ),
-      buildQuestionEvaluationErrorContract({
-        questionId: 'q1',
-        topologyId: 'student-topology',
-        status: 'invalid_submission',
-        message: 'Question package validation failed',
+        }),
+        buildQuestionEvaluationErrorContract({
+          questionId: 'q3',
+          topologyId: 'topology-3',
+          status: 'evaluation_error',
+          message: 'timeout'
+        }),
+        buildQuestionEvaluationContract(
+          questionPackage(),
+          { id: 'student-topology', version: '2.0.0' },
+          failedGrade(),
+          {
+            simulatorVersion: '1.2.3',
+            attemptId: 'attempt-1',
+            submissionId: 'sub-1',
+            evaluatedAt: '2026-08-01T00:00:00.000Z'
+          }
+        )
+      ],
+      {
+        simulatorVersion: '1.2.3',
         evaluatedAt: '2026-08-01T00:00:00.000Z'
-      }),
-      buildQuestionEvaluationErrorContract({
-        questionId: 'q3',
-        topologyId: 'topology-3',
-        status: 'evaluation_error',
-        message: 'timeout'
-      }),
-      buildQuestionEvaluationContract(
-        questionPackage(),
-        { id: 'student-topology', version: '2.0.0' },
-        failedGrade(),
-        {
-          simulatorVersion: '1.2.3',
-          attemptId: 'attempt-1',
-          submissionId: 'sub-1',
-          evaluatedAt: '2026-08-01T00:00:00.000Z'
-        }
-      )
-    ],
-    {
-      simulatorVersion: '1.2.3',
-      evaluatedAt: '2026-08-01T00:00:00.000Z'
-    })
+      }
+    )
 
     expect(batch).toEqual(fixtures.questionBatch)
     expect(parseQuestionEvaluationBatch(fixtures.questionBatch)).toEqual(fixtures.questionBatch)

@@ -115,16 +115,24 @@ export function buildReplayDigestFromResult(replay: ReplayResult): ReplayDigest 
 
 type EnvelopeForChecksum = Omit<EvaluationEnvelope, 'checksum'> & { checksum?: string }
 
+/** Returns a shallow copy of `obj` with the given keys removed. */
+function omitKeys(obj: object, keys: string[]): Record<string, unknown> {
+  const copy: Record<string, unknown> = { ...obj }
+  for (const key of keys) {
+    delete copy[key]
+  }
+  return copy
+}
+
 /**
  * The projection of an envelope that the checksum covers: the self-checksum and
  * any optional full replay are excluded, so the function is idempotent whether
  * it is handed a pre-seal base or an already-sealed envelope.
  */
 function checksumTarget(envelope: EnvelopeForChecksum): unknown {
-  const { checksum: _checksum, cases, ...rest } = envelope
   return {
-    ...rest,
-    cases: cases.map(({ replay: _replay, ...caseRest }) => caseRest)
+    ...omitKeys(envelope, ['checksum']),
+    cases: envelope.cases.map((entry) => omitKeys(entry, ['replay']))
   }
 }
 

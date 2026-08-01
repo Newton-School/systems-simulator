@@ -178,9 +178,9 @@ describe('evaluation envelope integrity', () => {
   it('rejects an identity that disagrees with the sealed contract', () => {
     const envelope = sealed()
     const mismatched = { ...envelope, questionId: 'not-the-contract-question' }
-    // Recompute checksum so we isolate the identity check, not the integrity check.
-    const { checksum: _drop, ...rest } = mismatched
-    const resealed = { ...mismatched, checksum: computeEnvelopeChecksum(rest) }
+    // Reseal so we isolate the identity check, not the integrity check
+    // (computeEnvelopeChecksum ignores the existing checksum field).
+    const resealed = { ...mismatched, checksum: computeEnvelopeChecksum(mismatched) }
     expect(() => parseEvaluationEnvelope(resealed)).toThrow(/questionId/i)
   })
 

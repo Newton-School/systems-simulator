@@ -420,7 +420,12 @@ export const ScenarioEvaluationContractSchema: z.ZodType<ScenarioEvaluationContr
     }
   })
 
-const QuestionEvaluationTestKindSchema = z.enum(['topology', 'simulation', 'invariant', 'execution'])
+const QuestionEvaluationTestKindSchema = z.enum([
+  'topology',
+  'simulation',
+  'invariant',
+  'execution'
+])
 const QuestionEvaluationTestStatusSchema = z.enum(['passed', 'failed', 'skipped'])
 
 export const QuestionEvaluationTestResultSchema: z.ZodType<QuestionEvaluationTestResult> = z

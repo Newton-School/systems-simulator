@@ -113,10 +113,7 @@ describe('submissionArchive', () => {
     const sealed = envelope('sub-1')
     archiveSubmission(sealed)
     const tampered = { ...sealed, attemptId: 'tampered' }
-    globalThis.localStorage.setItem(
-      'ns-simulator.submission.v1:sub-1',
-      JSON.stringify(tampered)
-    )
+    globalThis.localStorage.setItem('ns-simulator.submission.v1:sub-1', JSON.stringify(tampered))
     expect(loadArchivedSubmission('sub-1')).toBeNull()
   })
 })

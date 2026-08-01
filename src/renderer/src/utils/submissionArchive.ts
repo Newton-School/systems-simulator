@@ -43,7 +43,9 @@ function readIndex(storage: Storage, questionId: string): string[] {
   }
   try {
     const parsed = JSON.parse(raw)
-    return Array.isArray(parsed) ? parsed.filter((entry): entry is string => typeof entry === 'string') : []
+    return Array.isArray(parsed)
+      ? parsed.filter((entry): entry is string => typeof entry === 'string')
+      : []
   } catch {
     return []
   }
