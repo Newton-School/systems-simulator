@@ -22,6 +22,7 @@ import type {
 import { DEFAULT_SCENARIO_STATE } from '@renderer/types/ui'
 import type { EdgeFailureCause, EdgeFlowEvent } from '../../../engine/core/events'
 import type { WorkloadProfile } from '../../../engine/core/types'
+import type { AttemptState, QuestionPackage } from '../../../engine/analysis/question'
 import type { RoutingStrategy } from '../../../engine/catalog/nodeSpecTypes'
 
 type FailureCountsByCause = Partial<Record<EdgeFailureCause, number>>
@@ -241,27 +242,6 @@ function shouldRetainEdgeFlowEvent(
   return event.status !== 'success' || index % sampleStride === 0
 }
 
-const SAVED_SEEDS_KEY = 'ns_simulator_saved_seeds'
-
-function loadSavedSeeds(): string[] {
-  try {
-    const raw = localStorage.getItem(SAVED_SEEDS_KEY)
-    if (!raw) return []
-    const parsed = JSON.parse(raw)
-    return Array.isArray(parsed) ? parsed.filter((s) => typeof s === 'string') : []
-  } catch {
-    return []
-  }
-}
-
-function persistSeeds(seeds: string[]) {
-  try {
-    localStorage.setItem(SAVED_SEEDS_KEY, JSON.stringify(seeds))
-  } catch {
-    // Ignore localStorage errors
-  }
-}
-
 type RFState = {
   // --- Graph Data ---
   nodes: Node[]
@@ -281,8 +261,15 @@ type RFState = {
   fileName: string | null
   isUnsaved: boolean
   scenario: ScenarioState
-  savedSeeds: string[]
+
+  // --- Question mode ---
+  /** The question the student is attempting, if any (injected by the host or a sample loader). */
+  activeQuestion: QuestionPackage | null
+  setActiveQuestion: (question: QuestionPackage | null) => void
+  attemptState: AttemptState | null
+  setAttemptState: (attempt: AttemptState | null) => void
   viewportFitVersion: number
+  requestViewportFit: () => void
 
   // --- Actions ---
   onNodesChange: OnNodesChange
@@ -313,10 +300,7 @@ type RFState = {
   setFileName: (name: string | null) => void
   setUnsaved: (unsaved: boolean) => void
   setScenario: (scenario: ScenarioState) => void
-  requestViewportFit: () => void
   updateScenario: (updater: (scenario: ScenarioState) => ScenarioState) => void
-  saveSeed: (seed: string) => void
-  removeSeed: (seed: string) => void
 }
 
 const useStore = create<RFState>((set, get) => ({
@@ -337,7 +321,8 @@ const useStore = create<RFState>((set, get) => ({
   fileName: 'Untitled',
   isUnsaved: false,
   scenario: DEFAULT_SCENARIO_STATE,
-  savedSeeds: loadSavedSeeds(),
+  activeQuestion: null,
+  attemptState: null,
   viewportFitVersion: 0,
 
   onNodesChange: (changes: NodeChange[]) => {
@@ -597,20 +582,8 @@ const useStore = create<RFState>((set, get) => ({
   setFileName: (fileName) => set({ fileName }),
   setUnsaved: (isUnsaved) => set({ isUnsaved }),
   setScenario: (scenario) => set({ scenario }),
-  saveSeed: (seed: string) => {
-    const trimmed = seed.trim()
-    if (!trimmed || trimmed === 'default-seed') return
-    const current = get().savedSeeds
-    if (current.includes(trimmed)) return
-    const next = [...current, trimmed]
-    persistSeeds(next)
-    set({ savedSeeds: next })
-  },
-  removeSeed: (seed: string) => {
-    const next = get().savedSeeds.filter((s) => s !== seed)
-    persistSeeds(next)
-    set({ savedSeeds: next })
-  },
+  setActiveQuestion: (activeQuestion) => set({ activeQuestion }),
+  setAttemptState: (attemptState) => set({ attemptState }),
   requestViewportFit: () =>
     set((state) => ({
       viewportFitVersion: state.viewportFitVersion + 1

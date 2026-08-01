@@ -9,10 +9,15 @@ import { useFlowPersistence } from '@renderer/hooks/useFlowPersistence'
 import { useConfirmDialog } from '@renderer/hooks/useConfirmDialog'
 import { useSimulation } from '@renderer/hooks/useSimulation'
 import { useTopologySerializer } from '@renderer/hooks/useTopologySerializer'
+import {
+  isQuestionLaunchContextMessage,
+  postQuestionHostMessage
+} from '@renderer/utils/questionHostMessaging'
 import { applyAutoLayout } from '@renderer/utils/autoLayout'
 import { validateTopology } from '../../../../engine/validation/validator'
 import type { LatencyPercentiles } from '../../../../engine/metrics'
 import type { TimeSeriesSnapshot } from '../../../../engine/analysis/output'
+import type { AttemptState } from '../../../../engine/analysis/question'
 import type { ValidationError } from '../../../../engine/validation/validator'
 import {
   hasWorkloadSourceConfig,
@@ -35,11 +40,12 @@ import { ResizeHandle } from '../ui/ResizeHandle'
 import { RunToast } from '../ui/RunToast'
 import { RoutingVisualizationToast } from '../ui/RoutingVisualizationToast'
 import type { CanvasNodeDataV2 } from '../../../../engine/catalog/nodeSpecTypes'
-import type {
-  FaultTargetOption,
-  NodeSimulationMetrics,
-  ScenarioRunContext,
-  SourceNodeOption
+import {
+  DEFAULT_SCENARIO_STATE,
+  type FaultTargetOption,
+  type NodeSimulationMetrics,
+  type ScenarioRunContext,
+  type SourceNodeOption
 } from '@renderer/types/ui'
 
 type RunIssueTone = 'warning' | 'error'
@@ -128,6 +134,20 @@ function PanelFallback({ label }: { label: string }) {
       {label}
     </div>
   )
+}
+
+function buildDraftAttempt(questionId: string, topology: AttemptState['topology']): AttemptState {
+  const now = new Date().toISOString()
+
+  return {
+    attemptId: globalThis.crypto?.randomUUID?.() ?? `attempt-${Date.now()}`,
+    questionId,
+    topology,
+    status: 'DRAFT',
+    startedAt: now,
+    lastSavedAt: now,
+    testRunCount: 0
+  }
 }
 
 function roundNullable(value: number | null): number | null {
@@ -300,9 +320,9 @@ export const WorkspaceLayout = () => {
   const setNodes = useStore((s) => s.setNodes)
   const setSimulationMetrics = useStore((s) => s.setSimulationMetrics)
   const clearSimulationMetrics = useStore((s) => s.clearSimulationMetrics)
-  const savedSeeds = useStore((s) => s.savedSeeds)
-  const saveSeed = useStore((s) => s.saveSeed)
   const selectGraphElements = useStore((s) => s.selectGraphElements)
+  const setActiveQuestion = useStore((s) => s.setActiveQuestion)
+  const setAttemptState = useStore((s) => s.setAttemptState)
   const requestViewportFit = useStore((s) => s.requestViewportFit)
   const runInspectorPinned = useStore((s) => s.runInspectorPinned)
   const setRunInspectorPinned = useStore((s) => s.setRunInspectorPinned)
@@ -391,6 +411,69 @@ export const WorkspaceLayout = () => {
   // Simulation
   const sim = useSimulation()
   const { serialize } = useTopologySerializer()
+
+  useEffect(() => {
+    postQuestionHostMessage({ type: 'ns-simulator:ready' })
+  }, [])
+
+  useEffect(() => {
+    const onMessage = (event: MessageEvent<unknown>) => {
+      if (!isQuestionLaunchContextMessage(event.data)) {
+        return
+      }
+      const { questionPackage, priorAttempt } = event.data.payload
+
+      void (async () => {
+        const topologyToLoad = priorAttempt?.topology ?? questionPackage.scaffold.topology
+        const launchData =
+          topologyToLoad ??
+          ({
+            version: '2.0.0',
+            nodes: [],
+            edges: [],
+            scenario: DEFAULT_SCENARIO_STATE
+          } as const)
+
+        const loaded = await loadFromData(launchData, `${questionPackage.id}.json`)
+        if (!loaded) {
+          postQuestionHostMessage({
+            type: 'ns-simulator:error',
+            message: 'Could not load the question launch context into the simulator.'
+          })
+          return
+        }
+
+        sim.reset()
+        clearSimulationMetrics()
+        setShowResults(false)
+        setLastRunContext(null)
+        setRunIssues({ messages: [], tone: 'warning' })
+        setRoutingVisualization(null)
+        selectGraphElements({})
+        setIsRightOpen(false)
+        setLeftSidebarTab('question')
+        setIsLeftOpen(true)
+        setActiveQuestion(questionPackage)
+        setAttemptState(
+          priorAttempt ?? (topologyToLoad ? buildDraftAttempt(questionPackage.id, topologyToLoad) : null)
+        )
+      })()
+    }
+
+    window.addEventListener('message', onMessage)
+    return () => window.removeEventListener('message', onMessage)
+  }, [
+    clearSimulationMetrics,
+    loadFromData,
+    selectGraphElements,
+    setActiveQuestion,
+    setAttemptState,
+    setRoutingVisualization,
+    sim,
+    setLeftSidebarTab,
+    setIsLeftOpen
+  ])
+
   const handleLoadScenario = useCallback(
     async (scenarioId: string) => {
       const sampleId = scenarioId.startsWith('sample:') ? scenarioId.slice('sample:'.length) : ''
@@ -650,8 +733,6 @@ export const WorkspaceLayout = () => {
         faultTargets={faultTargets}
         scenario={scenario}
         onScenarioChange={updateScenario}
-        savedSeeds={savedSeeds}
-        onSaveSeed={saveSeed}
       />
 
       {runIssues.messages.length > 0 && (

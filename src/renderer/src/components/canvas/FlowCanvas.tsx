@@ -18,10 +18,12 @@ import EmptyFlowState from '../ui/EmptyFlowState'
 import { RunToast } from '../ui/RunToast'
 import { CanvasLegend } from './CanvasLegend'
 import { MetricLensSwitcher } from './MetricLensSwitcher'
+// Hooks & Config
 import useStore from '@renderer/store/useStore'
+
+import { useCopyPaste } from './hooks/useCopyPaste'
 import { useFlowStore } from './hooks/useFlowStore'
 import { useFlowDnD } from './hooks/useFlowDnD'
-import { useCopyPaste } from './hooks/useCopyPaste'
 import { useFlowConfig, nodeTypes, GRID_COLOR } from './config/flowConfig'
 import { useMagneticSnap } from './hooks/useMagneticSnap'
 import { useHandleProximity } from './hooks/useHandleProximity'
@@ -71,6 +73,7 @@ const FlowCanvasInternal = ({ showMetricLens = false, onNodeDoubleClick }: FlowC
     const isBulkLoad = Math.abs(nodes.length - prevNodeCount.current) > 1
 
     if (reactFlowInstance && isBulkLoad) {
+      // Only fit view when many nodes are added at once (e.g. opening a saved file)
       window.requestAnimationFrame(() => {
         reactFlowInstance.fitView({
           padding: 0.2,
@@ -108,6 +111,7 @@ const FlowCanvasInternal = ({ showMetricLens = false, onNodeDoubleClick }: FlowC
   )
 
   const onPaneClick = useCallback(() => {
+    setValidationError(null)
     selectGraphElements({})
   }, [selectGraphElements])
 
@@ -136,8 +140,8 @@ const FlowCanvasInternal = ({ showMetricLens = false, onNodeDoubleClick }: FlowC
         onNodeDragStop={onNodeDragStop}
         onEdgeClick={onEdgeClick}
         onPaneClick={onPaneClick}
-        multiSelectionKeyCode="Shift"
         onNodeDoubleClick={onNodeDoubleClick}
+        multiSelectionKeyCode="Shift"
       >
         <Background variant={BackgroundVariant.Dots} gap={30} size={1.2} color={GRID_COLOR} />
         <Controls className="!bg-nss-surface !border-nss-border" />
@@ -145,6 +149,8 @@ const FlowCanvasInternal = ({ showMetricLens = false, onNodeDoubleClick }: FlowC
       </ReactFlow>
       {!isEmpty && showMetricLens && <MetricLensSwitcher />}
       {!isEmpty && showMetricLens && <CanvasLegend />}
+
+      {/* Empty State */}
       <EmptyFlowState isEmpty={isEmpty} />
       {validationError && (
         <RunToast

@@ -14,7 +14,7 @@ interface UseFlowDnDProps {
   addNode: (node: Node) => void
   setNodes: (nodes: Node[]) => void
   instance: ReactFlowInstance | null
-  onError?: (message: string) => void
+  onError?: (message: string | null) => void
 }
 
 export const useFlowDnD = ({ nodes, addNode, setNodes, instance, onError }: UseFlowDnDProps) => {
@@ -45,6 +45,8 @@ export const useFlowDnD = ({ nodes, addNode, setNodes, instance, onError }: UseF
         onError?.(validation.error ?? 'Invalid placement.')
         return
       }
+
+      onError?.(null)
 
       const newNode: Node = {
         id: getId(),
