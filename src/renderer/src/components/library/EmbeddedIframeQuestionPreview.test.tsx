@@ -3,6 +3,7 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { GAME_PLAYGROUND_PAYLOAD_VERSION } from '../../../../engine/analysis/gamePlayground'
 import type { AttemptGrade } from '../../../../engine/analysis/question'
 import { EmbeddedIframeQuestionPreview } from './EmbeddedIframeQuestion'
 import type { EmbeddedIframeQuestion } from './embeddedIframeQuestionSchema'
@@ -216,6 +217,7 @@ describe('EmbeddedIframeQuestionPreview', () => {
       {
         type: 'ns-simulator:launch-context',
         payload: {
+          version: GAME_PLAYGROUND_PAYLOAD_VERSION,
           questionPackage: question.questionPackage
         }
       },
@@ -231,7 +233,18 @@ describe('EmbeddedIframeQuestionPreview', () => {
           data: {
             type: 'ns-simulator:submit',
             payload: {
-              contract: attemptState.grade?.result.contract,
+              version: GAME_PLAYGROUND_PAYLOAD_VERSION,
+              questionId: 'q1',
+              questionVersion: '1.0',
+              attemptId: 'attempt-1',
+              result: {
+                version: GAME_PLAYGROUND_PAYLOAD_VERSION,
+                status: 'passed',
+                tests: attemptState.grade?.result.contract.tests ?? [],
+                totalTests: attemptState.grade?.result.contract.totalTests ?? 0,
+                passedTests: attemptState.grade?.result.contract.passedTests ?? 0,
+                allPassed: attemptState.grade?.result.contract.allPassed ?? false
+              },
               attemptState
             }
           }

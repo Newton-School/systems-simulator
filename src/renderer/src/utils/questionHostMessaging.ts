@@ -1,9 +1,15 @@
-import { parseAttemptState, parseQuestionPackage } from '../../../engine/analysis/question'
-import type { AttemptState, HostContract, QuestionPackage } from '../../../engine/analysis/question'
+import {
+  buildGamePlaygroundLaunchPayload,
+  parseGamePlaygroundLaunchPayload,
+  parseGamePlaygroundSubmitPayload,
+  type GamePlaygroundLaunchPayload,
+  type GamePlaygroundSubmitPayload
+} from '../../../engine/analysis/gamePlayground'
 
 export interface QuestionLaunchContextPayload {
-  questionPackage: QuestionPackage
-  priorAttempt?: AttemptState
+  version: GamePlaygroundLaunchPayload['version']
+  questionPackage: GamePlaygroundLaunchPayload['questionPackage']
+  priorAttempt?: GamePlaygroundLaunchPayload['priorAttempt']
   environmentProfile?: unknown
 }
 
@@ -18,10 +24,7 @@ export interface QuestionReadyMessage {
 
 export interface QuestionSubmitMessage {
   type: 'ns-simulator:submit'
-  payload: {
-    contract: HostContract
-    attemptState: AttemptState
-  }
+  payload: GamePlaygroundSubmitPayload
 }
 
 export interface QuestionErrorMessage {
@@ -37,26 +40,6 @@ export type QuestionHostOutboundMessage =
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
-}
-
-function isHostContract(value: unknown): value is HostContract {
-  if (!isRecord(value) || !Array.isArray(value.tests)) {
-    return false
-  }
-
-  return (
-    typeof value.totalTests === 'number' &&
-    typeof value.passedTests === 'number' &&
-    typeof value.allPassed === 'boolean' &&
-    value.tests.every(
-      (test) =>
-        isRecord(test) &&
-        typeof test.id === 'string' &&
-        typeof test.name === 'string' &&
-        typeof test.passed === 'boolean' &&
-        (test.detail === undefined || typeof test.detail === 'string')
-    )
-  )
 }
 
 function getHostTargetOrigin(): string {
@@ -79,21 +62,18 @@ export function parseQuestionLaunchContextMessage(
   }
 
   try {
-    const questionPackage = parseQuestionPackage(value.payload.questionPackage)
-    const priorAttempt =
-      value.payload.priorAttempt === undefined
-        ? undefined
-        : parseAttemptState(value.payload.priorAttempt, questionPackage.id)
-
     return {
       type: 'ns-simulator:launch-context',
-      payload: {
-        questionPackage,
-        ...(priorAttempt ? { priorAttempt } : {}),
+      payload: parseGamePlaygroundLaunchPayload({
+        version: value.payload.version ?? '1.0',
+        questionPackage: value.payload.questionPackage,
+        ...(value.payload.priorAttempt !== undefined
+          ? { priorAttempt: value.payload.priorAttempt }
+          : {}),
         ...(value.payload.environmentProfile !== undefined
           ? { environmentProfile: value.payload.environmentProfile }
           : {})
-      }
+      })
     }
   } catch {
     return null
@@ -128,18 +108,10 @@ export function parseQuestionHostOutboundMessage(
     return null
   }
 
-  if (!isHostContract(value.payload.contract)) {
-    return null
-  }
-
   try {
-    const attemptState = parseAttemptState(value.payload.attemptState, expectedQuestionId)
     return {
       type: 'ns-simulator:submit',
-      payload: {
-        contract: value.payload.contract,
-        attemptState
-      }
+      payload: parseGamePlaygroundSubmitPayload(value.payload, expectedQuestionId)
     }
   } catch {
     return null
@@ -153,3 +125,5 @@ export function postQuestionHostMessage(message: QuestionHostOutboundMessage): v
 
   window.parent.postMessage(message, getHostTargetOrigin())
 }
+
+export { buildGamePlaygroundLaunchPayload }
