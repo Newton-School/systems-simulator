@@ -1,4 +1,5 @@
 export * from './evaluate'
+export * from './invariants'
 export * from './output'
 export * from './phaseTimeline'
 export * from './question'
