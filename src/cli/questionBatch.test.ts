@@ -109,20 +109,25 @@ function grade(passed: boolean): AttemptGrade {
     structural: { version: '1.0', checks: [], passed: true },
     graded: {
       version: '1.0',
+      score: { earned: passed ? 1 : 0, possible: 1, fraction: passed ? 1 : 0 },
+      passed,
       cases: [
         {
           id: 'baseline',
           ran: true,
+          executionStatus: 'completed',
           rubric: {
             version: '1.0',
             checks: [
               {
                 id: 'err',
                 description: 'error rate < 10%',
+                kind: 'simulation',
                 metric: 'summary.errorRate',
                 op: '<',
                 value: 0.1,
                 actual: passed ? 0.01 : 0.5,
+                status: passed ? 'passed' : 'failed',
                 passed,
                 points: 1,
                 awarded: passed ? 1 : 0
@@ -133,7 +138,17 @@ function grade(passed: boolean): AttemptGrade {
           }
         }
       ],
-      summary: { total: 1, ran: 1, errored: 0, passed: passed ? 1 : 0, failed: passed ? 0 : 1 }
+      summary: {
+        total: 1,
+        ran: 1,
+        errored: 0,
+        passed: passed ? 1 : 0,
+        failed: passed ? 0 : 1,
+        totalChecks: 1,
+        passedChecks: passed ? 1 : 0,
+        failedChecks: passed ? 0 : 1,
+        skippedChecks: 0
+      }
     },
     contract: {
       tests: [{ id: 'baseline:err', name: 'error rate < 10%', passed }],
