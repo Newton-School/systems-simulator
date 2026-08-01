@@ -3,7 +3,7 @@ import { FileService } from '../services/FileService'
 
 export const useFileHandlers = (
   onSaveRequested: () => string,
-  onDataLoaded: (data: any, fileName?: string) => void
+  onDataLoaded: (data: any, fileName?: string) => boolean
 ) => {
   const handleSave = useCallback(
     async (suggestedName?: string | null) => {
@@ -23,13 +23,14 @@ export const useFileHandlers = (
   const handleOpen = useCallback(async () => {
     const file = await FileService.load()
 
-    if (!file?.content) return
+    if (!file?.content) return false
 
     try {
       const parsedData = JSON.parse(file.content)
-      onDataLoaded(parsedData, file.name)
+      return onDataLoaded(parsedData, file.name)
     } catch (err) {
       console.error('[useFileHandlers] Failed to parse JSON content', err)
+      return false
     }
   }, [onDataLoaded])
 

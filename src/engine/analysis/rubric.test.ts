@@ -22,7 +22,13 @@ function verdict(overrides: {
   )
   return {
     version: '1.0',
-    meta: { seed: 's', simulationDurationMs: 1000, warmupDurationMs: 0, eventsProcessed: 1, reproducible: true },
+    meta: {
+      seed: 's',
+      simulationDurationMs: 1000,
+      warmupDurationMs: 0,
+      eventsProcessed: 1,
+      reproducible: true
+    },
     summary: {
       errorRate: overrides.errorRate ?? 0,
       throughput: 100,
@@ -55,8 +61,21 @@ describe('gradeVerdict', () => {
   const rubric: Rubric = {
     id: 'r1',
     checks: [
-      { id: 'err', description: 'error rate < 1%', metric: 'summary.errorRate', op: '<', value: 0.01 },
-      { id: 'p99', description: 'p99 < 200ms', metric: 'summary.latency.p99', op: '<', value: 200, points: 2 },
+      {
+        id: 'err',
+        description: 'error rate < 1%',
+        metric: 'summary.errorRate',
+        op: '<',
+        value: 0.01
+      },
+      {
+        id: 'p99',
+        description: 'p99 < 200ms',
+        metric: 'summary.latency.p99',
+        op: '<',
+        value: 200,
+        points: 2
+      },
       { id: 'slo', description: 'no SLO breaches', metric: 'sloBreaches.count', op: '==', value: 0 }
     ]
   }
@@ -80,7 +99,9 @@ describe('gradeVerdict', () => {
   })
 
   it('fails a check whose metric cannot be resolved, with a detail note', () => {
-    const r: Rubric = { checks: [{ id: 'x', description: 'p99', metric: 'summary.latency.p99', op: '<', value: 100 }] }
+    const r: Rubric = {
+      checks: [{ id: 'x', description: 'p99', metric: 'summary.latency.p99', op: '<', value: 100 }]
+    }
     const result = gradeVerdict(r, verdict({ p99: null }))
     expect(result.checks[0].passed).toBe(false)
     expect(result.checks[0].actual).toBeNull()
@@ -105,7 +126,11 @@ describe('gradeBatch', () => {
       summary: { total: 2, succeeded: 1, failed: 1 }
     }
     const graded = gradeBatch(
-      { checks: [{ id: 'e', description: 'err<1%', metric: 'summary.errorRate', op: '<', value: 0.01 }] },
+      {
+        checks: [
+          { id: 'e', description: 'err<1%', metric: 'summary.errorRate', op: '<', value: 0.01 }
+        ]
+      },
       batch
     )
     expect(graded.cases[0]).toMatchObject({ id: 'ok', ran: true })

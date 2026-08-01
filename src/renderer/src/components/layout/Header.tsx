@@ -86,11 +86,7 @@ export const Header = memo(
           <div className="flex items-center gap-1">
             <IconButton onClick={onOpen} icon={<FolderOpen size={18} />} label="Open (Ctrl+O)" />
             <IconButton onClick={onSave} icon={<Save size={18} />} label="Save (Ctrl+S)" />
-            <IconButton
-              onClick={onAutoLayout}
-              icon={<Workflow size={18} />}
-              label="Auto Layout"
-            />
+            <IconButton onClick={onAutoLayout} icon={<Workflow size={18} />} label="Auto Layout" />
           </div>
 
           <Divider />
