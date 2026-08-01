@@ -4,6 +4,7 @@ import {
   GradedEvaluationBatchSchema,
   HostContractSchema,
   StructuralEvaluationSchema,
+  flattenAttemptCheckRows,
   type AttemptGrade,
   type HostContract,
   type QuestionPackage
@@ -56,14 +57,14 @@ export type QuestionEvaluationStatus =
   | 'invalid_submission'
   | 'evaluation_error'
 
-export type QuestionEvaluationTestKind = 'structural' | 'rubric' | 'execution'
+export type QuestionEvaluationTestKind = 'topology' | 'simulation' | 'invariant' | 'execution'
 
 export interface QuestionEvaluationTestResult {
   id: string
   name: string
   scope: string
   kind: QuestionEvaluationTestKind
-  status: 'passed' | 'failed'
+  status: 'passed' | 'failed' | 'skipped'
   pointsEarned: number
   pointsPossible: number
   detail?: string
@@ -79,8 +80,10 @@ export interface QuestionEvaluationSummary {
   totalTests: number
   passedTests: number
   failedTests: number
-  structuralFailures: number
-  rubricFailures: number
+  skippedTests: number
+  topologyFailures: number
+  simulationFailures: number
+  invariantFailures: number
   executionFailures: number
 }
 
@@ -170,86 +173,24 @@ export function buildScenarioEvaluationContract(
   }
 }
 
-function buildQuestionScore(pkg: QuestionPackage, grade: AttemptGrade): QuestionEvaluationScore {
-  const possible = pkg.suite.cases.reduce(
-    (sum) => sum + pkg.rubric.checks.reduce((caseSum, check) => caseSum + (check.points ?? 1), 0),
-    0
-  )
-  const earned = grade.graded.cases.reduce(
-    (sum, entry) => sum + (entry.rubric?.score.earned ?? 0),
-    0
-  )
-
-  return {
-    earned,
-    possible,
-    fraction: possible > 0 ? earned / possible : 1
-  }
-}
-
-function rubricFailureDetail(
-  detail: string | undefined,
-  actual: number | null,
-  metric: string,
-  op: string,
-  value: number
-): string | undefined {
-  if (detail) {
-    return detail
-  }
-
-  if (actual === null) {
-    return undefined
-  }
-
-  return `actual ${actual} does not satisfy ${metric} ${op} ${value}`
+function buildQuestionScore(
+  _question: QuestionPackage,
+  grade: AttemptGrade
+): QuestionEvaluationScore {
+  return grade.graded.score
 }
 
 function buildQuestionTests(grade: AttemptGrade): QuestionEvaluationTestResult[] {
-  const tests: QuestionEvaluationTestResult[] = grade.structural.checks.map((check) => ({
-    id: `structural:${check.id}`,
-    name: check.description,
-    scope: 'structure',
-    kind: 'structural',
-    status: check.passed ? 'passed' : 'failed',
-    pointsEarned: 0,
-    pointsPossible: 0,
-    ...(check.detail ? { detail: check.detail } : {})
+  return flattenAttemptCheckRows(grade).map((row) => ({
+    id: row.id,
+    name: row.name,
+    scope: row.scope,
+    kind: row.kind,
+    status: row.status,
+    pointsEarned: row.pointsEarned,
+    pointsPossible: row.pointsPossible,
+    ...(row.detail ? { detail: row.detail } : {})
   }))
-
-  for (const entry of grade.graded.cases) {
-    if (entry.rubric) {
-      for (const check of entry.rubric.checks) {
-        const detail = check.passed
-          ? check.detail
-          : rubricFailureDetail(check.detail, check.actual, check.metric, check.op, check.value)
-        tests.push({
-          id: `${entry.id}:${check.id}`,
-          name: check.description,
-          scope: entry.id,
-          kind: 'rubric',
-          status: check.passed ? 'passed' : 'failed',
-          pointsEarned: check.awarded,
-          pointsPossible: check.points,
-          ...(detail ? { detail } : {})
-        })
-      }
-      continue
-    }
-
-    tests.push({
-      id: `${entry.id}:did-not-run`,
-      name: `Case ${entry.id} could not run`,
-      scope: entry.id,
-      kind: 'execution',
-      status: 'failed',
-      pointsEarned: 0,
-      pointsPossible: 0,
-      ...(entry.error ? { detail: entry.error } : {})
-    })
-  }
-
-  return tests
 }
 
 function buildQuestionSummary(
@@ -259,11 +200,14 @@ function buildQuestionSummary(
   return {
     totalTests: tests.length,
     passedTests,
-    failedTests: tests.length - passedTests,
-    structuralFailures: tests.filter(
-      (test) => test.kind === 'structural' && test.status === 'failed'
+    failedTests: tests.filter((test) => test.status === 'failed').length,
+    skippedTests: tests.filter((test) => test.status === 'skipped').length,
+    topologyFailures: tests.filter((test) => test.kind === 'topology' && test.status === 'failed')
+      .length,
+    simulationFailures: tests.filter(
+      (test) => test.kind === 'simulation' && test.status === 'failed'
     ).length,
-    rubricFailures: tests.filter((test) => test.kind === 'rubric' && test.status === 'failed')
+    invariantFailures: tests.filter((test) => test.kind === 'invariant' && test.status === 'failed')
       .length,
     executionFailures: tests.filter((test) => test.kind === 'execution' && test.status === 'failed')
       .length
@@ -333,8 +277,10 @@ export function buildQuestionEvaluationErrorContract(options: {
       totalTests: 0,
       passedTests: 0,
       failedTests: 0,
-      structuralFailures: 0,
-      rubricFailures: 0,
+      skippedTests: 0,
+      topologyFailures: 0,
+      simulationFailures: 0,
+      invariantFailures: 0,
       executionFailures: 0
     },
     tests: [],
