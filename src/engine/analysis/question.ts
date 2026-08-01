@@ -30,6 +30,7 @@ import {
   type StructuralRule
 } from './structural'
 import { SIMULATION_VERDICT_VERSION, type SimulationVerdict } from './verdict'
+import { hostSafeToken, stableSerialize } from './stableHash'
 import {
   ComponentNodeSchema,
   EdgeDefinitionSchema,
@@ -220,43 +221,6 @@ export interface AttemptCheckRow {
   pointsEarned: number
   pointsPossible: number
   detail?: string
-}
-
-function stableSerialize(value: unknown): string {
-  if (Array.isArray(value)) {
-    return `[${value.map((entry) => stableSerialize(entry)).join(',')}]`
-  }
-
-  if (value && typeof value === 'object') {
-    const entries = Object.entries(value as Record<string, unknown>).sort(([a], [b]) =>
-      a.localeCompare(b)
-    )
-    return `{${entries
-      .map(([key, entryValue]) => `${JSON.stringify(key)}:${stableSerialize(entryValue)}`)
-      .join(',')}}`
-  }
-
-  return JSON.stringify(value)
-}
-
-function stableHashToken(value: string): string {
-  let hash = 0x811c9dc5
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index)
-    hash = Math.imul(hash, 0x01000193)
-  }
-
-  return (hash >>> 0).toString(36)
-}
-
-function hostSafeToken(value: string): string {
-  const slug = value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-
-  return `${slug || 'item'}-${stableHashToken(value)}`
 }
 
 export function structuralTestId(structuralId: string): string {
