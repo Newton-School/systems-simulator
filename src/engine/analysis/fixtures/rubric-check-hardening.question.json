@@ -1,0 +1,97 @@
+{
+  "version": "1.0",
+  "id": "rubric-check-hardening-fixture",
+  "title": "Fixture: grading-contract hardening",
+  "description": "Authored fixture covering topology, simulation, and invariant rubric kinds.",
+  "difficulty": "intermediate",
+  "type": "open-build",
+  "prompt": {
+    "text": "Build a simple request path that stays healthy under baseline and peak load.",
+    "functionalRequirements": [
+      "Accept client requests",
+      "Route traffic to an application service"
+    ],
+    "nonFunctionalRequirements": [
+      {
+        "metric": "error_rate",
+        "operator": "<",
+        "value": 10,
+        "unit": "percent",
+        "description": "Keep error rate below 10%"
+      }
+    ],
+    "scale": {
+      "peakRps": 150
+    }
+  },
+  "scaffold": {
+    "type": "empty"
+  },
+  "constraints": {
+    "canModifyScaffold": true,
+    "canRemoveScaffoldNodes": true
+  },
+  "suite": {
+    "name": "rubric-check-hardening-suite",
+    "visibleToStudent": false,
+    "cases": [
+      {
+        "id": "baseline",
+        "description": "Nominal load."
+      },
+      {
+        "id": "peak",
+        "description": "Higher request rate with a fresh seed.",
+        "global": {
+          "seed": "rubric-check-hardening-peak"
+        },
+        "workload": {
+          "baseRps": 150
+        }
+      }
+    ]
+  },
+  "rubric": {
+    "id": "rubric-check-hardening",
+    "passThreshold": 1,
+    "checks": [
+      {
+        "id": "single-source",
+        "kind": "topology",
+        "description": "Exactly one request source",
+        "metric": "topology.sourceCount",
+        "op": "==",
+        "value": 1,
+        "points": 1
+      },
+      {
+        "id": "needs-service",
+        "kind": "topology",
+        "description": "Includes at least one microservice",
+        "metric": "topology.componentCounts.microservice",
+        "op": ">=",
+        "value": 1,
+        "points": 1
+      },
+      {
+        "id": "error-rate",
+        "kind": "simulation",
+        "description": "Error rate under 10%",
+        "metric": "summary.errorRate",
+        "op": "<",
+        "value": 0.1,
+        "points": 2
+      },
+      {
+        "id": "no-invariants",
+        "kind": "invariant",
+        "description": "No invariant violations",
+        "metric": "invariantViolations.count",
+        "op": "==",
+        "value": 0,
+        "points": 1
+      }
+    ]
+  },
+  "author": "Codex"
+}
