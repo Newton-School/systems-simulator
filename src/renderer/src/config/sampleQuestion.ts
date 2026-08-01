@@ -26,6 +26,38 @@ export const SAMPLE_QUESTION: QuestionPackage = {
   },
   scaffold: { type: 'empty' },
   constraints: { canModifyScaffold: true, canRemoveScaffoldNodes: true },
+  structuralRules: [
+    {
+      id: 'single-source',
+      description: 'Use exactly one request-entry source node.',
+      kind: 'requires_single_source'
+    },
+    {
+      id: 'need-gateway',
+      description: 'Include an API gateway entry point.',
+      kind: 'requires_component',
+      componentType: 'api-gateway'
+    },
+    {
+      id: 'need-service',
+      description: 'Include at least one application service.',
+      kind: 'requires_component',
+      componentType: 'microservice'
+    },
+    {
+      id: 'need-db',
+      description: 'Persist orders in a relational database.',
+      kind: 'requires_component',
+      componentType: 'relational-db'
+    },
+    {
+      id: 'gateway-to-db',
+      description: 'Gateway traffic must reach durable storage.',
+      kind: 'requires_path',
+      fromType: 'api-gateway',
+      toType: 'relational-db'
+    }
+  ],
   suite: {
     name: 'order-platform-grading',
     visibleToStudent: false,
