@@ -38,8 +38,6 @@ interface HeaderProps {
   scenario: ScenarioState
   onScenarioChange: (updater: (current: ScenarioState) => ScenarioState) => void
   simulationDisabled?: boolean
-  savedSeeds: string[]
-  onSaveSeed: (seed: string) => void
 }
 
 export const Header = memo(
@@ -65,13 +63,8 @@ export const Header = memo(
     faultTargets,
     scenario,
     onScenarioChange,
-    simulationDisabled,
-    savedSeeds,
-    onSaveSeed
+    simulationDisabled
   }: HeaderProps) => {
-    const currentSeed = scenario.global.seed
-    const isSeedSaved = currentSeed === 'default-seed' || savedSeeds.includes(currentSeed)
-
     return (
       <header className="h-12 bg-nss-panel text-nss-text flex items-center justify-between px-4 shrink-0 border-b border-nss-border transition-colors duration-200 overflow-visible">
         {/* LEFT: Branding & left sidebar toggle */}
@@ -86,29 +79,18 @@ export const Header = memo(
           />
         </div>
 
-        <div className="flex items-center gap-2">
+        {/* CENTER: File status + simulation controls */}
+        <div className="flex items-center gap-3">
           <FileStatus fileName={fileName} isUnsaved={isUnsaved} />
-          <button
-            onClick={() => !isSeedSaved && onSaveSeed(currentSeed)}
-            title={
-              isSeedSaved ? `Seed "${currentSeed}" already saved` : `Save seed "${currentSeed}"`
-            }
-            className={`
-              h-7 px-2.5 flex items-center gap-1.5 rounded border text-xs font-sans transition-colors select-none
-              ${
-                isSeedSaved
-                  ? 'border-nss-primary/40 bg-nss-primary/10 text-nss-primary cursor-default'
-                  : 'border-nss-border bg-nss-bg text-nss-muted hover:border-nss-primary hover:text-nss-primary cursor-pointer'
-              }
-            `}
-          >
-            {isSeedSaved ? 'Existing Seed' : 'Save Seed'}
-          </button>
 
           <div className="flex items-center gap-1">
             <IconButton onClick={onOpen} icon={<FolderOpen size={18} />} label="Open (Ctrl+O)" />
             <IconButton onClick={onSave} icon={<Save size={18} />} label="Save (Ctrl+S)" />
-            <IconButton onClick={onAutoLayout} icon={<Workflow size={18} />} label="Auto Layout" />
+            <IconButton
+              onClick={onAutoLayout}
+              icon={<Workflow size={18} />}
+              label="Auto Layout"
+            />
           </div>
 
           <Divider />
@@ -127,8 +109,6 @@ export const Header = memo(
             scenario={scenario}
             onScenarioChange={onScenarioChange}
             disabled={simulationDisabled}
-            savedSeeds={savedSeeds}
-            onSaveSeed={onSaveSeed}
           />
         </div>
 
