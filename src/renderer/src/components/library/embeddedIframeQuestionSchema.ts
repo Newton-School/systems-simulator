@@ -1,3 +1,10 @@
+import {
+  parseAttemptState,
+  parseQuestionPackage,
+  type AttemptState,
+  type QuestionPackage
+} from '../../../../engine/analysis/question'
+
 export interface EmbeddedIframeQuestion {
   type: 'embedded-iframe'
   title?: string
@@ -5,8 +12,9 @@ export interface EmbeddedIframeQuestion {
   url: string
   height?: number
   allowFullscreen?: boolean
-  launchParameters?: Record<string, unknown>
   allowedOrigins?: string[]
+  questionPackage?: QuestionPackage
+  priorAttempt?: AttemptState
 }
 
 export function parseEmbeddedIframeQuestion(input: string): {
@@ -19,7 +27,10 @@ export function parseEmbeddedIframeQuestion(input: string): {
   }
 
   try {
-    const parsed = JSON.parse(trimmed) as Partial<EmbeddedIframeQuestion>
+    const parsed = JSON.parse(trimmed) as Partial<EmbeddedIframeQuestion> & {
+      questionPackage?: unknown
+      priorAttempt?: unknown
+    }
     if (parsed.type !== 'embedded-iframe') {
       return { question: null, error: null }
     }
@@ -39,6 +50,31 @@ export function parseEmbeddedIframeQuestion(input: string): {
       return { question: null, error: 'Embedded iframe question url must use http or https.' }
     }
 
+    let questionPackage: QuestionPackage | undefined
+    let priorAttempt: AttemptState | undefined
+    try {
+      questionPackage =
+        parsed.questionPackage !== undefined
+          ? parseQuestionPackage(parsed.questionPackage)
+          : undefined
+      priorAttempt =
+        parsed.priorAttempt !== undefined && questionPackage
+          ? parseAttemptState(parsed.priorAttempt, questionPackage.id)
+          : undefined
+    } catch (error) {
+      return {
+        question: null,
+        error: (error as Error).message
+      }
+    }
+
+    if (parsed.priorAttempt !== undefined && !questionPackage) {
+      return {
+        question: null,
+        error: 'Embedded iframe priorAttempt requires a questionPackage.'
+      }
+    }
+
     return {
       question: {
         type: 'embedded-iframe',
@@ -50,15 +86,13 @@ export function parseEmbeddedIframeQuestion(input: string): {
             ? parsed.height
             : 420,
         allowFullscreen: parsed.allowFullscreen !== false,
-        launchParameters:
-          parsed.launchParameters && typeof parsed.launchParameters === 'object'
-            ? parsed.launchParameters
-            : {},
         allowedOrigins:
           Array.isArray(parsed.allowedOrigins) &&
           parsed.allowedOrigins.every((item) => typeof item === 'string')
             ? parsed.allowedOrigins
-            : [origin.origin]
+            : [origin.origin],
+        ...(questionPackage ? { questionPackage } : {}),
+        ...(priorAttempt ? { priorAttempt } : {})
       },
       error: null
     }

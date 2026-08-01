@@ -10,14 +10,18 @@ import { useConfirmDialog } from '@renderer/hooks/useConfirmDialog'
 import { useSimulation } from '@renderer/hooks/useSimulation'
 import { useTopologySerializer } from '@renderer/hooks/useTopologySerializer'
 import {
-  isQuestionLaunchContextMessage,
+  loadPersistedAttemptState,
+  persistAttemptState
+} from '@renderer/utils/questionAttemptPersistence'
+import {
+  parseQuestionLaunchContextMessage,
   postQuestionHostMessage
 } from '@renderer/utils/questionHostMessaging'
 import { applyAutoLayout } from '@renderer/utils/autoLayout'
 import { validateTopology } from '../../../../engine/validation/validator'
 import type { LatencyPercentiles } from '../../../../engine/metrics'
 import type { TimeSeriesSnapshot } from '../../../../engine/analysis/output'
-import type { AttemptState } from '../../../../engine/analysis/question'
+import { createAttemptState } from '../../../../engine/analysis/question'
 import type { ValidationError } from '../../../../engine/validation/validator'
 import {
   hasWorkloadSourceConfig,
@@ -134,20 +138,6 @@ function PanelFallback({ label }: { label: string }) {
       {label}
     </div>
   )
-}
-
-function buildDraftAttempt(questionId: string, topology: AttemptState['topology']): AttemptState {
-  const now = new Date().toISOString()
-
-  return {
-    attemptId: globalThis.crypto?.randomUUID?.() ?? `attempt-${Date.now()}`,
-    questionId,
-    topology,
-    status: 'DRAFT',
-    startedAt: now,
-    lastSavedAt: now,
-    testRunCount: 0
-  }
 }
 
 function roundNullable(value: number | null): number | null {
@@ -321,6 +311,8 @@ export const WorkspaceLayout = () => {
   const setSimulationMetrics = useStore((s) => s.setSimulationMetrics)
   const clearSimulationMetrics = useStore((s) => s.clearSimulationMetrics)
   const selectGraphElements = useStore((s) => s.selectGraphElements)
+  const activeQuestion = useStore((s) => s.activeQuestion)
+  const attemptState = useStore((s) => s.attemptState)
   const setActiveQuestion = useStore((s) => s.setActiveQuestion)
   const setAttemptState = useStore((s) => s.setAttemptState)
   const requestViewportFit = useStore((s) => s.requestViewportFit)
@@ -341,6 +333,21 @@ export const WorkspaceLayout = () => {
   )
 
   const { handleSave, handleOpen, loadFromData } = useFlowPersistence(confirmDiscardChanges)
+
+  const clearQuestionSession = useCallback(() => {
+    setActiveQuestion(null)
+    setAttemptState(null)
+    setLeftSidebarTab('library')
+  }, [setActiveQuestion, setAttemptState])
+
+  const handleOpenTopology = useCallback(async () => {
+    const loaded = await handleOpen()
+    if (!loaded) {
+      return
+    }
+
+    clearQuestionSession()
+  }, [clearQuestionSession, handleOpen])
 
   const selectedNodeId = nodes.find((n) => n.selected)?.id
   const selectedEdgeId = edges.find((e) => e.selected)?.id
@@ -417,14 +424,25 @@ export const WorkspaceLayout = () => {
   }, [])
 
   useEffect(() => {
+    if (!activeQuestion || !attemptState || attemptState.questionId !== activeQuestion.id) {
+      return
+    }
+
+    persistAttemptState(attemptState)
+  }, [activeQuestion, attemptState])
+
+  useEffect(() => {
     const onMessage = (event: MessageEvent<unknown>) => {
-      if (!isQuestionLaunchContextMessage(event.data)) {
+      const launchContext = parseQuestionLaunchContextMessage(event.data)
+      if (!launchContext) {
         return
       }
-      const { questionPackage, priorAttempt } = event.data.payload
+      const { questionPackage, priorAttempt } = launchContext.payload
 
       void (async () => {
-        const topologyToLoad = priorAttempt?.topology ?? questionPackage.scaffold.topology
+        const restoredAttempt =
+          priorAttempt ?? loadPersistedAttemptState(questionPackage.id, new Date().toISOString())
+        const topologyToLoad = restoredAttempt?.topology ?? questionPackage.scaffold.topology
         const launchData =
           topologyToLoad ??
           ({
@@ -455,7 +473,13 @@ export const WorkspaceLayout = () => {
         setIsLeftOpen(true)
         setActiveQuestion(questionPackage)
         setAttemptState(
-          priorAttempt ?? (topologyToLoad ? buildDraftAttempt(questionPackage.id, topologyToLoad) : null)
+          restoredAttempt ??
+            (topologyToLoad
+              ? createAttemptState({
+                  questionId: questionPackage.id,
+                  topology: topologyToLoad
+                })
+              : null)
         )
       })()
     }
@@ -492,6 +516,7 @@ export const WorkspaceLayout = () => {
         return
       }
 
+      clearQuestionSession()
       sim.reset()
       clearSimulationMetrics()
       setShowResults(false)
@@ -501,7 +526,14 @@ export const WorkspaceLayout = () => {
       selectGraphElements({})
       setIsRightOpen(false)
     },
-    [clearSimulationMetrics, loadFromData, selectGraphElements, setRoutingVisualization, sim]
+    [
+      clearQuestionSession,
+      clearSimulationMetrics,
+      loadFromData,
+      selectGraphElements,
+      setRoutingVisualization,
+      sim
+    ]
   )
 
   const handleAutoLayout = useCallback(() => {
@@ -661,6 +693,7 @@ export const WorkspaceLayout = () => {
       const loaded = await loadFromData(sample.raw, `${sample.id}.json`)
       if (!loaded) return
 
+      clearQuestionSession()
       sim.reset()
       clearSimulationMetrics()
       setShowResults(false)
@@ -668,7 +701,7 @@ export const WorkspaceLayout = () => {
       setRunIssues({ messages: [], tone: 'warning' })
       setShowSamples(false)
     },
-    [clearSimulationMetrics, loadFromData, sim]
+    [clearQuestionSession, clearSimulationMetrics, loadFromData, sim]
   )
 
   const isRunning = sim.status === 'running'
@@ -714,7 +747,7 @@ export const WorkspaceLayout = () => {
         isLeftOpen={isLeftOpen}
         isRightOpen={isRightOpen}
         onSave={handleSave}
-        onOpen={handleOpen}
+        onOpen={handleOpenTopology}
         onAutoLayout={handleAutoLayout}
         fileName={fileName}
         isUnsaved={isUnsaved}

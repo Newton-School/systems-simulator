@@ -1,4 +1,6 @@
-import type {
+import {
+  parseAttemptState,
+  parseQuestionPackage,
   AttemptState,
   HostContract,
   QuestionPackage
@@ -42,20 +44,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
 }
 
-function isQuestionPackage(value: unknown): value is QuestionPackage {
-  return (
-    isRecord(value) &&
-    typeof value.id === 'string' &&
-    typeof value.title === 'string' &&
-    typeof value.type === 'string' &&
-    isRecord(value.prompt) &&
-    isRecord(value.scaffold) &&
-    isRecord(value.constraints) &&
-    isRecord(value.suite) &&
-    isRecord(value.rubric)
-  )
-}
-
 function getHostTargetOrigin(): string {
   try {
     return document.referrer ? new URL(document.referrer).origin : '*'
@@ -64,14 +52,39 @@ function getHostTargetOrigin(): string {
   }
 }
 
+export function parseQuestionLaunchContextMessage(
+  value: unknown
+): QuestionLaunchContextMessage | null {
+  if (!isRecord(value) || value.type !== 'ns-simulator:launch-context' || !isRecord(value.payload)) {
+    return null
+  }
+
+  try {
+    const questionPackage = parseQuestionPackage(value.payload.questionPackage)
+    const priorAttempt =
+      value.payload.priorAttempt === undefined
+        ? undefined
+        : parseAttemptState(value.payload.priorAttempt, questionPackage.id)
+
+    return {
+      type: 'ns-simulator:launch-context',
+      payload: {
+        questionPackage,
+        ...(priorAttempt ? { priorAttempt } : {}),
+        ...(value.payload.environmentProfile !== undefined
+          ? { environmentProfile: value.payload.environmentProfile }
+          : {})
+      }
+    }
+  } catch {
+    return null
+  }
+}
+
 export function isQuestionLaunchContextMessage(
   value: unknown
 ): value is QuestionLaunchContextMessage {
-  if (!isRecord(value) || value.type !== 'ns-simulator:launch-context' || !isRecord(value.payload)) {
-    return false
-  }
-
-  return isQuestionPackage(value.payload.questionPackage)
+  return parseQuestionLaunchContextMessage(value) !== null
 }
 
 export function postQuestionHostMessage(message: QuestionHostOutboundMessage): void {
