@@ -14,7 +14,9 @@ import {
   recordSubmittedGrade,
   resolveVisibleAttemptGrade,
   resolveVisibleAttemptStatus,
-  recoverAttemptAfterGradingError,
+  recoverAttemptAfterGradingError
+} from '../../../../engine/analysis/question'
+import type {
   AttemptGrade,
   AttemptStatus,
   QuestionPackage

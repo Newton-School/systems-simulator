@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createAttemptState, markAttemptGrading } from '../../../engine/analysis/question'
 import type { TopologyJSON } from '../../../engine/core/types'
 import {
@@ -92,5 +92,21 @@ describe('questionAttemptPersistence', () => {
     expect(localStorage.getItem('ns-simulator.question-attempt.v1:q1')).toBeNull()
 
     clearPersistedAttemptState('q1')
+  })
+
+  it('swallows storage write failures because persistence is best-effort', () => {
+    const attempt = createAttemptState({
+      questionId: 'q1',
+      topology: topology(),
+      now: '2026-08-01T00:00:00.000Z',
+      attemptId: 'attempt-1'
+    })
+    const setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('Quota exceeded', 'QuotaExceededError')
+    })
+
+    expect(() => persistAttemptState(attempt)).not.toThrow()
+
+    setItem.mockRestore()
   })
 })

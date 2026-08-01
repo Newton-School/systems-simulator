@@ -24,7 +24,11 @@ export function persistAttemptState(attempt: AttemptState): void {
     return
   }
 
-  storage.setItem(attemptStorageKey(attempt.questionId), JSON.stringify(attempt))
+  try {
+    storage.setItem(attemptStorageKey(attempt.questionId), JSON.stringify(attempt))
+  } catch {
+    // Best-effort persistence should never crash question mode.
+  }
 }
 
 export function loadPersistedAttemptState(questionId: string, now?: string): AttemptState | null {

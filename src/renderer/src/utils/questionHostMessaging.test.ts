@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { createAttemptState } from '../../../engine/analysis/question'
 import type { TopologyJSON } from '../../../engine/core/types'
-import { parseQuestionLaunchContextMessage } from './questionHostMessaging'
+import {
+  parseQuestionHostOutboundMessage,
+  parseQuestionLaunchContextMessage
+} from './questionHostMessaging'
 
 function topology(): TopologyJSON {
   return {
@@ -125,6 +128,44 @@ describe('parseQuestionLaunchContextMessage', () => {
         payload: {
           questionPackage: questionPackage(),
           priorAttempt: { ...legacyAttempt, questionId: 'other-question' }
+        }
+      })
+    ).toBeNull()
+  })
+})
+
+describe('parseQuestionHostOutboundMessage', () => {
+  it('parses valid submit payloads and rejects malformed ones', () => {
+    const attemptState = createAttemptState({
+      questionId: 'q1',
+      topology: topology(),
+      attemptId: 'attempt-1',
+      now: '2026-08-01T00:00:00.000Z'
+    })
+
+    const parsed = parseQuestionHostOutboundMessage(
+      {
+        type: 'ns-simulator:submit',
+        payload: {
+          contract: {
+            tests: [{ id: 'baseline:err', name: 'error rate < 10%', passed: true }],
+            totalTests: 1,
+            passedTests: 1,
+            allPassed: true
+          },
+          attemptState
+        }
+      },
+      'q1'
+    )
+
+    expect(parsed?.type).toBe('ns-simulator:submit')
+
+    expect(
+      parseQuestionHostOutboundMessage({
+        type: 'ns-simulator:submit',
+        payload: {
+          contract: { totalTests: 1 }
         }
       })
     ).toBeNull()

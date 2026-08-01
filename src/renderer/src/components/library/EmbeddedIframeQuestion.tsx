@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { EmbeddedIframeQuestion } from './embeddedIframeQuestionSchema'
 import { buildQuestionTestRows, type AttemptState } from '../../../../engine/analysis/question'
-import type { QuestionHostOutboundMessage } from '@renderer/utils/questionHostMessaging'
+import { parseQuestionHostOutboundMessage } from '@renderer/utils/questionHostMessaging'
 
 type FrameStatus = 'idle' | 'loading' | 'ready' | 'error'
 
@@ -51,7 +51,11 @@ export function EmbeddedIframeQuestionPreview({ question }: { question: Embedded
         return
       }
 
-      const message = event.data as QuestionHostOutboundMessage
+      const message = parseQuestionHostOutboundMessage(event.data, question.questionPackage?.id)
+      if (!message) {
+        return
+      }
+
       const type = message.type
       if (type === 'ns-simulator:ready') {
         window.clearTimeout(timeout)

@@ -1,10 +1,5 @@
-import {
-  parseAttemptState,
-  parseQuestionPackage,
-  AttemptState,
-  HostContract,
-  QuestionPackage
-} from '../../../engine/analysis/question'
+import { parseAttemptState, parseQuestionPackage } from '../../../engine/analysis/question'
+import type { AttemptState, HostContract, QuestionPackage } from '../../../engine/analysis/question'
 
 export interface QuestionLaunchContextPayload {
   questionPackage: QuestionPackage
@@ -42,6 +37,26 @@ export type QuestionHostOutboundMessage =
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
+}
+
+function isHostContract(value: unknown): value is HostContract {
+  if (!isRecord(value) || !Array.isArray(value.tests)) {
+    return false
+  }
+
+  return (
+    typeof value.totalTests === 'number' &&
+    typeof value.passedTests === 'number' &&
+    typeof value.allPassed === 'boolean' &&
+    value.tests.every(
+      (test) =>
+        isRecord(test) &&
+        typeof test.id === 'string' &&
+        typeof test.name === 'string' &&
+        typeof test.passed === 'boolean' &&
+        (test.detail === undefined || typeof test.detail === 'string')
+    )
+  )
 }
 
 function getHostTargetOrigin(): string {
@@ -89,6 +104,46 @@ export function isQuestionLaunchContextMessage(
   value: unknown
 ): value is QuestionLaunchContextMessage {
   return parseQuestionLaunchContextMessage(value) !== null
+}
+
+export function parseQuestionHostOutboundMessage(
+  value: unknown,
+  expectedQuestionId?: string
+): QuestionHostOutboundMessage | null {
+  if (!isRecord(value) || typeof value.type !== 'string') {
+    return null
+  }
+
+  if (value.type === 'ns-simulator:ready') {
+    return { type: 'ns-simulator:ready' }
+  }
+
+  if (value.type === 'ns-simulator:error') {
+    return typeof value.message === 'string'
+      ? { type: 'ns-simulator:error', message: value.message }
+      : null
+  }
+
+  if (value.type !== 'ns-simulator:submit' || !isRecord(value.payload)) {
+    return null
+  }
+
+  if (!isHostContract(value.payload.contract)) {
+    return null
+  }
+
+  try {
+    const attemptState = parseAttemptState(value.payload.attemptState, expectedQuestionId)
+    return {
+      type: 'ns-simulator:submit',
+      payload: {
+        contract: value.payload.contract,
+        attemptState
+      }
+    }
+  } catch {
+    return null
+  }
 }
 
 export function postQuestionHostMessage(message: QuestionHostOutboundMessage): void {
