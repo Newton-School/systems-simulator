@@ -316,6 +316,7 @@ export const WorkspaceLayout = () => {
   const selectGraphElements = useStore((s) => s.selectGraphElements)
   const activeQuestion = useStore((s) => s.activeQuestion)
   const attemptState = useStore((s) => s.attemptState)
+  const environmentProfile = useStore((s) => s.environmentProfile)
   const setActiveQuestion = useStore((s) => s.setActiveQuestion)
   const setAttemptState = useStore((s) => s.setAttemptState)
   const setEnvironmentProfile = useStore((s) => s.setEnvironmentProfile)
@@ -780,6 +781,7 @@ export const WorkspaceLayout = () => {
         faultTargets={faultTargets}
         scenario={scenario}
         onScenarioChange={updateScenario}
+        minimal={environmentProfile.chromeDensity === 'minimal'}
       />
 
       {runIssues.messages.length > 0 && (
