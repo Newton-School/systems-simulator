@@ -1,5 +1,5 @@
 import { SimulationEngine } from '../engine'
-import { gradeAttempt } from '../analysis/question'
+import { gradeAttemptWithArtifacts } from '../analysis/question'
 import type { EdgeFlowEvent } from '../core/events'
 import type { SimulationOutput, TimeSeriesSnapshot } from '../analysis/output'
 import type { RequestOutcomeRecord } from '../core/event-stream'
@@ -208,10 +208,12 @@ self.onmessage = (event: MessageEvent<WorkerInboundMessage>) => {
       // Runs the whole question suite synchronously inside the worker — blocks the
       // worker thread (not the main thread), no live telemetry, then returns the grade.
       try {
-        const grade = gradeAttempt(msg.payload.question, msg.payload.topology, (topology) =>
-          new SimulationEngine(topology).run()
+        const { grade, cases } = gradeAttemptWithArtifacts(
+          msg.payload.question,
+          msg.payload.topology,
+          (topology) => new SimulationEngine(topology).run()
         )
-        post({ type: 'grade-complete', payload: { grade } })
+        post({ type: 'grade-complete', payload: { grade, cases } })
       } catch (err) {
         const e = err as Error
         post({ type: 'error', payload: { message: e.message, stack: e.stack } })

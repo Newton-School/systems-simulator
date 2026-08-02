@@ -4,10 +4,13 @@ import { useTopologySerializer } from '@renderer/hooks/useTopologySerializer'
 import { useQuestionGrader } from '@renderer/hooks/useQuestionGrader'
 import { SAMPLE_QUESTION } from '@renderer/config/sampleQuestion'
 import { postQuestionHostMessage } from '@renderer/utils/questionHostMessaging'
+import { archiveSubmission, listArchivedSubmissionIds } from '@renderer/utils/submissionArchive'
 import {
   buildGamePlaygroundResult,
   buildGamePlaygroundSubmitPayload
 } from '../../../../engine/analysis/gamePlayground'
+import { buildQuestionEvaluationContract } from '../../../../engine/analysis/evaluationContract'
+import { buildEvaluationEnvelope } from '../../../../engine/analysis/evaluationEnvelope'
 import {
   autosaveAttempt,
   buildQuestionTestRows,
@@ -86,6 +89,7 @@ export const QuestionPanel = () => {
   const {
     status: graderStatus,
     grade: graderGrade,
+    runs: graderRuns,
     error: graderError,
     grade_: gradeQuestion,
     reset: resetGrader
@@ -93,6 +97,12 @@ export const QuestionPanel = () => {
   const [serializeError, setSerializeError] = useState<string | null>(null)
   const [pendingRun, setPendingRun] = useState<PendingRun | null>(null)
   const [panelView, setPanelView] = useState<QuestionPanelView>('brief')
+  const [archivedCount, setArchivedCount] = useState(0)
+  const activeQuestionId = activeQuestion?.id
+
+  useEffect(() => {
+    setArchivedCount(activeQuestionId ? listArchivedSubmissionIds(activeQuestionId).length : 0)
+  }, [activeQuestionId])
 
   useEffect(() => {
     resetGrader()
@@ -153,6 +163,33 @@ export const QuestionPanel = () => {
         })
 
         setAttemptState(completedAttempt)
+
+        // Seal the submission into an immutable, tamper-evident envelope and
+        // archive it. Best-effort: archiving must never block the submit/host
+        // handshake, so failures are swallowed after logging.
+        try {
+          const submissionId = `${completedAttempt.attemptId}:${completedAttempt.submittedAt ?? now}`
+          const contract = buildQuestionEvaluationContract(
+            activeQuestion,
+            pendingRun.topology,
+            graderGrade,
+            { attemptId: completedAttempt.attemptId, submissionId, evaluatedAt: now }
+          )
+          const envelope = buildEvaluationEnvelope({
+            submissionId,
+            attemptId: completedAttempt.attemptId,
+            submittedAt: completedAttempt.submittedAt ?? now,
+            evaluatedAt: now,
+            topologySnapshot: pendingRun.topology,
+            cases: graderRuns ?? [],
+            contract
+          })
+          archiveSubmission(envelope)
+          setArchivedCount(listArchivedSubmissionIds(activeQuestion.id).length)
+        } catch (err) {
+          console.error('Failed to archive submission envelope', err)
+        }
+
         postQuestionHostMessage({
           type: 'ns-simulator:submit',
           payload: buildGamePlaygroundSubmitPayload(
@@ -172,7 +209,15 @@ export const QuestionPanel = () => {
       setAttemptState(recoverAttemptAfterGradingError(attemptState, now))
       setPendingRun(null)
     }
-  }, [activeQuestion, attemptState, graderGrade, graderStatus, pendingRun, setAttemptState])
+  }, [
+    activeQuestion,
+    attemptState,
+    graderGrade,
+    graderRuns,
+    graderStatus,
+    pendingRun,
+    setAttemptState
+  ])
 
   if (!activeQuestion) {
     return (
@@ -308,6 +353,11 @@ export const QuestionPanel = () => {
           {attemptState?.submittedAt && (
             <span className="text-[10px] uppercase tracking-wide text-nss-muted">
               Submitted {new Date(attemptState.submittedAt).toLocaleDateString()}
+            </span>
+          )}
+          {archivedCount > 0 && (
+            <span className="text-[10px] uppercase tracking-wide text-nss-muted">
+              Archived: {archivedCount}
             </span>
           )}
         </div>

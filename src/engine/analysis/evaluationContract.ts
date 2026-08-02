@@ -420,7 +420,12 @@ export const ScenarioEvaluationContractSchema: z.ZodType<ScenarioEvaluationContr
     }
   })
 
-const QuestionEvaluationTestKindSchema = z.enum(['topology', 'simulation', 'invariant', 'execution'])
+const QuestionEvaluationTestKindSchema = z.enum([
+  'topology',
+  'simulation',
+  'invariant',
+  'execution'
+])
 const QuestionEvaluationTestStatusSchema = z.enum(['passed', 'failed', 'skipped'])
 
 export const QuestionEvaluationTestResultSchema: z.ZodType<QuestionEvaluationTestResult> = z
@@ -610,9 +615,15 @@ const SuccessfulQuestionEvaluationContractSchema = QuestionEvaluationContractBas
   score: QuestionEvaluationScoreSchema,
   summary: QuestionEvaluationSummarySchema,
   tests: z.array(QuestionEvaluationTestResultSchema),
-  host: HostContractSchema,
-  structural: StructuralEvaluationSchema,
-  graded: GradedEvaluationBatchSchema
+  // z.lazy defers reading these cross-module schemas until parse time, so the
+  // question <-> evaluationContract module cycle can initialize in any order
+  // without a temporal-dead-zone ReferenceError. The casts restore the concrete
+  // schema output types that z.lazy would otherwise widen.
+  host: z.lazy(() => HostContractSchema) as unknown as typeof HostContractSchema,
+  structural: z.lazy(
+    () => StructuralEvaluationSchema
+  ) as unknown as typeof StructuralEvaluationSchema,
+  graded: z.lazy(() => GradedEvaluationBatchSchema) as unknown as typeof GradedEvaluationBatchSchema
 }).superRefine((value, ctx) => {
   validateQuestionSummary(value.tests, value.summary, ctx)
   validateHostAlignment(value.tests, value.host, ctx)
@@ -640,7 +651,7 @@ const FailedQuestionEvaluationContractSchema = QuestionEvaluationContractBaseSch
   score: QuestionEvaluationScoreSchema,
   summary: QuestionEvaluationSummarySchema,
   tests: z.array(QuestionEvaluationTestResultSchema),
-  host: HostContractSchema,
+  host: z.lazy(() => HostContractSchema) as unknown as typeof HostContractSchema,
   error: QuestionEvaluationErrorSchema
 }).superRefine((value, ctx) => {
   if (value.tests.length !== 0) {

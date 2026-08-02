@@ -5,6 +5,7 @@ import {
   buildQuestionTestRows,
   caseRubricTestId,
   gradeAttempt,
+  gradeAttemptWithArtifacts,
   isAttemptCurrentForTopology,
   resolveVisibleAttemptGrade,
   resolveVisibleAttemptStatus,
@@ -369,5 +370,64 @@ describe('attempt visibility helpers', () => {
     expect(isAttemptCurrentForTopology(attempt, changedTopology)).toBe(false)
     expect(resolveVisibleAttemptGrade(attempt, changedTopology)).toBeNull()
     expect(resolveVisibleAttemptStatus(attempt, changedTopology)).toBe('DRAFT')
+  })
+})
+
+function fakeOutputWithEvents(errorRate: number): SimulationOutput {
+  return {
+    ...fakeOutput(errorRate),
+    eventStream: [
+      {
+        sequence: 0,
+        timestampUs: '0',
+        type: 'request-arrived',
+        priority: 0,
+        requestId: 'r1',
+        payload: {}
+      },
+      {
+        sequence: 1,
+        timestampUs: '5',
+        type: 'request-completed',
+        priority: 0,
+        requestId: 'r1',
+        payload: {}
+      }
+    ]
+  } as unknown as SimulationOutput
+}
+
+describe('gradeAttemptWithArtifacts', () => {
+  it('returns the same grade as gradeAttempt plus per-case verdict and replay digest', () => {
+    const run = () => fakeOutputWithEvents(0.01)
+    const { grade, cases } = gradeAttemptWithArtifacts(pkg, studentTopology(), run)
+
+    // Grade parity: the thin wrapper must not diverge from the artifact path.
+    expect(grade).toEqual(gradeAttempt(pkg, studentTopology(), run))
+
+    // One artifact per suite case, each with a verdict and a bounded digest.
+    expect(cases.map((c) => c.caseId)).toEqual(['baseline', 'peak'])
+    for (const entry of cases) {
+      expect(entry.executionStatus).toBe('completed')
+      expect(entry.verdict?.version).toBe('1.0')
+      expect(entry.replayDigest?.lifecycleCount).toBe(1)
+      expect(entry.replayDigest?.terminalStatusCounts.success).toBe(1)
+      expect(entry.replayDigest?.eventStreamChecksum).toMatch(/^[0-9a-f]{32}$/)
+    }
+  })
+
+  it('omits verdict and digest for a case that could not run', () => {
+    const { cases } = gradeAttemptWithArtifacts(pkg, studentTopology(), (t) => {
+      if ((t.global as { seed: string }).seed === 'peak-seed') throw new Error('boom')
+      return fakeOutputWithEvents(0.01)
+    })
+
+    const baseline = cases.find((c) => c.caseId === 'baseline')
+    const peak = cases.find((c) => c.caseId === 'peak')
+    expect(baseline?.verdict).toBeDefined()
+    expect(baseline?.replayDigest).toBeDefined()
+    expect(peak?.executionStatus).toBe('failed')
+    expect(peak?.verdict).toBeUndefined()
+    expect(peak?.replayDigest).toBeUndefined()
   })
 })

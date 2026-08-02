@@ -6,12 +6,61 @@ import {
   createEmptyEventCounts,
   projectToDebugEvent
 } from '../core/event-stream'
+import { canonicalChecksum } from './stableHash'
 
 export interface ReplayResult {
   lifecycles: RequestLifecycle[]
   lifecycleByRequestId: Record<string, RequestLifecycle>
   eventCountsByType: EventCountsByType
   terminalStatusByRequestId: Record<string, TerminalRequestStatus>
+}
+
+const TERMINAL_STATUSES: readonly TerminalRequestStatus[] = [
+  'success',
+  'timeout',
+  'rejected',
+  'connection_reset'
+]
+
+/**
+ * A bounded summary of a case's replay — small enough to persist in every
+ * evaluation envelope. The full per-request replay can be huge, so the digest
+ * captures counts plus an `eventStreamChecksum` that binds the exact event
+ * stream it came from, letting the full trace be attached (and verified) later
+ * without storing it inline.
+ */
+export interface ReplayDigest {
+  lifecycleCount: number
+  eventCountsByType: EventCountsByType
+  terminalStatusCounts: Record<TerminalRequestStatus, number>
+  eventStreamChecksum: string
+}
+
+/** Builds a bounded replay digest from a canonical event stream. */
+export function buildReplayDigest(events: CanonicalEventRecord[]): ReplayDigest {
+  return buildReplayDigestFromResult(replayEventStream(events))
+}
+
+/** Builds a replay digest from an already-computed replay result. */
+export function buildReplayDigestFromResult(replay: ReplayResult): ReplayDigest {
+  const terminalStatusCounts = TERMINAL_STATUSES.reduce(
+    (counts, status) => {
+      counts[status] = 0
+      return counts
+    },
+    {} as Record<TerminalRequestStatus, number>
+  )
+
+  for (const status of Object.values(replay.terminalStatusByRequestId)) {
+    terminalStatusCounts[status] += 1
+  }
+
+  return {
+    lifecycleCount: replay.lifecycles.length,
+    eventCountsByType: { ...replay.eventCountsByType },
+    terminalStatusCounts,
+    eventStreamChecksum: canonicalChecksum(replay.lifecycles)
+  }
 }
 
 export function replayEventStream(events: CanonicalEventRecord[]): ReplayResult {

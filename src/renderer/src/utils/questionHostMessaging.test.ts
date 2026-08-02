@@ -3,8 +3,13 @@ import { GAME_PLAYGROUND_PAYLOAD_VERSION } from '../../../engine/analysis/gamePl
 import { createAttemptState } from '../../../engine/analysis/question'
 import type { TopologyJSON } from '../../../engine/core/types'
 import {
+  computeHostTargetOrigin,
+  getTrustedHostOrigin,
+  isHostOriginAllowed,
   parseQuestionHostOutboundMessage,
-  parseQuestionLaunchContextMessage
+  parseQuestionLaunchContextMessage,
+  rememberTrustedHostOrigin,
+  resetTrustedHostOrigin
 } from './questionHostMessaging'
 
 function topology(): TopologyJSON {
@@ -202,5 +207,94 @@ describe('parseQuestionHostOutboundMessage', () => {
         }
       })
     ).toBeNull()
+  })
+})
+
+describe('host origin trust', () => {
+  it('enforces a configured allowlist strictly, ignoring TOFU', () => {
+    const configured = ['https://playground.example.com']
+    expect(
+      isHostOriginAllowed('https://playground.example.com', { configured, trusted: null })
+    ).toBe(true)
+    expect(isHostOriginAllowed('https://evil.example.com', { configured, trusted: null })).toBe(
+      false
+    )
+    // Even a previously trusted origin cannot override the configured allowlist.
+    expect(
+      isHostOriginAllowed('https://evil.example.com', {
+        configured,
+        trusted: 'https://evil.example.com'
+      })
+    ).toBe(false)
+  })
+
+  it('falls back to trust-on-first-use when nothing is configured', () => {
+    // Nothing trusted yet → first origin is accepted.
+    expect(
+      isHostOriginAllowed('https://host-a.example.com', { configured: [], trusted: null })
+    ).toBe(true)
+    // Once locked, only the trusted origin is accepted.
+    const trusted = 'https://host-a.example.com'
+    expect(isHostOriginAllowed('https://host-a.example.com', { configured: [], trusted })).toBe(
+      true
+    )
+    expect(isHostOriginAllowed('https://host-b.example.com', { configured: [], trusted })).toBe(
+      false
+    )
+  })
+
+  it('routes sensitive messages only to a known trusted origin, never broadcast', () => {
+    const referrer = 'https://ref.example.com'
+    const trusted = 'https://host.example.com'
+    // submit/error require a trusted origin; drop (null) otherwise.
+    expect(
+      computeHostTargetOrigin('ns-simulator:submit', { trusted: null, configured: [], referrer })
+    ).toBeNull()
+    expect(
+      computeHostTargetOrigin('ns-simulator:error', { trusted: null, configured: [], referrer })
+    ).toBeNull()
+    expect(
+      computeHostTargetOrigin('ns-simulator:submit', { trusted, configured: [], referrer })
+    ).toBe(trusted)
+  })
+
+  it('lets the content-less ready bootstrap fall back to configured/referrer/wildcard', () => {
+    expect(
+      computeHostTargetOrigin('ns-simulator:ready', {
+        trusted: 'https://host.example.com',
+        configured: [],
+        referrer: null
+      })
+    ).toBe('https://host.example.com')
+    expect(
+      computeHostTargetOrigin('ns-simulator:ready', {
+        trusted: null,
+        configured: ['https://only.example.com'],
+        referrer: null
+      })
+    ).toBe('https://only.example.com')
+    expect(
+      computeHostTargetOrigin('ns-simulator:ready', {
+        trusted: null,
+        configured: [],
+        referrer: 'https://ref.example.com'
+      })
+    ).toBe('https://ref.example.com')
+    expect(
+      computeHostTargetOrigin('ns-simulator:ready', {
+        trusted: null,
+        configured: [],
+        referrer: null
+      })
+    ).toBe('*')
+  })
+
+  it('locks the trusted origin on first write only', () => {
+    resetTrustedHostOrigin()
+    expect(getTrustedHostOrigin()).toBeNull()
+    rememberTrustedHostOrigin('https://first.example.com')
+    rememberTrustedHostOrigin('https://second.example.com')
+    expect(getTrustedHostOrigin()).toBe('https://first.example.com')
+    resetTrustedHostOrigin()
   })
 })
