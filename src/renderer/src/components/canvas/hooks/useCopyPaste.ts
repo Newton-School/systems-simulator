@@ -168,12 +168,31 @@ export const useCopyPaste = () => {
         return
       }
 
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'c') {
+      if (!(event.metaKey || event.ctrlKey)) {
+        return
+      }
+      const key = event.key.toLowerCase()
+
+      if (key === 'c') {
+        // Never hijack a real text selection or a bare Cmd+C with nothing on the
+        // canvas selected — let the browser's normal copy run instead. We only
+        // take over when the user is actually copying selected canvas nodes.
+        const hasTextSelection = (window.getSelection()?.toString().length ?? 0) > 0
+        const hasNodeSelection = storeRef.current.nodes.some((node) => node.selected)
+        if (hasTextSelection || !hasNodeSelection) {
+          return
+        }
         event.preventDefault()
         copy()
+        return
       }
 
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'v') {
+      if (key === 'v') {
+        // Only intercept paste when there are canvas nodes on our clipboard;
+        // otherwise leave the browser's paste (into inputs, etc.) untouched.
+        if (clipboardRef.current.nodes.length === 0) {
+          return
+        }
         event.preventDefault()
         paste()
       }

@@ -1,7 +1,7 @@
 import type { TopologyJSON } from '../core/types'
 import type { EdgeFlowEvent } from '../core/events'
 import type { SimulationOutput, TimeSeriesSnapshot } from '../analysis/output'
-import type { AttemptGrade, QuestionPackage } from '../analysis/question'
+import type { AttemptCaseRun, AttemptGrade, QuestionPackage } from '../analysis/question'
 
 // ─── Inbound (main thread → worker) ──────────────────────────────────────────
 
@@ -70,7 +70,7 @@ export interface ErrorMessage {
 
 export interface GradeCompleteMessage {
   type: 'grade-complete'
-  payload: { grade: AttemptGrade }
+  payload: { grade: AttemptGrade; cases: AttemptCaseRun[] }
 }
 
 export type WorkerOutboundMessage =

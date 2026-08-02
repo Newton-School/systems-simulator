@@ -22,14 +22,14 @@
  */
 import { z } from 'zod'
 import type { TopologyJSON } from '../core/types'
-import type {
-  CanonicalEventRecord,
-  EventCountsByType,
-  TerminalRequestStatus
-} from '../core/event-stream'
 import { TopologyJSONSchema } from '../validation/validator'
 import { canonicalChecksum } from './stableHash'
-import { replayEventStream, type ReplayResult } from './replay'
+import {
+  buildReplayDigest,
+  buildReplayDigestFromResult,
+  type ReplayDigest,
+  type ReplayResult
+} from './replay'
 import type { SimulationVerdict } from './verdict'
 import type { CaseExecutionStatus } from './rubric'
 import {
@@ -39,21 +39,10 @@ import {
 
 export const EVALUATION_ENVELOPE_VERSION = '1.0' as const
 
-const TERMINAL_STATUSES: readonly TerminalRequestStatus[] = [
-  'success',
-  'timeout',
-  'rejected',
-  'connection_reset'
-]
-
-/** A bounded summary of a case's replay — safe to persist in every envelope. */
-export interface ReplayDigest {
-  lifecycleCount: number
-  eventCountsByType: EventCountsByType
-  terminalStatusCounts: Record<TerminalRequestStatus, number>
-  /** Checksum of the canonical event stream this digest was built from. */
-  eventStreamChecksum: string
-}
+// The replay digest lives in ./replay (a low-level module) so that grading code
+// can build it without importing the contract layer. Re-exported here because it
+// is part of the envelope's public surface.
+export { buildReplayDigest, buildReplayDigestFromResult, type ReplayDigest }
 
 export interface EvaluationEnvelopeCase {
   caseId: string
@@ -83,34 +72,6 @@ export interface EvaluationEnvelope {
   contract: QuestionEvaluationContract
   /** Integrity checksum over the whole envelope except optional full replay. */
   checksum: string
-}
-
-/** Builds a bounded replay digest from a canonical event stream. */
-export function buildReplayDigest(events: CanonicalEventRecord[]): ReplayDigest {
-  const replay = replayEventStream(events)
-  return buildReplayDigestFromResult(replay)
-}
-
-/** Builds a replay digest from an already-computed replay result. */
-export function buildReplayDigestFromResult(replay: ReplayResult): ReplayDigest {
-  const terminalStatusCounts = TERMINAL_STATUSES.reduce(
-    (counts, status) => {
-      counts[status] = 0
-      return counts
-    },
-    {} as Record<TerminalRequestStatus, number>
-  )
-
-  for (const status of Object.values(replay.terminalStatusByRequestId)) {
-    terminalStatusCounts[status] += 1
-  }
-
-  return {
-    lifecycleCount: replay.lifecycles.length,
-    eventCountsByType: { ...replay.eventCountsByType },
-    terminalStatusCounts,
-    eventStreamChecksum: canonicalChecksum(replay.lifecycles)
-  }
 }
 
 type EnvelopeForChecksum = Omit<EvaluationEnvelope, 'checksum'> & { checksum?: string }

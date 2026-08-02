@@ -14,6 +14,7 @@ import {
   inferRubricCheckKind,
   isInvariantMetric,
   RUBRIC_VERSION,
+  type CaseExecutionStatus,
   type CheckResult,
   type CheckResultKind,
   type CheckStatus,
@@ -30,6 +31,7 @@ import {
   type StructuralRule
 } from './structural'
 import { SIMULATION_VERDICT_VERSION, type SimulationVerdict } from './verdict'
+import { buildReplayDigest, type ReplayDigest } from './replay'
 import { hostSafeToken, stableSerialize } from './stableHash'
 import {
   ComponentNodeSchema,
@@ -1252,11 +1254,30 @@ export function resolveVisibleAttemptStatus(
  * overrides, runs the batch, grades with the package rubric, and collapses to the
  * host contract. Pure — the engine run is injected as `runTopology`.
  */
-export function gradeAttempt(
+/** One case's run artifacts, used to seal an EvaluationEnvelope. */
+export interface AttemptCaseRun {
+  caseId: string
+  executionStatus: CaseExecutionStatus
+  verdict?: SimulationVerdict
+  replayDigest?: ReplayDigest
+}
+
+export interface GradedAttempt {
+  grade: AttemptGrade
+  cases: AttemptCaseRun[]
+}
+
+/**
+ * Grades an attempt and also surfaces the per-case run artifacts (verdict +
+ * bounded replay digest) needed to seal an EvaluationEnvelope at submit time.
+ * `gradeAttempt` is the thin wrapper that keeps only the grade — the CLI and
+ * existing callers use it and pay nothing for the artifacts they ignore.
+ */
+export function gradeAttemptWithArtifacts(
   pkg: QuestionPackage,
   studentTopology: TopologyJSON,
   runTopology: (topology: TopologyJSON) => SimulationOutput
-): AttemptGrade {
+): GradedAttempt {
   const structural =
     pkg.structuralRules && pkg.structuralRules.length > 0
       ? evaluateStructuralRules(studentTopology, pkg.structuralRules)
@@ -1268,10 +1289,16 @@ export function gradeAttempt(
       studentTopology,
       'Execution was skipped because topology requirements failed before simulation.'
     )
-    return { structural, graded, contract: toHostContract(structural, graded) }
+    return {
+      grade: { structural, graded, contract: toHostContract(structural, graded) },
+      cases: graded.cases.map((entry) => ({
+        caseId: entry.id,
+        executionStatus: entry.executionStatus
+      }))
+    }
   }
 
-  const cases: PreparedCase[] = pkg.suite.cases.map((testCase) => ({
+  const preparedCases: PreparedCase[] = pkg.suite.cases.map((testCase) => ({
     id: testCase.id,
     topology: mergeTopologyWithOverrides(studentTopology, {
       global: testCase.global,
@@ -1280,7 +1307,57 @@ export function gradeAttempt(
     })
   }))
 
-  const batch = evaluateSuite(cases, runTopology, pkg.suite.name)
+  // Capture each run's raw output, keyed by the prepared topology object, so a
+  // verdict + replay digest can be built per case without changing evaluateSuite
+  // (and robust to a case that throws — it simply never enters the map).
+  const outputByTopology = new Map<TopologyJSON, SimulationOutput>()
+  const capturingRun = (topology: TopologyJSON): SimulationOutput => {
+    const output = runTopology(topology)
+    outputByTopology.set(topology, output)
+    return output
+  }
+
+  const batch = evaluateSuite(preparedCases, capturingRun, pkg.suite.name)
   const graded = gradeQuestionBatch(pkg.rubric, studentTopology, batch)
-  return { structural, graded, contract: toHostContract(structural, graded) }
+  const grade: AttemptGrade = {
+    structural,
+    graded,
+    contract: toHostContract(structural, graded)
+  }
+
+  const verdictByCaseId = new Map<string, SimulationVerdict>()
+  for (const result of batch.results) {
+    if (result.ok) {
+      verdictByCaseId.set(result.id, result.verdict)
+    }
+  }
+  const topologyByCaseId = new Map<string, TopologyJSON>()
+  for (const entry of preparedCases) {
+    if ('topology' in entry) {
+      topologyByCaseId.set(entry.id, entry.topology)
+    }
+  }
+
+  const cases: AttemptCaseRun[] = graded.cases.map((entry) => {
+    const topology = topologyByCaseId.get(entry.id)
+    const output = topology ? outputByTopology.get(topology) : undefined
+    const verdict = verdictByCaseId.get(entry.id)
+    const eventStream = output?.eventStream
+    return {
+      caseId: entry.id,
+      executionStatus: entry.executionStatus,
+      ...(verdict ? { verdict } : {}),
+      ...(Array.isArray(eventStream) ? { replayDigest: buildReplayDigest(eventStream) } : {})
+    }
+  })
+
+  return { grade, cases }
+}
+
+export function gradeAttempt(
+  pkg: QuestionPackage,
+  studentTopology: TopologyJSON,
+  runTopology: (topology: TopologyJSON) => SimulationOutput
+): AttemptGrade {
+  return gradeAttemptWithArtifacts(pkg, studentTopology, runTopology).grade
 }

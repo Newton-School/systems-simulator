@@ -14,8 +14,10 @@ import {
   persistAttemptState
 } from '@renderer/utils/questionAttemptPersistence'
 import {
+  isAllowedHostOrigin,
   parseQuestionLaunchContextMessage,
-  postQuestionHostMessage
+  postQuestionHostMessage,
+  rememberTrustedHostOrigin
 } from '@renderer/utils/questionHostMessaging'
 import { applyAutoLayout } from '@renderer/utils/autoLayout'
 import { validateTopology } from '../../../../engine/validation/validator'
@@ -433,10 +435,17 @@ export const WorkspaceLayout = () => {
 
   useEffect(() => {
     const onMessage = (event: MessageEvent<unknown>) => {
+      // Reject launch contexts from any origin the host allowlist / handshake
+      // does not trust — never parse or load an untrusted QuestionPackage.
+      if (!isAllowedHostOrigin(event.origin)) {
+        return
+      }
       const launchContext = parseQuestionLaunchContextMessage(event.data)
       if (!launchContext) {
         return
       }
+      // Lock outbound (ready/submit/error) to this host origin from now on.
+      rememberTrustedHostOrigin(event.origin)
       const { questionPackage, priorAttempt } = launchContext.payload
 
       void (async () => {

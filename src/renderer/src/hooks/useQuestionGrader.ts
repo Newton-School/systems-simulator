@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { TopologyJSON } from '../../../engine/core/types'
-import type { AttemptGrade, QuestionPackage } from '../../../engine/analysis/question'
+import type {
+  AttemptCaseRun,
+  AttemptGrade,
+  QuestionPackage
+} from '../../../engine/analysis/question'
 import type { WorkerInboundMessage, WorkerOutboundMessage } from '../../../engine/worker/protocols'
 
 export type GraderStatus = 'idle' | 'grading' | 'graded' | 'error'
@@ -8,6 +12,8 @@ export type GraderStatus = 'idle' | 'grading' | 'graded' | 'error'
 export interface QuestionGraderState {
   status: GraderStatus
   grade: AttemptGrade | null
+  /** Per-case run artifacts (verdict + replay digest) for sealing an envelope. */
+  runs: AttemptCaseRun[] | null
   error: string | null
   /** Grade a student topology against a question package (runs the suite off-thread). */
   grade_: (question: QuestionPackage, topology: TopologyJSON) => void
@@ -22,6 +28,7 @@ export interface QuestionGraderState {
 export function useQuestionGrader(): QuestionGraderState {
   const [status, setStatus] = useState<GraderStatus>('idle')
   const [grade, setGrade] = useState<AttemptGrade | null>(null)
+  const [runs, setRuns] = useState<AttemptCaseRun[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const workerRef = useRef<Worker | null>(null)
 
@@ -43,6 +50,7 @@ export function useQuestionGrader(): QuestionGraderState {
       const msg = event.data
       if (msg.type === 'grade-complete') {
         setGrade(msg.payload.grade)
+        setRuns(msg.payload.cases)
         setStatus('graded')
         worker.terminate()
         workerRef.current = null
@@ -62,6 +70,7 @@ export function useQuestionGrader(): QuestionGraderState {
 
     setStatus('grading')
     setGrade(null)
+    setRuns(null)
     setError(null)
     worker.postMessage({
       type: 'grade',
@@ -74,8 +83,9 @@ export function useQuestionGrader(): QuestionGraderState {
     workerRef.current = null
     setStatus('idle')
     setGrade(null)
+    setRuns(null)
     setError(null)
   }, [])
 
-  return { status, grade, error, grade_: gradeAttempt, reset }
+  return { status, grade, runs, error, grade_: gradeAttempt, reset }
 }
