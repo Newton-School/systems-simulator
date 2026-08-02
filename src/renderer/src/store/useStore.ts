@@ -23,6 +23,10 @@ import { DEFAULT_SCENARIO_STATE } from '@renderer/types/ui'
 import type { EdgeFailureCause, EdgeFlowEvent } from '../../../engine/core/events'
 import type { WorkloadProfile } from '../../../engine/core/types'
 import type { AttemptState, QuestionPackage } from '../../../engine/analysis/question'
+import {
+  DEFAULT_ENVIRONMENT_PROFILE,
+  type EnvironmentProfile
+} from '../../../engine/analysis/environmentProfile'
 import type { RoutingStrategy } from '../../../engine/catalog/nodeSpecTypes'
 
 type FailureCountsByCause = Partial<Record<EdgeFailureCause, number>>
@@ -268,6 +272,9 @@ type RFState = {
   setActiveQuestion: (question: QuestionPackage | null) => void
   attemptState: AttemptState | null
   setAttemptState: (attempt: AttemptState | null) => void
+  /** The resolved presentation profile (visibility + capabilities) for question mode. */
+  environmentProfile: EnvironmentProfile
+  setEnvironmentProfile: (profile: EnvironmentProfile) => void
   viewportFitVersion: number
   requestViewportFit: () => void
 
@@ -323,6 +330,7 @@ const useStore = create<RFState>((set, get) => ({
   scenario: DEFAULT_SCENARIO_STATE,
   activeQuestion: null,
   attemptState: null,
+  environmentProfile: DEFAULT_ENVIRONMENT_PROFILE,
   viewportFitVersion: 0,
 
   onNodesChange: (changes: NodeChange[]) => {
@@ -584,6 +592,7 @@ const useStore = create<RFState>((set, get) => ({
   setScenario: (scenario) => set({ scenario }),
   setActiveQuestion: (activeQuestion) => set({ activeQuestion }),
   setAttemptState: (attemptState) => set({ attemptState }),
+  setEnvironmentProfile: (environmentProfile) => set({ environmentProfile }),
   requestViewportFit: () =>
     set((state) => ({
       viewportFitVersion: state.viewportFitVersion + 1

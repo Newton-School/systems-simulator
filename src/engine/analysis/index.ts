@@ -1,4 +1,5 @@
 export * from './evaluate'
+export * from './environmentProfile'
 export * from './evaluationContract'
 export * from './evaluationEnvelope'
 export * from './gamePlayground'

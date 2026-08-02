@@ -24,6 +24,7 @@ import { validateTopology } from '../../../../engine/validation/validator'
 import type { LatencyPercentiles } from '../../../../engine/metrics'
 import type { TimeSeriesSnapshot } from '../../../../engine/analysis/output'
 import { createAttemptState } from '../../../../engine/analysis/question'
+import { resolveEnvironmentProfile } from '../../../../engine/analysis/environmentProfile'
 import type { ValidationError } from '../../../../engine/validation/validator'
 import {
   hasWorkloadSourceConfig,
@@ -317,6 +318,7 @@ export const WorkspaceLayout = () => {
   const attemptState = useStore((s) => s.attemptState)
   const setActiveQuestion = useStore((s) => s.setActiveQuestion)
   const setAttemptState = useStore((s) => s.setAttemptState)
+  const setEnvironmentProfile = useStore((s) => s.setEnvironmentProfile)
   const requestViewportFit = useStore((s) => s.requestViewportFit)
   const runInspectorPinned = useStore((s) => s.runInspectorPinned)
   const setRunInspectorPinned = useStore((s) => s.setRunInspectorPinned)
@@ -339,8 +341,9 @@ export const WorkspaceLayout = () => {
   const clearQuestionSession = useCallback(() => {
     setActiveQuestion(null)
     setAttemptState(null)
+    setEnvironmentProfile(resolveEnvironmentProfile())
     setLeftSidebarTab('library')
-  }, [setActiveQuestion, setAttemptState])
+  }, [setActiveQuestion, setAttemptState, setEnvironmentProfile])
 
   const handleOpenTopology = useCallback(async () => {
     const loaded = await handleOpen()
@@ -446,7 +449,8 @@ export const WorkspaceLayout = () => {
       }
       // Lock outbound (ready/submit/error) to this host origin from now on.
       rememberTrustedHostOrigin(event.origin)
-      const { questionPackage, priorAttempt } = launchContext.payload
+      const { questionPackage, priorAttempt, environmentProfile } = launchContext.payload
+      setEnvironmentProfile(resolveEnvironmentProfile(environmentProfile))
 
       void (async () => {
         const restoredAttempt =
@@ -501,6 +505,7 @@ export const WorkspaceLayout = () => {
     selectGraphElements,
     setActiveQuestion,
     setAttemptState,
+    setEnvironmentProfile,
     setRoutingVisualization,
     sim,
     setLeftSidebarTab,
