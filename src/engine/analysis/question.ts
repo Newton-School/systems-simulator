@@ -31,6 +31,16 @@ import {
   type StructuralRule
 } from './structural'
 import { SIMULATION_VERDICT_VERSION, type SimulationVerdict } from './verdict'
+import {
+  BudgetSchema,
+  JustifyPromptSchema,
+  SemanticCriterionSchema,
+  WorkloadCategorySchema,
+  type Budget,
+  type JustifyPrompt,
+  type SemanticCriterion,
+  type WorkloadCategory
+} from './gradingCriteria'
 import { buildReplayDigest, type ReplayDigest } from './replay'
 import { hostSafeToken, stableSerialize } from './stableHash'
 import {
@@ -150,6 +160,12 @@ export interface QuestionPackage {
   scaffold: QuestionScaffold
   constraints: QuestionConstraints
   structuralRules?: StructuralRule[]
+  /** Extended anti-gaming grading axes (typed contracts; graded in a later phase). */
+  semanticCriteria?: SemanticCriterion[]
+  justify?: JustifyPrompt[]
+  budget?: Budget
+  /** The dominant workload character ("the workload is [X]"). */
+  workloadCategory?: WorkloadCategory
   suite: QuestionSuite
   rubric: Rubric
   author?: string
@@ -761,6 +777,10 @@ export const QuestionPackageSchema: z.ZodType<QuestionPackage> = z
     scaffold: QuestionScaffoldSchema,
     constraints: QuestionConstraintsSchema,
     structuralRules: z.array(StructuralRuleSchema).optional(),
+    semanticCriteria: z.array(SemanticCriterionSchema).optional(),
+    justify: z.array(JustifyPromptSchema).optional(),
+    budget: BudgetSchema.optional(),
+    workloadCategory: WorkloadCategorySchema.optional(),
     suite: QuestionSuiteSchema,
     rubric: RubricSchema,
     author: z.string().min(1).optional(),
@@ -771,6 +791,12 @@ export const QuestionPackageSchema: z.ZodType<QuestionPackage> = z
     validateUniqueIds(pkg.rubric.checks, ['rubric', 'checks'], 'Rubric check', ctx)
     if (pkg.structuralRules) {
       validateUniqueIds(pkg.structuralRules, ['structuralRules'], 'Structural rule', ctx)
+    }
+    if (pkg.semanticCriteria) {
+      validateUniqueIds(pkg.semanticCriteria, ['semanticCriteria'], 'Semantic criterion', ctx)
+    }
+    if (pkg.justify) {
+      validateUniqueIds(pkg.justify, ['justify'], 'Justify prompt', ctx)
     }
   })
 
