@@ -324,7 +324,7 @@ export const QuestionPanel = () => {
   const isAttemptLocked = attemptState?.status === 'LOCKED'
   const showPrompt = environmentProfile.visibility.prompt
   // The suite is shown only when the author marked it student-visible AND the
-  // environment reveals grading-suite details (hidden in INTERVIEW).
+  // environment reveals grading-suite details (hidden in ASSIGNMENT).
   const showSuiteDetails =
     activeQuestion.suite.visibleToStudent && environmentProfile.visibility.gradingSuiteDetails
   const hasSubmittedGrade = Boolean(attemptState?.grade)

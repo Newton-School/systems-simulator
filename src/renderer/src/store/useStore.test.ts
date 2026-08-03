@@ -195,7 +195,7 @@ describe('useStore scaffold-node lock', () => {
   })
 
   it('blocks deleting and editing locked scaffold nodes but not student nodes', () => {
-    useStore.getState().setEnvironmentProfile(resolveEnvironmentProfile('INTERVIEW'))
+    useStore.getState().setEnvironmentProfile(resolveEnvironmentProfile('ASSIGNMENT'))
 
     // Deleting a locked scaffold node is dropped; deleting a student node works.
     useStore.getState().onNodesChange([{ type: 'remove', id: 'scaffold-1' }])

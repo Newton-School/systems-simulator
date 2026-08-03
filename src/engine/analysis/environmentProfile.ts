@@ -4,11 +4,11 @@
  * An EnvironmentProfile is a *visibility + capability lens* applied over one
  * shared QuestionPackage. The same question runs unchanged in three modes:
  *
- *   - AUTHOR    — full UI; the setter sees and can do everything.
- *   - INTERVIEW — graded contest; rubric hidden until submit, scaffold locked,
- *                 test runs limited.
- *   - LEARN     — self-paced practice; live rubric feedback, free editing, not
- *                 graded.
+ *   - AUTHOR     — full UI; the setter sees and can do everything.
+ *   - ASSIGNMENT — graded; rubric hidden until submit, scaffold locked,
+ *                  test runs limited.
+ *   - PRACTICE   — self-paced practice; live rubric feedback, free editing, not
+ *                  graded.
  *
  * The profile never changes *what* a question is or *how* it is graded — only
  * how much of it is shown and what the student may do. It is resolved from a
@@ -16,7 +16,7 @@
  */
 import { z } from 'zod'
 
-export type EnvironmentProfileMode = 'AUTHOR' | 'INTERVIEW' | 'LEARN'
+export type EnvironmentProfileMode = 'AUTHOR' | 'ASSIGNMENT' | 'PRACTICE'
 
 /** When rubric check results become visible to the student. */
 export type RubricCheckVisibility = 'HIDDEN' | 'LIVE_DURING_BUILD' | 'POST_SUBMIT_ONLY'
@@ -78,8 +78,8 @@ export const AUTHOR_ENVIRONMENT_PROFILE: EnvironmentProfile = {
   chromeDensity: 'full'
 }
 
-export const INTERVIEW_ENVIRONMENT_PROFILE: EnvironmentProfile = {
-  mode: 'INTERVIEW',
+export const ASSIGNMENT_ENVIRONMENT_PROFILE: EnvironmentProfile = {
+  mode: 'ASSIGNMENT',
   visibility: {
     prompt: true,
     scaffoldSourceNodes: true,
@@ -97,8 +97,8 @@ export const INTERVIEW_ENVIRONMENT_PROFILE: EnvironmentProfile = {
   chromeDensity: 'minimal'
 }
 
-export const LEARN_ENVIRONMENT_PROFILE: EnvironmentProfile = {
-  mode: 'LEARN',
+export const PRACTICE_ENVIRONMENT_PROFILE: EnvironmentProfile = {
+  mode: 'PRACTICE',
   visibility: {
     prompt: true,
     scaffoldSourceNodes: true,
@@ -117,14 +117,14 @@ export const LEARN_ENVIRONMENT_PROFILE: EnvironmentProfile = {
 
 export const ENVIRONMENT_PROFILE_PRESETS: Record<EnvironmentProfileMode, EnvironmentProfile> = {
   AUTHOR: AUTHOR_ENVIRONMENT_PROFILE,
-  INTERVIEW: INTERVIEW_ENVIRONMENT_PROFILE,
-  LEARN: LEARN_ENVIRONMENT_PROFILE
+  ASSIGNMENT: ASSIGNMENT_ENVIRONMENT_PROFILE,
+  PRACTICE: PRACTICE_ENVIRONMENT_PROFILE
 }
 
 /** The default when a host supplies no profile — full authoring UI. */
 export const DEFAULT_ENVIRONMENT_PROFILE = AUTHOR_ENVIRONMENT_PROFILE
 
-const ModeSchema = z.enum(['AUTHOR', 'INTERVIEW', 'LEARN'])
+const ModeSchema = z.enum(['AUTHOR', 'ASSIGNMENT', 'PRACTICE'])
 
 const InputObjectSchema = z
   .object({

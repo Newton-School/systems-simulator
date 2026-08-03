@@ -38,7 +38,7 @@ interface HeaderProps {
   scenario: ScenarioState
   onScenarioChange: (updater: (current: ScenarioState) => ScenarioState) => void
   simulationDisabled?: boolean
-  /** Minimal chrome (EnvironmentProfile INTERVIEW/LEARN): hide authoring file ops. */
+  /** Minimal chrome (EnvironmentProfile ASSIGNMENT/PRACTICE): hide authoring file ops. */
   minimal?: boolean
 }
 

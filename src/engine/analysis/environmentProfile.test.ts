@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   AUTHOR_ENVIRONMENT_PROFILE,
   DEFAULT_ENVIRONMENT_PROFILE,
-  INTERVIEW_ENVIRONMENT_PROFILE,
-  LEARN_ENVIRONMENT_PROFILE,
+  ASSIGNMENT_ENVIRONMENT_PROFILE,
+  PRACTICE_ENVIRONMENT_PROFILE,
   canTriggerTestRun,
   resolveEnvironmentProfile,
   shouldShowRubricResults
@@ -16,14 +16,14 @@ describe('environment profile presets', () => {
     expect(AUTHOR_ENVIRONMENT_PROFILE.graded).toBe(true)
     expect(AUTHOR_ENVIRONMENT_PROFILE.visibility.rubricChecks).toBe('LIVE_DURING_BUILD')
 
-    expect(INTERVIEW_ENVIRONMENT_PROFILE.graded).toBe(true)
-    expect(INTERVIEW_ENVIRONMENT_PROFILE.visibility.rubricChecks).toBe('POST_SUBMIT_ONLY')
-    expect(INTERVIEW_ENVIRONMENT_PROFILE.visibility.gradingSuiteDetails).toBe(false)
-    expect(INTERVIEW_ENVIRONMENT_PROFILE.capabilities.canEditScaffoldNodes).toBe(false)
-    expect(INTERVIEW_ENVIRONMENT_PROFILE.capabilities.maxTestRuns).toBe(3)
+    expect(ASSIGNMENT_ENVIRONMENT_PROFILE.graded).toBe(true)
+    expect(ASSIGNMENT_ENVIRONMENT_PROFILE.visibility.rubricChecks).toBe('POST_SUBMIT_ONLY')
+    expect(ASSIGNMENT_ENVIRONMENT_PROFILE.visibility.gradingSuiteDetails).toBe(false)
+    expect(ASSIGNMENT_ENVIRONMENT_PROFILE.capabilities.canEditScaffoldNodes).toBe(false)
+    expect(ASSIGNMENT_ENVIRONMENT_PROFILE.capabilities.maxTestRuns).toBe(3)
 
-    expect(LEARN_ENVIRONMENT_PROFILE.graded).toBe(false)
-    expect(LEARN_ENVIRONMENT_PROFILE.visibility.rubricChecks).toBe('LIVE_DURING_BUILD')
+    expect(PRACTICE_ENVIRONMENT_PROFILE.graded).toBe(false)
+    expect(PRACTICE_ENVIRONMENT_PROFILE.visibility.rubricChecks).toBe('LIVE_DURING_BUILD')
   })
 })
 
@@ -35,19 +35,19 @@ describe('resolveEnvironmentProfile', () => {
   })
 
   it('resolves a bare mode string to its preset', () => {
-    expect(resolveEnvironmentProfile('INTERVIEW')).toEqual(INTERVIEW_ENVIRONMENT_PROFILE)
-    expect(resolveEnvironmentProfile('LEARN')).toEqual(LEARN_ENVIRONMENT_PROFILE)
+    expect(resolveEnvironmentProfile('ASSIGNMENT')).toEqual(ASSIGNMENT_ENVIRONMENT_PROFILE)
+    expect(resolveEnvironmentProfile('PRACTICE')).toEqual(PRACTICE_ENVIRONMENT_PROFILE)
   })
 
   it('merges a partial override onto the mode preset and ignores unknown keys', () => {
     const resolved = resolveEnvironmentProfile({
-      mode: 'INTERVIEW',
+      mode: 'ASSIGNMENT',
       capabilities: { maxTestRuns: 1 },
       // unknown keys must not break resolution
       somethingExtra: true
     } as unknown)
 
-    expect(resolved.mode).toBe('INTERVIEW')
+    expect(resolved.mode).toBe('ASSIGNMENT')
     // overridden field
     expect(resolved.capabilities.maxTestRuns).toBe(1)
     // untouched preset fields survive
@@ -55,9 +55,9 @@ describe('resolveEnvironmentProfile', () => {
     expect(resolved.visibility.rubricChecks).toBe('POST_SUBMIT_ONLY')
   })
 
-  it('lets an override flip a single flag (e.g. graded LEARN)', () => {
-    const resolved = resolveEnvironmentProfile({ mode: 'LEARN', graded: true })
-    expect(resolved.mode).toBe('LEARN')
+  it('lets an override flip a single flag (e.g. graded PRACTICE)', () => {
+    const resolved = resolveEnvironmentProfile({ mode: 'PRACTICE', graded: true })
+    expect(resolved.mode).toBe('PRACTICE')
     expect(resolved.graded).toBe(true)
     expect(resolved.visibility.rubricChecks).toBe('LIVE_DURING_BUILD')
   })
@@ -84,10 +84,10 @@ describe('shouldShowRubricResults', () => {
 describe('canTriggerTestRun', () => {
   it('respects the capability flag and the run limit', () => {
     expect(
-      canTriggerTestRun(resolveEnvironmentProfile({ mode: 'INTERVIEW' }), { testRunCount: 0 })
+      canTriggerTestRun(resolveEnvironmentProfile({ mode: 'ASSIGNMENT' }), { testRunCount: 0 })
     ).toBe(true)
     expect(
-      canTriggerTestRun(resolveEnvironmentProfile({ mode: 'INTERVIEW' }), { testRunCount: 3 })
+      canTriggerTestRun(resolveEnvironmentProfile({ mode: 'ASSIGNMENT' }), { testRunCount: 3 })
     ).toBe(false)
     // unlimited when maxTestRuns is undefined
     expect(canTriggerTestRun(AUTHOR_ENVIRONMENT_PROFILE, { testRunCount: 999 })).toBe(true)
