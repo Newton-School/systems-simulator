@@ -27,6 +27,19 @@ import {
   DEFAULT_ENVIRONMENT_PROFILE,
   type EnvironmentProfile
 } from '../../../engine/analysis/environmentProfile'
+
+/**
+ * A scaffold node is locked when the active EnvironmentProfile disallows editing
+ * scaffold-provided nodes. Locked nodes cannot be deleted or have their data
+ * edited (enforced in the store so no UI path can bypass it).
+ */
+function isScaffoldNodeLocked(
+  nodeId: string,
+  scaffoldNodeIds: readonly string[],
+  profile: EnvironmentProfile
+): boolean {
+  return !profile.capabilities.canEditScaffoldNodes && scaffoldNodeIds.includes(nodeId)
+}
 import type { RoutingStrategy } from '../../../engine/catalog/nodeSpecTypes'
 
 type FailureCountsByCause = Partial<Record<EdgeFailureCause, number>>
@@ -270,6 +283,8 @@ type RFState = {
   /** The question the student is attempting, if any (injected by the host or a sample loader). */
   activeQuestion: QuestionPackage | null
   setActiveQuestion: (question: QuestionPackage | null) => void
+  /** Ids of canvas nodes that came from the active question's scaffold (provenance). */
+  scaffoldNodeIds: string[]
   attemptState: AttemptState | null
   setAttemptState: (attempt: AttemptState | null) => void
   /** The resolved presentation profile (visibility + capabilities) for question mode. */
@@ -329,13 +344,23 @@ const useStore = create<RFState>((set, get) => ({
   isUnsaved: false,
   scenario: DEFAULT_SCENARIO_STATE,
   activeQuestion: null,
+  scaffoldNodeIds: [],
   attemptState: null,
   environmentProfile: DEFAULT_ENVIRONMENT_PROFILE,
   viewportFitVersion: 0,
 
   onNodesChange: (changes: NodeChange[]) => {
+    const { scaffoldNodeIds, environmentProfile } = get()
+    // Drop deletions of locked scaffold nodes; all other changes pass through.
+    const permitted = changes.filter(
+      (change) =>
+        !(
+          change.type === 'remove' &&
+          isScaffoldNodeLocked(change.id, scaffoldNodeIds, environmentProfile)
+        )
+    )
     set({
-      nodes: applyNodeChanges(changes, get().nodes)
+      nodes: applyNodeChanges(permitted, get().nodes)
     })
   },
 
@@ -409,6 +434,10 @@ const useStore = create<RFState>((set, get) => ({
   },
 
   updateNodeData: (nodeId: string, patch: Partial<AnyNodeData>) => {
+    const { scaffoldNodeIds, environmentProfile } = get()
+    if (isScaffoldNodeLocked(nodeId, scaffoldNodeIds, environmentProfile)) {
+      return
+    }
     set({
       nodes: get().nodes.map((node) => {
         if (node.id === nodeId) {
@@ -590,7 +619,16 @@ const useStore = create<RFState>((set, get) => ({
   setFileName: (fileName) => set({ fileName }),
   setUnsaved: (isUnsaved) => set({ isUnsaved }),
   setScenario: (scenario) => set({ scenario }),
-  setActiveQuestion: (activeQuestion) => set({ activeQuestion }),
+  setActiveQuestion: (activeQuestion) =>
+    set({
+      activeQuestion,
+      // A node's scaffold provenance is canonical: its id is in the question's
+      // partial-scaffold topology. Independent of what a resumed attempt loaded.
+      scaffoldNodeIds:
+        activeQuestion?.scaffold.type === 'partial'
+          ? activeQuestion.scaffold.topology.nodes.map((node) => node.id)
+          : []
+    }),
   setAttemptState: (attemptState) => set({ attemptState }),
   setEnvironmentProfile: (environmentProfile) => set({ environmentProfile }),
   requestViewportFit: () =>
