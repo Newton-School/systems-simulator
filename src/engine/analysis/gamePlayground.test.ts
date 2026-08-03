@@ -172,7 +172,7 @@ describe('gamePlayground adapter', () => {
 
     const payload = buildGamePlaygroundLaunchPayload(questionPackage(), {
       priorAttempt: attempt,
-      environmentProfile: { mode: 'INTERVIEW' }
+      environmentProfile: { mode: 'ASSIGNMENT' }
     })
 
     expect(parseGamePlaygroundLaunchPayload(payload)).toEqual(payload)

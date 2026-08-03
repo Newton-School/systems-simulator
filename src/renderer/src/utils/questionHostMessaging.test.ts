@@ -6,6 +6,7 @@ import {
   computeHostTargetOrigin,
   getTrustedHostOrigin,
   isHostOriginAllowed,
+  parseQuestionCommandMessage,
   parseQuestionHostOutboundMessage,
   parseQuestionLaunchContextMessage,
   rememberTrustedHostOrigin,
@@ -296,5 +297,29 @@ describe('host origin trust', () => {
     rememberTrustedHostOrigin('https://second.example.com')
     expect(getTrustedHostOrigin()).toBe('https://first.example.com')
     resetTrustedHostOrigin()
+  })
+})
+
+describe('parseQuestionCommandMessage', () => {
+  it('accepts the three lifecycle commands and rejects anything else', () => {
+    expect(parseQuestionCommandMessage({ type: 'ns-simulator:command', command: 'reset' })).toEqual(
+      {
+        type: 'ns-simulator:command',
+        command: 'reset'
+      }
+    )
+    expect(
+      parseQuestionCommandMessage({ type: 'ns-simulator:command', command: 'lock' })?.command
+    ).toBe('lock')
+    expect(
+      parseQuestionCommandMessage({ type: 'ns-simulator:command', command: 'reveal' })?.command
+    ).toBe('reveal')
+
+    expect(
+      parseQuestionCommandMessage({ type: 'ns-simulator:command', command: 'nuke' })
+    ).toBeNull()
+    expect(parseQuestionCommandMessage({ type: 'ns-simulator:launch-context' })).toBeNull()
+    expect(parseQuestionCommandMessage('reset')).toBeNull()
+    expect(parseQuestionCommandMessage(null)).toBeNull()
   })
 })

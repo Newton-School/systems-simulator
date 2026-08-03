@@ -1,5 +1,7 @@
 import React, { memo, useState, useCallback, useMemo } from 'react'
+import { Anchor, Lock } from 'lucide-react'
 import UniversalHandle from '@renderer/components/ui/UniversalHandle'
+import useStore from '@renderer/store/useStore'
 import { NODE_OFFSETS, NODE_POSITIONS } from './nodeConstants'
 import { NODE_HEALTH_STYLES, type NodeHealthStatus } from './nodePresentation'
 
@@ -29,6 +31,7 @@ interface BaseNodeProps {
 }
 
 const BaseNode = ({
+  id,
   selected,
   selectionVariant = 'primary',
   healthStatus,
@@ -36,6 +39,17 @@ const BaseNode = ({
   children
 }: BaseNodeProps) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false)
+
+  // Scaffold provenance cues (EnvironmentProfile). A node is scaffold-provided if
+  // its id is in the active question's scaffold; it is locked when the profile
+  // disallows editing scaffold nodes.
+  const isScaffoldNode = useStore((s) => (id ? s.scaffoldNodeIds.includes(id) : false))
+  const canEditScaffoldNodes = useStore(
+    (s) => s.environmentProfile.capabilities.canEditScaffoldNodes
+  )
+  const showScaffoldSource = useStore((s) => s.environmentProfile.visibility.scaffoldSourceNodes)
+  const isScaffoldLocked = isScaffoldNode && !canEditScaffoldNodes
+  const showScaffoldBadge = isScaffoldNode && (isScaffoldLocked || showScaffoldSource)
 
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault()
@@ -78,6 +92,24 @@ const BaseNode = ({
 
   return (
     <div onContextMenu={handleContextMenu} className={containerClassName ?? containerClasses}>
+      {showScaffoldBadge && (
+        <div
+          className={`absolute -top-2 -left-2 z-10 flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide shadow ${
+            isScaffoldLocked
+              ? 'border-nss-warning/40 bg-nss-warning/15 text-nss-warning'
+              : 'border-nss-border bg-nss-surface text-nss-muted'
+          }`}
+          title={
+            isScaffoldLocked
+              ? 'Provided by the question — locked'
+              : 'Provided by the question scaffold'
+          }
+        >
+          {isScaffoldLocked ? <Lock size={9} /> : <Anchor size={9} />}
+          {isScaffoldLocked ? 'Locked' : 'Scaffold'}
+        </div>
+      )}
+
       {/* Connection handles — shared by all node types */}
       {NODE_POSITIONS.map((pos) => (
         <React.Fragment key={pos}>

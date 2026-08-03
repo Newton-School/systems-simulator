@@ -6,6 +6,7 @@ import {
   Search,
   type LucideIcon
 } from 'lucide-react'
+import useStore from '../../store/useStore'
 import { CATALOG_CONFIG } from '../../config/catalogConfig'
 import { SAMPLE_SCENARIOS } from '../../config/sampleScenarios'
 import { QuestionPanel } from '../question/QuestionPanel'
@@ -140,6 +141,14 @@ function ComponentLibraryPanel({
   onQueryChange,
   onFilterChange
 }: ComponentLibraryPanelProps) {
+  // EnvironmentProfile palette allowlist: null = all node types allowed,
+  // otherwise only types (or ids) in the list are offered in the library.
+  const editPaletteList = useStore((s) => s.environmentProfile.capabilities.editPaletteList)
+  const allowedPalette = useMemo(
+    () => (editPaletteList === null ? null : new Set(editPaletteList)),
+    [editPaletteList]
+  )
+
   const filtered = useMemo(() => {
     const trimmed = query.trim().toLowerCase()
 
@@ -151,10 +160,12 @@ function ComponentLibraryPanel({
           !trimmed ||
           item.label.toLowerCase().includes(trimmed) ||
           item.subLabel.toLowerCase().includes(trimmed)
-        return matchesFilter && matchesSearch
+        const matchesPalette =
+          allowedPalette === null || allowedPalette.has(item.type) || allowedPalette.has(item.id)
+        return matchesFilter && matchesSearch && matchesPalette
       })
     })).filter((category) => category.items.length > 0)
-  }, [filter, query])
+  }, [allowedPalette, filter, query])
 
   return (
     <>

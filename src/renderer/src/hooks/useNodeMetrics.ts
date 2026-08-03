@@ -1,7 +1,11 @@
 import useStore from '@renderer/store/useStore'
 
 export function useNodeMetrics(id: string) {
-  const runtime = useStore((s) => s.simulationMetricsByNode[id])
+  // EnvironmentProfile: when the profile hides live metrics, suppress every
+  // node's runtime overlay at this single source (all node types key off it).
+  const liveMetrics = useStore((s) => s.environmentProfile.visibility.liveMetrics)
+  const runtimeRaw = useStore((s) => s.simulationMetricsByNode[id])
+  const runtime = liveMetrics ? runtimeRaw : undefined
   const hasRuntime = runtime !== undefined
   const active = hasRuntime ? (runtime.active ?? false) : undefined
 
