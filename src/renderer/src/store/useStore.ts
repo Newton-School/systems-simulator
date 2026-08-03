@@ -29,15 +29,20 @@ import {
 } from '../../../engine/analysis/environmentProfile'
 
 /**
- * A scaffold node is locked when the active EnvironmentProfile disallows editing
- * scaffold-provided nodes. Locked nodes cannot be deleted or have their data
- * edited (enforced in the store so no UI path can bypass it).
+ * A node's edits/deletions are locked when either (a) the whole attempt is frozen
+ * by a host `lock` command, or (b) it is a scaffold-provided node and the active
+ * EnvironmentProfile disallows editing scaffold nodes. Enforced in the store so no
+ * UI path can bypass it.
  */
-function isScaffoldNodeLocked(
+function isNodeEditLocked(
   nodeId: string,
   scaffoldNodeIds: readonly string[],
-  profile: EnvironmentProfile
+  profile: EnvironmentProfile,
+  attemptStatus: AttemptState['status'] | undefined
 ): boolean {
+  if (attemptStatus === 'LOCKED') {
+    return true
+  }
   return !profile.capabilities.canEditScaffoldNodes && scaffoldNodeIds.includes(nodeId)
 }
 import type { RoutingStrategy } from '../../../engine/catalog/nodeSpecTypes'
@@ -290,6 +295,9 @@ type RFState = {
   /** The resolved presentation profile (visibility + capabilities) for question mode. */
   environmentProfile: EnvironmentProfile
   setEnvironmentProfile: (profile: EnvironmentProfile) => void
+  /** Host `reveal` command: force rubric results visible regardless of profile timing. */
+  resultsRevealed: boolean
+  setResultsRevealed: (revealed: boolean) => void
   viewportFitVersion: number
   requestViewportFit: () => void
 
@@ -347,16 +355,18 @@ const useStore = create<RFState>((set, get) => ({
   scaffoldNodeIds: [],
   attemptState: null,
   environmentProfile: DEFAULT_ENVIRONMENT_PROFILE,
+  resultsRevealed: false,
   viewportFitVersion: 0,
 
   onNodesChange: (changes: NodeChange[]) => {
-    const { scaffoldNodeIds, environmentProfile } = get()
-    // Drop deletions of locked scaffold nodes; all other changes pass through.
+    const { scaffoldNodeIds, environmentProfile, attemptState } = get()
+    // Drop deletions of locked nodes (scaffold-locked or a frozen attempt); all
+    // other changes pass through.
     const permitted = changes.filter(
       (change) =>
         !(
           change.type === 'remove' &&
-          isScaffoldNodeLocked(change.id, scaffoldNodeIds, environmentProfile)
+          isNodeEditLocked(change.id, scaffoldNodeIds, environmentProfile, attemptState?.status)
         )
     )
     set({
@@ -377,6 +387,10 @@ const useStore = create<RFState>((set, get) => ({
   },
 
   addNode: (node: Node) => {
+    // A frozen attempt (host `lock`) admits no new nodes.
+    if (get().attemptState?.status === 'LOCKED') {
+      return
+    }
     const currentNodes = get().nodes
     let newId = node.id
 
@@ -434,8 +448,8 @@ const useStore = create<RFState>((set, get) => ({
   },
 
   updateNodeData: (nodeId: string, patch: Partial<AnyNodeData>) => {
-    const { scaffoldNodeIds, environmentProfile } = get()
-    if (isScaffoldNodeLocked(nodeId, scaffoldNodeIds, environmentProfile)) {
+    const { scaffoldNodeIds, environmentProfile, attemptState } = get()
+    if (isNodeEditLocked(nodeId, scaffoldNodeIds, environmentProfile, attemptState?.status)) {
       return
     }
     set({
@@ -631,6 +645,7 @@ const useStore = create<RFState>((set, get) => ({
     }),
   setAttemptState: (attemptState) => set({ attemptState }),
   setEnvironmentProfile: (environmentProfile) => set({ environmentProfile }),
+  setResultsRevealed: (resultsRevealed) => set({ resultsRevealed }),
   requestViewportFit: () =>
     set((state) => ({
       viewportFitVersion: state.viewportFitVersion + 1

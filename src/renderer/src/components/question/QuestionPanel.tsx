@@ -90,6 +90,7 @@ export const QuestionPanel = () => {
   const attemptState = useStore((s) => s.attemptState)
   const setAttemptState = useStore((s) => s.setAttemptState)
   const environmentProfile = useStore((s) => s.environmentProfile)
+  const resultsRevealed = useStore((s) => s.resultsRevealed)
   const { serialize } = useTopologySerializer()
   const grader = useQuestionGrader()
   const {
@@ -266,6 +267,10 @@ export const QuestionPanel = () => {
   }
 
   const runGrade = (question: QuestionPackage, kind: PendingRun['kind']) => {
+    // A frozen attempt (host `lock`) accepts no more test/submit runs.
+    if (attemptState?.status === 'LOCKED') {
+      return
+    }
     const { topology, errors } = serialize()
     if (!topology) {
       setSerializeError(errors[0] ?? 'Could not serialize the current topology.')
@@ -315,13 +320,20 @@ export const QuestionPanel = () => {
   const failedTests = testRows.filter((row) => row.status === 'failed').length
   const pendingTests = testRows.filter((row) => row.status === 'pending').length
 
-  // --- EnvironmentProfile gates ---
+  // --- EnvironmentProfile + host-command gates ---
+  const isAttemptLocked = attemptState?.status === 'LOCKED'
   const showPrompt = environmentProfile.visibility.prompt
+  // The suite is shown only when the author marked it student-visible AND the
+  // environment reveals grading-suite details (hidden in INTERVIEW).
+  const showSuiteDetails =
+    activeQuestion.suite.visibleToStudent && environmentProfile.visibility.gradingSuiteDetails
   const hasSubmittedGrade = Boolean(attemptState?.grade)
-  const showRubricResults = shouldShowRubricResults(environmentProfile, { hasSubmittedGrade })
+  // A host `reveal` command overrides the profile's rubric-visibility timing.
+  const showRubricResults =
+    resultsRevealed || shouldShowRubricResults(environmentProfile, { hasSubmittedGrade })
   const showSubmit = environmentProfile.graded
   const { maxTestRuns } = environmentProfile.capabilities
-  const canTest = canTriggerTestRun(environmentProfile, { testRunCount })
+  const canTest = canTriggerTestRun(environmentProfile, { testRunCount }) && !isAttemptLocked
   const testRunsRemaining =
     maxTestRuns === undefined ? null : Math.max(0, maxTestRuns - testRunCount)
   const effectivePanelView: QuestionPanelView = showPrompt ? panelView : 'tests'
@@ -466,6 +478,36 @@ export const QuestionPanel = () => {
                 )}
               </div>
             </section>
+
+            {showSuiteDetails && (
+              <section className="space-y-2">
+                <h3 className={SECTION_TITLE}>Grading Suite</h3>
+                <div className="space-y-1">
+                  {activeQuestion.suite.cases.map((suiteCase) => {
+                    const overrides = [
+                      suiteCase.workload?.baseRps !== undefined
+                        ? `${suiteCase.workload.baseRps} rps`
+                        : null,
+                      suiteCase.workload?.pattern ?? null,
+                      suiteCase.faults && suiteCase.faults.length > 0
+                        ? `${suiteCase.faults.length} fault${suiteCase.faults.length > 1 ? 's' : ''}`
+                        : null
+                    ].filter(Boolean)
+                    return (
+                      <div
+                        key={suiteCase.id}
+                        className="flex items-center justify-between gap-3 rounded border border-nss-border/70 bg-nss-surface/40 px-2 py-1.5 text-xs"
+                      >
+                        <span className="font-semibold text-nss-text">{suiteCase.id}</span>
+                        <span className="shrink-0 text-[10px] text-nss-muted">
+                          {overrides.length > 0 ? overrides.join(' · ') : 'baseline conditions'}
+                        </span>
+                      </div>
+                    )
+                  })}
+                </div>
+              </section>
+            )}
           </>
         ) : (
           <section className="space-y-3">
@@ -558,10 +600,10 @@ export const QuestionPanel = () => {
           <button
             type="button"
             onClick={onSubmit}
-            disabled={graderStatus === 'grading'}
+            disabled={graderStatus === 'grading' || isAttemptLocked}
             className="flex-1 rounded-md bg-nss-primary px-3 py-2 text-xs font-semibold text-white hover:bg-nss-primary-hover disabled:opacity-50"
           >
-            {graderStatus === 'grading' ? 'Grading…' : 'Submit'}
+            {graderStatus === 'grading' ? 'Grading…' : isAttemptLocked ? 'Locked' : 'Submit'}
           </button>
         )}
       </footer>

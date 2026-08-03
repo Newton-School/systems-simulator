@@ -911,6 +911,22 @@ export function markAttemptGrading(
   }
 }
 
+/**
+ * Freezes an attempt (host `lock` command): no further autosave, grading, or
+ * submission. Preserves the current topology and grade so the frozen state is
+ * exactly what the student had.
+ */
+export function lockAttempt(current: AttemptState | null, now?: string): AttemptState | null {
+  if (!current) {
+    return null
+  }
+  return {
+    ...current,
+    status: 'LOCKED',
+    lastSavedAt: stableNow(now)
+  }
+}
+
 export function autosaveAttempt(
   current: AttemptState | null,
   {

@@ -219,3 +219,43 @@ describe('useStore scaffold-node lock', () => {
     expect(useStore.getState().nodes.map((n) => n.id)).not.toContain('scaffold-1')
   })
 })
+
+describe('useStore host lifecycle (lock / reveal)', () => {
+  beforeEach(() => {
+    useStore.getState().setActiveQuestion(null)
+    useStore.getState().setEnvironmentProfile(resolveEnvironmentProfile())
+    useStore
+      .getState()
+      .setNodes([
+        { id: 'n1', type: 'service', position: { x: 0, y: 0 }, data: { label: 'n1' } }
+      ] as any)
+  })
+
+  afterEach(() => {
+    useStore.getState().setAttemptState(null)
+    useStore.getState().setResultsRevealed(false)
+    useStore.getState().setNodes([])
+  })
+
+  it('freezes every node once the attempt is LOCKED', () => {
+    useStore.getState().setAttemptState({ status: 'LOCKED' } as any)
+
+    // Deleting, editing and adding are all blocked while frozen.
+    useStore.getState().onNodesChange([{ type: 'remove', id: 'n1' }])
+    expect(useStore.getState().nodes.map((n) => n.id)).toContain('n1')
+
+    useStore.getState().updateNodeData('n1', { label: 'nope' } as any)
+    expect((useStore.getState().nodes[0].data as { label: string }).label).toBe('n1')
+
+    useStore
+      .getState()
+      .addNode({ id: 'n2', type: 'service', position: { x: 1, y: 1 }, data: {} } as any)
+    expect(useStore.getState().nodes.map((n) => n.id)).not.toContain('n2')
+  })
+
+  it('exposes a reveal flag that defaults false and can be toggled', () => {
+    expect(useStore.getState().resultsRevealed).toBe(false)
+    useStore.getState().setResultsRevealed(true)
+    expect(useStore.getState().resultsRevealed).toBe(true)
+  })
+})

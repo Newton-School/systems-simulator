@@ -32,7 +32,15 @@ export interface QuestionErrorMessage {
   message: string
 }
 
-export type QuestionHostInboundMessage = QuestionLaunchContextMessage
+/** Host lifecycle commands that drive the attempt after launch. */
+export type QuestionHostCommand = 'reset' | 'lock' | 'reveal'
+
+export interface QuestionCommandMessage {
+  type: 'ns-simulator:command'
+  command: QuestionHostCommand
+}
+
+export type QuestionHostInboundMessage = QuestionLaunchContextMessage | QuestionCommandMessage
 export type QuestionHostOutboundMessage =
   | QuestionReadyMessage
   | QuestionSubmitMessage
@@ -181,6 +189,17 @@ export function isQuestionLaunchContextMessage(
   value: unknown
 ): value is QuestionLaunchContextMessage {
   return parseQuestionLaunchContextMessage(value) !== null
+}
+
+export function parseQuestionCommandMessage(value: unknown): QuestionCommandMessage | null {
+  if (!isRecord(value) || value.type !== 'ns-simulator:command') {
+    return null
+  }
+  const { command } = value
+  if (command === 'reset' || command === 'lock' || command === 'reveal') {
+    return { type: 'ns-simulator:command', command }
+  }
+  return null
 }
 
 export function parseQuestionHostOutboundMessage(

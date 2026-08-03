@@ -15,6 +15,7 @@ import {
 } from '@renderer/utils/questionAttemptPersistence'
 import {
   isAllowedHostOrigin,
+  parseQuestionCommandMessage,
   parseQuestionLaunchContextMessage,
   postQuestionHostMessage,
   rememberTrustedHostOrigin
@@ -23,7 +24,7 @@ import { applyAutoLayout } from '@renderer/utils/autoLayout'
 import { validateTopology } from '../../../../engine/validation/validator'
 import type { LatencyPercentiles } from '../../../../engine/metrics'
 import type { TimeSeriesSnapshot } from '../../../../engine/analysis/output'
-import { createAttemptState } from '../../../../engine/analysis/question'
+import { createAttemptState, lockAttempt } from '../../../../engine/analysis/question'
 import { resolveEnvironmentProfile } from '../../../../engine/analysis/environmentProfile'
 import type { ValidationError } from '../../../../engine/validation/validator'
 import {
@@ -320,6 +321,7 @@ export const WorkspaceLayout = () => {
   const setActiveQuestion = useStore((s) => s.setActiveQuestion)
   const setAttemptState = useStore((s) => s.setAttemptState)
   const setEnvironmentProfile = useStore((s) => s.setEnvironmentProfile)
+  const setResultsRevealed = useStore((s) => s.setResultsRevealed)
   const requestViewportFit = useStore((s) => s.requestViewportFit)
   const runInspectorPinned = useStore((s) => s.runInspectorPinned)
   const setRunInspectorPinned = useStore((s) => s.setRunInspectorPinned)
@@ -343,8 +345,9 @@ export const WorkspaceLayout = () => {
     setActiveQuestion(null)
     setAttemptState(null)
     setEnvironmentProfile(resolveEnvironmentProfile())
+    setResultsRevealed(false)
     setLeftSidebarTab('library')
-  }, [setActiveQuestion, setAttemptState, setEnvironmentProfile])
+  }, [setActiveQuestion, setAttemptState, setEnvironmentProfile, setResultsRevealed])
 
   const handleOpenTopology = useCallback(async () => {
     const loaded = await handleOpen()
@@ -439,11 +442,49 @@ export const WorkspaceLayout = () => {
 
   useEffect(() => {
     const onMessage = (event: MessageEvent<unknown>) => {
-      // Reject launch contexts from any origin the host allowlist / handshake
-      // does not trust — never parse or load an untrusted QuestionPackage.
+      // Reject messages from any origin the host allowlist / handshake does not
+      // trust — never parse or load untrusted host input.
       if (!isAllowedHostOrigin(event.origin)) {
         return
       }
+
+      // Post-launch lifecycle commands (reset / lock / reveal).
+      const command = parseQuestionCommandMessage(event.data)
+      if (command) {
+        const state = useStore.getState()
+        const question = state.activeQuestion
+        if (!question) {
+          return
+        }
+        if (command.command === 'reveal') {
+          state.setResultsRevealed(true)
+          return
+        }
+        if (command.command === 'lock') {
+          state.setAttemptState(lockAttempt(state.attemptState))
+          return
+        }
+        // reset: reload the scaffold and start a fresh, unlocked attempt.
+        const scaffoldTopology =
+          question.scaffold.type === 'partial' ? question.scaffold.topology : undefined
+        const launchData =
+          scaffoldTopology ??
+          ({ version: '2.0.0', nodes: [], edges: [], scenario: DEFAULT_SCENARIO_STATE } as const)
+        void (async () => {
+          const loaded = await loadFromData(launchData, `${question.id}.json`)
+          if (!loaded) {
+            return
+          }
+          state.setResultsRevealed(false)
+          state.setAttemptState(
+            scaffoldTopology
+              ? createAttemptState({ questionId: question.id, topology: scaffoldTopology })
+              : null
+          )
+        })()
+        return
+      }
+
       const launchContext = parseQuestionLaunchContextMessage(event.data)
       if (!launchContext) {
         return
@@ -452,6 +493,7 @@ export const WorkspaceLayout = () => {
       rememberTrustedHostOrigin(event.origin)
       const { questionPackage, priorAttempt, environmentProfile } = launchContext.payload
       setEnvironmentProfile(resolveEnvironmentProfile(environmentProfile))
+      setResultsRevealed(false)
 
       void (async () => {
         const restoredAttempt =
@@ -507,6 +549,7 @@ export const WorkspaceLayout = () => {
     setActiveQuestion,
     setAttemptState,
     setEnvironmentProfile,
+    setResultsRevealed,
     setRoutingVisualization,
     sim,
     setLeftSidebarTab,
@@ -829,7 +872,7 @@ export const WorkspaceLayout = () => {
               <Panel defaultSize={showResults ? 65 : 100} minSize={10} order={1}>
                 <div className="relative h-full">
                   <FlowCanvas
-                    showMetricLens
+                    showMetricLens={environmentProfile.visibility.liveMetrics}
                     onNodeDoubleClick={(_, node) => {
                       selectGraphElements({ nodeId: node.id })
                       setIsRightOpen(true)

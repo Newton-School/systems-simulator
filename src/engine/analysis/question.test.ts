@@ -4,9 +4,11 @@ import type { SimulationOutput } from './output'
 import {
   buildQuestionTestRows,
   caseRubricTestId,
+  createAttemptState,
   gradeAttempt,
   gradeAttemptWithArtifacts,
   isAttemptCurrentForTopology,
+  lockAttempt,
   resolveVisibleAttemptGrade,
   resolveVisibleAttemptStatus,
   structuralTestId,
@@ -429,5 +431,25 @@ describe('gradeAttemptWithArtifacts', () => {
     expect(peak?.executionStatus).toBe('failed')
     expect(peak?.verdict).toBeUndefined()
     expect(peak?.replayDigest).toBeUndefined()
+  })
+})
+
+describe('lockAttempt', () => {
+  it('freezes an attempt while preserving its topology and grade', () => {
+    const attempt = createAttemptState({
+      questionId: 'q1',
+      topology: studentTopology(),
+      attemptId: 'a1',
+      now: '2026-08-01T00:00:00.000Z'
+    })
+    const graded = { ...attempt, grade: { gradedAt: 'x', result: {} as never } }
+
+    const locked = lockAttempt(graded, '2026-08-02T00:00:00.000Z')
+    expect(locked?.status).toBe('LOCKED')
+    expect(locked?.topology).toEqual(graded.topology)
+    expect(locked?.grade).toEqual(graded.grade)
+    expect(locked?.lastSavedAt).toBe('2026-08-02T00:00:00.000Z')
+
+    expect(lockAttempt(null)).toBeNull()
   })
 })
