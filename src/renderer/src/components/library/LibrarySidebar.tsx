@@ -66,6 +66,8 @@ const ALL_SIDEBAR_SCENARIOS: SidebarScenario[] = SAMPLE_SCENARIOS.map((scenario)
 interface LibraryActivityRailProps {
   activeTab: LibrarySidebarTab
   onSelect: (tab: LibrarySidebarTab) => void
+  /** Sample scenarios are a free-play/authoring feature — hidden in question mode. */
+  showScenarios?: boolean
 }
 
 interface LibrarySidebarContentProps {
@@ -121,14 +123,16 @@ const ActivityButton = memo(function ActivityButton({
 
 export const LibraryActivityRail = memo(function LibraryActivityRail({
   activeTab,
-  onSelect
+  onSelect,
+  showScenarios = true
 }: LibraryActivityRailProps) {
+  const tabs = showScenarios ? ACTIVITY_TABS : ACTIVITY_TABS.filter((tab) => tab.id !== 'scenarios')
   return (
     <nav
       aria-label="Library views"
       className="h-full w-12 shrink-0 bg-nss-bg border-r border-nss-border flex flex-col items-center py-2 gap-1"
     >
-      {ACTIVITY_TABS.map((tab) => (
+      {tabs.map((tab) => (
         <ActivityButton key={tab.id} tab={tab} activeTab={activeTab} onSelect={onSelect} />
       ))}
     </nav>

@@ -4,11 +4,13 @@ import { useTopologySerializer } from '@renderer/hooks/useTopologySerializer'
 import { useQuestionGrader } from '@renderer/hooks/useQuestionGrader'
 import { SAMPLE_QUESTION } from '@renderer/config/sampleQuestion'
 import { postQuestionHostMessage } from '@renderer/utils/questionHostMessaging'
+import { isNewtonHostMode, postNewtonSave } from '@renderer/utils/newtonHostMessaging'
 import { archiveSubmission, listArchivedSubmissionIds } from '@renderer/utils/submissionArchive'
 import {
   buildGamePlaygroundResult,
   buildGamePlaygroundSubmitPayload
 } from '../../../../engine/analysis/gamePlayground'
+import { buildNewtonSaveBlob } from '../../../../engine/analysis/newtonGamePlayground'
 import { buildQuestionEvaluationContract } from '../../../../engine/analysis/evaluationContract'
 import { buildEvaluationEnvelope } from '../../../../engine/analysis/evaluationEnvelope'
 import {
@@ -197,14 +199,18 @@ export const QuestionPanel = () => {
           console.error('Failed to archive submission envelope', err)
         }
 
-        postQuestionHostMessage({
-          type: 'ns-simulator:submit',
-          payload: buildGamePlaygroundSubmitPayload(
-            activeQuestion,
-            completedAttempt,
-            buildGamePlaygroundResult(graderGrade.contract)
-          )
-        })
+        const gameResult = buildGamePlaygroundResult(graderGrade.contract)
+        if (isNewtonHostMode()) {
+          // Newton Game Playground host: post a verbatim-persisted JSON blob with
+          // the two score keys + carried-forward package (client-computed; the
+          // backend does not re-grade).
+          postNewtonSave(buildNewtonSaveBlob(activeQuestion, completedAttempt, gameResult, now))
+        } else {
+          postQuestionHostMessage({
+            type: 'ns-simulator:submit',
+            payload: buildGamePlaygroundSubmitPayload(activeQuestion, completedAttempt, gameResult)
+          })
+        }
       }
 
       setPendingRun(null)
