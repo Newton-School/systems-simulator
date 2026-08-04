@@ -11,10 +11,12 @@ import {
   lockAttempt,
   resolveVisibleAttemptGrade,
   resolveVisibleAttemptStatus,
+  semanticTestId,
   structuralTestId,
   toHostContract,
   type QuestionPackage
 } from './question'
+import type { ComponentType } from '../core/types'
 import { EXECUTION_CHECK_ID, type GradedEvaluationBatch } from './rubric'
 import type { StructuralEvaluation } from './structural'
 
@@ -451,5 +453,77 @@ describe('lockAttempt', () => {
     expect(locked?.lastSavedAt).toBe('2026-08-02T00:00:00.000Z')
 
     expect(lockAttempt(null)).toBeNull()
+  })
+})
+
+describe('gradeAttempt — semantic criteria wiring', () => {
+  function guardedTopology(withBypass: boolean): TopologyJSON {
+    const edges = [
+      { id: 'e1', source: 'svc', target: 'cache' },
+      { id: 'e2', source: 'cache', target: 'store' }
+    ]
+    if (withBypass) {
+      edges.push({ id: 'e3', source: 'svc', target: 'store' })
+    }
+    return {
+      id: 't',
+      name: 't',
+      version: '2.0.0',
+      global: { seed: 'base', simulationDuration: 1000, warmupDuration: 0 },
+      nodes: [
+        {
+          id: 'svc',
+          type: 'microservice',
+          category: 'compute',
+          label: 's',
+          position: { x: 0, y: 0 }
+        },
+        {
+          id: 'cache',
+          type: 'in-memory-cache',
+          category: 'storage',
+          label: 'c',
+          position: { x: 0, y: 0 }
+        },
+        { id: 'store', type: 'kv-store', category: 'storage', label: 'k', position: { x: 0, y: 0 } }
+      ],
+      edges
+    } as unknown as TopologyJSON
+  }
+
+  const semanticPkg: QuestionPackage = {
+    ...pkg,
+    id: 'q-semantic',
+    semanticCriteria: [
+      {
+        id: 'reads-through-cache',
+        description: 'Reads must traverse the cache',
+        kind: 'guardedPath',
+        from: 'microservice' as ComponentType,
+        guard: 'in-memory-cache' as ComponentType,
+        to: 'kv-store' as ComponentType,
+        points: 3
+      }
+    ]
+  }
+
+  it('evaluates semantic criteria and surfaces them as host contract rows', () => {
+    const grade = gradeAttempt(semanticPkg, guardedTopology(false), () => fakeOutput(0.02))
+    expect(grade.semantic?.results[0].outcome).toBe('passed')
+    const row = grade.contract.tests.find((t) => t.id === semanticTestId('reads-through-cache'))
+    expect(row?.passed).toBe(true)
+  })
+
+  it('surfaces a failing semantic criterion (bypass path) in the contract', () => {
+    const grade = gradeAttempt(semanticPkg, guardedTopology(true), () => fakeOutput(0.02))
+    expect(grade.semantic?.results[0].outcome).toBe('failed')
+    const row = grade.contract.tests.find((t) => t.id === semanticTestId('reads-through-cache'))
+    expect(row?.passed).toBe(false)
+    expect(grade.contract.allPassed).toBe(false)
+  })
+
+  it('leaves semantic undefined when the package authors no criteria', () => {
+    const grade = gradeAttempt(pkg, studentTopology(), () => fakeOutput(0.02))
+    expect(grade.semantic).toBeUndefined()
   })
 })
