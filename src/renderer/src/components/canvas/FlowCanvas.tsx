@@ -78,6 +78,9 @@ const FlowCanvasInternal = ({ showMetricLens = false, onNodeDoubleClick }: FlowC
     useFlowStore()
 
   const selectGraphElements = useStore((state) => state.selectGraphElements)
+  const clearSimulationMetrics = useStore((state) => state.clearSimulationMetrics)
+  const clearEdgeFlow = useStore((state) => state.clearEdgeFlow)
+  const setRoutingStrategyVisualization = useStore((state) => state.setRoutingStrategyVisualization)
 
   const { edgeTypes, defaultEdgeOptions } = useFlowConfig()
 
@@ -100,6 +103,7 @@ const FlowCanvasInternal = ({ showMetricLens = false, onNodeDoubleClick }: FlowC
 
   const isEmpty = nodes.length === 0
   const prevNodeCount = useRef(nodes.length)
+  const hasCanvasContent = nodes.length > 0 || edges.length > 0
   const hasSelection = useMemo(
     () => nodes.some((node) => node.selected) || edges.some((edge) => edge.selected),
     [edges, nodes]
@@ -218,6 +222,22 @@ const FlowCanvasInternal = ({ showMetricLens = false, onNodeDoubleClick }: FlowC
     selectGraphElements({})
   }, [edges, nodes, selectGraphElements, setEdges, setNodes])
 
+  const resetCanvas = useCallback(() => {
+    setNodes([])
+    setEdges([])
+    selectGraphElements({})
+    clearSimulationMetrics()
+    clearEdgeFlow()
+    setRoutingStrategyVisualization(null)
+  }, [
+    clearEdgeFlow,
+    clearSimulationMetrics,
+    selectGraphElements,
+    setEdges,
+    setNodes,
+    setRoutingStrategyVisualization
+  ])
+
   const isPanTool = activeTool === 'pan'
   const isSelectTool = activeTool === 'select'
   const isTextTool = activeTool === 'text'
@@ -226,8 +246,10 @@ const FlowCanvasInternal = ({ showMetricLens = false, onNodeDoubleClick }: FlowC
     <div style={{ width: '100%', height: '100%' }} className="bg-nss-bg relative">
       <CanvasToolbar
         activeTool={activeTool}
+        hasCanvasContent={hasCanvasContent}
         hasSelection={hasSelection}
         onToolChange={setActiveTool}
+        onResetCanvas={resetCanvas}
         onDeleteSelection={deleteSelection}
       />
       <ReactFlow

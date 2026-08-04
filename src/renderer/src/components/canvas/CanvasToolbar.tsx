@@ -1,13 +1,23 @@
 import { memo, useMemo, useState } from 'react'
 import { clsx } from 'clsx'
-import { ChevronUp, Hand, MousePointer2, Trash2, Type, type LucideIcon } from 'lucide-react'
+import {
+  ChevronUp,
+  Hand,
+  MousePointer2,
+  RotateCcw,
+  Trash2,
+  Type,
+  type LucideIcon
+} from 'lucide-react'
 
 export type CanvasTool = 'select' | 'pan' | 'text'
 
 interface CanvasToolbarProps {
   activeTool: CanvasTool
+  hasCanvasContent: boolean
   hasSelection: boolean
   onToolChange: (tool: CanvasTool) => void
+  onResetCanvas: () => void
   onDeleteSelection: () => void
 }
 
@@ -54,8 +64,10 @@ CanvasToolButton.displayName = 'CanvasToolButton'
 
 const CanvasToolbarComponent = ({
   activeTool,
+  hasCanvasContent,
   hasSelection,
   onToolChange,
+  onResetCanvas,
   onDeleteSelection
 }: CanvasToolbarProps) => {
   const [isExpanded, setIsExpanded] = useState(true)
@@ -101,6 +113,13 @@ const CanvasToolbarComponent = ({
         ))}
 
         <div className="my-0.5 h-px w-5 bg-nss-border" />
+
+        <CanvasToolButton
+          icon={RotateCcw}
+          label="Reset canvas"
+          disabled={!hasCanvasContent}
+          onClick={onResetCanvas}
+        />
 
         <CanvasToolButton
           icon={Trash2}
