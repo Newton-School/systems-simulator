@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { clsx } from 'clsx'
 import { Activity, ArrowLeft, GitBranch, ListTree, Settings, Server, Type, X } from 'lucide-react'
 import type { SimulationOutput } from '../../../../engine/analysis/output'
@@ -34,6 +34,11 @@ import {
   TEXT_LABEL_NODE_TYPE,
   type CanvasTextLabelData
 } from '../../../../engine/catalog/canvasAnnotations'
+import {
+  applyIndentCommand,
+  DEFAULT_TEXT_LABEL,
+  normalizeTextLabelText
+} from '../nodes/textLabelEditing'
 
 const EmptyState = () => (
   <div className="h-full bg-nss-panel border-l border-nss-border flex flex-col items-center justify-center text-nss-muted gap-2">
@@ -51,16 +56,41 @@ const CanvasLabelInspector = ({
   onUpdate: (text: string) => void
   onClose: () => void
 }) => {
-  const [value, setValue] = useState(data.text || 'Label')
+  const [value, setValue] = useState(data.text || DEFAULT_TEXT_LABEL)
 
   useEffect(() => {
-    setValue(data.text || 'Label')
+    setValue(data.text || DEFAULT_TEXT_LABEL)
   }, [data.text])
 
   const save = () => {
-    const next = value.trim() || 'Label'
+    const next = normalizeTextLabelText(value)
     setValue(next)
     onUpdate(next)
+  }
+
+  const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    event.stopPropagation()
+
+    if (event.key === 'Tab') {
+      event.preventDefault()
+      const textarea = event.currentTarget
+      const next = applyIndentCommand({
+        value: textarea.value,
+        selectionStart: textarea.selectionStart,
+        selectionEnd: textarea.selectionEnd,
+        outdent: event.shiftKey
+      })
+      setValue(next.value)
+      window.requestAnimationFrame(() => {
+        textarea.setSelectionRange(next.selectionStart, next.selectionEnd)
+      })
+      return
+    }
+
+    if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+      event.preventDefault()
+      event.currentTarget.blur()
+    }
   }
 
   return (
@@ -92,16 +122,14 @@ const CanvasLabelInspector = ({
         <label className="block text-[10px] font-bold uppercase tracking-widest text-nss-muted">
           Text
         </label>
-        <input
+        <textarea
           value={value}
           onChange={(event) => setValue(event.target.value)}
           onBlur={save}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') {
-              event.currentTarget.blur()
-            }
-          }}
-          className="mt-2 w-full rounded-md border border-nss-border bg-nss-surface px-3 py-2 text-sm font-medium text-nss-text outline-none transition-colors focus:border-nss-primary"
+          onKeyDown={handleKeyDown}
+          rows={6}
+          spellCheck={false}
+          className="mt-2 w-full resize-y rounded-md border-0 bg-transparent px-0 py-1 font-mono text-sm font-medium leading-relaxed text-nss-muted caret-nss-muted outline-none transition-colors focus:ring-1 focus:ring-nss-primary/50"
         />
       </div>
     </div>
