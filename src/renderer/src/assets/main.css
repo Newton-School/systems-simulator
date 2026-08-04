@@ -17,6 +17,8 @@
 
     --nss-vpc-border: #94a3b8;
     --nss-vpc-bg: 241 245 249;
+    --nss-canvas-label-border: #94a3b8;
+    --nss-canvas-label-border-hover: #64748b;
 
     --nss-primary: 37 99 235;
     --nss-primary-hover: 29 78 216;
@@ -40,6 +42,8 @@
 
     --nss-vpc-border: #475569;
     --nss-vpc-bg: 30 41 59;
+    --nss-canvas-label-border: #334155;
+    --nss-canvas-label-border-hover: #64748b;
 
     --nss-primary: 59 130 246;
     --nss-primary-hover: 37 99 235;
@@ -66,6 +70,18 @@
 
   ::-webkit-scrollbar-track {
     background: transparent;
+  }
+
+  .canvas-text-label {
+    border-color: var(--nss-canvas-label-border);
+  }
+
+  .canvas-text-label:hover {
+    border-color: var(--nss-canvas-label-border-hover);
+  }
+
+  .canvas-text-label--selected {
+    border-color: rgb(var(--nss-primary) / 0.7);
   }
 
   ::-webkit-scrollbar-thumb {

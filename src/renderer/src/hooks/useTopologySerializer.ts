@@ -16,6 +16,7 @@ import useStore from '../store/useStore'
 import type { ScenarioRunContext, ScenarioState } from '@renderer/types/ui'
 import { normalizeScenarioState } from '@renderer/types/ui'
 import { mergeWorkloadDefaults } from '@renderer/utils/workloadDefaults'
+import { isCanvasAnnotationNodeType } from '../../../engine/catalog/canvasAnnotations'
 
 type EdgeRuntimeData = {
   protocol?: EdgeDefinition['protocol']
@@ -324,6 +325,10 @@ export function useTopologySerializer() {
       const dataByNodeId = new Map<string, CanvasNodeDataV2>()
 
       for (const rfNode of nodes) {
+        if (isCanvasAnnotationNodeType(rfNode.type)) {
+          continue
+        }
+
         const data = rfNode.data as CanvasNodeDataV2
         dataByNodeId.set(rfNode.id, data)
 
@@ -365,7 +370,9 @@ export function useTopologySerializer() {
       }
 
       const sourceRfNodes = nodes.filter(
-        (node) => (node.data as CanvasNodeDataV2).profile === 'source'
+        (node) =>
+          !isCanvasAnnotationNodeType(node.type) &&
+          (node.data as CanvasNodeDataV2).profile === 'source'
       )
       const selectedSourceRfNode =
         sourceRfNodes.find((node) => node.id === resolvedScenario.selectedSourceNodeId) ??

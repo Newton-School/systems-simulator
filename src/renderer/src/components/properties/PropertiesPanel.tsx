@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { clsx } from 'clsx'
-import { Activity, ArrowLeft, GitBranch, ListTree, Settings, Server } from 'lucide-react'
+import { Activity, ArrowLeft, GitBranch, ListTree, Settings, Server, Type, X } from 'lucide-react'
 import type { SimulationOutput } from '../../../../engine/analysis/output'
 import {
   REQUEST_OUTCOME_FAMILIES,
@@ -30,6 +30,10 @@ import {
   type LocationLevel
 } from '@renderer/utils/locationTopology'
 import { inferEdgeDefaults } from '../../../../engine/defaults/edgeDefaults'
+import {
+  TEXT_LABEL_NODE_TYPE,
+  type CanvasTextLabelData
+} from '../../../../engine/catalog/canvasAnnotations'
 
 const EmptyState = () => (
   <div className="h-full bg-nss-panel border-l border-nss-border flex flex-col items-center justify-center text-nss-muted gap-2">
@@ -37,6 +41,72 @@ const EmptyState = () => (
     <p className="text-xs font-medium uppercase tracking-wide">No Selection</p>
   </div>
 )
+
+const CanvasLabelInspector = ({
+  data,
+  onUpdate,
+  onClose
+}: {
+  data: CanvasTextLabelData
+  onUpdate: (text: string) => void
+  onClose: () => void
+}) => {
+  const [value, setValue] = useState(data.text || 'Label')
+
+  useEffect(() => {
+    setValue(data.text || 'Label')
+  }, [data.text])
+
+  const save = () => {
+    const next = value.trim() || 'Label'
+    setValue(next)
+    onUpdate(next)
+  }
+
+  return (
+    <div className="h-full w-full bg-nss-panel border-l border-nss-border flex flex-col text-nss-text font-sans shadow-xl">
+      <div className="p-5 border-b border-nss-border bg-nss-panel">
+        <div className="flex items-center gap-4">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-nss-primary/10 text-nss-primary">
+            <Type size={22} />
+          </div>
+          <div className="min-w-0 flex-1">
+            <h2 className="truncate text-sm font-semibold leading-tight text-nss-text">
+              Canvas Label
+            </h2>
+            <p className="mt-1 text-[10px] uppercase tracking-wide text-nss-muted">Annotation</p>
+          </div>
+          <button
+            type="button"
+            aria-label="Close"
+            title="Close"
+            onClick={onClose}
+            className="flex h-8 w-8 items-center justify-center rounded-md border border-nss-border text-nss-muted transition-colors hover:bg-nss-surface hover:text-nss-text"
+          >
+            <X size={16} />
+          </button>
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-5">
+        <label className="block text-[10px] font-bold uppercase tracking-widest text-nss-muted">
+          Text
+        </label>
+        <input
+          value={value}
+          onChange={(event) => setValue(event.target.value)}
+          onBlur={save}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              event.currentTarget.blur()
+            }
+          }}
+          className="mt-2 w-full rounded-md border border-nss-border bg-nss-surface px-3 py-2 text-sm font-medium text-nss-text outline-none transition-colors focus:border-nss-primary"
+        />
+      </div>
+    </div>
+  )
+}
 
 const RUN_INSPECTOR_TOOLTIP = (
   <div className="space-y-1 text-[11px] leading-relaxed">
@@ -1321,6 +1391,16 @@ export const PropertiesPanel = ({ results = null }: { results?: SimulationOutput
         onTabChange={setRunInspectorTab}
         onSelectNode={(id) => openRunInspectorDetail({ nodeId: id })}
         onSelectEdge={(id) => openRunInspectorDetail({ edgeId: id })}
+      />
+    )
+  }
+
+  if (selectedNode?.type === TEXT_LABEL_NODE_TYPE) {
+    return (
+      <CanvasLabelInspector
+        data={selectedNode.data as CanvasTextLabelData}
+        onUpdate={(text) => updateNodeData(selectedNode.id, { text })}
+        onClose={() => selectGraphElements({})}
       />
     )
   }

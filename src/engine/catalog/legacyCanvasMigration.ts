@@ -1,6 +1,7 @@
 import type { Node } from 'reactflow'
 import { getComponentSpec } from './componentSpecs'
 import { getPaletteTemplate, instantiateTemplate } from './paletteTemplates'
+import { isCanvasAnnotationNodeType } from './canvasAnnotations'
 import type { CanvasNodeDataV2 } from './nodeSpecTypes'
 
 const LEGACY_COMPUTE_TYPE_TO_TEMPLATE: Record<string, string> = {
@@ -176,6 +177,10 @@ export function migrateCanvasNodeData(node: Node): CanvasNodeDataV2 {
 }
 
 export function migrateCanvasNode(node: Node): Node {
+  if (isCanvasAnnotationNodeType(node.type)) {
+    return node
+  }
+
   return {
     ...node,
     data: migrateCanvasNodeData(node)
