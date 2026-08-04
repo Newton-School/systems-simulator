@@ -3,11 +3,7 @@ import type { NodeProps } from 'reactflow'
 import { clsx } from 'clsx'
 import type { CanvasTextLabelData } from '../../../../engine/catalog/canvasAnnotations'
 import { useFlowStore } from '../canvas/hooks/useFlowStore'
-import {
-  applyIndentCommand,
-  DEFAULT_TEXT_LABEL,
-  normalizeTextLabelText
-} from './textLabelEditing'
+import { applyIndentCommand, DEFAULT_TEXT_LABEL, normalizeTextLabelText } from './textLabelEditing'
 
 const MIN_LABEL_WIDTH_CLASS = 'min-w-24'
 const MAX_LABEL_WIDTH_CLASS = 'max-w-80'

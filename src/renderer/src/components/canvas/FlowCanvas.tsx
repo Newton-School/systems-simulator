@@ -71,7 +71,8 @@ function collectSelectedNodeIds(nodes: Node[]): Set<string> {
 
 const FlowCanvasInternal = ({ showMetricLens = false, onNodeDoubleClick }: FlowCanvasProps) => {
   const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance | null>(null)
-  const [activeTool, setActiveTool] = useState<CanvasTool>('select')
+  const [activeTool, setActiveTool] = useState<CanvasTool>('pan')
+  const shiftPreviousToolRef = useRef<CanvasTool | null>(null)
 
   const { nodes, edges, onNodesChange, onEdgesChange, onConnect, addNode, setNodes, setEdges } =
     useFlowStore()
@@ -120,6 +121,41 @@ const FlowCanvasInternal = ({ showMetricLens = false, onNodeDoubleClick }: FlowC
 
     prevNodeCount.current = nodes.length
   }, [nodes.length, reactFlowInstance])
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Shift' || event.repeat || shiftPreviousToolRef.current) {
+        return
+      }
+
+      setActiveTool((currentTool) => {
+        shiftPreviousToolRef.current = currentTool
+        return 'select'
+      })
+    }
+
+    const restorePreviousTool = () => {
+      const previousTool = shiftPreviousToolRef.current
+      if (!previousTool) return
+      shiftPreviousToolRef.current = null
+      setActiveTool(previousTool)
+    }
+
+    const handleKeyUp = (event: KeyboardEvent) => {
+      if (event.key === 'Shift') {
+        restorePreviousTool()
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    window.addEventListener('keyup', handleKeyUp)
+    window.addEventListener('blur', restorePreviousTool)
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+      window.removeEventListener('keyup', handleKeyUp)
+      window.removeEventListener('blur', restorePreviousTool)
+    }
+  }, [])
 
   // Edge selection lives in the shared store so the right-hand inspector
   // (PropertiesPanel) can render its properties, exactly like node config.
@@ -218,13 +254,14 @@ const FlowCanvasInternal = ({ showMetricLens = false, onNodeDoubleClick }: FlowC
         onEdgeClick={onEdgeClick}
         onPaneClick={onPaneClick}
         onNodeDoubleClick={onNodeDoubleClick}
+        deleteKeyCode={['Backspace', 'Delete']}
         panOnDrag={isPanTool ? true : [1, 2]}
         panOnScroll={isPanTool}
         selectionOnDrag={isSelectTool}
         selectionMode={SelectionMode.Partial}
         selectNodesOnDrag={false}
-        elementsSelectable={!isPanTool}
-        nodesDraggable={!isPanTool}
+        elementsSelectable
+        nodesDraggable={!isTextTool}
         nodesConnectable={!isPanTool && !isTextTool}
         edgesUpdatable={!isPanTool && !isTextTool}
         className={isPanTool ? 'cursor-grab' : isTextTool ? 'cursor-text' : 'cursor-default'}

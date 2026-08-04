@@ -1,14 +1,6 @@
 import { memo, useMemo, useState } from 'react'
 import { clsx } from 'clsx'
-import {
-  ChevronDown,
-  ChevronUp,
-  Hand,
-  MousePointer2,
-  Trash2,
-  Type,
-  type LucideIcon
-} from 'lucide-react'
+import { ChevronUp, Hand, MousePointer2, Trash2, Type, type LucideIcon } from 'lucide-react'
 
 export type CanvasTool = 'select' | 'pan' | 'text'
 
@@ -28,13 +20,13 @@ interface CanvasToolButtonProps {
 }
 
 const TOOL_ITEMS: ReadonlyArray<{ tool: CanvasTool; label: string; icon: LucideIcon }> = [
-  { tool: 'select', label: 'Select', icon: MousePointer2 },
   { tool: 'pan', label: 'Move canvas', icon: Hand },
+  { tool: 'select', label: 'Select', icon: MousePointer2 },
   { tool: 'text', label: 'Add label', icon: Type }
 ]
 
 const TOOLBAR_SHELL_CLASS =
-  'pointer-events-auto flex items-center gap-1 rounded-lg border border-nss-border bg-nss-panel/95 p-1 shadow-xl backdrop-blur'
+  'pointer-events-auto flex flex-col items-center gap-0.5 rounded-md border border-nss-border bg-nss-panel/95 p-0.5 shadow-lg backdrop-blur'
 
 const CanvasToolButton = memo(
   ({ icon: Icon, label, active = false, disabled = false, onClick }: CanvasToolButtonProps) => (
@@ -45,15 +37,15 @@ const CanvasToolButton = memo(
       disabled={disabled}
       onClick={onClick}
       className={clsx(
-        'flex h-9 w-9 items-center justify-center rounded-md border text-nss-muted transition-all',
+        'flex h-8 w-8 items-center justify-center rounded border text-nss-muted transition-all',
         'focus:outline-none focus:ring-2 focus:ring-nss-primary/60',
         active
-          ? 'border-nss-primary bg-nss-primary text-white shadow-sm'
+          ? 'border-nss-primary/50 bg-nss-primary/15 text-nss-primary'
           : 'border-transparent hover:border-nss-border hover:bg-nss-surface hover:text-nss-text',
         disabled && 'cursor-not-allowed opacity-40 hover:border-transparent hover:bg-transparent'
       )}
     >
-      <Icon size={18} strokeWidth={2.2} />
+      <Icon size={16} strokeWidth={2.2} />
     </button>
   )
 )
@@ -75,7 +67,7 @@ const CanvasToolbarComponent = ({
 
   if (!isExpanded) {
     return (
-      <div className="pointer-events-none absolute left-1/2 top-4 z-30 -translate-x-1/2">
+      <div className="pointer-events-none absolute bottom-36 left-2 z-30">
         <div className={TOOLBAR_SHELL_CLASS}>
           <button
             type="button"
@@ -84,12 +76,11 @@ const CanvasToolbarComponent = ({
             aria-expanded={false}
             onClick={() => setIsExpanded(true)}
             className={clsx(
-              'flex h-9 items-center gap-1 rounded-md border border-transparent px-2 text-nss-text transition-all',
+              'flex h-8 w-8 items-center justify-center rounded border border-transparent text-nss-muted transition-all',
               'hover:border-nss-border hover:bg-nss-surface focus:outline-none focus:ring-2 focus:ring-nss-primary/60'
             )}
           >
-            <ActiveIcon size={18} strokeWidth={2.2} />
-            <ChevronDown size={14} strokeWidth={2.2} className="text-nss-muted" />
+            <ActiveIcon size={16} strokeWidth={2.2} />
           </button>
         </div>
       </div>
@@ -97,7 +88,7 @@ const CanvasToolbarComponent = ({
   }
 
   return (
-    <div className="pointer-events-none absolute left-1/2 top-4 z-30 -translate-x-1/2">
+    <div className="pointer-events-none absolute bottom-36 left-2 z-30">
       <div className={TOOLBAR_SHELL_CLASS}>
         {TOOL_ITEMS.map(({ tool, label, icon }) => (
           <CanvasToolButton
@@ -109,7 +100,7 @@ const CanvasToolbarComponent = ({
           />
         ))}
 
-        <div className="mx-1 h-6 w-px bg-nss-border" />
+        <div className="my-0.5 h-px w-5 bg-nss-border" />
 
         <CanvasToolButton
           icon={Trash2}
@@ -118,7 +109,7 @@ const CanvasToolbarComponent = ({
           onClick={onDeleteSelection}
         />
 
-        <div className="mx-1 h-6 w-px bg-nss-border" />
+        <div className="my-0.5 h-px w-5 bg-nss-border" />
 
         <CanvasToolButton
           icon={ChevronUp}
