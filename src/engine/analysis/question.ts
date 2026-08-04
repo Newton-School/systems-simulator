@@ -30,6 +30,11 @@ import {
   type StructuralEvaluation,
   type StructuralRule
 } from './structural'
+import {
+  evaluateSemanticCriteria,
+  type SemanticContext,
+  type SemanticEvaluation
+} from './semanticCriteria'
 import { SIMULATION_VERDICT_VERSION, type SimulationVerdict } from './verdict'
 import {
   BudgetSchema,
@@ -213,6 +218,8 @@ export interface HostContract {
 export interface AttemptGrade {
   /** Structural rules that can short-circuit grading before simulation. */
   structural: StructuralEvaluation
+  /** Semantic criteria — the topology-meaning axis (absent when none authored). */
+  semantic?: SemanticEvaluation
   /** The full graded batch (rich data — stays inside the simulator). */
   graded: GradedEvaluationBatch
   /** The collapsed boolean contract sent across the iframe seam to the host. */
@@ -247,6 +254,10 @@ export function structuralTestId(structuralId: string): string {
 
 export function topologyRubricTestId(checkId: string): string {
   return `topology.rubric.${hostSafeToken(checkId)}`
+}
+
+export function semanticTestId(criterionId: string): string {
+  return `topology.semantic.${hostSafeToken(criterionId)}`
 }
 
 export function caseRubricTestId(caseId: string, kind: CheckResultKind, checkId: string): string {
@@ -1143,9 +1154,28 @@ function flattenCaseRubricRows(entry: GradedCaseResult): AttemptCheckRow[] {
   }))
 }
 
+function flattenSemanticRows(semantic: SemanticEvaluation | undefined): AttemptCheckRow[] {
+  if (!semantic) {
+    return []
+  }
+  return semantic.results.map((result) => ({
+    id: semanticTestId(result.id),
+    name: result.description ?? result.id,
+    scope: 'topology',
+    kind: 'topology',
+    // A partial credit is not a full pass in the boolean collapse.
+    status: result.outcome === 'passed' ? 'passed' : 'failed',
+    passed: result.outcome === 'passed',
+    pointsEarned: result.pointsEarned,
+    pointsPossible: result.pointsPossible,
+    ...(result.detail ? { detail: result.detail } : {})
+  }))
+}
+
 export function flattenAttemptCheckRows(grade: AttemptGrade): AttemptCheckRow[] {
   return [
     ...flattenStructuralRows(grade.structural),
+    ...flattenSemanticRows(grade.semantic),
     ...flattenQuestionRubricRows(grade.graded.question),
     ...grade.graded.cases.flatMap((entry) => flattenCaseRubricRows(entry))
   ]
@@ -1158,10 +1188,12 @@ export function flattenAttemptCheckRows(grade: AttemptGrade): AttemptCheckRow[] 
  */
 export function toHostContract(
   structural: StructuralEvaluation,
-  graded: GradedEvaluationBatch
+  graded: GradedEvaluationBatch,
+  semantic?: SemanticEvaluation
 ): HostContract {
   const tests: HostTest[] = flattenAttemptCheckRows({
     structural,
+    semantic,
     graded,
     contract: { tests: [], totalTests: 0, passedTests: 0, allPassed: false }
   }).map((row) => ({
@@ -1315,6 +1347,27 @@ export interface GradedAttempt {
  * `gradeAttempt` is the thin wrapper that keeps only the grade — the CLI and
  * existing callers use it and pay nothing for the artifacts they ignore.
  */
+/**
+ * Evaluates a package's semantic criteria against the student topology, or
+ * `undefined` when none are authored.
+ *
+ * `forbidUnjustified` needs to know whether a bound justification passed; until
+ * justification answers are threaded into grading (backend B3), no justification
+ * context is available, so a present-but-undefended component conservatively
+ * fails. A future overload can pass a real `SemanticContext` built from graded
+ * justifications.
+ */
+function evaluateSemanticCriteriaForPackage(
+  pkg: QuestionPackage,
+  studentTopology: TopologyJSON,
+  ctx: SemanticContext = {}
+): SemanticEvaluation | undefined {
+  if (!pkg.semanticCriteria || pkg.semanticCriteria.length === 0) {
+    return undefined
+  }
+  return evaluateSemanticCriteria(studentTopology, pkg.semanticCriteria, ctx)
+}
+
 export function gradeAttemptWithArtifacts(
   pkg: QuestionPackage,
   studentTopology: TopologyJSON,
@@ -1361,10 +1414,12 @@ export function gradeAttemptWithArtifacts(
 
   const batch = evaluateSuite(preparedCases, capturingRun, pkg.suite.name)
   const graded = gradeQuestionBatch(pkg.rubric, studentTopology, batch)
+  const semantic = evaluateSemanticCriteriaForPackage(pkg, studentTopology)
   const grade: AttemptGrade = {
     structural,
+    ...(semantic ? { semantic } : {}),
     graded,
-    contract: toHostContract(structural, graded)
+    contract: toHostContract(structural, graded, semantic)
   }
 
   const verdictByCaseId = new Map<string, SimulationVerdict>()
