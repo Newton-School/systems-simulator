@@ -56,9 +56,7 @@ function createTextLabelNode(position: { x: number; y: number }): Node<CanvasTex
 
 function collectSelectedNodeIds(nodes: Node[], ignoredNodeIds = new Set<string>()): Set<string> {
   const selected = new Set(
-    nodes
-      .filter((node) => node.selected && !ignoredNodeIds.has(node.id))
-      .map((node) => node.id)
+    nodes.filter((node) => node.selected && !ignoredNodeIds.has(node.id)).map((node) => node.id)
   )
   let changed = true
 
@@ -217,9 +215,7 @@ const FlowCanvasInternal = ({ showMetricLens = false, onNodeDoubleClick }: FlowC
 
       if (event.shiftKey || event.metaKey || event.ctrlKey) {
         setEdges(
-          edges.map((item) =>
-            item.id === edge.id ? { ...item, selected: !Boolean(item.selected) } : item
-          ),
+          edges.map((item) => (item.id === edge.id ? { ...item, selected: !item.selected } : item)),
           { history: 'skip' }
         )
         return
@@ -251,7 +247,7 @@ const FlowCanvasInternal = ({ showMetricLens = false, onNodeDoubleClick }: FlowC
         selectGraphElements({})
       }
     },
-    [activeTool, edges, nodes, reactFlowInstance, selectGraphElements, setEdges, setNodes]
+    [activeTool, edges, nodes, reactFlowInstance, selectGraphElements, setGraph]
   )
 
   const deleteSelection = useCallback(() => {
