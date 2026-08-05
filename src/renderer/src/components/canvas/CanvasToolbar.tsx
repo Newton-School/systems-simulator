@@ -4,9 +4,11 @@ import {
   ChevronUp,
   Hand,
   MousePointer2,
+  Redo2,
   RotateCcw,
   Trash2,
   Type,
+  Undo2,
   type LucideIcon
 } from 'lucide-react'
 
@@ -14,9 +16,13 @@ export type CanvasTool = 'select' | 'pan' | 'text'
 
 interface CanvasToolbarProps {
   activeTool: CanvasTool
+  canRedo: boolean
+  canUndo: boolean
   hasCanvasContent: boolean
   hasSelection: boolean
   onToolChange: (tool: CanvasTool) => void
+  onRedo: () => void
+  onUndo: () => void
   onResetCanvas: () => void
   onDeleteSelection: () => void
 }
@@ -64,9 +70,13 @@ CanvasToolButton.displayName = 'CanvasToolButton'
 
 const CanvasToolbarComponent = ({
   activeTool,
+  canRedo,
+  canUndo,
   hasCanvasContent,
   hasSelection,
   onToolChange,
+  onRedo,
+  onUndo,
   onResetCanvas,
   onDeleteSelection
 }: CanvasToolbarProps) => {
@@ -111,6 +121,22 @@ const CanvasToolbarComponent = ({
             onClick={() => onToolChange(tool)}
           />
         ))}
+
+        <div className="my-0.5 h-px w-5 bg-nss-border" />
+
+        <CanvasToolButton
+          icon={Undo2}
+          label="Undo (Cmd/Ctrl+Z)"
+          disabled={!canUndo}
+          onClick={onUndo}
+        />
+
+        <CanvasToolButton
+          icon={Redo2}
+          label="Redo (Cmd/Ctrl+Shift+Z)"
+          disabled={!canRedo}
+          onClick={onRedo}
+        />
 
         <div className="my-0.5 h-px w-5 bg-nss-border" />
 

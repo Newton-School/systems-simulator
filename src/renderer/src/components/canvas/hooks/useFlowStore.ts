@@ -12,8 +12,13 @@ export const useFlowStore = () => {
       addNode: state.addNode,
       setNodes: state.setNodes,
       setEdges: state.setEdges,
+      setGraph: state.setGraph,
       updateNodeData: state.updateNodeData,
-      updateEdgeData: state.updateEdgeData
+      updateEdgeData: state.updateEdgeData,
+      canUndoGraph: state.graphHistory.past.length > 0,
+      canRedoGraph: state.graphHistory.future.length > 0,
+      undoGraph: state.undoGraph,
+      redoGraph: state.redoGraph
     }))
   )
 }

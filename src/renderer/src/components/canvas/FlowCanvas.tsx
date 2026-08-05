@@ -54,14 +54,23 @@ function createTextLabelNode(position: { x: number; y: number }): Node<CanvasTex
   }
 }
 
-function collectSelectedNodeIds(nodes: Node[]): Set<string> {
-  const selected = new Set(nodes.filter((node) => node.selected).map((node) => node.id))
+function collectSelectedNodeIds(nodes: Node[], ignoredNodeIds = new Set<string>()): Set<string> {
+  const selected = new Set(
+    nodes
+      .filter((node) => node.selected && !ignoredNodeIds.has(node.id))
+      .map((node) => node.id)
+  )
   let changed = true
 
   while (changed) {
     changed = false
     for (const node of nodes) {
-      if (node.parentNode && selected.has(node.parentNode) && !selected.has(node.id)) {
+      if (
+        node.parentNode &&
+        selected.has(node.parentNode) &&
+        !selected.has(node.id) &&
+        !ignoredNodeIds.has(node.id)
+      ) {
         selected.add(node.id)
         changed = true
       }
@@ -77,14 +86,32 @@ const FlowCanvasInternal = ({ showMetricLens = false, onNodeDoubleClick }: FlowC
   const [validationError, setValidationError] = useState<string | null>(null)
   const shiftPreviousToolRef = useRef<CanvasTool | null>(null)
 
-  const { nodes, edges, onNodesChange, onEdgesChange, onConnect, addNode, setNodes, setEdges } =
-    useFlowStore()
+  const {
+    nodes,
+    edges,
+    onNodesChange,
+    onEdgesChange,
+    onConnect,
+    addNode,
+    setNodes,
+    setEdges,
+    setGraph,
+    canUndoGraph,
+    canRedoGraph,
+    undoGraph,
+    redoGraph
+  } = useFlowStore()
 
   const selectGraphElements = useStore((state) => state.selectGraphElements)
   const clearSimulationMetrics = useStore((state) => state.clearSimulationMetrics)
   const clearEdgeFlow = useStore((state) => state.clearEdgeFlow)
   const setRoutingStrategyVisualization = useStore((state) => state.setRoutingStrategyVisualization)
   const viewportFitVersion = useStore((state) => state.viewportFitVersion)
+  const scaffoldNodeIds = useStore((state) => state.scaffoldNodeIds)
+  const canEditScaffoldNodes = useStore(
+    (state) => state.environmentProfile.capabilities.canEditScaffoldNodes
+  )
+  const attemptStatus = useStore((state) => state.attemptState?.status)
 
   const { edgeTypes, defaultEdgeOptions } = useFlowConfig()
 
@@ -192,7 +219,8 @@ const FlowCanvasInternal = ({ showMetricLens = false, onNodeDoubleClick }: FlowC
         setEdges(
           edges.map((item) =>
             item.id === edge.id ? { ...item, selected: !Boolean(item.selected) } : item
-          )
+          ),
+          { history: 'skip' }
         )
         return
       }
@@ -212,8 +240,10 @@ const FlowCanvasInternal = ({ showMetricLens = false, onNodeDoubleClick }: FlowC
           y: event.clientY
         })
         const labelNode = createTextLabelNode(position)
-        setNodes([...nodes.map((node) => ({ ...node, selected: false })), labelNode])
-        setEdges(edges.map((edge) => ({ ...edge, selected: false })))
+        setGraph(
+          [...nodes.map((node) => ({ ...node, selected: false })), labelNode],
+          edges.map((edge) => ({ ...edge, selected: false }))
+        )
         return
       }
 
@@ -225,15 +255,26 @@ const FlowCanvasInternal = ({ showMetricLens = false, onNodeDoubleClick }: FlowC
   )
 
   const deleteSelection = useCallback(() => {
-    const selectedNodeIds = collectSelectedNodeIds(nodes)
+    if (attemptStatus === 'LOCKED') {
+      return
+    }
+
+    const lockedNodeIds = new Set(
+      canEditScaffoldNodes
+        ? []
+        : scaffoldNodeIds.filter((nodeId) =>
+            nodes.some((node) => node.id === nodeId && node.selected)
+          )
+    )
+    const selectedNodeIds = collectSelectedNodeIds(nodes, lockedNodeIds)
     const selectedEdgeIds = new Set(edges.filter((edge) => edge.selected).map((edge) => edge.id))
 
     if (selectedNodeIds.size === 0 && selectedEdgeIds.size === 0) {
       return
     }
 
-    setNodes(nodes.filter((node) => !selectedNodeIds.has(node.id)))
-    setEdges(
+    setGraph(
+      nodes.filter((node) => !selectedNodeIds.has(node.id)),
       edges.filter(
         (edge) =>
           !selectedEdgeIds.has(edge.id) &&
@@ -242,11 +283,18 @@ const FlowCanvasInternal = ({ showMetricLens = false, onNodeDoubleClick }: FlowC
       )
     )
     selectGraphElements({})
-  }, [edges, nodes, selectGraphElements, setEdges, setNodes])
+  }, [
+    attemptStatus,
+    canEditScaffoldNodes,
+    edges,
+    nodes,
+    scaffoldNodeIds,
+    selectGraphElements,
+    setGraph
+  ])
 
   const resetCanvas = useCallback(() => {
-    setNodes([])
-    setEdges([])
+    setGraph([], [])
     selectGraphElements({})
     clearSimulationMetrics()
     clearEdgeFlow()
@@ -255,10 +303,57 @@ const FlowCanvasInternal = ({ showMetricLens = false, onNodeDoubleClick }: FlowC
     clearEdgeFlow,
     clearSimulationMetrics,
     selectGraphElements,
-    setEdges,
-    setNodes,
+    setGraph,
     setRoutingStrategyVisualization
   ])
+
+  useEffect(() => {
+    const isEditableTarget = (target: EventTarget | null) => {
+      if (!(target instanceof HTMLElement)) {
+        return false
+      }
+
+      return (
+        target.isContentEditable ||
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLSelectElement
+      )
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (isEditableTarget(event.target)) {
+        return
+      }
+
+      const key = event.key.toLowerCase()
+      const isModifierPressed = event.metaKey || event.ctrlKey
+
+      if (isModifierPressed && key === 'z') {
+        event.preventDefault()
+        if (event.shiftKey) {
+          redoGraph()
+        } else {
+          undoGraph()
+        }
+        return
+      }
+
+      if (event.ctrlKey && key === 'y') {
+        event.preventDefault()
+        redoGraph()
+        return
+      }
+
+      if ((event.key === 'Backspace' || event.key === 'Delete') && hasSelection) {
+        event.preventDefault()
+        deleteSelection()
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [deleteSelection, hasSelection, redoGraph, undoGraph])
 
   const isPanTool = activeTool === 'pan'
   const isSelectTool = activeTool === 'select'
@@ -268,9 +363,13 @@ const FlowCanvasInternal = ({ showMetricLens = false, onNodeDoubleClick }: FlowC
     <div style={{ width: '100%', height: '100%' }} className="bg-nss-bg relative">
       <CanvasToolbar
         activeTool={activeTool}
+        canRedo={attemptStatus !== 'LOCKED' && canRedoGraph}
+        canUndo={attemptStatus !== 'LOCKED' && canUndoGraph}
         hasCanvasContent={hasCanvasContent}
         hasSelection={hasSelection}
         onToolChange={setActiveTool}
+        onUndo={undoGraph}
+        onRedo={redoGraph}
         onResetCanvas={resetCanvas}
         onDeleteSelection={deleteSelection}
       />
@@ -298,7 +397,7 @@ const FlowCanvasInternal = ({ showMetricLens = false, onNodeDoubleClick }: FlowC
         onEdgeClick={onEdgeClick}
         onPaneClick={onPaneClick}
         onNodeDoubleClick={onNodeDoubleClick}
-        deleteKeyCode={['Backspace', 'Delete']}
+        deleteKeyCode={null}
         panOnDrag={isPanTool ? true : [1, 2]}
         panOnScroll={isPanTool}
         selectionOnDrag={isSelectTool}
