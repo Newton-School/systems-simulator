@@ -336,6 +336,9 @@ export const WorkspaceLayout = () => {
   const attemptState = useStore((s) => s.attemptState)
   const environmentProfile = useStore((s) => s.environmentProfile)
   const setActiveQuestion = useStore((s) => s.setActiveQuestion)
+  const clearJustificationAnswers = useStore((s) => s.clearJustificationAnswers)
+  const questionLoadRequest = useStore((s) => s.questionLoadRequest)
+  const clearQuestionLoadRequest = useStore((s) => s.clearQuestionLoadRequest)
   const setAttemptState = useStore((s) => s.setAttemptState)
   const setEnvironmentProfile = useStore((s) => s.setEnvironmentProfile)
   const setResultsRevealed = useStore((s) => s.setResultsRevealed)
@@ -501,8 +504,10 @@ export const WorkspaceLayout = () => {
           ? createAttemptState({ questionId: questionPackage.id, topology: topologyToLoad })
           : null)
       setAttemptState(options.readOnly && baseAttempt ? lockAttempt(baseAttempt) : baseAttempt)
+      clearJustificationAnswers()
     },
     [
+      clearJustificationAnswers,
       clearSimulationMetrics,
       loadFromData,
       selectGraphElements,
@@ -514,6 +519,16 @@ export const WorkspaceLayout = () => {
       setIsLeftOpen
     ]
   )
+
+  // Local/dev question load (no iframe host): consume a requested package through
+  // the same loader the host launch uses.
+  useEffect(() => {
+    if (!questionLoadRequest) {
+      return
+    }
+    void loadQuestionIntoWorkspace(questionLoadRequest, undefined)
+    clearQuestionLoadRequest()
+  }, [questionLoadRequest, loadQuestionIntoWorkspace, clearQuestionLoadRequest])
 
   useEffect(() => {
     const onMessage = (event: MessageEvent<unknown>) => {
@@ -632,7 +647,8 @@ export const WorkspaceLayout = () => {
           activeQuestion,
           { ...attemptState, topology, lastSavedAt: now },
           result,
-          now
+          now,
+          useStore.getState().justificationAnswers
         )
       )
     }, 4000)

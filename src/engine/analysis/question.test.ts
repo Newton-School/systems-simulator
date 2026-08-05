@@ -527,3 +527,124 @@ describe('gradeAttempt — semantic criteria wiring', () => {
     expect(grade.semantic).toBeUndefined()
   })
 })
+
+describe('gradeAttempt — justification feeds forbidUnjustified', () => {
+  function cdnTopology(): TopologyJSON {
+    return {
+      id: 't',
+      name: 't',
+      version: '2.0.0',
+      global: { seed: 'base', simulationDuration: 1000, warmupDuration: 0 },
+      nodes: [
+        {
+          id: 'cdn',
+          type: 'cdn',
+          category: 'network-and-edge',
+          label: 'CDN',
+          position: { x: 0, y: 0 }
+        },
+        {
+          id: 'svc',
+          type: 'microservice',
+          category: 'compute',
+          label: 's',
+          position: { x: 0, y: 0 }
+        }
+      ],
+      edges: [{ id: 'e', source: 'cdn', target: 'svc' }]
+    } as unknown as TopologyJSON
+  }
+
+  const cdnPkg: QuestionPackage = {
+    ...pkg,
+    id: 'q-cdn',
+    prompt: { ...pkg.prompt, scale: { peakRps: 8000 } },
+    semanticCriteria: [
+      {
+        id: 'cdn-justified',
+        kind: 'forbidUnjustified',
+        componentType: 'cdn' as ComponentType,
+        justifyId: 'why-cdn',
+        points: 4
+      }
+    ],
+    justify: [
+      {
+        id: 'why-cdn',
+        decision: 'Why a CDN?',
+        boundTo: { componentType: 'cdn' as ComponentType },
+        requires: { choice: true, tradeoff: true }
+      }
+    ]
+  }
+
+  it('fails a present-but-undefended component (no justification answer)', () => {
+    const grade = gradeAttempt(cdnPkg, cdnTopology(), () => fakeOutput(0.02))
+    expect(grade.semantic?.results[0].outcome).toBe('failed')
+    expect(grade.justification?.[0].outcome).toBe('missing')
+  })
+
+  it('passes forbidUnjustified when a valid justification defends the component', () => {
+    const grade = gradeAttempt(cdnPkg, cdnTopology(), () => fakeOutput(0.02), [
+      {
+        promptId: 'why-cdn',
+        text: 'A CDN caches static assets at the edge, but we accept staleness.'
+      }
+    ])
+    expect(grade.justification?.[0].outcome).toBe('passed')
+    expect(grade.semantic?.results[0].outcome).toBe('passed')
+  })
+})
+
+describe('gradeAttempt — budget', () => {
+  function threeNodeTopo(): TopologyJSON {
+    return {
+      id: 't',
+      name: 't',
+      version: '2.0.0',
+      global: { seed: 'base', simulationDuration: 1000, warmupDuration: 0 },
+      nodes: [
+        {
+          id: 'a',
+          type: 'microservice',
+          category: 'compute',
+          label: 'a',
+          position: { x: 0, y: 0 }
+        },
+        {
+          id: 'b',
+          type: 'kv-store',
+          category: 'storage-and-data',
+          label: 'b',
+          position: { x: 0, y: 0 }
+        },
+        {
+          id: 'c',
+          type: 'load-balancer',
+          category: 'network-and-edge',
+          label: 'c',
+          position: { x: 0, y: 0 }
+        }
+      ],
+      edges: []
+    } as unknown as TopologyJSON
+  }
+
+  it('fails the budget row when node count exceeds the cap', () => {
+    const grade = gradeAttempt({ ...pkg, budget: { unit: 'nodes', cap: 2 } }, threeNodeTopo(), () =>
+      fakeOutput(0.02)
+    )
+    expect(grade.budget).toMatchObject({ unit: 'nodes', actual: 3, withinBudget: false })
+    const row = grade.contract.tests.find((t) => t.id === 'topology.budget')
+    expect(row?.passed).toBe(false)
+    expect(grade.contract.allPassed).toBe(false)
+  })
+
+  it('passes the budget row when within cap', () => {
+    const grade = gradeAttempt({ ...pkg, budget: { unit: 'nodes', cap: 5 } }, threeNodeTopo(), () =>
+      fakeOutput(0.02)
+    )
+    expect(grade.budget?.withinBudget).toBe(true)
+    expect(grade.contract.tests.find((t) => t.id === 'topology.budget')?.passed).toBe(true)
+  })
+})

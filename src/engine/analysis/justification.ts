@@ -17,7 +17,7 @@
  * `JustificationContext`, so this module is fully unit-testable with no DOM,
  * store, or catalog dependency.
  */
-import type { ComponentType } from '../core/types'
+import type { ComponentType, TopologyJSON } from '../core/types'
 import type { JustifyPrompt } from './gradingCriteria'
 
 export interface JustificationAnswer {
@@ -36,6 +36,41 @@ export interface JustificationContext {
   aliasesOf: (type: ComponentType) => readonly string[]
   /** The numbers this question defines (scale + NFR targets), for number-citation. */
   scaleNumbers: readonly number[]
+}
+
+/**
+ * Builds a `JustificationContext` from the student's topology + the question's
+ * scale numbers. Pure and dependency-light (no catalog import): aliases are
+ * derived from the component-type token plus any labels the student gave nodes of
+ * that type. Reused by the renderer (live feedback) and, later, by `gradeAttempt`.
+ */
+export function buildJustificationContext(
+  topology: TopologyJSON,
+  scaleNumbers: readonly number[]
+): JustificationContext {
+  return {
+    resolveBoundType: (boundTo) => {
+      if (boundTo?.nodeId) {
+        return topology.nodes.find((node) => node.id === boundTo.nodeId)?.type
+      }
+      if (boundTo?.componentType) {
+        return topology.nodes.some((node) => node.type === boundTo.componentType)
+          ? boundTo.componentType
+          : undefined
+      }
+      return undefined
+    },
+    aliasesOf: (type) => {
+      const aliases = new Set<string>([type, type.replace(/-/g, ' '), ...type.split('-')])
+      for (const node of topology.nodes) {
+        if (node.type === type && typeof node.label === 'string' && node.label.length > 0) {
+          aliases.add(node.label.toLowerCase())
+        }
+      }
+      return [...aliases].filter((a) => a.length > 0)
+    },
+    scaleNumbers
+  }
 }
 
 export type JustificationOutcome = 'passed' | 'partial' | 'failed' | 'missing'

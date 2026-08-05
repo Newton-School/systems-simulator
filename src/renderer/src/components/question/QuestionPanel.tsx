@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import useStore from '@renderer/store/useStore'
 import { useTopologySerializer } from '@renderer/hooks/useTopologySerializer'
 import { useQuestionGrader } from '@renderer/hooks/useQuestionGrader'
@@ -11,6 +11,11 @@ import {
   buildGamePlaygroundSubmitPayload
 } from '../../../../engine/analysis/gamePlayground'
 import { buildNewtonSaveBlob } from '../../../../engine/analysis/newtonGamePlayground'
+import {
+  buildJustificationContext,
+  gradeJustification,
+  type JustificationResult
+} from '../../../../engine/analysis/justification'
 import { buildQuestionEvaluationContract } from '../../../../engine/analysis/evaluationContract'
 import { buildEvaluationEnvelope } from '../../../../engine/analysis/evaluationEnvelope'
 import {
@@ -23,6 +28,7 @@ import {
   createAttemptState,
   isAttemptCurrentForTopology,
   markAttemptGrading,
+  parseQuestionPackage,
   recordDryRunGrade,
   recordSubmittedGrade,
   resolveVisibleAttemptGrade,
@@ -91,6 +97,12 @@ export const QuestionPanel = () => {
   const setActiveQuestion = useStore((s) => s.setActiveQuestion)
   const attemptState = useStore((s) => s.attemptState)
   const setAttemptState = useStore((s) => s.setAttemptState)
+  const justificationAnswers = useStore((s) => s.justificationAnswers)
+  const setJustificationAnswer = useStore((s) => s.setJustificationAnswer)
+  const requestQuestionLoad = useStore((s) => s.requestQuestionLoad)
+  const [questionLoadError, setQuestionLoadError] = useState<string | null>(null)
+  const nodes = useStore((s) => s.nodes)
+  const edges = useStore((s) => s.edges)
   const environmentProfile = useStore((s) => s.environmentProfile)
   const resultsRevealed = useStore((s) => s.resultsRevealed)
   const { serialize } = useTopologySerializer()
@@ -204,7 +216,15 @@ export const QuestionPanel = () => {
           // Newton Game Playground host: post a verbatim-persisted JSON blob with
           // the two score keys + carried-forward package (client-computed; the
           // backend does not re-grade).
-          postNewtonSave(buildNewtonSaveBlob(activeQuestion, completedAttempt, gameResult, now))
+          postNewtonSave(
+            buildNewtonSaveBlob(
+              activeQuestion,
+              completedAttempt,
+              gameResult,
+              now,
+              useStore.getState().justificationAnswers
+            )
+          )
         } else {
           postQuestionHostMessage({
             type: 'ns-simulator:submit',
@@ -232,9 +252,40 @@ export const QuestionPanel = () => {
     setAttemptState
   ])
 
+  // Live, deterministic feedback on justification prompts — graded against the
+  // current graph (graph-consistency), no LLM. Re-derives when the graph or an
+  // answer changes. Declared before the early return to satisfy rules-of-hooks.
+  const justifyGrades = useMemo<Record<string, JustificationResult>>(() => {
+    const prompts = activeQuestion?.justify ?? []
+    if (prompts.length === 0) {
+      return {}
+    }
+    const { topology } = serialize()
+    if (!topology) {
+      return {}
+    }
+    const scaleNumbers: number[] = [
+      ...Object.values(activeQuestion!.prompt.scale).filter(
+        (v): v is number => typeof v === 'number'
+      ),
+      ...activeQuestion!.prompt.nonFunctionalRequirements.map((nfr) => nfr.value)
+    ]
+    const ctx = buildJustificationContext(topology, scaleNumbers)
+    const out: Record<string, JustificationResult> = {}
+    for (const prompt of prompts) {
+      out[prompt.id] = gradeJustification(
+        prompt,
+        { promptId: prompt.id, text: justificationAnswers[prompt.id] ?? '' },
+        ctx
+      )
+    }
+    return out
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeQuestion, justificationAnswers, nodes, edges])
+
   if (!activeQuestion) {
     return (
-      <section className="flex h-full min-h-0 flex-col">
+      <section className="flex min-h-0 flex-col">
         <div className="border-b border-nss-border p-4 pb-3">
           <h2 className="text-xs font-bold uppercase tracking-widest text-nss-muted">
             Question Text
@@ -246,8 +297,8 @@ export const QuestionPanel = () => {
           </p>
         </div>
 
-        <div className="flex flex-1 items-center p-3">
-          <div className="w-full rounded-lg border border-dashed border-nss-border bg-nss-surface p-4">
+        <div className="flex flex-1 items-center">
+          <div className="w-full rounded-lg p-4">
             <p className="text-xs font-semibold text-nss-text">No question loaded</p>
             <p className="mt-1 text-[11px] leading-relaxed text-nss-muted">
               {isEmbedded
@@ -255,16 +306,48 @@ export const QuestionPanel = () => {
                 : 'This tab now hosts the question brief, rubric checks, and Test/Submit flow.'}
             </p>
             {!isEmbedded && (
-              <button
-                type="button"
-                onClick={() => {
-                  setAttemptState(null)
-                  setActiveQuestion(SAMPLE_QUESTION)
-                }}
-                className="mt-4 w-full rounded-md bg-nss-primary px-3 py-2 text-xs font-semibold text-white hover:bg-nss-primary-hover"
-              >
-                Load sample question
-              </button>
+              <div className="mt-4 space-y-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAttemptState(null)
+                    setActiveQuestion(SAMPLE_QUESTION)
+                  }}
+                  className="w-full rounded-md bg-nss-primary px-3 py-2 text-xs font-semibold text-white hover:bg-nss-primary-hover"
+                >
+                  Load sample question
+                </button>
+                <label className="block w-full cursor-pointer rounded-md border border-nss-border bg-nss-surface px-3 py-2 text-center text-xs font-semibold text-nss-text hover:border-nss-primary">
+                  Load question (.json)…
+                  <input
+                    type="file"
+                    accept="application/json,.json"
+                    className="hidden"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0]
+                      event.target.value = ''
+                      if (!file) return
+                      const reader = new FileReader()
+                      reader.onload = () => {
+                        try {
+                          const pkg = parseQuestionPackage(JSON.parse(String(reader.result)))
+                          setQuestionLoadError(null)
+                          requestQuestionLoad(pkg)
+                        } catch (error) {
+                          setQuestionLoadError((error as Error).message.split('\n')[0])
+                        }
+                      }
+                      reader.readAsText(file)
+                    }}
+                  />
+                </label>
+                <p className="text-center text-[10px] text-nss-muted">
+                  Paste any bank QuestionPackage JSON into a file and load it — no host needed.
+                </p>
+                {questionLoadError && (
+                  <p className="text-[10px] leading-snug text-red-500">{questionLoadError}</p>
+                )}
+              </div>
             )}
           </div>
         </div>
@@ -293,7 +376,11 @@ export const QuestionPanel = () => {
       })
     )
     setPendingRun({ kind, topology })
-    gradeQuestion(question, topology)
+    gradeQuestion(
+      question,
+      topology,
+      Object.entries(justificationAnswers).map(([promptId, text]) => ({ promptId, text }))
+    )
   }
 
   const onSubmit = () => runGrade(activeQuestion, 'submit')
@@ -429,6 +516,13 @@ export const QuestionPanel = () => {
 
         {effectivePanelView === 'brief' ? (
           <>
+            <div className="rounded-md border border-nss-primary/20 bg-nss-primary/5 px-3 py-2 text-[11px] leading-relaxed text-nss-muted">
+              <span className="font-semibold text-nss-primary">Design the architecture.</span> Place
+              and connect components and size them — you are not writing application code. The
+              simulator grades the <em>shape</em> and <em>performance</em> of your system under the
+              question&rsquo;s load.
+            </div>
+
             <p className="text-xs leading-relaxed text-nss-text/90">{activeQuestion.prompt.text}</p>
 
             {activeQuestion.prompt.functionalRequirements.length > 0 && (
@@ -484,6 +578,62 @@ export const QuestionPanel = () => {
                 )}
               </div>
             </section>
+
+            {activeQuestion.justify && activeQuestion.justify.length > 0 && (
+              <section className="space-y-2">
+                <h3 className={SECTION_TITLE}>Justify your design</h3>
+                <p className="text-[11px] leading-relaxed text-nss-muted">
+                  Reference the component you actually placed, cite a number from the question, and
+                  state a tradeoff. Graded deterministically against your graph.
+                </p>
+                <div className="space-y-3">
+                  {activeQuestion.justify.map((prompt) => {
+                    const grade = justifyGrades[prompt.id]
+                    const badge =
+                      grade?.outcome === 'passed'
+                        ? { label: 'consistent', cls: 'text-green-500 border-green-500/30' }
+                        : grade?.outcome === 'partial'
+                          ? { label: 'partial', cls: 'text-yellow-500 border-yellow-500/30' }
+                          : grade?.outcome === 'failed'
+                            ? { label: 'not consistent', cls: 'text-red-500 border-red-500/30' }
+                            : null
+                    return (
+                      <div key={prompt.id} className="space-y-1">
+                        <div className="flex items-start justify-between gap-2">
+                          <label
+                            htmlFor={`justify-${prompt.id}`}
+                            className="text-[11px] font-medium text-nss-text"
+                          >
+                            {prompt.decision}
+                          </label>
+                          {showRubricResults && badge && (
+                            <span
+                              className={`shrink-0 rounded border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide ${badge.cls}`}
+                            >
+                              {badge.label}
+                            </span>
+                          )}
+                        </div>
+                        <textarea
+                          id={`justify-${prompt.id}`}
+                          value={justificationAnswers[prompt.id] ?? ''}
+                          onChange={(event) =>
+                            setJustificationAnswer(prompt.id, event.target.value)
+                          }
+                          disabled={isAttemptLocked}
+                          rows={2}
+                          placeholder="e.g. I used a KV store — it handles 200K reads/sec, but we lose ad-hoc joins."
+                          className="w-full resize-y rounded-md border border-nss-border bg-nss-input-bg px-2 py-1.5 text-[11px] text-nss-text placeholder:text-nss-muted/70 outline-none focus:border-nss-primary transition-colors disabled:opacity-60"
+                        />
+                        {showRubricResults && grade?.detail && grade.outcome !== 'passed' && (
+                          <p className="text-[10px] leading-snug text-nss-muted">{grade.detail}</p>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </section>
+            )}
 
             {showSuiteDetails && (
               <section className="space-y-2">

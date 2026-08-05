@@ -2,6 +2,7 @@ import type { TopologyJSON } from '../core/types'
 import type { EdgeFlowEvent } from '../core/events'
 import type { SimulationOutput, TimeSeriesSnapshot } from '../analysis/output'
 import type { AttemptCaseRun, AttemptGrade, QuestionPackage } from '../analysis/question'
+import type { JustificationAnswer } from '../analysis/justification'
 
 // ─── Inbound (main thread → worker) ──────────────────────────────────────────
 
@@ -13,7 +14,11 @@ export interface RunMessage {
 /** Grade a student topology against a question package (runs the whole suite). */
 export interface GradeMessage {
   type: 'grade'
-  payload: { question: QuestionPackage; topology: TopologyJSON }
+  payload: {
+    question: QuestionPackage
+    topology: TopologyJSON
+    justificationAnswers?: JustificationAnswer[]
+  }
 }
 
 export interface PauseMessage {
