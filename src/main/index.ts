@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow, ipcMain } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, Menu, type MenuItemConstructorOptions } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
@@ -27,6 +27,34 @@ function createWindow(): void {
   mainWindow.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url)
     return { action: 'deny' }
+  })
+
+  // Electron has no default context menu, so right-click gives no cut/copy/paste.
+  // Provide a minimal editing menu for editable fields and selected text.
+  mainWindow.webContents.on('context-menu', (_event, params) => {
+    const { editFlags, isEditable, selectionText } = params
+    const hasSelection = selectionText.trim().length > 0
+    const template: MenuItemConstructorOptions[] = []
+
+    if (isEditable) {
+      template.push(
+        { role: 'cut', enabled: editFlags.canCut },
+        { role: 'copy', enabled: editFlags.canCopy },
+        { role: 'paste', enabled: editFlags.canPaste },
+        { type: 'separator' },
+        { role: 'selectAll', enabled: editFlags.canSelectAll }
+      )
+    } else if (hasSelection) {
+      template.push(
+        { role: 'copy', enabled: editFlags.canCopy },
+        { type: 'separator' },
+        { role: 'selectAll', enabled: editFlags.canSelectAll }
+      )
+    }
+
+    if (template.length > 0) {
+      Menu.buildFromTemplate(template).popup({ window: mainWindow })
+    }
   })
 
   let isQuitting = false

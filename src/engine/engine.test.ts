@@ -113,7 +113,10 @@ function makeTopology(overrides: TopologyOverrides = {}): TopologyJSON {
     },
     nodes: overrides.nodes ?? [makeNode('node-a')],
     edges: overrides.edges ?? [],
-    workload: overrides.workload
+    workload: overrides.workload,
+    faults: overrides.faults,
+    invariants: overrides.invariants,
+    scenarios: overrides.scenarios
   }
 }
 
@@ -1570,6 +1573,38 @@ describe('SimulationEngine', () => {
       .map((event) => event.reasonCode)
 
     expect(rejectionReasons).toContain('connection_refused')
+  })
+
+  it('evaluates authored topology invariants into output violations', () => {
+    const topology = makeTopology({
+      global: { simulationDuration: 20, defaultTimeout: 1_000, traceSampleRate: 1 },
+      nodes: [makeNode('source'), makeNode('dst')],
+      edges: [makeEdge('source-to-dst', 'source', 'dst')],
+      workload: {
+        sourceNodeId: 'source',
+        pattern: 'constant',
+        baseRps: 1,
+        requestDistribution: [{ type: 'GET', weight: 1, sizeBytes: 100 }]
+      },
+      invariants: [
+        {
+          id: 'impossible-throughput',
+          description: 'Throughput exceeds impossible threshold',
+          condition: 'summary.throughput > 1000000'
+        }
+      ]
+    })
+
+    const output = new SimulationEngine(topology).run()
+
+    expect(output.invariantViolations).toEqual([
+      {
+        invariantId: 'impossible-throughput',
+        invariantName: 'Throughput exceeds impossible threshold',
+        violatedAt: 20,
+        details: expect.stringContaining('summary.throughput > 1000000')
+      }
+    ])
   })
 
   it('conserves single-hop edge deliveries into target-node arrivals', () => {

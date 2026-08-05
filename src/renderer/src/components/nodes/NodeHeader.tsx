@@ -32,9 +32,12 @@ export const NodeHeader = memo(
       <div className="bg-nss-panel p-3 border-b border-nss-border flex items-center justify-between gap-3 rounded-t-lg">
         <div className="flex min-w-0 flex-1 items-center gap-3 overflow-hidden">
           <div
-            className={`p-1.5 rounded bg-opacity-50 ${safeBg} shrink-0 flex items-center justify-center`}
+            className={`
+              p-1.5 rounded flex items-center justify-center shrink-0
+              ${safeBg} bg-opacity-30 dark:bg-opacity-30
+            `}
           >
-            <SafeIcon size={16} className={safeText} />
+            <SafeIcon size={16} className={`${safeText} dark:!text-nss-bg`} />
           </div>
 
           {onLabelChange ? (

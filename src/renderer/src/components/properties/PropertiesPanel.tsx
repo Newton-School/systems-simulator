@@ -1,6 +1,16 @@
 import { useEffect, useMemo, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { clsx } from 'clsx'
-import { Activity, ArrowLeft, GitBranch, ListTree, Settings, Server, Type, X } from 'lucide-react'
+import {
+  Activity,
+  ArrowLeft,
+  GitBranch,
+  ListTree,
+  Lock,
+  Settings,
+  Server,
+  Type,
+  X
+} from 'lucide-react'
 import type { SimulationOutput } from '../../../../engine/analysis/output'
 import {
   REQUEST_OUTCOME_FAMILIES,
@@ -1359,9 +1369,16 @@ export const PropertiesPanel = ({ results = null }: { results?: SimulationOutput
   const setRunInspectorPinned = useStore((state) => state.setRunInspectorPinned)
   const setRunInspectorDrilldownActive = useStore((state) => state.setRunInspectorDrilldownActive)
 
+  const scaffoldNodeIds = useStore((state) => state.scaffoldNodeIds)
+  const canEditScaffoldNodes = useStore(
+    (state) => state.environmentProfile.capabilities.canEditScaffoldNodes
+  )
   const selectedNode = nodes.find((node) => node.selected)
   const selectedEdge = edges.find((edge) => edge.selected)
   const selectedNodeId = selectedNode?.id
+  const selectedNodeLocked = Boolean(
+    selectedNodeId && !canEditScaffoldNodes && scaffoldNodeIds.includes(selectedNodeId)
+  )
   const selectedEdgeId = selectedEdge?.id
   const selectedEdgeFlow = selectedEdge ? edgeFlowById[selectedEdge.id] : undefined
   const selectedEdgeHasRuntime = Boolean(selectedEdgeFlow && selectedEdgeFlow.totalAttempted > 0)
@@ -1495,6 +1512,15 @@ export const PropertiesPanel = ({ results = null }: { results?: SimulationOutput
         {metrics.hasRuntime && <InspectorTabs active={tab} onChange={setTab} />}
 
         <div className="flex-1 overflow-y-auto custom-scrollbar p-5 bg-nss-panel">
+          {selectedNodeLocked && (
+            <div className="mb-4 flex items-start gap-2 rounded-md border border-nss-warning/30 bg-nss-warning/10 px-3 py-2 text-[11px] leading-relaxed text-nss-warning">
+              <Lock size={13} className="mt-0.5 shrink-0" />
+              <span>
+                This node is provided by the question and locked in this environment. Its
+                configuration can&apos;t be changed and it can&apos;t be removed.
+              </span>
+            </div>
+          )}
           {metrics.hasRuntime && tab === 'metrics' ? (
             selectedIsSource ? (
               <SourceNodeMetricsDetail

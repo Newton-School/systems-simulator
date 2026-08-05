@@ -1,5 +1,5 @@
 import { memo } from 'react'
-import { FolderOpen, Save, Sidebar } from 'lucide-react'
+import { FolderOpen, Save, Sidebar, Workflow } from 'lucide-react'
 
 import { Divider } from '../ui/Divider'
 import { IconButton } from '../ui/IconButton'
@@ -20,6 +20,7 @@ interface HeaderProps {
   // File
   onSave: () => void
   onOpen: () => void
+  onAutoLayout: () => void
   fileName: string | null
   isUnsaved: boolean
 
@@ -37,6 +38,11 @@ interface HeaderProps {
   scenario: ScenarioState
   onScenarioChange: (updater: (current: ScenarioState) => ScenarioState) => void
   simulationDisabled?: boolean
+  /** Minimal chrome (EnvironmentProfile ASSIGNMENT/PRACTICE): hide authoring file ops. */
+  minimal?: boolean
+  /** Whether opening an external topology is allowed. False in question mode —
+   * loading another topology would bypass (and clear) the active question. */
+  canOpen?: boolean
 }
 
 export const Header = memo(
@@ -47,6 +53,7 @@ export const Header = memo(
     isRightOpen,
     onSave,
     onOpen,
+    onAutoLayout,
     fileName,
     isUnsaved,
     onRun,
@@ -61,7 +68,9 @@ export const Header = memo(
     faultTargets,
     scenario,
     onScenarioChange,
-    simulationDisabled
+    simulationDisabled,
+    minimal,
+    canOpen = true
   }: HeaderProps) => {
     return (
       <header className="h-12 bg-nss-panel text-nss-text flex items-center justify-between px-4 shrink-0 border-b border-nss-border transition-colors duration-200 overflow-visible">
@@ -79,14 +88,29 @@ export const Header = memo(
 
         {/* CENTER: File status + simulation controls */}
         <div className="flex items-center gap-3">
-          <FileStatus fileName={fileName} isUnsaved={isUnsaved} />
+          {!minimal && (
+            <>
+              <FileStatus fileName={fileName} isUnsaved={isUnsaved} />
 
-          <div className="flex items-center gap-1">
-            <IconButton onClick={onOpen} icon={<FolderOpen size={18} />} label="Open (Ctrl+O)" />
-            <IconButton onClick={onSave} icon={<Save size={18} />} label="Save (Ctrl+S)" />
-          </div>
+              <div className="flex items-center gap-1">
+                {canOpen && (
+                  <IconButton
+                    onClick={onOpen}
+                    icon={<FolderOpen size={18} />}
+                    label="Open (Ctrl+O)"
+                  />
+                )}
+                <IconButton onClick={onSave} icon={<Save size={18} />} label="Save (Ctrl+S)" />
+                <IconButton
+                  onClick={onAutoLayout}
+                  icon={<Workflow size={18} />}
+                  label="Auto Layout"
+                />
+              </div>
 
-          <Divider />
+              <Divider />
+            </>
+          )}
 
           <SimulationControls
             onRun={onRun}

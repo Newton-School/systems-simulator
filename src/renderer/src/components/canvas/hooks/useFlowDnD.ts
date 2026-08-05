@@ -1,23 +1,28 @@
 import { useCallback } from 'react'
 import { ReactFlowInstance, NodeDragHandler, Node } from 'reactflow'
-import { findTargetVpc, getId, recomputeContainment } from '../utils/canvasUtils'
+import {
+  findTargetContainer,
+  getAbsoluteNodePosition,
+  getId,
+  recomputeContainment
+} from '../utils/canvasUtils'
 import { instantiateTemplate } from '../../../../../engine/catalog/paletteTemplates'
+import { validatePlacement } from '../../../config/hierarchyRules'
 
 interface UseFlowDnDProps {
   nodes: Node[]
   addNode: (node: Node) => void
   setNodes: (nodes: Node[]) => void
   instance: ReactFlowInstance | null
+  onError?: (message: string | null) => void
 }
 
-export const useFlowDnD = ({ nodes, addNode, setNodes, instance }: UseFlowDnDProps) => {
-  // 1. Drag Over
+export const useFlowDnD = ({ nodes, addNode, setNodes, instance, onError }: UseFlowDnDProps) => {
   const onDragOver = useCallback((event: React.DragEvent) => {
     event.preventDefault()
     event.dataTransfer.dropEffect = 'move'
   }, [])
 
-  // 2. Drop (New Node Creation)
   const onDrop = useCallback(
     (event: React.DragEvent) => {
       event.preventDefault()
@@ -30,8 +35,18 @@ export const useFlowDnD = ({ nodes, addNode, setNodes, instance }: UseFlowDnDPro
         y: event.clientY
       }) || { x: 0, y: 0 }
 
-      // Reusable logic to find target VPC
-      const targetVpc = findTargetVpc(nodes, position)
+      const targetContainer = findTargetContainer(nodes, position, undefined, templateId)
+      const parentTemplateId = targetContainer
+        ? ((targetContainer.data as { templateId?: string })?.templateId ?? null)
+        : null
+      const validation = validatePlacement(templateId, parentTemplateId)
+
+      if (!validation.valid) {
+        onError?.(validation.error ?? 'Invalid placement.')
+        return
+      }
+
+      onError?.(null)
 
       const newNode: Node = {
         id: getId(),
@@ -40,29 +55,28 @@ export const useFlowDnD = ({ nodes, addNode, setNodes, instance }: UseFlowDnDPro
         data: instantiateTemplate(templateId)
       }
 
-      if (targetVpc) {
-        newNode.parentNode = targetVpc.id
+      if (targetContainer) {
+        const containerPosition = getAbsoluteNodePosition(targetContainer, nodes)
+        newNode.parentNode = targetContainer.id
         newNode.extent = 'parent'
-        newNode.zIndex = 10 // Lift nested items
+        newNode.zIndex = newNode.type === 'vpcNode' ? 1 : 10
         newNode.position = {
-          x: position.x - targetVpc.position.x,
-          y: position.y - targetVpc.position.y
+          x: position.x - containerPosition.x,
+          y: position.y - containerPosition.y
         }
       }
 
       addNode(newNode)
     },
-    [instance, addNode, nodes]
+    [addNode, instance, nodes, onError]
   )
 
-  // 3. Drag Stop — re-derive containment from geometry (center-inside).
-  // Works whether the user dragged a node INTO a container or dragged a
-  // container OVER existing nodes, and releases nodes whose center leaves their
-  // container. Runs over the whole graph so nesting stays consistent.
   const onNodeDragStop: NodeDragHandler = useCallback(
     (_, node) => {
-      const withDraggedPosition = nodes.map((n) =>
-        n.id === node.id ? { ...n, position: node.position, parentNode: node.parentNode } : n
+      const withDraggedPosition = nodes.map((candidate) =>
+        candidate.id === node.id
+          ? { ...candidate, position: node.position, parentNode: node.parentNode }
+          : candidate
       )
       const recomputed = recomputeContainment(withDraggedPosition)
       if (recomputed !== withDraggedPosition) {

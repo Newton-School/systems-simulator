@@ -16,11 +16,13 @@ import ReactFlow, {
 import 'reactflow/dist/style.css'
 
 import EmptyFlowState from '../ui/EmptyFlowState'
+import { RunToast } from '../ui/RunToast'
 import { CanvasLegend } from './CanvasLegend'
 import { MetricLensSwitcher } from './MetricLensSwitcher'
 // Hooks & Config
 import useStore from '@renderer/store/useStore'
 
+import { useCopyPaste } from './hooks/useCopyPaste'
 import { useFlowStore } from './hooks/useFlowStore'
 import { useFlowDnD } from './hooks/useFlowDnD'
 import { useFlowConfig, nodeTypes, GRID_COLOR } from './config/flowConfig'
@@ -72,6 +74,7 @@ function collectSelectedNodeIds(nodes: Node[]): Set<string> {
 const FlowCanvasInternal = ({ showMetricLens = false, onNodeDoubleClick }: FlowCanvasProps) => {
   const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance | null>(null)
   const [activeTool, setActiveTool] = useState<CanvasTool>('pan')
+  const [validationError, setValidationError] = useState<string | null>(null)
   const shiftPreviousToolRef = useRef<CanvasTool | null>(null)
 
   const { nodes, edges, onNodesChange, onEdgesChange, onConnect, addNode, setNodes, setEdges } =
@@ -81,11 +84,13 @@ const FlowCanvasInternal = ({ showMetricLens = false, onNodeDoubleClick }: FlowC
   const clearSimulationMetrics = useStore((state) => state.clearSimulationMetrics)
   const clearEdgeFlow = useStore((state) => state.clearEdgeFlow)
   const setRoutingStrategyVisualization = useStore((state) => state.setRoutingStrategyVisualization)
+  const viewportFitVersion = useStore((state) => state.viewportFitVersion)
 
   const { edgeTypes, defaultEdgeOptions } = useFlowConfig()
 
   const { onConnectStart, onConnectEnd, onEdgeUpdateStart, onEdgeUpdateEnd } = useMagneticSnap()
   useHandleProximity()
+  useCopyPaste()
 
   const onEdgeUpdate = useCallback(
     (oldEdge: Edge, newConnection: Connection) => {
@@ -98,7 +103,8 @@ const FlowCanvasInternal = ({ showMetricLens = false, onNodeDoubleClick }: FlowC
     nodes,
     addNode,
     setNodes,
-    instance: reactFlowInstance
+    instance: reactFlowInstance,
+    onError: setValidationError
   })
 
   const isEmpty = nodes.length === 0
@@ -161,6 +167,20 @@ const FlowCanvasInternal = ({ showMetricLens = false, onNodeDoubleClick }: FlowC
     }
   }, [])
 
+  useEffect(() => {
+    if (!reactFlowInstance) {
+      return
+    }
+
+    window.requestAnimationFrame(() => {
+      reactFlowInstance.fitView({
+        padding: 0.2,
+        maxZoom: 1.2,
+        duration: 500
+      })
+    })
+  }, [reactFlowInstance, viewportFitVersion])
+
   // Edge selection lives in the shared store so the right-hand inspector
   // (PropertiesPanel) can render its properties, exactly like node config.
   const onEdgeClick = useCallback(
@@ -184,6 +204,8 @@ const FlowCanvasInternal = ({ showMetricLens = false, onNodeDoubleClick }: FlowC
 
   const onPaneClick = useCallback(
     (event: React.MouseEvent) => {
+      setValidationError(null)
+
       if (activeTool === 'text' && reactFlowInstance) {
         const position = reactFlowInstance.screenToFlowPosition({
           x: event.clientX,
@@ -281,6 +303,7 @@ const FlowCanvasInternal = ({ showMetricLens = false, onNodeDoubleClick }: FlowC
         panOnScroll={isPanTool}
         selectionOnDrag={isSelectTool}
         selectionMode={SelectionMode.Partial}
+        multiSelectionKeyCode="Shift"
         selectNodesOnDrag={false}
         elementsSelectable
         nodesDraggable={!isTextTool}
@@ -297,6 +320,13 @@ const FlowCanvasInternal = ({ showMetricLens = false, onNodeDoubleClick }: FlowC
 
       {/* Empty State */}
       <EmptyFlowState isEmpty={isEmpty} />
+      {validationError && (
+        <RunToast
+          messages={[validationError]}
+          tone="error"
+          onClose={() => setValidationError(null)}
+        />
+      )}
     </div>
   )
 }

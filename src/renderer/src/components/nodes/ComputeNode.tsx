@@ -68,6 +68,7 @@ const ComputeNode = ({ id, data, selected }: NodeProps<ComputeNodeData>) => {
   const capacityStyle = getRuntimeCapacityStyle({ utilization, queueDepth }, hasRuntime)
   const isInactive = isRuntimeNodeInactive(hasRuntime, active)
   const safeColor = theme.bg || 'bg-nss-primary'
+  const safeText = theme.text || safeColor.replace('bg-', 'text-')
 
   const containerClassName = useMemo(() => {
     const base = 'group relative min-w-[180px] bg-nss-surface rounded-lg border-2'
@@ -86,10 +87,13 @@ const ComputeNode = ({ id, data, selected }: NodeProps<ComputeNodeData>) => {
             <div
               className={`
                 p-2 rounded-md flex items-center justify-center shrink-0
-                ${hasRuntime ? capacityStyle.iconAccent : `bg-opacity-50 ${safeColor}`}
+                ${hasRuntime ? capacityStyle.iconAccent : `${safeColor} bg-opacity-30 dark:bg-opacity-30`}
               `}
             >
-              <Icon size={16} />
+              <Icon
+                size={16}
+                className={hasRuntime ? undefined : `${safeText} dark:!text-nss-bg`}
+              />
             </div>
 
             <div className="flex flex-col overflow-hidden w-full">

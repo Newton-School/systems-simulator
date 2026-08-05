@@ -9,10 +9,45 @@ import { useFlowPersistence } from '@renderer/hooks/useFlowPersistence'
 import { useConfirmDialog } from '@renderer/hooks/useConfirmDialog'
 import { useSimulation } from '@renderer/hooks/useSimulation'
 import { useTopologySerializer } from '@renderer/hooks/useTopologySerializer'
+import {
+  loadPersistedAttemptState,
+  persistAttemptState
+} from '@renderer/utils/questionAttemptPersistence'
+import {
+  isAllowedHostOrigin,
+  parseQuestionCommandMessage,
+  parseQuestionLaunchContextMessage,
+  postQuestionHostMessage,
+  rememberTrustedHostOrigin
+} from '@renderer/utils/questionHostMessaging'
+import {
+  isNewtonHostMode,
+  parseNewtonSeedMessage,
+  postNewtonReady,
+  postNewtonSave,
+  repostLastNewtonSave
+} from '@renderer/utils/newtonHostMessaging'
+import { applyAutoLayout } from '@renderer/utils/autoLayout'
 import { validateTopology } from '../../../../engine/validation/validator'
 import type { LatencyPercentiles } from '../../../../engine/metrics'
 import type { TimeSeriesSnapshot } from '../../../../engine/analysis/output'
+import {
+  buildNewtonSaveBlob,
+  isNewtonSaveCommand
+} from '../../../../engine/analysis/newtonGamePlayground'
+import { buildGamePlaygroundResult } from '../../../../engine/analysis/gamePlayground'
+import {
+  createAttemptState,
+  lockAttempt,
+  type AttemptState,
+  type QuestionPackage
+} from '../../../../engine/analysis/question'
+import { resolveEnvironmentProfile } from '../../../../engine/analysis/environmentProfile'
 import type { ValidationError } from '../../../../engine/validation/validator'
+import {
+  hasWorkloadSourceConfig,
+  isSourceComponentData
+} from '../../../../engine/catalog/sourceNodeSemantics'
 
 // Organisms
 import {
@@ -30,11 +65,12 @@ import { ResizeHandle } from '../ui/ResizeHandle'
 import { RunToast } from '../ui/RunToast'
 import { RoutingVisualizationToast } from '../ui/RoutingVisualizationToast'
 import type { CanvasNodeDataV2 } from '../../../../engine/catalog/nodeSpecTypes'
-import type {
-  FaultTargetOption,
-  NodeSimulationMetrics,
-  ScenarioRunContext,
-  SourceNodeOption
+import {
+  DEFAULT_SCENARIO_STATE,
+  type FaultTargetOption,
+  type NodeSimulationMetrics,
+  type ScenarioRunContext,
+  type SourceNodeOption
 } from '@renderer/types/ui'
 
 type RunIssueTone = 'warning' | 'error'
@@ -145,8 +181,7 @@ type StoreNode = ReturnType<typeof useStore.getState>['nodes'][number]
 type StoreEdge = ReturnType<typeof useStore.getState>['edges'][number]
 
 function isSourceNode(node: StoreNode): boolean {
-  const data = node.data as Partial<CanvasNodeDataV2>
-  return data.structuralRole === 'source' || data.profile === 'source'
+  return isSourceComponentData(node.data as Partial<CanvasNodeDataV2>)
 }
 
 function sumEdgeFlows(
@@ -293,9 +328,18 @@ export const WorkspaceLayout = () => {
   const edges = useStore((s) => s.edges)
   const scenario = useStore((s) => s.scenario)
   const updateScenario = useStore((s) => s.updateScenario)
+  const setNodes = useStore((s) => s.setNodes)
   const setSimulationMetrics = useStore((s) => s.setSimulationMetrics)
   const clearSimulationMetrics = useStore((s) => s.clearSimulationMetrics)
   const selectGraphElements = useStore((s) => s.selectGraphElements)
+  const activeQuestion = useStore((s) => s.activeQuestion)
+  const attemptState = useStore((s) => s.attemptState)
+  const environmentProfile = useStore((s) => s.environmentProfile)
+  const setActiveQuestion = useStore((s) => s.setActiveQuestion)
+  const setAttemptState = useStore((s) => s.setAttemptState)
+  const setEnvironmentProfile = useStore((s) => s.setEnvironmentProfile)
+  const setResultsRevealed = useStore((s) => s.setResultsRevealed)
+  const requestViewportFit = useStore((s) => s.requestViewportFit)
   const runInspectorPinned = useStore((s) => s.runInspectorPinned)
   const setRunInspectorPinned = useStore((s) => s.setRunInspectorPinned)
   const routingVisualization = useStore((s) => s.routingStrategyVisualization)
@@ -313,6 +357,23 @@ export const WorkspaceLayout = () => {
   )
 
   const { handleSave, handleOpen, loadFromData } = useFlowPersistence(confirmDiscardChanges)
+
+  const clearQuestionSession = useCallback(() => {
+    setActiveQuestion(null)
+    setAttemptState(null)
+    setEnvironmentProfile(resolveEnvironmentProfile())
+    setResultsRevealed(false)
+    setLeftSidebarTab('library')
+  }, [setActiveQuestion, setAttemptState, setEnvironmentProfile, setResultsRevealed])
+
+  const handleOpenTopology = useCallback(async () => {
+    const loaded = await handleOpen()
+    if (!loaded) {
+      return
+    }
+
+    clearQuestionSession()
+  }, [clearQuestionSession, handleOpen])
 
   const selectedNodeId = nodes.find((n) => n.selected)?.id
   const selectedEdgeId = edges.find((e) => e.selected)?.id
@@ -383,6 +444,201 @@ export const WorkspaceLayout = () => {
   // Simulation
   const sim = useSimulation()
   const { serialize } = useTopologySerializer()
+
+  useEffect(() => {
+    // Announce readiness in whichever protocol the host speaks. The Newton Game
+    // Playground host expects the raw `'ready-event'` string; our own host
+    // expects the structured `ns-simulator:ready`.
+    if (isNewtonHostMode()) {
+      postNewtonReady()
+    } else {
+      postQuestionHostMessage({ type: 'ns-simulator:ready' })
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!activeQuestion || !attemptState || attemptState.questionId !== activeQuestion.id) {
+      return
+    }
+
+    persistAttemptState(attemptState)
+  }, [activeQuestion, attemptState])
+
+  // Load a question package into the workspace. Shared by both host protocols
+  // (our `ns-simulator:*` launch-context and the Newton Game Playground seed).
+  const loadQuestionIntoWorkspace = useCallback(
+    async (
+      questionPackage: QuestionPackage,
+      restoredAttempt: AttemptState | undefined,
+      options: { readOnly?: boolean; onError?: () => void } = {}
+    ) => {
+      const topologyToLoad = restoredAttempt?.topology ?? questionPackage.scaffold.topology
+      const launchData =
+        topologyToLoad ??
+        ({ version: '2.0.0', nodes: [], edges: [], scenario: DEFAULT_SCENARIO_STATE } as const)
+
+      const loaded = await loadFromData(launchData, `${questionPackage.id}.json`)
+      if (!loaded) {
+        options.onError?.()
+        return
+      }
+
+      sim.reset()
+      clearSimulationMetrics()
+      setShowResults(false)
+      setLastRunContext(null)
+      setRunIssues({ messages: [], tone: 'warning' })
+      setRoutingVisualization(null)
+      selectGraphElements({})
+      setIsRightOpen(false)
+      setLeftSidebarTab('question')
+      setIsLeftOpen(true)
+      setActiveQuestion(questionPackage)
+
+      const baseAttempt =
+        restoredAttempt ??
+        (topologyToLoad
+          ? createAttemptState({ questionId: questionPackage.id, topology: topologyToLoad })
+          : null)
+      setAttemptState(options.readOnly && baseAttempt ? lockAttempt(baseAttempt) : baseAttempt)
+    },
+    [
+      clearSimulationMetrics,
+      loadFromData,
+      selectGraphElements,
+      setActiveQuestion,
+      setAttemptState,
+      setRoutingVisualization,
+      sim,
+      setLeftSidebarTab,
+      setIsLeftOpen
+    ]
+  )
+
+  useEffect(() => {
+    const onMessage = (event: MessageEvent<unknown>) => {
+      // Reject messages from any origin the host allowlist / handshake does not
+      // trust — never parse or load untrusted host input.
+      if (!isAllowedHostOrigin(event.origin)) {
+        return
+      }
+
+      // Newton Game Playground host: raw `'save'` request, or a JSON seed string.
+      if (isNewtonHostMode()) {
+        if (isNewtonSaveCommand(event.data)) {
+          repostLastNewtonSave()
+          return
+        }
+        const seed = parseNewtonSeedMessage(event.data)
+        if (!seed) {
+          return
+        }
+        rememberTrustedHostOrigin(event.origin)
+        setResultsRevealed(false)
+        void loadQuestionIntoWorkspace(seed.questionPackage, seed.priorAttempt, {
+          readOnly: seed.readOnly
+        })
+        return
+      }
+
+      // Post-launch lifecycle commands (reset / lock / reveal).
+      const command = parseQuestionCommandMessage(event.data)
+      if (command) {
+        const state = useStore.getState()
+        const question = state.activeQuestion
+        if (!question) {
+          return
+        }
+        if (command.command === 'reveal') {
+          state.setResultsRevealed(true)
+          return
+        }
+        if (command.command === 'lock') {
+          state.setAttemptState(lockAttempt(state.attemptState))
+          return
+        }
+        // reset: reload the scaffold and start a fresh, unlocked attempt.
+        const scaffoldTopology =
+          question.scaffold.type === 'partial' ? question.scaffold.topology : undefined
+        const launchData =
+          scaffoldTopology ??
+          ({ version: '2.0.0', nodes: [], edges: [], scenario: DEFAULT_SCENARIO_STATE } as const)
+        void (async () => {
+          const loaded = await loadFromData(launchData, `${question.id}.json`)
+          if (!loaded) {
+            return
+          }
+          state.setResultsRevealed(false)
+          state.setAttemptState(
+            scaffoldTopology
+              ? createAttemptState({ questionId: question.id, topology: scaffoldTopology })
+              : null
+          )
+        })()
+        return
+      }
+
+      const launchContext = parseQuestionLaunchContextMessage(event.data)
+      if (!launchContext) {
+        return
+      }
+      // Lock outbound (ready/submit/error) to this host origin from now on.
+      rememberTrustedHostOrigin(event.origin)
+      const { questionPackage, priorAttempt, environmentProfile } = launchContext.payload
+      setEnvironmentProfile(resolveEnvironmentProfile(environmentProfile))
+      setResultsRevealed(false)
+
+      void (async () => {
+        const restoredAttempt =
+          priorAttempt ?? loadPersistedAttemptState(questionPackage.id, new Date().toISOString())
+        await loadQuestionIntoWorkspace(questionPackage, restoredAttempt, {
+          onError: () =>
+            postQuestionHostMessage({
+              type: 'ns-simulator:error',
+              message: 'Could not load the question launch context into the simulator.'
+            })
+        })
+      })()
+    }
+
+    window.addEventListener('message', onMessage)
+    return () => window.removeEventListener('message', onMessage)
+  }, [loadFromData, loadQuestionIntoWorkspace, setEnvironmentProfile, setResultsRevealed])
+
+  // Newton Game Playground: debounced host-side autosave. On every design edit,
+  // persist the current topology to the host (carrying the last-known scores
+  // forward — no re-grade), so game_json survives reloads/devices between
+  // submits. Skipped in read-only (locked) attempts.
+  useEffect(() => {
+    if (!isNewtonHostMode() || !activeQuestion || !attemptState) {
+      return
+    }
+    if (attemptState.status === 'LOCKED') {
+      return
+    }
+    const handle = setTimeout(() => {
+      const { topology } = serialize()
+      if (!topology) {
+        return
+      }
+      const now = new Date().toISOString()
+      const lastContract =
+        attemptState.grade?.result.contract ?? attemptState.lastDryRun?.grade.contract
+      const result = buildGamePlaygroundResult(
+        lastContract ?? { tests: [], totalTests: 0, passedTests: 0, allPassed: false }
+      )
+      postNewtonSave(
+        buildNewtonSaveBlob(
+          activeQuestion,
+          { ...attemptState, topology, lastSavedAt: now },
+          result,
+          now
+        )
+      )
+    }, 4000)
+    return () => clearTimeout(handle)
+  }, [nodes, edges, activeQuestion, attemptState, serialize])
+
   const handleLoadScenario = useCallback(
     async (scenarioId: string) => {
       const sampleId = scenarioId.startsWith('sample:') ? scenarioId.slice('sample:'.length) : ''
@@ -401,6 +657,7 @@ export const WorkspaceLayout = () => {
         return
       }
 
+      clearQuestionSession()
       sim.reset()
       clearSimulationMetrics()
       setShowResults(false)
@@ -410,8 +667,24 @@ export const WorkspaceLayout = () => {
       selectGraphElements({})
       setIsRightOpen(false)
     },
-    [clearSimulationMetrics, loadFromData, selectGraphElements, setRoutingVisualization, sim]
+    [
+      clearQuestionSession,
+      clearSimulationMetrics,
+      loadFromData,
+      selectGraphElements,
+      setRoutingVisualization,
+      sim
+    ]
   )
+
+  const handleAutoLayout = useCallback(() => {
+    if (nodes.length === 0) {
+      return
+    }
+
+    setNodes(applyAutoLayout(nodes, edges))
+    requestViewportFit()
+  }, [edges, nodes, requestViewportFit, setNodes])
 
   useEffect(() => {
     if (sim.results || !sim.snapshot || (sim.status !== 'running' && sim.status !== 'paused')) {
@@ -561,6 +834,7 @@ export const WorkspaceLayout = () => {
       const loaded = await loadFromData(sample.raw, `${sample.id}.json`)
       if (!loaded) return
 
+      clearQuestionSession()
       sim.reset()
       clearSimulationMetrics()
       setShowResults(false)
@@ -568,14 +842,14 @@ export const WorkspaceLayout = () => {
       setRunIssues({ messages: [], tone: 'warning' })
       setShowSamples(false)
     },
-    [clearSimulationMetrics, loadFromData, sim]
+    [clearQuestionSession, clearSimulationMetrics, loadFromData, sim]
   )
 
   const isRunning = sim.status === 'running'
   const isPaused = sim.status === 'paused' && !sim.stopped
   const isPostRun = sim.status === 'complete'
   const sourceNodes: SourceNodeOption[] = nodes
-    .filter((node) => (node.data as CanvasNodeDataV2).profile === 'source')
+    .filter((node) => hasWorkloadSourceConfig(node.data as Partial<CanvasNodeDataV2>))
     .map((node) => {
       const data = node.data as CanvasNodeDataV2
       return {
@@ -614,7 +888,8 @@ export const WorkspaceLayout = () => {
         isLeftOpen={isLeftOpen}
         isRightOpen={isRightOpen}
         onSave={handleSave}
-        onOpen={handleOpen}
+        onOpen={handleOpenTopology}
+        onAutoLayout={handleAutoLayout}
         fileName={fileName}
         isUnsaved={isUnsaved}
         onRun={handleRun}
@@ -632,6 +907,8 @@ export const WorkspaceLayout = () => {
         faultTargets={faultTargets}
         scenario={scenario}
         onScenarioChange={updateScenario}
+        minimal={environmentProfile.chromeDensity === 'minimal'}
+        canOpen={!activeQuestion}
       />
 
       {runIssues.messages.length > 0 && (
@@ -651,7 +928,11 @@ export const WorkspaceLayout = () => {
 
       {/* Main Content Area */}
       <div className="flex-1 overflow-hidden relative h-full flex">
-        <LibraryActivityRail activeTab={leftSidebarTab} onSelect={handleLeftSidebarTabSelect} />
+        <LibraryActivityRail
+          activeTab={leftSidebarTab}
+          onSelect={handleLeftSidebarTabSelect}
+          showScenarios={!activeQuestion}
+        />
 
         <PanelGroup
           direction="horizontal"
@@ -679,7 +960,7 @@ export const WorkspaceLayout = () => {
               <Panel defaultSize={showResults ? 65 : 100} minSize={10} order={1}>
                 <div className="relative h-full">
                   <FlowCanvas
-                    showMetricLens
+                    showMetricLens={environmentProfile.visibility.liveMetrics}
                     onNodeDoubleClick={(_, node) => {
                       selectGraphElements({ nodeId: node.id })
                       setIsRightOpen(true)

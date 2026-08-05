@@ -1,4 +1,5 @@
 import { useMemo } from 'react'
+import { hasWorkloadSourceConfig } from '../../../engine/catalog/sourceNodeSemantics'
 import type { AnyNodeData } from '@renderer/types/ui'
 import useStore from '@renderer/store/useStore'
 import {
@@ -10,7 +11,7 @@ const SOURCE_DEFAULT_WORKLOAD_PREFIX = 'source.defaultWorkload.'
 
 type SourceNodeLike = {
   id: string
-  data: Pick<AnyNodeData, 'profile'>
+  data: Pick<AnyNodeData, 'source'>
 }
 
 export function resolveEffectiveSelectedSourceNodeId(
@@ -20,7 +21,7 @@ export function resolveEffectiveSelectedSourceNodeId(
   let firstSourceNodeId: string | undefined
 
   for (const node of nodes) {
-    if (node.data.profile !== 'source') continue
+    if (!hasWorkloadSourceConfig(node.data)) continue
     if (firstSourceNodeId === undefined) firstSourceNodeId = node.id
     if (selectedSourceNodeId && node.id === selectedSourceNodeId) return selectedSourceNodeId
   }
@@ -35,7 +36,7 @@ export function resolveDisplayedSourceWorkload(
   workloadOverride: Partial<WorkloadWithoutRuntimeFields> | undefined
 ): WorkloadWithoutRuntimeFields | undefined {
   const baseWorkload = data.source?.defaultWorkload
-  if (data.profile !== 'source' || !baseWorkload) {
+  if (!baseWorkload) {
     return undefined
   }
 
@@ -50,7 +51,7 @@ export function withDisplayedSourceWorkload(
   data: AnyNodeData,
   displayedSourceWorkload: WorkloadWithoutRuntimeFields | undefined
 ): AnyNodeData {
-  if (data.profile !== 'source' || !data.source || !displayedSourceWorkload) {
+  if (!data.source || !displayedSourceWorkload) {
     return data
   }
 

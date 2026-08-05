@@ -453,6 +453,7 @@ export function SimulationControls({
               value={scenario.global.seed}
               onChange={(event) => setGlobalField('seed', event.target.value)}
               className={CONTROL_BASE}
+              placeholder="default-seed"
             />
           </Field>
 

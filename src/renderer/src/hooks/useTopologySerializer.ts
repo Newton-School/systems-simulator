@@ -10,6 +10,7 @@ import type {
 } from '../../../engine/core/types'
 import { getComponentSpec } from '../../../engine/catalog/componentSpecs'
 import type { CanvasNodeDataV2 } from '../../../engine/catalog/nodeSpecTypes'
+import { hasWorkloadSourceConfig } from '../../../engine/catalog/sourceNodeSemantics'
 import { getPathTypeLatencyProfile, inferEdgeDefaults } from '../../../engine/defaults/edgeDefaults'
 import { inferCanvasEdgeMode } from '@renderer/config/edgeSemantics'
 import useStore from '../store/useStore'
@@ -372,7 +373,7 @@ export function useTopologySerializer() {
       const sourceRfNodes = nodes.filter(
         (node) =>
           !isCanvasAnnotationNodeType(node.type) &&
-          (node.data as CanvasNodeDataV2).profile === 'source'
+          hasWorkloadSourceConfig(node.data as Partial<CanvasNodeDataV2>)
       )
       const selectedSourceRfNode =
         sourceRfNodes.find((node) => node.id === resolvedScenario.selectedSourceNodeId) ??
@@ -381,7 +382,9 @@ export function useTopologySerializer() {
       if (!selectedSourceRfNode) {
         return {
           topology: null,
-          errors: ['Add at least one source node before running the simulation.'],
+          errors: [
+            'Add at least one workload-configured entrypoint before running the simulation.'
+          ],
           runContext: null
         }
       }

@@ -23,6 +23,29 @@ import type { CanvasTextLabelData } from '../../../engine/catalog/canvasAnnotati
 import { DEFAULT_SCENARIO_STATE } from '@renderer/types/ui'
 import type { EdgeFailureCause, EdgeFlowEvent } from '../../../engine/core/events'
 import type { WorkloadProfile } from '../../../engine/core/types'
+import type { AttemptState, QuestionPackage } from '../../../engine/analysis/question'
+import {
+  DEFAULT_ENVIRONMENT_PROFILE,
+  type EnvironmentProfile
+} from '../../../engine/analysis/environmentProfile'
+
+/**
+ * A node's edits/deletions are locked when either (a) the whole attempt is frozen
+ * by a host `lock` command, or (b) it is a scaffold-provided node and the active
+ * EnvironmentProfile disallows editing scaffold nodes. Enforced in the store so no
+ * UI path can bypass it.
+ */
+function isNodeEditLocked(
+  nodeId: string,
+  scaffoldNodeIds: readonly string[],
+  profile: EnvironmentProfile,
+  attemptStatus: AttemptState['status'] | undefined
+): boolean {
+  if (attemptStatus === 'LOCKED') {
+    return true
+  }
+  return !profile.capabilities.canEditScaffoldNodes && scaffoldNodeIds.includes(nodeId)
+}
 import type { RoutingStrategy } from '../../../engine/catalog/nodeSpecTypes'
 
 type FailureCountsByCause = Partial<Record<EdgeFailureCause, number>>
@@ -264,6 +287,23 @@ type RFState = {
   isUnsaved: boolean
   scenario: ScenarioState
 
+  // --- Question mode ---
+  /** The question the student is attempting, if any (injected by the host or a sample loader). */
+  activeQuestion: QuestionPackage | null
+  setActiveQuestion: (question: QuestionPackage | null) => void
+  /** Ids of canvas nodes that came from the active question's scaffold (provenance). */
+  scaffoldNodeIds: string[]
+  attemptState: AttemptState | null
+  setAttemptState: (attempt: AttemptState | null) => void
+  /** The resolved presentation profile (visibility + capabilities) for question mode. */
+  environmentProfile: EnvironmentProfile
+  setEnvironmentProfile: (profile: EnvironmentProfile) => void
+  /** Host `reveal` command: force rubric results visible regardless of profile timing. */
+  resultsRevealed: boolean
+  setResultsRevealed: (revealed: boolean) => void
+  viewportFitVersion: number
+  requestViewportFit: () => void
+
   // --- Actions ---
   onNodesChange: OnNodesChange
   onEdgesChange: OnEdgesChange
@@ -314,10 +354,26 @@ const useStore = create<RFState>((set, get) => ({
   fileName: 'Untitled',
   isUnsaved: false,
   scenario: DEFAULT_SCENARIO_STATE,
+  activeQuestion: null,
+  scaffoldNodeIds: [],
+  attemptState: null,
+  environmentProfile: DEFAULT_ENVIRONMENT_PROFILE,
+  resultsRevealed: false,
+  viewportFitVersion: 0,
 
   onNodesChange: (changes: NodeChange[]) => {
+    const { scaffoldNodeIds, environmentProfile, attemptState } = get()
+    // Drop deletions of locked nodes (scaffold-locked or a frozen attempt); all
+    // other changes pass through.
+    const permitted = changes.filter(
+      (change) =>
+        !(
+          change.type === 'remove' &&
+          isNodeEditLocked(change.id, scaffoldNodeIds, environmentProfile, attemptState?.status)
+        )
+    )
     set({
-      nodes: applyNodeChanges(changes, get().nodes)
+      nodes: applyNodeChanges(permitted, get().nodes)
     })
   },
 
@@ -334,6 +390,10 @@ const useStore = create<RFState>((set, get) => ({
   },
 
   addNode: (node: Node) => {
+    // A frozen attempt (host `lock`) admits no new nodes.
+    if (get().attemptState?.status === 'LOCKED') {
+      return
+    }
     const currentNodes = get().nodes
     let newId = node.id
 
@@ -391,6 +451,10 @@ const useStore = create<RFState>((set, get) => ({
   },
 
   updateNodeData: (nodeId: string, patch: Partial<AnyNodeData>) => {
+    const { scaffoldNodeIds, environmentProfile, attemptState } = get()
+    if (isNodeEditLocked(nodeId, scaffoldNodeIds, environmentProfile, attemptState?.status)) {
+      return
+    }
     set({
       nodes: get().nodes.map((node) => {
         if (node.id === nodeId) {
@@ -572,6 +636,23 @@ const useStore = create<RFState>((set, get) => ({
   setFileName: (fileName) => set({ fileName }),
   setUnsaved: (isUnsaved) => set({ isUnsaved }),
   setScenario: (scenario) => set({ scenario }),
+  setActiveQuestion: (activeQuestion) =>
+    set({
+      activeQuestion,
+      // A node's scaffold provenance is canonical: its id is in the question's
+      // partial-scaffold topology. Independent of what a resumed attempt loaded.
+      scaffoldNodeIds:
+        activeQuestion?.scaffold.type === 'partial'
+          ? activeQuestion.scaffold.topology.nodes.map((node) => node.id)
+          : []
+    }),
+  setAttemptState: (attemptState) => set({ attemptState }),
+  setEnvironmentProfile: (environmentProfile) => set({ environmentProfile }),
+  setResultsRevealed: (resultsRevealed) => set({ resultsRevealed }),
+  requestViewportFit: () =>
+    set((state) => ({
+      viewportFitVersion: state.viewportFitVersion + 1
+    })),
   updateScenario: (updater) => set((state) => ({ scenario: updater(state.scenario) }))
 }))
 

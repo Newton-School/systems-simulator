@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { AnyNodeData } from '@renderer/types/ui'
 import type { RoutingStrategy } from '../../../../engine/catalog/nodeSpecTypes'
+import { hasWorkloadSourceConfig } from '../../../../engine/catalog/sourceNodeSemantics'
 import {
   getNodeConfigSections,
   type FieldPath,
@@ -121,7 +122,7 @@ export const PropertiesForm = ({ nodeId, data, onUpdate }: PropertiesFormProps) 
   const effectiveSourceWorkload = useEffectiveSourceWorkload(nodeId, data)
   const effectiveSelectedSourceNodeId = useStore((state) =>
     resolveEffectiveSelectedSourceNodeId(
-      state.nodes as { id: string; data: Pick<AnyNodeData, 'profile'> }[],
+      state.nodes as { id: string; data: Pick<AnyNodeData, 'source'> }[],
       state.scenario.selectedSourceNodeId
     )
   )
@@ -129,7 +130,7 @@ export const PropertiesForm = ({ nodeId, data, onUpdate }: PropertiesFormProps) 
   const setRoutingStrategyVisualization = useStore((state) => state.setRoutingStrategyVisualization)
   const updateScenario = useStore((state) => state.updateScenario)
   const isScenarioManagedSourceNode =
-    data.profile === 'source' && nodeId === effectiveSelectedSourceNodeId
+    hasWorkloadSourceConfig(data) && nodeId === effectiveSelectedSourceNodeId
   const formData = useMemo(
     () =>
       isScenarioManagedSourceNode

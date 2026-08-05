@@ -4,6 +4,7 @@ import {
   StatusWindow,
   TimeSeriesSnapshot
 } from './analysis/output'
+import { evaluateInvariantViolations } from './analysis/invariants'
 import { replayEventStream } from './analysis/replay'
 import {
   AdmissionDecision,
@@ -1655,7 +1656,7 @@ export class SimulationEngine {
         ? this.buildDebuggedLifecycle(this.debugTarget, eventStream)
         : null
 
-    return generateSimulationOutput(
+    const output = generateSimulationOutput(
       this.metrics,
       this.tracer,
       this.timeSeries,
@@ -1675,6 +1676,11 @@ export class SimulationEngine {
         requestOutcomesSampled: this.requestOutcomeTotal > DEFAULT_MAX_RETAINED_REQUEST_OUTCOMES
       }
     )
+
+    return {
+      ...output,
+      invariantViolations: evaluateInvariantViolations(this.topology.invariants, output)
+    }
   }
 
   private buildDebuggedLifecycle(

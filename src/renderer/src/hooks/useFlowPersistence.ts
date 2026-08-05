@@ -128,11 +128,11 @@ export const useFlowPersistence = (confirmDiscardChanges: () => Promise<boolean>
     }
   }, [confirmDiscardChanges])
 
-  const handleOpenWithCheckIfSaved = useCallback(async () => {
+  const handleOpenWithCheckIfSaved = useCallback(async (): Promise<boolean> => {
     const ok = await confirmIfUnsaved()
-    if (!ok) return
+    if (!ok) return false
 
-    await handleOpen()
+    return handleOpen()
   }, [confirmIfUnsaved, handleOpen])
 
   const loadFromData = useCallback(

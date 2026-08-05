@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import useStore from './useStore'
+import { resolveEnvironmentProfile } from '../../../engine/analysis/environmentProfile'
 import type { EdgeFlowEvent } from '../../../engine/core/events'
 
 function buildEvent(
@@ -167,5 +168,94 @@ describe('useStore edge flow batching', () => {
     })
 
     expect(useStore.getState().metricLens).toBe('saturation')
+  })
+})
+
+describe('useStore scaffold-node lock', () => {
+  function node(id: string) {
+    return { id, type: 'service', position: { x: 0, y: 0 }, data: { label: id } }
+  }
+
+  beforeEach(() => {
+    useStore.getState().setActiveQuestion({
+      id: 'q1',
+      scaffold: { type: 'partial', topology: { nodes: [{ id: 'scaffold-1' }] } }
+    } as any)
+    useStore.getState().setNodes([node('scaffold-1'), node('student-1')] as any)
+  })
+
+  afterEach(() => {
+    useStore.getState().setActiveQuestion(null)
+    useStore.getState().setEnvironmentProfile(resolveEnvironmentProfile())
+    useStore.getState().setNodes([])
+  })
+
+  it('derives scaffold node ids from the active question scaffold', () => {
+    expect(useStore.getState().scaffoldNodeIds).toEqual(['scaffold-1'])
+  })
+
+  it('blocks deleting and editing locked scaffold nodes but not student nodes', () => {
+    useStore.getState().setEnvironmentProfile(resolveEnvironmentProfile('ASSIGNMENT'))
+
+    // Deleting a locked scaffold node is dropped; deleting a student node works.
+    useStore.getState().onNodesChange([{ type: 'remove', id: 'scaffold-1' }])
+    expect(useStore.getState().nodes.map((n) => n.id)).toContain('scaffold-1')
+    useStore.getState().onNodesChange([{ type: 'remove', id: 'student-1' }])
+    expect(useStore.getState().nodes.map((n) => n.id)).not.toContain('student-1')
+
+    // Editing a locked scaffold node is a no-op; editing a student node applies.
+    useStore.getState().updateNodeData('scaffold-1', { label: 'HACKED' } as any)
+    const scaffoldNode = useStore.getState().nodes.find((n) => n.id === 'scaffold-1')
+    expect((scaffoldNode?.data as { label: string }).label).toBe('scaffold-1')
+  })
+
+  it('allows editing scaffold nodes when the profile permits (AUTHOR)', () => {
+    useStore.getState().setEnvironmentProfile(resolveEnvironmentProfile('AUTHOR'))
+    useStore.getState().updateNodeData('scaffold-1', { label: 'edited' } as any)
+    const scaffoldNode = useStore.getState().nodes.find((n) => n.id === 'scaffold-1')
+    expect((scaffoldNode?.data as { label: string }).label).toBe('edited')
+
+    useStore.getState().onNodesChange([{ type: 'remove', id: 'scaffold-1' }])
+    expect(useStore.getState().nodes.map((n) => n.id)).not.toContain('scaffold-1')
+  })
+})
+
+describe('useStore host lifecycle (lock / reveal)', () => {
+  beforeEach(() => {
+    useStore.getState().setActiveQuestion(null)
+    useStore.getState().setEnvironmentProfile(resolveEnvironmentProfile())
+    useStore
+      .getState()
+      .setNodes([
+        { id: 'n1', type: 'service', position: { x: 0, y: 0 }, data: { label: 'n1' } }
+      ] as any)
+  })
+
+  afterEach(() => {
+    useStore.getState().setAttemptState(null)
+    useStore.getState().setResultsRevealed(false)
+    useStore.getState().setNodes([])
+  })
+
+  it('freezes every node once the attempt is LOCKED', () => {
+    useStore.getState().setAttemptState({ status: 'LOCKED' } as any)
+
+    // Deleting, editing and adding are all blocked while frozen.
+    useStore.getState().onNodesChange([{ type: 'remove', id: 'n1' }])
+    expect(useStore.getState().nodes.map((n) => n.id)).toContain('n1')
+
+    useStore.getState().updateNodeData('n1', { label: 'nope' } as any)
+    expect((useStore.getState().nodes[0].data as { label: string }).label).toBe('n1')
+
+    useStore
+      .getState()
+      .addNode({ id: 'n2', type: 'service', position: { x: 1, y: 1 }, data: {} } as any)
+    expect(useStore.getState().nodes.map((n) => n.id)).not.toContain('n2')
+  })
+
+  it('exposes a reveal flag that defaults false and can be toggled', () => {
+    expect(useStore.getState().resultsRevealed).toBe(false)
+    useStore.getState().setResultsRevealed(true)
+    expect(useStore.getState().resultsRevealed).toBe(true)
   })
 })

@@ -1,0 +1,35 @@
+{
+  "id": "order-platform-slo",
+  "passThreshold": 1,
+  "checks": [
+    {
+      "id": "error-rate",
+      "description": "Post-warmup error rate stays under 10%",
+      "metric": "summary.errorRate",
+      "op": "<",
+      "value": 0.1,
+      "points": 2
+    },
+    {
+      "id": "throughput",
+      "description": "Sustains at least 100 req/s",
+      "metric": "summary.throughput",
+      "op": ">=",
+      "value": 100
+    },
+    {
+      "id": "no-invariant-violations",
+      "description": "No invariant violations",
+      "metric": "invariantViolations.count",
+      "op": "==",
+      "value": 0
+    },
+    {
+      "id": "node-saturation",
+      "description": "No node pinned at full saturation",
+      "metric": "perNode.maxUtilization",
+      "op": "<",
+      "value": 1
+    }
+  ]
+}
