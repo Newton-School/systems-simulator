@@ -664,7 +664,7 @@ const useStore = create<RFState>((set, get) => ({
     })
   },
 
-  updateNodeData: (nodeId: string, patch: Partial<AnyNodeData>) => {
+  updateNodeData: (nodeId: string, patch: CanvasNodeDataPatch) => {
     const { scaffoldNodeIds, environmentProfile, attemptState } = get()
     if (isNodeEditLocked(nodeId, scaffoldNodeIds, environmentProfile, attemptState?.status)) {
       return

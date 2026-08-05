@@ -290,14 +290,29 @@ const FlowCanvasInternal = ({ showMetricLens = false, onNodeDoubleClick }: FlowC
   ])
 
   const resetCanvas = useCallback(() => {
-    setGraph([], [])
+    if (attemptStatus === 'LOCKED') {
+      return
+    }
+
+    const preservedNodeIds = new Set(canEditScaffoldNodes ? [] : scaffoldNodeIds)
+    const nextNodes = nodes.filter((node) => preservedNodeIds.has(node.id))
+    const nextEdges = edges.filter(
+      (edge) => preservedNodeIds.has(edge.source) && preservedNodeIds.has(edge.target)
+    )
+
+    setGraph(nextNodes, nextEdges, { history: 'skip', resetHistory: true })
     selectGraphElements({})
     clearSimulationMetrics()
     clearEdgeFlow()
     setRoutingStrategyVisualization(null)
   }, [
+    attemptStatus,
+    canEditScaffoldNodes,
     clearEdgeFlow,
     clearSimulationMetrics,
+    edges,
+    nodes,
+    scaffoldNodeIds,
     selectGraphElements,
     setGraph,
     setRoutingStrategyVisualization
