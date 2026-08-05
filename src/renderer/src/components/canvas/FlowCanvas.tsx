@@ -85,6 +85,11 @@ const FlowCanvasInternal = ({ showMetricLens = false, onNodeDoubleClick }: FlowC
   const clearEdgeFlow = useStore((state) => state.clearEdgeFlow)
   const setRoutingStrategyVisualization = useStore((state) => state.setRoutingStrategyVisualization)
   const viewportFitVersion = useStore((state) => state.viewportFitVersion)
+  const scaffoldNodeIds = useStore((state) => state.scaffoldNodeIds)
+  const canEditScaffoldNodes = useStore(
+    (state) => state.environmentProfile.capabilities.canEditScaffoldNodes
+  )
+  const attemptStatus = useStore((state) => state.attemptState?.status)
 
   const { edgeTypes, defaultEdgeOptions } = useFlowConfig()
 
@@ -246,15 +251,30 @@ const FlowCanvasInternal = ({ showMetricLens = false, onNodeDoubleClick }: FlowC
   }, [edges, nodes, selectGraphElements, setEdges, setNodes])
 
   const resetCanvas = useCallback(() => {
-    setNodes([])
-    setEdges([])
+    if (attemptStatus === 'LOCKED') {
+      return
+    }
+
+    const preservedNodeIds = new Set(canEditScaffoldNodes ? [] : scaffoldNodeIds)
+    const nextNodes = nodes.filter((node) => preservedNodeIds.has(node.id))
+    const nextEdges = edges.filter(
+      (edge) => preservedNodeIds.has(edge.source) && preservedNodeIds.has(edge.target)
+    )
+
+    setNodes(nextNodes)
+    setEdges(nextEdges)
     selectGraphElements({})
     clearSimulationMetrics()
     clearEdgeFlow()
     setRoutingStrategyVisualization(null)
   }, [
+    attemptStatus,
+    canEditScaffoldNodes,
     clearEdgeFlow,
     clearSimulationMetrics,
+    edges,
+    nodes,
+    scaffoldNodeIds,
     selectGraphElements,
     setEdges,
     setNodes,
