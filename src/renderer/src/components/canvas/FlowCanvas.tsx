@@ -190,9 +190,7 @@ const FlowCanvasInternal = ({ showMetricLens = false, onNodeDoubleClick }: FlowC
 
       if (event.shiftKey || event.metaKey || event.ctrlKey) {
         setEdges(
-          edges.map((item) =>
-            item.id === edge.id ? { ...item, selected: !Boolean(item.selected) } : item
-          )
+          edges.map((item) => (item.id === edge.id ? { ...item, selected: !item.selected } : item))
         )
         return
       }
