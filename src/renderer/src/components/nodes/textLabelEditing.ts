@@ -49,7 +49,7 @@ export function applyIndentCommand({
     const lineOriginalStart = cursor
     cursor += line.length + 1
 
-    if (lineOriginalStart < selectionStart) {
+    if (lineOriginalStart <= selectionStart) {
       removedBeforeSelectionStart += removable
     }
     removedTotal += removable

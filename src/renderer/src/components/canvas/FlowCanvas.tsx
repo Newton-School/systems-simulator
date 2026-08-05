@@ -188,7 +188,10 @@ const FlowCanvasInternal = ({ showMetricLens = false, onNodeDoubleClick }: FlowC
       event.stopPropagation()
       if (activeTool !== 'select') return
 
-      if (event.shiftKey || event.metaKey || event.ctrlKey) {
+      const shouldToggleSelection =
+        event.metaKey || event.ctrlKey || (event.shiftKey && !shiftPreviousToolRef.current)
+
+      if (shouldToggleSelection) {
         setEdges(
           edges.map((item) => (item.id === edge.id ? { ...item, selected: !item.selected } : item))
         )
