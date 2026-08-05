@@ -69,6 +69,8 @@ export interface NewtonSaveBlob {
   attemptState: AttemptState
   /** Advisory per-check detail for UI restore — never re-graded by the backend. */
   rubric_results: HostTest[]
+  /** The student's free-text justification answers, by prompt id (persisted for grading/audit). */
+  justification_answers?: Record<string, string>
   saved_at: string
 }
 
@@ -156,8 +158,10 @@ export function buildNewtonSaveBlob(
   questionPackage: QuestionPackage,
   attemptState: AttemptState,
   result: GamePlaygroundResult,
-  savedAt: string
+  savedAt: string,
+  justificationAnswers?: Record<string, string>
 ): NewtonSaveBlob {
+  const hasAnswers = justificationAnswers && Object.keys(justificationAnswers).length > 0
   return {
     version: NEWTON_SAVE_BLOB_VERSION,
     ...mapResultToNewtonScores(result),
@@ -165,6 +169,7 @@ export function buildNewtonSaveBlob(
     questionPackage,
     attemptState,
     rubric_results: result.tests.map((test) => ({ ...test })),
+    ...(hasAnswers ? { justification_answers: { ...justificationAnswers } } : {}),
     saved_at: savedAt
   }
 }

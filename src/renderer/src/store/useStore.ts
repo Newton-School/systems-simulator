@@ -292,6 +292,15 @@ type RFState = {
   scaffoldNodeIds: string[]
   attemptState: AttemptState | null
   setAttemptState: (attempt: AttemptState | null) => void
+  /** The student's free-text answers to the active question's justify prompts, by prompt id. */
+  justificationAnswers: Record<string, string>
+  setJustificationAnswer: (promptId: string, text: string) => void
+  clearJustificationAnswers: () => void
+  /** Local/dev question load: a package to load through the full workspace loader (canvas reset +
+   * scaffold), consumed by WorkspaceLayout. Lets authors load questions without an iframe host. */
+  questionLoadRequest: QuestionPackage | null
+  requestQuestionLoad: (question: QuestionPackage) => void
+  clearQuestionLoadRequest: () => void
   /** The resolved presentation profile (visibility + capabilities) for question mode. */
   environmentProfile: EnvironmentProfile
   setEnvironmentProfile: (profile: EnvironmentProfile) => void
@@ -354,6 +363,8 @@ const useStore = create<RFState>((set, get) => ({
   activeQuestion: null,
   scaffoldNodeIds: [],
   attemptState: null,
+  justificationAnswers: {},
+  questionLoadRequest: null,
   environmentProfile: DEFAULT_ENVIRONMENT_PROFILE,
   resultsRevealed: false,
   viewportFitVersion: 0,
@@ -644,6 +655,13 @@ const useStore = create<RFState>((set, get) => ({
           : []
     }),
   setAttemptState: (attemptState) => set({ attemptState }),
+  setJustificationAnswer: (promptId, text) =>
+    set((state) => ({
+      justificationAnswers: { ...state.justificationAnswers, [promptId]: text }
+    })),
+  clearJustificationAnswers: () => set({ justificationAnswers: {} }),
+  requestQuestionLoad: (questionLoadRequest) => set({ questionLoadRequest }),
+  clearQuestionLoadRequest: () => set({ questionLoadRequest: null }),
   setEnvironmentProfile: (environmentProfile) => set({ environmentProfile }),
   setResultsRevealed: (resultsRevealed) => set({ resultsRevealed }),
   requestViewportFit: () =>

@@ -211,7 +211,8 @@ self.onmessage = (event: MessageEvent<WorkerInboundMessage>) => {
         const { grade, cases } = gradeAttemptWithArtifacts(
           msg.payload.question,
           msg.payload.topology,
-          (topology) => new SimulationEngine(topology).run()
+          (topology) => new SimulationEngine(topology).run(),
+          msg.payload.justificationAnswers ?? []
         )
         post({ type: 'grade-complete', payload: { grade, cases } })
       } catch (err) {

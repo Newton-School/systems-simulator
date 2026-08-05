@@ -5,6 +5,7 @@ import type {
   AttemptGrade,
   QuestionPackage
 } from '../../../engine/analysis/question'
+import type { JustificationAnswer } from '../../../engine/analysis/justification'
 import type { WorkerInboundMessage, WorkerOutboundMessage } from '../../../engine/worker/protocols'
 
 export type GraderStatus = 'idle' | 'grading' | 'graded' | 'error'
@@ -16,7 +17,11 @@ export interface QuestionGraderState {
   runs: AttemptCaseRun[] | null
   error: string | null
   /** Grade a student topology against a question package (runs the suite off-thread). */
-  grade_: (question: QuestionPackage, topology: TopologyJSON) => void
+  grade_: (
+    question: QuestionPackage,
+    topology: TopologyJSON,
+    justificationAnswers?: JustificationAnswer[]
+  ) => void
   reset: () => void
 }
 
@@ -38,45 +43,52 @@ export function useQuestionGrader(): QuestionGraderState {
     }
   }, [])
 
-  const gradeAttempt = useCallback((question: QuestionPackage, topology: TopologyJSON) => {
-    workerRef.current?.terminate()
-    const worker = new Worker(
-      new URL('../../../engine/worker/simulation.worker.ts', import.meta.url),
-      { type: 'module' }
-    )
-    workerRef.current = worker
+  const gradeAttempt = useCallback(
+    (
+      question: QuestionPackage,
+      topology: TopologyJSON,
+      justificationAnswers: JustificationAnswer[] = []
+    ) => {
+      workerRef.current?.terminate()
+      const worker = new Worker(
+        new URL('../../../engine/worker/simulation.worker.ts', import.meta.url),
+        { type: 'module' }
+      )
+      workerRef.current = worker
 
-    worker.onmessage = (event: MessageEvent<WorkerOutboundMessage>) => {
-      const msg = event.data
-      if (msg.type === 'grade-complete') {
-        setGrade(msg.payload.grade)
-        setRuns(msg.payload.cases)
-        setStatus('graded')
-        worker.terminate()
-        workerRef.current = null
-      } else if (msg.type === 'error') {
-        setError(msg.payload.message)
+      worker.onmessage = (event: MessageEvent<WorkerOutboundMessage>) => {
+        const msg = event.data
+        if (msg.type === 'grade-complete') {
+          setGrade(msg.payload.grade)
+          setRuns(msg.payload.cases)
+          setStatus('graded')
+          worker.terminate()
+          workerRef.current = null
+        } else if (msg.type === 'error') {
+          setError(msg.payload.message)
+          setStatus('error')
+          worker.terminate()
+          workerRef.current = null
+        }
+      }
+      worker.onerror = (err) => {
+        setError(err.message ?? 'Unknown grader error')
         setStatus('error')
         worker.terminate()
         workerRef.current = null
       }
-    }
-    worker.onerror = (err) => {
-      setError(err.message ?? 'Unknown grader error')
-      setStatus('error')
-      worker.terminate()
-      workerRef.current = null
-    }
 
-    setStatus('grading')
-    setGrade(null)
-    setRuns(null)
-    setError(null)
-    worker.postMessage({
-      type: 'grade',
-      payload: { question, topology }
-    } satisfies WorkerInboundMessage)
-  }, [])
+      setStatus('grading')
+      setGrade(null)
+      setRuns(null)
+      setError(null)
+      worker.postMessage({
+        type: 'grade',
+        payload: { question, topology, justificationAnswers }
+      } satisfies WorkerInboundMessage)
+    },
+    []
+  )
 
   const reset = useCallback(() => {
     workerRef.current?.terminate()

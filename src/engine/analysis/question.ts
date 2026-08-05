@@ -35,6 +35,13 @@ import {
   type SemanticContext,
   type SemanticEvaluation
 } from './semanticCriteria'
+import {
+  buildJustificationContext,
+  gradeJustification,
+  type JustificationAnswer,
+  type JustificationResult
+} from './justification'
+import { evaluateBudget, type BudgetEvaluation } from './budget'
 import { SIMULATION_VERDICT_VERSION, type SimulationVerdict } from './verdict'
 import {
   BudgetSchema,
@@ -220,6 +227,10 @@ export interface AttemptGrade {
   structural: StructuralEvaluation
   /** Semantic criteria — the topology-meaning axis (absent when none authored). */
   semantic?: SemanticEvaluation
+  /** Graph-consistent justification results (absent when no justify prompts). */
+  justification?: JustificationResult[]
+  /** Budget/cost evaluation — the anti-kitchen-sink axis (absent when no budget authored). */
+  budget?: BudgetEvaluation
   /** The full graded batch (rich data — stays inside the simulator). */
   graded: GradedEvaluationBatch
   /** The collapsed boolean contract sent across the iframe seam to the host. */
@@ -258,6 +269,28 @@ export function topologyRubricTestId(checkId: string): string {
 
 export function semanticTestId(criterionId: string): string {
   return `topology.semantic.${hostSafeToken(criterionId)}`
+}
+
+export function justifyTestId(promptId: string): string {
+  return `topology.justify.${hostSafeToken(promptId)}`
+}
+
+export function budgetTestId(): string {
+  return 'topology.budget'
+}
+
+/** Scale + NFR numbers a question defines, for justification number-citation. */
+function collectScaleNumbers(pkg: QuestionPackage): number[] {
+  const numbers: number[] = []
+  for (const value of Object.values(pkg.prompt.scale)) {
+    if (typeof value === 'number') {
+      numbers.push(value)
+    }
+  }
+  for (const nfr of pkg.prompt.nonFunctionalRequirements) {
+    numbers.push(nfr.value)
+  }
+  return numbers
 }
 
 export function caseRubricTestId(caseId: string, kind: CheckResultKind, checkId: string): string {
@@ -1172,10 +1205,51 @@ function flattenSemanticRows(semantic: SemanticEvaluation | undefined): AttemptC
   }))
 }
 
+function flattenJustificationRows(
+  justification: JustificationResult[] | undefined
+): AttemptCheckRow[] {
+  if (!justification) {
+    return []
+  }
+  return justification.map((result) => ({
+    id: justifyTestId(result.promptId),
+    name: `Justification: ${result.promptId}`,
+    scope: 'topology',
+    kind: 'topology',
+    // A missing/partial/failed justification is not a full pass in the collapse.
+    status: result.outcome === 'passed' ? 'passed' : 'failed',
+    passed: result.outcome === 'passed',
+    pointsEarned: 0,
+    pointsPossible: 0,
+    ...(result.detail ? { detail: result.detail } : {})
+  }))
+}
+
+function flattenBudgetRows(budget: BudgetEvaluation | undefined): AttemptCheckRow[] {
+  if (!budget) {
+    return []
+  }
+  return [
+    {
+      id: budgetTestId(),
+      name: `Budget: ${budget.actual} / ${budget.cap} ${budget.unit}`,
+      scope: 'budget',
+      kind: 'topology',
+      status: budget.withinBudget ? 'passed' : 'failed',
+      passed: budget.withinBudget,
+      pointsEarned: 0,
+      pointsPossible: 0,
+      ...(budget.detail ? { detail: budget.detail } : {})
+    }
+  ]
+}
+
 export function flattenAttemptCheckRows(grade: AttemptGrade): AttemptCheckRow[] {
   return [
     ...flattenStructuralRows(grade.structural),
     ...flattenSemanticRows(grade.semantic),
+    ...flattenJustificationRows(grade.justification),
+    ...flattenBudgetRows(grade.budget),
     ...flattenQuestionRubricRows(grade.graded.question),
     ...grade.graded.cases.flatMap((entry) => flattenCaseRubricRows(entry))
   ]
@@ -1189,11 +1263,15 @@ export function flattenAttemptCheckRows(grade: AttemptGrade): AttemptCheckRow[] 
 export function toHostContract(
   structural: StructuralEvaluation,
   graded: GradedEvaluationBatch,
-  semantic?: SemanticEvaluation
+  semantic?: SemanticEvaluation,
+  justification?: JustificationResult[],
+  budget?: BudgetEvaluation
 ): HostContract {
   const tests: HostTest[] = flattenAttemptCheckRows({
     structural,
     semantic,
+    ...(justification ? { justification } : {}),
+    ...(budget ? { budget } : {}),
     graded,
     contract: { tests: [], totalTests: 0, passedTests: 0, allPassed: false }
   }).map((row) => ({
@@ -1228,6 +1306,28 @@ export function buildQuestionTestRows(
       scope: 'topology',
       status: 'pending' as const
     })),
+    ...(pkg.semanticCriteria ?? []).map((criterion) => ({
+      id: semanticTestId(criterion.id),
+      name: criterion.description ?? criterion.id,
+      scope: 'design',
+      status: 'pending' as const
+    })),
+    ...(pkg.justify ?? []).map((prompt) => ({
+      id: justifyTestId(prompt.id),
+      name: `Justify: ${prompt.decision}`,
+      scope: 'justification',
+      status: 'pending' as const
+    })),
+    ...(pkg.budget
+      ? [
+          {
+            id: budgetTestId(),
+            name: `Budget: within ${pkg.budget.cap} ${pkg.budget.unit}`,
+            scope: 'budget',
+            status: 'pending' as const
+          }
+        ]
+      : []),
     ...pkg.rubric.checks
       .filter((check) => inferRubricCheckKind(check) === 'topology')
       .map((check) => ({
@@ -1262,8 +1362,9 @@ export function buildQuestionTestRows(
 
     return {
       id: gradedRow.id,
-      name: gradedRow.name,
-      scope: gradedRow.scope,
+      // Keep the authored label (more descriptive than the flattened graded name).
+      name: row.name,
+      scope: row.scope,
       status: normalizeQuestionRowStatus(gradedRow.status),
       ...(gradedRow.detail ? { detail: gradedRow.detail } : {})
     }
@@ -1368,10 +1469,28 @@ function evaluateSemanticCriteriaForPackage(
   return evaluateSemanticCriteria(studentTopology, pkg.semanticCriteria, ctx)
 }
 
+/**
+ * Grades the package's justify prompts against the student's answers, graph-
+ * consistently, or `undefined` when none are authored. Deterministic, no LLM.
+ */
+function gradeJustificationsForPackage(
+  pkg: QuestionPackage,
+  studentTopology: TopologyJSON,
+  answers: readonly JustificationAnswer[]
+): JustificationResult[] | undefined {
+  if (!pkg.justify || pkg.justify.length === 0) {
+    return undefined
+  }
+  const ctx = buildJustificationContext(studentTopology, collectScaleNumbers(pkg))
+  const answerById = new Map(answers.map((answer) => [answer.promptId, answer]))
+  return pkg.justify.map((prompt) => gradeJustification(prompt, answerById.get(prompt.id), ctx))
+}
+
 export function gradeAttemptWithArtifacts(
   pkg: QuestionPackage,
   studentTopology: TopologyJSON,
-  runTopology: (topology: TopologyJSON) => SimulationOutput
+  runTopology: (topology: TopologyJSON) => SimulationOutput,
+  justificationAnswers: readonly JustificationAnswer[] = []
 ): GradedAttempt {
   const structural =
     pkg.structuralRules && pkg.structuralRules.length > 0
@@ -1414,12 +1533,24 @@ export function gradeAttemptWithArtifacts(
 
   const batch = evaluateSuite(preparedCases, capturingRun, pkg.suite.name)
   const graded = gradeQuestionBatch(pkg.rubric, studentTopology, batch)
-  const semantic = evaluateSemanticCriteriaForPackage(pkg, studentTopology)
+  // Grade justifications first; a passed justification defends a `forbidUnjustified`
+  // component via the injected SemanticContext (the anti-cargo-cult unblock).
+  const justification = gradeJustificationsForPackage(pkg, studentTopology, justificationAnswers)
+  const passedByJustifyId = new Map(
+    (justification ?? []).map((result) => [result.promptId, result.outcome === 'passed'])
+  )
+  const semanticCtx: SemanticContext = justification
+    ? { justificationPassed: (id) => passedByJustifyId.get(id) }
+    : {}
+  const semantic = evaluateSemanticCriteriaForPackage(pkg, studentTopology, semanticCtx)
+  const budget = pkg.budget ? evaluateBudget(studentTopology, pkg.budget) : undefined
   const grade: AttemptGrade = {
     structural,
     ...(semantic ? { semantic } : {}),
+    ...(justification ? { justification } : {}),
+    ...(budget ? { budget } : {}),
     graded,
-    contract: toHostContract(structural, graded, semantic)
+    contract: toHostContract(structural, graded, semantic, justification, budget)
   }
 
   const verdictByCaseId = new Map<string, SimulationVerdict>()
@@ -1454,7 +1585,8 @@ export function gradeAttemptWithArtifacts(
 export function gradeAttempt(
   pkg: QuestionPackage,
   studentTopology: TopologyJSON,
-  runTopology: (topology: TopologyJSON) => SimulationOutput
+  runTopology: (topology: TopologyJSON) => SimulationOutput,
+  justificationAnswers: readonly JustificationAnswer[] = []
 ): AttemptGrade {
-  return gradeAttemptWithArtifacts(pkg, studentTopology, runTopology).grade
+  return gradeAttemptWithArtifacts(pkg, studentTopology, runTopology, justificationAnswers).grade
 }

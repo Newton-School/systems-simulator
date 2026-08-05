@@ -1,12 +1,44 @@
 import { describe, expect, it } from 'vitest'
-import type { ComponentType } from '../core/types'
+import type { ComponentType, TopologyJSON } from '../core/types'
 import type { JustifyPrompt } from './gradingCriteria'
 import {
+  buildJustificationContext,
   extractNumbers,
   gradeJustification,
   gradeJustifications,
   type JustificationContext
 } from './justification'
+
+describe('buildJustificationContext', () => {
+  const topology = {
+    nodes: [
+      { id: 'store-1', type: 'kv-store', label: 'Cassandra' },
+      { id: 'svc-1', type: 'microservice', label: 'API' }
+    ],
+    edges: []
+  } as unknown as TopologyJSON
+
+  it('resolves a bound type only when a node of that type exists', () => {
+    const ctx = buildJustificationContext(topology, [200000])
+    expect(ctx.resolveBoundType({ componentType: 'kv-store' as ComponentType })).toBe('kv-store')
+    expect(
+      ctx.resolveBoundType({ componentType: 'relational-db' as ComponentType })
+    ).toBeUndefined()
+    expect(ctx.resolveBoundType({ nodeId: 'svc-1' })).toBe('microservice')
+  })
+
+  it('derives aliases from the type token and the node label', () => {
+    const ctx = buildJustificationContext(topology, [])
+    const aliases = ctx.aliasesOf('kv-store' as ComponentType)
+    expect(aliases).toEqual(
+      expect.arrayContaining(['kv-store', 'kv store', 'kv', 'store', 'cassandra'])
+    )
+  })
+
+  it('carries the injected scale numbers through', () => {
+    expect(buildJustificationContext(topology, [200000, 99]).scaleNumbers).toEqual([200000, 99])
+  })
+})
 
 const prompt: JustifyPrompt = {
   id: 'why-db',
