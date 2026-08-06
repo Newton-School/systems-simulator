@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ComponentNode, TopologyJSON } from '../core/types'
-import { estimateNodeCost, evaluateBudget } from './budget'
+import { budgetBreakdown, estimateNodeCost, evaluateBudget } from './budget'
 
 function node(id: string, extra: Partial<ComponentNode> = {}): ComponentNode {
   return {
@@ -66,5 +66,37 @@ describe('evaluateBudget', () => {
     )
     expect(evaluateBudget(heavyTopo, { unit: 'cost', cap: 10 }).withinBudget).toBe(false)
     expect(evaluateBudget(topo([node('a')], 0), { unit: 'cost', cap: 10 }).withinBudget).toBe(true)
+  })
+})
+
+describe('budgetBreakdown', () => {
+  it('cost unit: returns per-node items (biggest driver first) + an edges row', () => {
+    const t = topo(
+      [
+        node('svc', {
+          queue: { workers: 80, capacity: 1, discipline: 'fifo' }
+        } as Partial<ComponentNode>),
+        node('store', {
+          type: 'kv-store',
+          queue: { workers: 1000, capacity: 1, discipline: 'fifo' }
+        } as Partial<ComponentNode>)
+      ],
+      3
+    )
+    const b = budgetBreakdown(t, { unit: 'cost', cap: 600 })
+    expect(b.actual).toBe(b.items.reduce((s, i) => s + i.cost, 0))
+    // store (1+1+⌈1000/50⌉=20 = 22) drives more than svc (1+1+⌈80/50⌉=2 = 4)
+    expect(b.items[0].id).toBe('store')
+    expect(b.items[0].cost).toBe(22)
+    const edges = b.items.find((i) => i.id === 'edges')
+    expect(edges?.cost).toBe(3)
+    expect(b.withinBudget).toBe(true)
+  })
+
+  it('nodes unit: one item per node summing to the count', () => {
+    const b = budgetBreakdown(topo([node('a'), node('b')], 5), { unit: 'nodes', cap: 3 })
+    expect(b.actual).toBe(2)
+    expect(b.items).toHaveLength(2)
+    expect(b.items.every((i) => i.cost === 1)).toBe(true)
   })
 })
