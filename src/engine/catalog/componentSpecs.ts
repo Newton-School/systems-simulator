@@ -14,6 +14,20 @@ import {
 } from '../traits/contentRouting'
 import { HEALTH_AWARE_COMPONENT_TYPES } from '../traits/healthAwareRouting'
 import { asDistributionConfig } from '../traits/serviceTimeOverride'
+import {
+  nonNegativeNumber,
+  oneOf,
+  positiveNumber,
+  probability,
+  queueCapacityAtLeastWorkers,
+  queueFieldLabels,
+  routingRuleMissingMatchValue,
+  routingRuleMissingTarget,
+  routingRuleUnsupportedMatchField,
+  validationMessage,
+  validDistribution,
+  wholeNumberAtLeastOne
+} from '../validation/validationCopy'
 
 const CATEGORY_MIN_SERVICE_MS = {
   'storage-and-data': 3,
@@ -410,29 +424,30 @@ function validateSimulationNode(data: CanvasNodeDataV2): string[] {
   const errors: string[] = []
   const queue = data.sim?.queue
   const processing = data.sim?.processing
+  const queueLabels = queueFieldLabels(data.componentType)
 
   if (!queue) {
-    errors.push('Missing queue configuration.')
+    errors.push(validationMessage('missingQueue'))
   } else {
     if (!Number.isInteger(queue.workers) || queue.workers < 1) {
-      errors.push('queue.workers must be a positive integer.')
+      errors.push(wholeNumberAtLeastOne(queueLabels.workers))
     }
     if (!Number.isInteger(queue.capacity) || queue.capacity < 1) {
-      errors.push('queue.capacity must be a positive integer.')
+      errors.push(wholeNumberAtLeastOne(queueLabels.capacity))
     }
     if (queue.capacity < queue.workers) {
-      errors.push('queue.capacity must be greater than or equal to queue.workers.')
+      errors.push(queueCapacityAtLeastWorkers(queueLabels.capacity, queueLabels.workers))
     }
   }
 
   if (!processing) {
-    errors.push('Missing processing configuration.')
+    errors.push(validationMessage('missingProcessing'))
   } else {
     if (!processing.distribution) {
-      errors.push('processing.distribution is required.')
+      errors.push('Please choose a distribution model.')
     }
     if (!Number.isFinite(processing.timeout) || processing.timeout <= 0) {
-      errors.push('processing.timeout must be greater than 0.')
+      errors.push(positiveNumber('Timeout', 'ms'))
     }
   }
 
@@ -442,14 +457,14 @@ function validateSimulationNode(data: CanvasNodeDataV2): string[] {
       data.sim.nodeErrorRate < 0 ||
       data.sim.nodeErrorRate > 1)
   ) {
-    errors.push('nodeErrorRate must be between 0 and 1.')
+    errors.push(probability('Inject failure'))
   }
 
   if (
     data.sim?.healthCheckEnabled !== undefined &&
     typeof data.sim.healthCheckEnabled !== 'boolean'
   ) {
-    errors.push('healthCheckEnabled must be a boolean.')
+    errors.push('Health checks must be either on or off.')
   }
 
   if (
@@ -458,43 +473,43 @@ function validateSimulationNode(data: CanvasNodeDataV2): string[] {
       data.sim.cacheHitRate < 0 ||
       data.sim.cacheHitRate > 1)
   ) {
-    errors.push('cacheHitRate must be between 0 and 1.')
+    errors.push(probability('Cache hit rate'))
   }
 
   if (
     data.sim?.cacheHitLatencyMs !== undefined &&
     (!Number.isFinite(data.sim.cacheHitLatencyMs) || data.sim.cacheHitLatencyMs <= 0)
   ) {
-    errors.push('cacheHitLatencyMs must be greater than 0.')
+    errors.push(positiveNumber('Cache hit latency', 'ms'))
   }
 
   if (
     data.sim?.ttlSeconds !== undefined &&
     (!Number.isFinite(data.sim.ttlSeconds) || data.sim.ttlSeconds < 0)
   ) {
-    errors.push('ttlSeconds must be greater than or equal to 0.')
+    errors.push(nonNegativeNumber('TTL', 'seconds'))
   }
 
   if (data.sim?.readLatency !== undefined && !asDistributionConfig(data.sim.readLatency)) {
-    errors.push('readLatency must be a valid distribution config.')
+    errors.push(validDistribution('Read latency'))
   }
 
   if (data.sim?.writeLatency !== undefined && !asDistributionConfig(data.sim.writeLatency)) {
-    errors.push('writeLatency must be a valid distribution config.')
+    errors.push(validDistribution('Write latency'))
   }
 
   if (
     data.sim?.readLatencyMs !== undefined &&
     (!Number.isFinite(data.sim.readLatencyMs) || data.sim.readLatencyMs <= 0)
   ) {
-    errors.push('readLatencyMs must be greater than 0.')
+    errors.push(positiveNumber('Read latency', 'ms'))
   }
 
   if (
     data.sim?.writeLatencyMs !== undefined &&
     (!Number.isFinite(data.sim.writeLatencyMs) || data.sim.writeLatencyMs <= 0)
   ) {
-    errors.push('writeLatencyMs must be greater than 0.')
+    errors.push(positiveNumber('Write latency', 'ms'))
   }
 
   if (
@@ -502,56 +517,56 @@ function validateSimulationNode(data: CanvasNodeDataV2): string[] {
     data.sim.replicationRole !== 'primary' &&
     data.sim.replicationRole !== 'replica'
   ) {
-    errors.push('replicationRole must be "primary" or "replica".')
+    errors.push('Replication role must be either Primary or Replica.')
   }
 
   if (
     data.sim?.maxTokens !== undefined &&
     (!Number.isFinite(data.sim.maxTokens) || data.sim.maxTokens <= 0)
   ) {
-    errors.push('maxTokens must be greater than 0.')
+    errors.push(positiveNumber('Bucket size'))
   }
 
   if (
     data.sim?.refillRatePerSecond !== undefined &&
     (!Number.isFinite(data.sim.refillRatePerSecond) || data.sim.refillRatePerSecond < 0)
   ) {
-    errors.push('refillRatePerSecond must be greater than or equal to 0.')
+    errors.push(nonNegativeNumber('Refill rate', 'tokens/s'))
   }
 
   if (
     data.sim?.coldStartLatency !== undefined &&
     !asDistributionConfig(data.sim.coldStartLatency)
   ) {
-    errors.push('coldStartLatency must be a valid distribution config.')
+    errors.push(validDistribution('Cold start latency'))
   }
 
   if (
     data.sim?.coldStartLatencyMs !== undefined &&
     (!Number.isFinite(data.sim.coldStartLatencyMs) || data.sim.coldStartLatencyMs <= 0)
   ) {
-    errors.push('coldStartLatencyMs must be greater than 0.')
+    errors.push(positiveNumber('Cold start latency', 'ms'))
   }
 
   if (
     data.sim?.idleTimeoutMs !== undefined &&
     (!Number.isFinite(data.sim.idleTimeoutMs) || data.sim.idleTimeoutMs <= 0)
   ) {
-    errors.push('idleTimeoutMs must be greater than 0.')
+    errors.push(positiveNumber('Idle timeout', 'ms'))
   }
 
   if (
     data.sim?.maxConcurrency !== undefined &&
     (!Number.isFinite(data.sim.maxConcurrency) || data.sim.maxConcurrency <= 0)
   ) {
-    errors.push('maxConcurrency must be greater than 0.')
+    errors.push(positiveNumber('Max concurrency'))
   }
 
   if (
     data.sim?.routingKeyField !== undefined &&
     (typeof data.sim.routingKeyField !== 'string' || data.sim.routingKeyField.trim().length === 0)
   ) {
-    errors.push('routingKeyField must be a non-empty string.')
+    errors.push('Routing key field cannot be empty.')
   }
 
   if (
@@ -561,7 +576,13 @@ function validateSimulationNode(data: CanvasNodeDataV2): string[] {
     )
   ) {
     errors.push(
-      'dnsRoutingPolicy must be one of "simple", "weighted", "failover", "latency-based", "geolocation".'
+      oneOf('DNS routing policy', [
+        'Simple',
+        'Weighted',
+        'Failover',
+        'Latency-based',
+        'Geolocation'
+      ])
     )
   }
 
@@ -569,7 +590,7 @@ function validateSimulationNode(data: CanvasNodeDataV2): string[] {
     data.sim?.dnsCacheTtlSeconds !== undefined &&
     (!Number.isFinite(data.sim.dnsCacheTtlSeconds) || data.sim.dnsCacheTtlSeconds < 0)
   ) {
-    errors.push('dnsCacheTtlSeconds must be greater than or equal to 0.')
+    errors.push(nonNegativeNumber('Cache TTL', 'seconds'))
   }
 
   if (data.sim?.circuitBreaker) {
@@ -579,16 +600,16 @@ function validateSimulationNode(data: CanvasNodeDataV2): string[] {
       breaker.failureThreshold < 0 ||
       breaker.failureThreshold > 1
     ) {
-      errors.push('circuitBreaker.failureThreshold must be between 0 and 1.')
+      errors.push(probability('Failure threshold'))
     }
     if (!Number.isFinite(breaker.failureCount) || breaker.failureCount <= 0) {
-      errors.push('circuitBreaker.failureCount must be greater than 0.')
+      errors.push(positiveNumber('Window size'))
     }
     if (!Number.isFinite(breaker.recoveryTimeout) || breaker.recoveryTimeout <= 0) {
-      errors.push('circuitBreaker.recoveryTimeout must be greater than 0.')
+      errors.push(positiveNumber('Recovery timeout', 'ms'))
     }
     if (!Number.isFinite(breaker.halfOpenRequests) || breaker.halfOpenRequests <= 0) {
-      errors.push('circuitBreaker.halfOpenRequests must be greater than 0.')
+      errors.push(positiveNumber('Half-open probes'))
     }
   }
 
@@ -600,14 +621,14 @@ function validateSimulationNode(data: CanvasNodeDataV2): string[] {
       routingRules.forEach((rule, ruleIndex) => {
         if (!(CONTENT_ROUTING_MATCH_FIELDS as readonly string[]).includes(rule.matchField)) {
           errors.push(
-            `routingRules[${ruleIndex}].matchField must be one of ${CONTENT_ROUTING_MATCH_FIELDS.map((field) => `"${field}"`).join(', ')}.`
+            routingRuleUnsupportedMatchField(ruleIndex, ['Type', 'Method', 'Path', 'Host'])
           )
         }
         if (!rule.matchValue) {
-          errors.push(`routingRules[${ruleIndex}].matchValue is required.`)
+          errors.push(routingRuleMissingMatchValue(ruleIndex))
         }
         if (!rule.targetNodeId) {
-          errors.push(`routingRules[${ruleIndex}].targetNodeId is required.`)
+          errors.push(routingRuleMissingTarget(ruleIndex))
         }
       })
     }
@@ -619,31 +640,31 @@ function validateSimulationNode(data: CanvasNodeDataV2): string[] {
 function validateSourceNode(data: CanvasNodeDataV2): string[] {
   const errors: string[] = []
   if (!data.source) {
-    errors.push('Missing source workload configuration.')
+    errors.push(validationMessage('missingSourceWorkload'))
     return errors
   }
 
   if (!data.source.requestDistribution || data.source.requestDistribution.length === 0) {
-    errors.push('Source requestDistribution must contain at least one request type.')
+    errors.push(validationMessage('requestDistributionEmpty'))
   } else {
     const totalWeight = data.source.requestDistribution.reduce(
       (acc, entry) => acc + entry.weight,
       0
     )
     if (Math.abs(totalWeight - 1) > 0.0001) {
-      errors.push('Source requestDistribution weights must sum to 1.')
+      errors.push(validationMessage('requestDistributionWeights'))
     }
   }
 
   if (!data.source.defaultWorkload.pattern) {
-    errors.push('Source workload pattern is required.')
+    errors.push(validationMessage('workloadPatternRequired'))
   }
 
   if (
     !Number.isFinite(data.source.defaultWorkload.baseRps) ||
     data.source.defaultWorkload.baseRps <= 0
   ) {
-    errors.push('Source baseRps must be greater than 0.')
+    errors.push(positiveNumber('Base RPS'))
   }
 
   return errors
@@ -668,7 +689,7 @@ function createSpec(
           ((data.sim.securityPolicy.blockRate ?? 0) <= 0 &&
             (data.sim.securityPolicy.droppedPackets ?? 0) <= 0))
       ) {
-        errors.push('Security filter nodes require blockRate or droppedPackets.')
+        errors.push(validationMessage('missingSecurityPolicy'))
       }
       return errors
     },
