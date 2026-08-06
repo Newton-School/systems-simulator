@@ -41,6 +41,7 @@ import type {
   QuestionPackage
 } from '../../../../engine/analysis/question'
 import type { TopologyJSON } from '../../../../engine/core/types'
+import { BudgetMeter } from './BudgetMeter'
 
 const SECTION_TITLE = 'text-[10px] font-bold uppercase tracking-widest text-nss-muted'
 
@@ -120,6 +121,21 @@ export const QuestionPanel = () => {
   const [panelView, setPanelView] = useState<QuestionPanelView>('brief')
   const [archivedCount, setArchivedCount] = useState(0)
   const activeQuestionId = activeQuestion?.id
+
+  // Live topology for the budget meter — recomputed on every canvas edit (pure,
+  // no simulation), so cost updates as the student adds/sizes components.
+  const budget = activeQuestion?.budget
+  const liveTopology = useMemo<TopologyJSON | null>(() => {
+    if (!budget) return null
+    const empty = { nodes: [], edges: [] } as unknown as TopologyJSON
+    try {
+      return serialize().topology ?? empty
+    } catch {
+      // An incomplete/empty canvas still has a well-defined budget (0 / cap).
+      return empty
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [budget, nodes, edges, serialize])
 
   useEffect(() => {
     setArchivedCount(activeQuestionId ? listArchivedSubmissionIds(activeQuestionId).length : 0)
@@ -516,12 +532,12 @@ export const QuestionPanel = () => {
 
         {effectivePanelView === 'brief' ? (
           <>
-            <div className="rounded-md border border-nss-primary/20 bg-nss-primary/5 px-3 py-2 text-[11px] leading-relaxed text-nss-muted">
+            {/* <div className="rounded-md border border-nss-primary/20 bg-nss-primary/5 px-3 py-2 text-[11px] leading-relaxed text-nss-muted">
               <span className="font-semibold text-nss-primary">Design the architecture.</span> Place
               and connect components and size them — you are not writing application code. The
               simulator grades the <em>shape</em> and <em>performance</em> of your system under the
               question&rsquo;s load.
-            </div>
+            </div> */}
 
             <p className="text-xs leading-relaxed text-nss-text/90">{activeQuestion.prompt.text}</p>
 
@@ -578,6 +594,8 @@ export const QuestionPanel = () => {
                 )}
               </div>
             </section>
+
+            {budget && liveTopology && <BudgetMeter budget={budget} topology={liveTopology} />}
 
             {activeQuestion.justify && activeQuestion.justify.length > 0 && (
               <section className="space-y-2">

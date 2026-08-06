@@ -40,6 +40,80 @@ export function estimateNodeCost(node: ComponentNode): number {
   return 1 + replicas + Math.ceil(workers / 50)
 }
 
+/** One line item in a cost breakdown — a node's or the edges' contribution. */
+export interface BudgetLineItem {
+  /** Node id, or 'edges' for the aggregated edge charge. */
+  id: string
+  label: string
+  /** The node's component type, or 'edges' for the aggregate row. */
+  kind: string
+  cost: number
+  /** Human-readable derivation, e.g. "1 base + 1 replica + ⌈80/50⌉". */
+  formula: string
+}
+
+export interface BudgetBreakdown extends BudgetEvaluation {
+  /** Per-node + aggregated-edge contributions, only meaningful for the `cost` unit. */
+  items: BudgetLineItem[]
+}
+
+/**
+ * Like `evaluateBudget`, but also returns the per-line contributions so the UI
+ * can show *why* the cost is what it is (and which node drives it). For `nodes`
+ * / `edges` units the items are the raw contributors; for `cost` they carry the
+ * capacity-cost derivation. Pure — safe to call live on every canvas edit.
+ */
+export function budgetBreakdown(topology: TopologyJSON, budget: Budget): BudgetBreakdown {
+  const base = evaluateBudget(topology, budget)
+
+  let items: BudgetLineItem[]
+  if (budget.unit === 'cost') {
+    const nodeItems = topology.nodes.map((node) => {
+      const replicas = node.resources?.replicas ?? 1
+      const workers = node.queue?.workers ?? 0
+      const workerCharge = Math.ceil(workers / 50)
+      return {
+        id: node.id,
+        label: node.label ?? node.id,
+        kind: node.type,
+        cost: estimateNodeCost(node),
+        formula: `1 base + ${replicas} replica${replicas === 1 ? '' : 's'}${
+          workers > 0 ? ` + ⌈${workers}/50⌉=${workerCharge}` : ''
+        }`
+      }
+    })
+    const edgeCost = topology.edges.length * EDGE_COST
+    items = [
+      ...nodeItems.sort((a, b) => b.cost - a.cost),
+      {
+        id: 'edges',
+        label: 'Edges',
+        kind: 'edges',
+        cost: edgeCost,
+        formula: `${topology.edges.length} × ${EDGE_COST}`
+      }
+    ]
+  } else if (budget.unit === 'nodes') {
+    items = topology.nodes.map((node) => ({
+      id: node.id,
+      label: node.label ?? node.id,
+      kind: node.type,
+      cost: 1,
+      formula: '1 node'
+    }))
+  } else {
+    items = topology.edges.map((edge) => ({
+      id: edge.id,
+      label: edge.id,
+      kind: 'edges',
+      cost: 1,
+      formula: '1 edge'
+    }))
+  }
+
+  return { ...base, items }
+}
+
 export function evaluateBudget(topology: TopologyJSON, budget: Budget): BudgetEvaluation {
   const actual =
     budget.unit === 'nodes'
