@@ -743,19 +743,21 @@ export const QuestionPanel = () => {
                     key={row.id}
                     className="rounded border border-nss-border/70 bg-nss-surface/40 p-2"
                   >
-                    <div className="flex items-start gap-2 text-xs">
+                    <div className="flex items-center gap-2 text-xs">
                       <span
                         className={
                           row.status === 'passed'
-                            ? 'text-nss-success'
+                            ? 'shrink-0 text-nss-success'
                             : row.status === 'failed'
-                              ? 'text-nss-danger'
-                              : 'text-nss-warning'
+                              ? 'shrink-0 text-nss-danger'
+                              : 'shrink-0 text-nss-warning'
                         }
                       >
                         {row.status === 'passed' ? '✓' : row.status === 'failed' ? '✗' : '•'}
                       </span>
-                      <span className="min-w-0 flex-1 text-nss-muted">{row.name}</span>
+                      <span className="min-w-0 flex-1 truncate text-nss-muted" title={row.name}>
+                        {row.name}
+                      </span>
                       <span className="shrink-0 text-[10px] text-nss-muted/70">{row.scope}</span>
                     </div>
                     {row.detail && (

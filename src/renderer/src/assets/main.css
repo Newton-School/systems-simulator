@@ -10,6 +10,8 @@
     --nss-input-bg: #ffffff;
 
     --nss-border: #e2e8f0;
+    /* RGB channels so the `border`/`bg-nss-border` Tailwind token supports /opacity. */
+    --nss-border-rgb: 226 232 240;
     --nss-border-high: #cbd5e1;
     --nss-text: #0f172a;
     --nss-muted: #64748b;
@@ -33,6 +35,7 @@
     --nss-input-bg: #18181b;
 
     --nss-border: #1f2937;
+    --nss-border-rgb: 31 41 55;
     --nss-border-high: #374151;
     --nss-text: #e5e7eb;
     --nss-muted: #6b7280;

@@ -13,7 +13,7 @@ module.exports = {
           'input-bg': 'var(--nss-input-bg)',
 
           // Borders & Text
-          border: 'var(--nss-border)',
+          border: 'rgb(var(--nss-border-rgb) / <alpha-value>)',
           borderHigh: 'var(--nss-border-high)',
           text: 'var(--nss-text)',
           muted: 'var(--nss-muted)',
