@@ -44,8 +44,7 @@ const useKeyboardShortcuts = (onSave: () => void, onOpen: () => void) => {
 export const useFlowPersistence = (confirmDiscardChanges: () => Promise<boolean>) => {
   const nodes = useStore((s) => s.nodes)
   const edges = useStore((s) => s.edges)
-  const setNodes = useStore((s) => s.setNodes)
-  const setEdges = useStore((s) => s.setEdges)
+  const setGraph = useStore((s) => s.setGraph)
   const setFileName = useStore((s) => s.setFileName)
   const setUnsaved = useStore((s) => s.setUnsaved)
   const scenario = useStore((s) => s.scenario)
@@ -86,8 +85,7 @@ export const useFlowPersistence = (confirmDiscardChanges: () => Promise<boolean>
         isLoadingRef.current = true
         lastPersistedContentRef.current = serializedSnapshot
 
-        setNodes(flatNodes)
-        setEdges(data.edges || [])
+        setGraph(flatNodes, data.edges || [], { history: 'skip', resetHistory: true })
         setScenario(normalizedScenario)
         setUnsaved(false)
 
@@ -107,7 +105,7 @@ export const useFlowPersistence = (confirmDiscardChanges: () => Promise<boolean>
         return false
       }
     },
-    [setEdges, setFileName, setNodes, setScenario, setUnsaved]
+    [setFileName, setGraph, setScenario, setUnsaved]
   )
 
   const { handleSave: innerSave, handleOpen } = useFileHandlers(

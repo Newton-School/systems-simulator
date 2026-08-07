@@ -110,7 +110,7 @@ export function materializeClipboardSelection(
 }
 
 export const useCopyPaste = () => {
-  const { nodes, edges, setNodes, setEdges } = useFlowStore()
+  const { nodes, edges, setGraph } = useFlowStore()
   const storeRef = useRef({ nodes, edges })
   useEffect(() => {
     storeRef.current = { nodes, edges }
@@ -157,9 +157,8 @@ export const useCopyPaste = () => {
       ...selection.edges
     ]
 
-    setNodes(nextNodes)
-    setEdges(nextEdges)
-  }, [setNodes, setEdges, screenToFlowPosition])
+    setGraph(nextNodes, nextEdges)
+  }, [setGraph, screenToFlowPosition])
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
