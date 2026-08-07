@@ -375,8 +375,14 @@ export const WorkspaceLayout = () => {
       return
     }
 
-    clearQuestionSession()
-  }, [clearQuestionSession, handleOpen])
+    // In AUTHOR/standalone mode (local or the public simulator URL) keep the
+    // active question so an author can open a solution topology and Test it
+    // against the loaded question. In a real assignment (ASSIGNMENT/PRACTICE)
+    // opening a topology still clears the question to avoid bypassing it.
+    if (environmentProfile.mode !== 'AUTHOR') {
+      clearQuestionSession()
+    }
+  }, [clearQuestionSession, handleOpen, environmentProfile.mode])
 
   const selectedNodeId = nodes.find((n) => n.selected)?.id
   const selectedEdgeId = edges.find((e) => e.selected)?.id
@@ -924,7 +930,7 @@ export const WorkspaceLayout = () => {
         scenario={scenario}
         onScenarioChange={updateScenario}
         minimal={environmentProfile.chromeDensity === 'minimal'}
-        canOpen={!activeQuestion}
+        canOpen={!activeQuestion || environmentProfile.mode === 'AUTHOR'}
       />
 
       {runIssues.messages.length > 0 && (
