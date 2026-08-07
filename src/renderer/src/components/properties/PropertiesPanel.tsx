@@ -1,6 +1,16 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { clsx } from 'clsx'
-import { Activity, ArrowLeft, GitBranch, ListTree, Lock, Settings, Server } from 'lucide-react'
+import {
+  Activity,
+  ArrowLeft,
+  GitBranch,
+  ListTree,
+  Lock,
+  Settings,
+  Server,
+  Type,
+  X
+} from 'lucide-react'
 import type { SimulationOutput } from '../../../../engine/analysis/output'
 import {
   REQUEST_OUTCOME_FAMILIES,
@@ -30,6 +40,15 @@ import {
   type LocationLevel
 } from '@renderer/utils/locationTopology'
 import { inferEdgeDefaults } from '../../../../engine/defaults/edgeDefaults'
+import {
+  TEXT_LABEL_NODE_TYPE,
+  type CanvasTextLabelData
+} from '../../../../engine/catalog/canvasAnnotations'
+import {
+  applyIndentCommand,
+  DEFAULT_TEXT_LABEL,
+  normalizeTextLabelText
+} from '../nodes/textLabelEditing'
 
 const EmptyState = () => (
   <div className="h-full bg-nss-panel border-l border-nss-border flex flex-col items-center justify-center text-nss-muted gap-2">
@@ -37,6 +56,95 @@ const EmptyState = () => (
     <p className="text-xs font-medium uppercase tracking-wide">No Selection</p>
   </div>
 )
+
+const CanvasLabelInspector = ({
+  data,
+  onUpdate,
+  onClose
+}: {
+  data: CanvasTextLabelData
+  onUpdate: (text: string) => void
+  onClose: () => void
+}) => {
+  const [value, setValue] = useState(data.text || DEFAULT_TEXT_LABEL)
+
+  useEffect(() => {
+    setValue(data.text || DEFAULT_TEXT_LABEL)
+  }, [data.text])
+
+  const save = () => {
+    const next = normalizeTextLabelText(value)
+    setValue(next)
+    onUpdate(next)
+  }
+
+  const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    event.stopPropagation()
+
+    if (event.key === 'Tab') {
+      event.preventDefault()
+      const textarea = event.currentTarget
+      const next = applyIndentCommand({
+        value: textarea.value,
+        selectionStart: textarea.selectionStart,
+        selectionEnd: textarea.selectionEnd,
+        outdent: event.shiftKey
+      })
+      setValue(next.value)
+      window.requestAnimationFrame(() => {
+        textarea.setSelectionRange(next.selectionStart, next.selectionEnd)
+      })
+      return
+    }
+
+    if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+      event.preventDefault()
+      event.currentTarget.blur()
+    }
+  }
+
+  return (
+    <div className="h-full w-full bg-nss-panel border-l border-nss-border flex flex-col text-nss-text font-sans shadow-xl">
+      <div className="p-5 border-b border-nss-border bg-nss-panel">
+        <div className="flex items-center gap-4">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-nss-primary/10 text-nss-primary">
+            <Type size={22} />
+          </div>
+          <div className="min-w-0 flex-1">
+            <h2 className="truncate text-sm font-semibold leading-tight text-nss-text">
+              Canvas Label
+            </h2>
+            <p className="mt-1 text-[10px] uppercase tracking-wide text-nss-muted">Annotation</p>
+          </div>
+          <button
+            type="button"
+            aria-label="Close"
+            title="Close"
+            onClick={onClose}
+            className="flex h-8 w-8 items-center justify-center rounded-md border border-nss-border text-nss-muted transition-colors hover:bg-nss-surface hover:text-nss-text"
+          >
+            <X size={16} />
+          </button>
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-5">
+        <label className="block text-[10px] font-bold uppercase tracking-widest text-nss-muted">
+          Text
+        </label>
+        <textarea
+          value={value}
+          onChange={(event) => setValue(event.target.value)}
+          onBlur={save}
+          onKeyDown={handleKeyDown}
+          rows={6}
+          spellCheck={false}
+          className="mt-2 w-full resize-y rounded-md border-0 bg-transparent px-0 py-1 font-mono text-sm font-medium leading-relaxed text-nss-muted caret-nss-muted outline-none transition-colors focus:ring-1 focus:ring-nss-primary/50"
+        />
+      </div>
+    </div>
+  )
+}
 
 const RUN_INSPECTOR_TOOLTIP = (
   <div className="space-y-1 text-[11px] leading-relaxed">
@@ -1328,6 +1436,16 @@ export const PropertiesPanel = ({ results = null }: { results?: SimulationOutput
         onTabChange={setRunInspectorTab}
         onSelectNode={(id) => openRunInspectorDetail({ nodeId: id })}
         onSelectEdge={(id) => openRunInspectorDetail({ edgeId: id })}
+      />
+    )
+  }
+
+  if (selectedNode?.type === TEXT_LABEL_NODE_TYPE) {
+    return (
+      <CanvasLabelInspector
+        data={selectedNode.data as CanvasTextLabelData}
+        onUpdate={(text) => updateNodeData(selectedNode.id, { text })}
+        onClose={() => selectGraphElements({})}
       />
     )
   }

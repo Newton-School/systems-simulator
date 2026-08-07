@@ -19,6 +19,7 @@ import type {
   ScenarioState,
   MetricLens
 } from '@renderer/types/ui'
+import type { CanvasTextLabelData } from '../../../engine/catalog/canvasAnnotations'
 import { DEFAULT_SCENARIO_STATE } from '@renderer/types/ui'
 import type { EdgeFailureCause, EdgeFlowEvent } from '../../../engine/core/events'
 import type { WorkloadProfile } from '../../../engine/core/types'
@@ -97,6 +98,8 @@ export interface EdgeFlowRunConfig {
   simulationDurationMs: number
   warmupDurationMs: number
 }
+
+type CanvasNodeDataPatch = Partial<AnyNodeData> | Partial<CanvasTextLabelData>
 
 const EDGE_FLOW_WINDOW_MS = 6_000
 const EDGE_FLOW_MAX_EVENTS = 25_000
@@ -315,7 +318,7 @@ type RFState = {
   onEdgesChange: OnEdgesChange
   onConnect: OnConnect
   addNode: (node: Node) => void
-  updateNodeData: (nodeId: string, patch: Partial<AnyNodeData>) => void
+  updateNodeData: (nodeId: string, patch: CanvasNodeDataPatch) => void
   updateEdgeData: (
     edgeId: string,
     patch: { label?: string; data?: Partial<EdgeSimulationData> }
@@ -458,7 +461,7 @@ const useStore = create<RFState>((set, get) => ({
     })
   },
 
-  updateNodeData: (nodeId: string, patch: Partial<AnyNodeData>) => {
+  updateNodeData: (nodeId: string, patch: CanvasNodeDataPatch) => {
     const { scaffoldNodeIds, environmentProfile, attemptState } = get()
     if (isNodeEditLocked(nodeId, scaffoldNodeIds, environmentProfile, attemptState?.status)) {
       return
