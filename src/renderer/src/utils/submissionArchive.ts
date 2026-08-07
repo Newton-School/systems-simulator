@@ -5,7 +5,7 @@
  * *in-progress* attempt that is overwritten on every save), this archive stores
  * *submissions* immutably: once an envelope is written under its submissionId it
  * is never overwritten, and reads verify the envelope's integrity checksum
- * before trusting it. Corrupt entries are reported, never silently deleted — an
+ * before trusting it. Corrupt entries are reported, never silently deleted - an
  * audit archive must not erase evidence.
  */
 import {
@@ -88,7 +88,7 @@ export function archiveSubmission(envelope: EvaluationEnvelope): ArchiveOutcome 
 
 /**
  * Loads and verifies a single archived envelope. Returns null if it is missing,
- * unparseable, or fails its integrity check — the stored bytes are left intact.
+ * unparseable, or fails its integrity check - the stored bytes are left intact.
  */
 export function loadArchivedSubmission(submissionId: string): EvaluationEnvelope | null {
   const storage = getStorage()

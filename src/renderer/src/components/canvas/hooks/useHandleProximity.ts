@@ -53,7 +53,7 @@ export function useHandleProximity() {
         const proximityRadius = getMagneticRadiusInFlowUnits(transform[2])
         const bounds = domNode.getBoundingClientRect()
 
-        // Cursor outside canvas — clear and bail
+        // Cursor outside canvas - clear and bail
         if (
           e.clientX < bounds.left ||
           e.clientX > bounds.right ||

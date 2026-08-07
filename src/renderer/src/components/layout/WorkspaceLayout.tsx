@@ -307,7 +307,7 @@ export const WorkspaceLayout = () => {
   const [lastRunContext, setLastRunContext] = useState<ScenarioRunContext | null>(null)
   const lastLiveNodeMetricsSnapshotAtRef = useRef<number | null>(null)
 
-  // Panel refs — panels stay in the DOM always; we collapse/expand imperatively
+  // Panel refs - panels stay in the DOM always; we collapse/expand imperatively
   // so that opening one side never redistributes the other side's size.
   const leftPanelRef = useRef<ImperativePanelHandle>(null)
   const rightPanelRef = useRef<ImperativePanelHandle>(null)
@@ -539,7 +539,7 @@ export const WorkspaceLayout = () => {
   useEffect(() => {
     const onMessage = (event: MessageEvent<unknown>) => {
       // Reject messages from any origin the host allowlist / handshake does not
-      // trust — never parse or load untrusted host input.
+      // trust - never parse or load untrusted host input.
       if (!isAllowedHostOrigin(event.origin)) {
         return
       }
@@ -628,7 +628,7 @@ export const WorkspaceLayout = () => {
 
   // Newton Game Playground: debounced host-side autosave. On every design edit,
   // persist the current topology to the host (carrying the last-known scores
-  // forward — no re-grade), so game_json survives reloads/devices between
+  // forward - no re-grade), so game_json survives reloads/devices between
   // submits. Skipped in read-only (locked) attempts.
   useEffect(() => {
     if (!isNewtonHostMode() || !activeQuestion || !attemptState) {
@@ -871,7 +871,14 @@ export const WorkspaceLayout = () => {
   const isPaused = sim.status === 'paused' && !sim.stopped
   const isPostRun = sim.status === 'complete'
   const sourceNodes: SourceNodeOption[] = nodes
-    .filter((node) => hasWorkloadSourceConfig(node.data as Partial<CanvasNodeDataV2>))
+    // Only true traffic sources (Client App / source-profile nodes) may drive the
+    // workload. A load balancer can pick up a `source` config on import but is not
+    // a valid origin - selecting it yields no metrics - so it is excluded here.
+    .filter(
+      (node) =>
+        isSourceComponentData(node.data as Partial<CanvasNodeDataV2>) &&
+        hasWorkloadSourceConfig(node.data as Partial<CanvasNodeDataV2>)
+    )
     .map((node) => {
       const data = node.data as CanvasNodeDataV2
       return {
@@ -961,7 +968,7 @@ export const WorkspaceLayout = () => {
           autoSaveId="main-layout-horizontal"
           className="min-w-0 flex-1"
         >
-          {/* Left library content — the activity rail stays outside this collapsible panel */}
+          {/* Left library content - the activity rail stays outside this collapsible panel */}
           <Panel
             ref={leftPanelRef}
             collapsible
@@ -1028,7 +1035,7 @@ export const WorkspaceLayout = () => {
             </PanelGroup>
           </Panel>
 
-          {/* Right Sidebar — always in DOM, collapsed/expanded via ref */}
+          {/* Right Sidebar - always in DOM, collapsed/expanded via ref */}
           <ResizeHandle vertical id="resize-right-inspector" />
           <Panel
             ref={rightPanelRef}

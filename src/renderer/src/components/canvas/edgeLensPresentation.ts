@@ -7,7 +7,7 @@ import type { EdgeFailureCause } from '../../../../engine/core/events'
 
 /**
  * Projects the active metric lens onto a single edge. The edge does not decide
- * what to display — it renders the edge-side view of whatever lens is active,
+ * what to display - it renders the edge-side view of whatever lens is active,
  * mirroring the node-side `getLensCard` / `getPreRunMetric` split in
  * `nodePresentation.ts`. Pre-run lenses read declared capacity from config;
  * runtime lenses read measured behaviour from the post-warmup flow.
@@ -19,7 +19,7 @@ export interface EdgeLensProjection {
   headline: string
   /** On-select / hover detail, e.g. "offered 160" or "packet loss 3%". */
   sub?: string
-  /** Drives STROKE COLOR — computed independently of the lens so a failing
+  /** Drives STROKE COLOR - computed independently of the lens so a failing
    *  link stays red even under a non-error lens. */
   severity: EdgeSeverity
   /** True for node-first lenses: the edge dims to its identity and lets the
@@ -35,7 +35,7 @@ export interface EdgeLensInput {
   flow: EdgeFlowState | undefined
   /** The edge's explicit config (values the user set). */
   config: EdgeSimulationData
-  /** Inferred defaults for any field the config leaves unset — resolved the
+  /** Inferred defaults for any field the config leaves unset - resolved the
    *  same way the edge properties panel resolves them, so a default-only edge
    *  still shows a real number instead of receding. */
   defaults: EdgeDefaults
@@ -66,7 +66,7 @@ function fmtMs(ms: number): string {
 
 /**
  * Modeled typical transit for this hop, derived from the edge's latency config
- * (not measured). Median of the constant/log-normal distribution — the same
+ * (not measured). Median of the constant/log-normal distribution - the same
  * "median hop" the edge properties panel reports. Falls back to the inferred
  * default profile when the edge sets no explicit latency, so a default-only
  * edge still shows a real number.
@@ -83,7 +83,7 @@ function modeledHopLatencyMs(config: EdgeSimulationData, defaults: EdgeDefaults)
   return Math.exp(mu)
 }
 
-/** p50 over the retained sampled packet stream — same calc the Edge Results
+/** p50 over the retained sampled packet stream - same calc the Edge Results
  *  panel uses, so the label and the panel can never disagree. */
 function edgeLatencyP50(flow: EdgeFlowState | undefined): number | null {
   if (!flow || flow.recent.length === 0) return null
@@ -185,7 +185,7 @@ export function resolveEdgeLensProjection({
     }
 
     case 'timeout': {
-      // The edge cannot time out on its own — the deadline is enforced at the
+      // The edge cannot time out on its own - the deadline is enforced at the
       // node. Its honest contribution is the transit budget this hop consumes.
       const hopMs = modeledHopLatencyMs(config, defaults)
       const pathType = config.pathType ?? defaults.pathType
@@ -224,7 +224,7 @@ export function resolveEdgeLensProjection({
     case 'latency': {
       const p50 = edgeLatencyP50(flow)
       return {
-        headline: p50 != null ? `${p50.toFixed(1)}ms` : '—',
+        headline: p50 != null ? `${p50.toFixed(1)}ms` : '-',
         sub: p50 != null ? 'this hop only' : undefined,
         severity,
         recedes: false,

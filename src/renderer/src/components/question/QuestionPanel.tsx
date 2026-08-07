@@ -45,6 +45,14 @@ import { BudgetMeter } from './BudgetMeter'
 
 const SECTION_TITLE = 'text-[10px] font-bold uppercase tracking-widest text-nss-muted'
 
+/**
+ * V1 kill-switch for the justification feature. The deterministic keyword grader
+ * makes for a confusing "guess the exact token" UX, so justification input is
+ * hidden for launch. Flip to `true` (and restore `justify` in the question
+ * packages) to bring it back for the V2 redesign.
+ */
+const SHOW_JUSTIFICATION = false
+
 type PendingRun = {
   kind: 'dry-run' | 'submit'
   topology: TopologyJSON
@@ -122,7 +130,7 @@ export const QuestionPanel = () => {
   const [archivedCount, setArchivedCount] = useState(0)
   const activeQuestionId = activeQuestion?.id
 
-  // Live topology for the budget meter — recomputed on every canvas edit (pure,
+  // Live topology for the budget meter - recomputed on every canvas edit (pure,
   // no simulation), so cost updates as the student adds/sizes components.
   const budget = activeQuestion?.budget
   const liveTopology = useMemo<TopologyJSON | null>(() => {
@@ -268,7 +276,7 @@ export const QuestionPanel = () => {
     setAttemptState
   ])
 
-  // Live, deterministic feedback on justification prompts — graded against the
+  // Live, deterministic feedback on justification prompts - graded against the
   // current graph (graph-consistency), no LLM. Re-derives when the graph or an
   // answer changes. Declared before the early return to satisfy rules-of-hooks.
   const justifyGrades = useMemo<Record<string, JustificationResult>>(() => {
@@ -358,7 +366,7 @@ export const QuestionPanel = () => {
                   />
                 </label>
                 <p className="text-center text-[10px] text-nss-muted">
-                  Paste any bank QuestionPackage JSON into a file and load it — no host needed.
+                  Paste any bank QuestionPackage JSON into a file and load it - no host needed.
                 </p>
                 {questionLoadError && (
                   <p className="text-[10px] leading-snug text-red-500">{questionLoadError}</p>
@@ -534,7 +542,7 @@ export const QuestionPanel = () => {
           <>
             {/* <div className="rounded-md border border-nss-primary/20 bg-nss-primary/5 px-3 py-2 text-[11px] leading-relaxed text-nss-muted">
               <span className="font-semibold text-nss-primary">Design the architecture.</span> Place
-              and connect components and size them — you are not writing application code. The
+              and connect components and size them - you are not writing application code. The
               simulator grades the <em>shape</em> and <em>performance</em> of your system under the
               question&rsquo;s load.
             </div> */}
@@ -597,7 +605,12 @@ export const QuestionPanel = () => {
 
             {budget && liveTopology && <BudgetMeter budget={budget} topology={liveTopology} />}
 
-            {activeQuestion.justify && activeQuestion.justify.length > 0 && (
+            {/* V1: the justification feature is hidden. The current grader is a
+               rigid deterministic keyword/number/tradeoff matcher (not an LLM),
+               which produces confusing "inconsistent" feedback. We will redesign
+               this UX for V2. The section is force-disabled here and `justify` is
+               also stripped from the question files, so nothing renders. */}
+            {SHOW_JUSTIFICATION && activeQuestion.justify && activeQuestion.justify.length > 0 && (
               <section className="space-y-2">
                 <h3 className={SECTION_TITLE}>Justify your design</h3>
                 <p className="text-[11px] leading-relaxed text-nss-muted">
@@ -640,7 +653,7 @@ export const QuestionPanel = () => {
                           }
                           disabled={isAttemptLocked}
                           rows={2}
-                          placeholder="e.g. I used a KV store — it handles 200K reads/sec, but we lose ad-hoc joins."
+                          placeholder="e.g. I used a KV store - it handles 200K reads/sec, but we lose ad-hoc joins."
                           className="w-full resize-y rounded-md border border-nss-border bg-nss-input-bg px-2 py-1.5 text-[11px] text-nss-text placeholder:text-nss-muted/70 outline-none focus:border-nss-primary transition-colors disabled:opacity-60"
                         />
                         {showRubricResults && grade?.detail && grade.outcome !== 'passed' && (

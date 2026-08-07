@@ -27,7 +27,7 @@ export interface NodeSimulationMetrics {
   errorRate?: number
   active?: boolean
   // Real, already-computed values that used to be dropped between
-  // PerNodeMetrics and the render store — surfaced so cards/panels can show
+  // PerNodeMetrics and the render store - surfaced so cards/panels can show
   // what a trait actually did instead of only the generic four numbers.
   avgServiceTime?: number
   latencyP50?: number

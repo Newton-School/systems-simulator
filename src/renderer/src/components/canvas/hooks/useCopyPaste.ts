@@ -174,7 +174,7 @@ export const useCopyPaste = () => {
 
       if (key === 'c') {
         // Never hijack a real text selection or a bare Cmd+C with nothing on the
-        // canvas selected — let the browser's normal copy run instead. We only
+        // canvas selected - let the browser's normal copy run instead. We only
         // take over when the user is actually copying selected canvas nodes.
         const hasTextSelection = (window.getSelection()?.toString().length ?? 0) > 0
         const hasNodeSelection = storeRef.current.nodes.some((node) => node.selected)

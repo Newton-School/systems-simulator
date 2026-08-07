@@ -13,7 +13,7 @@ interface LensMetricCardProps {
 }
 
 /**
- * The C2 "value / limit ✓⚠✕" card body — one number, its limit, and a
+ * The C2 "value / limit ✓⚠✕" card body - one number, its limit, and a
  * one-line explainer. Never more than one metric family at a time; full
  * detail lives behind selection instead of on the canvas.
  */

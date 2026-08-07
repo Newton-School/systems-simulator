@@ -24,7 +24,7 @@ interface BaseNodeProps {
    */
   containerClassName?: string
   /**
-   * Render prop — receives menu state so the body can place NodeSettingsMenu
+   * Render prop - receives menu state so the body can place NodeSettingsMenu
    * wherever it belongs visually (typically inside NodeHeader children).
    */
   children: (bag: NodeMenuBag) => React.ReactNode
@@ -101,7 +101,7 @@ const BaseNode = ({
           }`}
           title={
             isScaffoldLocked
-              ? 'Provided by the question — locked'
+              ? 'Provided by the question - locked'
               : 'Provided by the question scaffold'
           }
         >
@@ -110,7 +110,7 @@ const BaseNode = ({
         </div>
       )}
 
-      {/* Connection handles — shared by all node types */}
+      {/* Connection handles - shared by all node types */}
       {NODE_POSITIONS.map((pos) => (
         <React.Fragment key={pos}>
           {NODE_OFFSETS.map((offset, i) => (
@@ -124,7 +124,7 @@ const BaseNode = ({
         </React.Fragment>
       ))}
 
-      {/* Node body — render prop receives menu state for placement in NodeHeader */}
+      {/* Node body - render prop receives menu state for placement in NodeHeader */}
       {children(bag)}
     </div>
   )

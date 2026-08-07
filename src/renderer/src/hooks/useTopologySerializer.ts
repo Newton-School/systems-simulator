@@ -214,7 +214,7 @@ export interface ContainerPathResolution {
    * For cross-region hops, the ordered [sourceRegion, targetRegion] container
    * ids. Populated so a future distance-aware model can look up a per-pair RTT
    * (e.g. us-east↔ap-south costs more than us-east↔us-west) without re-threading
-   * the serializer. v1 ignores it — cross-region uses the flat profile.
+   * the serializer. v1 ignores it - cross-region uses the flat profile.
    */
   regionPair?: readonly [string, string]
 }

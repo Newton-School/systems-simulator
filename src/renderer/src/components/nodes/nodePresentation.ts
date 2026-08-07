@@ -224,7 +224,7 @@ export interface IdentityChip {
 
 /**
  * The one config fact worth showing pre-run when a node's behavior actually
- * depends on it — everything else lives in the properties panel (with
+ * depends on it - everything else lives in the properties panel (with
  * provenance), never echoed as a bare number on the card.
  */
 export function getIdentityChip(
@@ -244,7 +244,7 @@ export function getIdentityChip(
     return { label: 'Cache', value: `hit ${Math.round(data.sim.cacheHitRate * 100)}%` }
   }
   // replicationRole is only resolved onto data.sim at serialize/run time
-  // (componentSpecs.ts derives it from templateId) — check templateId too so
+  // (componentSpecs.ts derives it from templateId) - check templateId too so
   // the identity chip is honest before the first run, not just after.
   if (data.sim?.replicationRole === 'replica' || data.templateId === 'read-replica') {
     return { label: 'Role', value: 'read-only replica' }
@@ -426,7 +426,7 @@ const GLYPH_BY_TONE: Record<NodeHealthStatus, LensCardData['glyph']> = {
 
 const TONE_RANK: Record<NodeHealthStatus, number> = { healthy: 0, degraded: 1, critical: 2 }
 
-/** The more severe of two tones — so a healthy-looking metric can't outvote a real problem. */
+/** The more severe of two tones - so a healthy-looking metric can't outvote a real problem. */
 function worseTone(a: NodeHealthStatus, b: NodeHealthStatus): NodeHealthStatus {
   return TONE_RANK[a] >= TONE_RANK[b] ? a : b
 }
@@ -602,7 +602,7 @@ export function buildLatencyLensCard(
 }
 
 /**
- * One metric family, driven by the active lens — the value/limit card. Never
+ * One metric family, driven by the active lens - the value/limit card. Never
  * shows more than one family at once; deep detail lives behind selection.
  */
 export function getLensCard(

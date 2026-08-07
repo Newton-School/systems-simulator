@@ -1460,7 +1460,7 @@ export const PropertiesPanel = ({ results = null }: { results?: SimulationOutput
 
     // A source generates traffic; its runtime detail is offered load + pattern +
     // emitted, read from the actual run (edgeFlowRunConfig) rather than the
-    // node's static default — the same source of truth the Run Inspector uses.
+    // node's static default - the same source of truth the Run Inspector uses.
     const selectedIsSource = isSourceNode(selectedNode)
     const selectedStaticWorkload = (selectedNode.data as Partial<CanvasNodeDataV2>).source
       ?.defaultWorkload
@@ -1476,7 +1476,7 @@ export const PropertiesPanel = ({ results = null }: { results?: SimulationOutput
       : 0
 
     // When a node fans out to more than one downstream target, the share of its
-    // traffic reaching each target *is* the routing outcome — the honest source of
+    // traffic reaching each target *is* the routing outcome - the honest source of
     // truth for cache-aside hit/miss, DNS weighting, sharding, etc. Surface it so
     // the split is visible instead of being inferred from a misleading node panel.
     const selectedOutboundEdges = edges.filter((edge) => edge.source === selectedNode.id)
