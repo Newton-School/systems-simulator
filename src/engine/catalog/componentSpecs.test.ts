@@ -113,8 +113,8 @@ describe('component spec validation copy', () => {
 
     expect(errors).toEqual(
       expect.arrayContaining([
-        'Max concurrent requests must be an integer greater than 0.',
-        'Request queue limit must be an integer greater than 0.',
+        'Max concurrent requests must be a whole number of 1 or more.',
+        'Request queue limit must be a whole number of 1 or more.',
         'Please choose a distribution model.',
         'Timeout must be greater than 0 ms.',
         'Inject failure must be between 0 and 1 (0-100%).',

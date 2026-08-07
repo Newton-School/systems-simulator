@@ -413,7 +413,7 @@ describe('validateTopology node config validation', () => {
       expect.arrayContaining([
         expect.objectContaining({
           path: expect.stringContaining('config.healthCheckEnabled'),
-          message: 'healthCheckEnabled must be a boolean.'
+          message: 'Health checks must be either on or off.'
         })
       ])
     )
@@ -638,7 +638,7 @@ describe('validateTopology advanced trait validation', () => {
       expect.arrayContaining([
         expect.objectContaining({
           path: 'edges[0].condition',
-          message: 'Conditional edges must define a condition expression.'
+          message: 'Conditional edges need a condition expression.'
         })
       ])
     )
