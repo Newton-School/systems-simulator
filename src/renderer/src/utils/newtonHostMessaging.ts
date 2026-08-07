@@ -1,7 +1,7 @@
 /**
  * Renderer glue for the Newton Game Playground wire contract (see
  * `engine/analysis/newtonGamePlayground.ts`). This is the protocol `newton-web`'s
- * generic game host speaks — distinct from our own `ns-simulator:*` protocol in
+ * generic game host speaks - distinct from our own `ns-simulator:*` protocol in
  * `questionHostMessaging.ts`. Selected at runtime via `?host=newton` on the
  * iframe src so both protocols can coexist.
  *
@@ -61,7 +61,7 @@ let lastSaveBlob: NewtonSaveBlob | null = null
 
 /**
  * Posts the save blob to the host as a JSON **string** (the host `JSON.parse`s
- * whatever it receives and persists it as `game_json`). Sensitive — targets the
+ * whatever it receives and persists it as `game_json`). Sensitive - targets the
  * pinned host origin; drops if none is established yet.
  */
 export function postNewtonSave(blob: NewtonSaveBlob): void {
@@ -71,7 +71,7 @@ export function postNewtonSave(blob: NewtonSaveBlob): void {
   }
   const target = getTrustedHostOrigin()
   if (!target) {
-    console.warn('[ns-simulator] Dropped Newton save — no trusted host origin established.')
+    console.warn('[ns-simulator] Dropped Newton save - no trusted host origin established.')
     return
   }
   window.parent.postMessage(JSON.stringify(blob), target)

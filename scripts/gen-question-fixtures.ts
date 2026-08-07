@@ -7,7 +7,7 @@
  * in one place. Run scripts/validate-question-dir.ts afterwards to confirm each
  * reference PASSES and each gamed FAILS on the intended axis.
  */
-import { mkdirSync, writeFileSync, readFileSync } from 'node:fs'
+import { mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import type { ComponentCategory, ComponentType, TopologyJSON } from '../src/engine/core/types'
 
@@ -20,6 +20,7 @@ const questionSource = (id: string) => join(ROOT, id, 'question.json')
 
 // ── type → category ──────────────────────────────────────────────────────────
 const CATEGORY: Record<string, ComponentCategory> = {
+  'api-endpoint': 'compute',
   'load-balancer': 'network-and-edge',
   cdn: 'network-and-edge',
   microservice: 'compute',
@@ -97,11 +98,15 @@ function topo(
   name: string,
   nodes: ReturnType<typeof node>[],
   edges: ReturnType<typeof edge>[],
-  sourceNodeId: string,
+  entryNodeId: string,
   baseRps: number,
   dist?: Array<{ type: string; weight: number; sizeBytes: number }>
 ): TopologyJSON {
   py = 0
+  // Every topology is driven by an explicit Client (api-endpoint, source profile)
+  // that feeds the entry node. Load balancers are NOT valid workload sources - the
+  // UI now forbids selecting them - so traffic always originates from the client.
+  const client = node('client', 'api-endpoint', { workers: 500, proc: 0.1, label: 'Client' })
   return {
     id,
     name,
@@ -113,10 +118,10 @@ function topo(
       timeResolution: 'millisecond',
       defaultTimeout: 5000
     },
-    nodes,
-    edges,
+    nodes: [client, ...nodes],
+    edges: [edge('client', entryNodeId), ...edges],
     workload: {
-      sourceNodeId,
+      sourceNodeId: 'client',
       pattern: 'constant',
       baseRps,
       // The validator requires a distribution; untyped questions get a single class.
@@ -233,22 +238,30 @@ const builders: Record<string, () => Trio> = {
   }),
 
   'cargo-cult-cdn': () => ({
-    intended: 'forbidUnjustified + justify: the gamed design adds a CDN it never justifies.',
+    // V1: justification is disabled, so the reference OMITS the CDN (correct minimal
+    // design → forbidUnjustified passes) and the gamed design adds an undefended CDN
+    // (present + no justification → forbidUnjustified fails). Still discriminates.
+    intended: 'forbidUnjustified: the gamed design adds a CDN with no benefit for dynamic traffic.',
+    // V1: justification is hidden, so the forbidUnjustified criterion drops its
+    // justifyId and becomes a plain "this component must be absent" check.
+    patchQuestion: (q) => {
+      const c = q.semanticCriteria?.find((s: any) => s.kind === 'forbidUnjustified')
+      if (c) delete c.justifyId
+    },
     ref: topo(
       'cdn-ref',
-      'Cargo-cult CDN (reference: CDN defended)',
+      'Cargo-cult CDN (reference: no CDN)',
       [
-        node('cdn', 'cdn', { workers: 300 }),
         node('svc', 'microservice', { workers: 80, proc: 1 }),
         node('db', 'nosql-db', { workers: 50, proc: 2 })
       ],
-      [edge('cdn', 'svc'), edge('svc', 'db')],
-      'cdn',
+      [edge('svc', 'db')],
+      'svc',
       1000
     ),
     gamed: topo(
       'cdn-gamed',
-      'Cargo-cult CDN (gamed: CDN unjustified)',
+      'Cargo-cult CDN (gamed: needless CDN)',
       [
         node('cdn', 'cdn', { workers: 300 }),
         node('svc', 'microservice', { workers: 80, proc: 1 }),
@@ -258,13 +271,7 @@ const builders: Record<string, () => Trio> = {
       'cdn',
       1000
     ),
-    answers: [
-      {
-        promptId: 'why-cdn',
-        text: 'We keep the CDN because a subset of responses are cacheable edge assets, but it adds cache-invalidation complexity we accept.'
-      }
-    ],
-    gamedAnswers: []
+    answers: []
   }),
 
   'messaging-fanout': () => ({
@@ -1133,16 +1140,27 @@ for (const [id, build] of Object.entries(builders)) {
   trio.patchQuestion?.(q)
   const rewrite = applyRewrite(id, q)
 
+  // V1: hide the justification feature. Move `justify` to `_justify` (an unknown
+  // key the parser strips), so no justify prompts are graded or shown, while the
+  // authored data is preserved in the file for the V2 redesign.
+  if (q.justify) {
+    q._justify = q.justify
+    delete q.justify
+  }
+
   const w = (name: string, data: unknown) =>
     writeFileSync(join(dir, name), JSON.stringify(data, null, 2) + '\n')
+
+  // Remove any stale justification-answer files (unused now that justify is hidden).
+  for (const stale of ['answers.json', 'gamed-answers.json']) {
+    rmSync(join(dir, stale), { force: true })
+  }
 
   w('question.json', q)
   w('reference-topology.json', trio.ref)
   w('gamed-topology.json', trio.gamed)
-  w('answers.json', trio.answers)
-  if (trio.gamedAnswers) w('gamed-answers.json', trio.gamedAnswers)
   writeFileSync(join(dir, 'README.md'), questionReadme(id, q, trio, rewrite))
-  console.log(`wrote ${id}/ — intended failure: ${trio.intended}`)
+  console.log(`wrote ${id}/ - intended failure: ${trio.intended}`)
 }
 
 function bucketTable(b: Buckets): string {
@@ -1156,9 +1174,6 @@ function bucketTable(b: Buckets): string {
 }
 
 function questionReadme(id: string, q: any, trio: Trio, rewrite?: Rewrite): string {
-  const gamedNote = trio.gamedAnswers
-    ? '\n- `gamed-answers.json` — justifications supplied for the gamed grade (empty: the gamed student never justified the component).'
-    : ''
   return `# ${q.title}
 
 \`${id}\` · type: \`${q.type}\` · workload: \`${q.workloadCategory ?? 'n/a'}\` · difficulty: \`${q.difficulty}\`
@@ -1166,13 +1181,14 @@ function questionReadme(id: string, q: any, trio: Trio, rewrite?: Rewrite): stri
 > ${q.prompt.text}
 
 ## Files
-- \`question.json\` — the QuestionPackage (prompt, structural rules, semantic criteria, justify prompts, budget, suite, rubric).
-- \`reference-topology.json\` — a **correct** design. Grades **PASS** on every checkable axis.
-- \`gamed-topology.json\` — a plausible-but-wrong design. Grades **FAIL** on the intended axis.
-- \`answers.json\` — justification answers for the reference (the CLI cannot supply these; the validator harness can).${gamedNote}
+- \`question.json\` - the QuestionPackage (prompt, structural rules, semantic criteria, budget, suite, rubric). Traffic is driven by a Client (api-endpoint) source node feeding the topology.
+- \`reference-topology.json\` - a **correct** design. Grades **PASS** on every checkable axis.
+- \`gamed-topology.json\` - a plausible-but-wrong design. Grades **FAIL** on the intended axis.
+
+> **V1 note:** the justification feature is hidden for launch, so \`justify\` is stored under \`_justify\` (ignored by the grader) and any \`[J]\` rows below are deferred to V2.
 
 ## Requirement buckets ([G]radeable / [J]ustification / [N]arrative)
-Every requirement is backed by a check — no orphan requirements.
+Every requirement is backed by a check - no orphan requirements.
 
 ${rewrite ? bucketTable(rewrite.buckets) : '_n/a_'}
 

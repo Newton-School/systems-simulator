@@ -65,12 +65,12 @@ const MagneticConnectionLine = memo(
           style={{ transition: 'stroke 100ms, stroke-width 100ms' }}
         />
 
-        {/* Magnetic approach — small dot shows where the line will land */}
+        {/* Magnetic approach - small dot shows where the line will land */}
         {isSnapping && !canDrop && (
           <circle cx={effectiveToX} cy={effectiveToY} r={4} fill={stroke} opacity={0.8} />
         )}
 
-        {/* Drop zone reached — pulsing ring + solid dot at exact handle center */}
+        {/* Drop zone reached - pulsing ring + solid dot at exact handle center */}
         {canDrop && (
           <>
             {/* Outer pulsing ring */}

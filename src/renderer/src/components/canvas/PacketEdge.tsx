@@ -265,7 +265,7 @@ export const PacketEdge = ({
 
   return (
     <>
-      {/* Glow halo — only visible when selected */}
+      {/* Glow halo - only visible when selected */}
       {selected && (
         <path
           d={edgePath}
@@ -357,7 +357,7 @@ export const PacketEdge = ({
         )
       })}
 
-      {/* Endpoint grab handles — visible on hover/selected, draggable for reconnection */}
+      {/* Endpoint grab handles - visible on hover/selected, draggable for reconnection */}
       <circle
         cx={sourceX}
         cy={sourceY}

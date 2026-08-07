@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { getComponentSpec } from './componentSpecs'
 import type { CanvasNodeDataV2 } from './nodeSpecTypes'
+import { validationMessage } from '../validation/validationCopy'
 
 function makeRelationalDbData(sim: CanvasNodeDataV2['sim']): CanvasNodeDataV2 {
   return {
@@ -15,6 +16,229 @@ function makeRelationalDbData(sim: CanvasNodeDataV2['sim']): CanvasNodeDataV2 {
     sim
   }
 }
+
+function makeNodeData(
+  componentType: CanvasNodeDataV2['componentType'],
+  sim: CanvasNodeDataV2['sim'],
+  overrides: Partial<CanvasNodeDataV2> = {}
+): CanvasNodeDataV2 {
+  return {
+    schemaVersion: 2,
+    templateId: componentType ?? 'node',
+    componentType,
+    structuralRole: 'processor',
+    profile: 'compute-service',
+    rendererType: 'serviceNode',
+    label: 'Node',
+    iconKey: 'server',
+    sim,
+    ...overrides
+  }
+}
+
+const RAW_VALIDATION_COPY_FRAGMENTS = [
+  'queue.',
+  'processing.',
+  'nodeErrorRate',
+  'healthCheckEnabled',
+  'cacheHitRate',
+  'cacheHitLatencyMs',
+  'ttlSeconds',
+  'readLatencyMs',
+  'writeLatencyMs',
+  'replicationRole',
+  'maxTokens',
+  'refillRatePerSecond',
+  'coldStartLatency',
+  'idleTimeoutMs',
+  'maxConcurrency',
+  'routingKeyField',
+  'dnsRoutingPolicy',
+  'dnsCacheTtlSeconds',
+  'circuitBreaker.',
+  'routingRules[',
+  'matchField',
+  'matchValue',
+  'targetNodeId',
+  'requestDistribution',
+  'baseRps',
+  'blockRate',
+  'droppedPackets'
+] as const
+
+function expectHumanReadableValidationCopy(errors: readonly string[]): void {
+  for (const error of errors) {
+    expect(
+      RAW_VALIDATION_COPY_FRAGMENTS.filter((fragment) => error.includes(fragment)),
+      error
+    ).toEqual([])
+  }
+}
+
+describe('component spec validation copy', () => {
+  it('uses editor labels for runtime validation messages', () => {
+    const spec = getComponentSpec('api-gateway')!
+    const errors = spec.validateCanvas(
+      makeNodeData('api-gateway', {
+        queue: { workers: 0, capacity: 0, discipline: 'fifo' },
+        processing: { distribution: undefined, timeout: 0 } as unknown as NonNullable<
+          CanvasNodeDataV2['sim']
+        >['processing'],
+        nodeErrorRate: 2,
+        healthCheckEnabled: 'yes' as unknown as boolean,
+        cacheHitRate: 2,
+        cacheHitLatencyMs: 0,
+        ttlSeconds: -1,
+        maxTokens: 0,
+        refillRatePerSecond: -1,
+        coldStartLatency: { type: 'bad' } as unknown as NonNullable<
+          CanvasNodeDataV2['sim']
+        >['coldStartLatency'],
+        coldStartLatencyMs: 0,
+        idleTimeoutMs: 0,
+        maxConcurrency: 0,
+        routingKeyField: '',
+        dnsRoutingPolicy: 'invalid' as unknown as NonNullable<
+          CanvasNodeDataV2['sim']
+        >['dnsRoutingPolicy'],
+        dnsCacheTtlSeconds: -1,
+        circuitBreaker: {
+          failureThreshold: 2,
+          failureCount: 0,
+          recoveryTimeout: 0,
+          halfOpenRequests: 0
+        }
+      })
+    )
+
+    expect(errors).toEqual(
+      expect.arrayContaining([
+        'Max concurrent requests must be a whole number of 1 or more.',
+        'Request queue limit must be a whole number of 1 or more.',
+        'Please choose a distribution model.',
+        'Timeout must be greater than 0 ms.',
+        'Inject failure must be between 0 and 1 (0-100%).',
+        'Health checks must be either on or off.',
+        'Cache hit rate must be between 0 and 1 (0-100%).',
+        'Cache hit latency must be greater than 0 ms.',
+        'TTL must be 0 seconds or greater.',
+        'Bucket size must be greater than 0.',
+        'Refill rate must be 0 tokens/s or greater.',
+        'Cold start latency must be a valid distribution.',
+        'Cold start latency must be greater than 0 ms.',
+        'Idle timeout must be greater than 0 ms.',
+        'Max concurrency must be greater than 0.',
+        'Routing key field cannot be empty.',
+        'DNS routing policy must be Simple, Weighted, Failover, Latency-based, or Geolocation.',
+        'Cache TTL must be 0 seconds or greater.',
+        'Failure threshold must be between 0 and 1 (0-100%).',
+        'Window size must be greater than 0.',
+        'Recovery timeout must be greater than 0 ms.',
+        'Half-open probes must be greater than 0.'
+      ])
+    )
+    expectHumanReadableValidationCopy(errors)
+  })
+
+  it('uses queue labels that match specialized editor copy', () => {
+    const spec = getComponentSpec('relational-db')!
+    const errors = spec.validateCanvas(
+      makeRelationalDbData({
+        queue: { workers: 4, capacity: 2, discipline: 'fifo' },
+        processing: { distribution: { type: 'constant', value: 8 }, timeout: 1_000 }
+      })
+    )
+
+    expect(errors).toContain('Query queue limit must be at least as large as Connection pool size.')
+    expectHumanReadableValidationCopy(errors)
+  })
+
+  it('uses plain copy for read/write, routing-rule, source, and security validation', () => {
+    const relationalDbErrors = getComponentSpec('relational-db')!.validateCanvas(
+      makeRelationalDbData({
+        queue: { workers: 1, capacity: 1, discipline: 'fifo' },
+        processing: { distribution: { type: 'constant', value: 8 }, timeout: 1_000 },
+        readLatency: { type: 'bad' } as unknown as NonNullable<
+          CanvasNodeDataV2['sim']
+        >['readLatency'],
+        writeLatency: { type: 'bad' } as unknown as NonNullable<
+          CanvasNodeDataV2['sim']
+        >['writeLatency'],
+        readLatencyMs: 0,
+        writeLatencyMs: 0,
+        replicationRole: 'secondary' as unknown as NonNullable<
+          CanvasNodeDataV2['sim']
+        >['replicationRole']
+      })
+    )
+
+    const routingErrors = getComponentSpec('load-balancer-l7')!.validateCanvas(
+      makeNodeData('load-balancer-l7', {
+        queue: { workers: 1, capacity: 1, discipline: 'fifo' },
+        processing: { distribution: { type: 'constant', value: 1 }, timeout: 1_000 },
+        routingRules: [
+          {
+            matchField: 'header',
+            matchValue: '',
+            targetNodeId: ''
+          }
+        ] as unknown as NonNullable<CanvasNodeDataV2['sim']>['routingRules']
+      })
+    )
+
+    const sourceErrors = getComponentSpec('api-endpoint')!.validateCanvas({
+      schemaVersion: 2,
+      templateId: 'api-endpoint',
+      componentType: 'api-endpoint',
+      structuralRole: 'source',
+      profile: 'source',
+      rendererType: 'serviceNode',
+      label: 'Client',
+      iconKey: 'globe',
+      source: {
+        requestDistribution: [],
+        defaultWorkload: {
+          sourceNodeId: 'client',
+          pattern: undefined,
+          baseRps: 0,
+          duration: 1
+        } as unknown as NonNullable<CanvasNodeDataV2['source']>['defaultWorkload']
+      }
+    })
+
+    const securityErrors = getComponentSpec('waf')!.validateCanvas(
+      makeNodeData(
+        'waf',
+        {
+          queue: { workers: 1, capacity: 1, discipline: 'fifo' },
+          processing: { distribution: { type: 'constant', value: 1 }, timeout: 1_000 }
+        },
+        { profile: 'security-filter' }
+      )
+    )
+
+    const allErrors = [...relationalDbErrors, ...routingErrors, ...sourceErrors, ...securityErrors]
+
+    expect(allErrors).toEqual(
+      expect.arrayContaining([
+        'Read latency must be a valid distribution.',
+        'Write latency must be a valid distribution.',
+        'Read latency must be greater than 0 ms.',
+        'Write latency must be greater than 0 ms.',
+        'Replication role must be either Primary or Replica.',
+        'Routing rule 1 uses an unsupported match field. Choose Type, Method, Path, Host.',
+        'Routing rule 1 needs a match value.',
+        'Routing rule 1 needs a target node.',
+        validationMessage('requestDistributionEmpty'),
+        validationMessage('workloadPatternRequired'),
+        'Base RPS must be greater than 0.',
+        validationMessage('missingSecurityPolicy')
+      ])
+    )
+
+    expectHumanReadableValidationCopy(allErrors)
+  })
+})
 
 describe('relational-db serializeCanvas readLatencyMs/writeLatencyMs', () => {
   it('converts mean-latency inputs into exponential distributions', () => {

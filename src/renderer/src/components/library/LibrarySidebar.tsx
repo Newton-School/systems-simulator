@@ -66,7 +66,7 @@ const ALL_SIDEBAR_SCENARIOS: SidebarScenario[] = SAMPLE_SCENARIOS.map((scenario)
 interface LibraryActivityRailProps {
   activeTab: LibrarySidebarTab
   onSelect: (tab: LibrarySidebarTab) => void
-  /** Sample scenarios are a free-play/authoring feature — hidden in question mode. */
+  /** Sample scenarios are a free-play/authoring feature - hidden in question mode. */
   showScenarios?: boolean
 }
 

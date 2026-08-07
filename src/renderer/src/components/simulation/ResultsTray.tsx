@@ -98,7 +98,7 @@ type SelectedComponent = { kind: 'node'; id: string } | { kind: 'edge'; id: stri
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function fmtMs(ms: number | null): string {
-  // `null` means no successful samples in this population/window — show N/A, never a fake 0.
+  // `null` means no successful samples in this population/window - show N/A, never a fake 0.
   if (ms === null) return 'N/A'
   if (ms === 0) return '-'
   if (ms < 1) return `${ms.toFixed(3)}ms`
@@ -417,7 +417,7 @@ function trafficFilterButtonClass(
 
 // ─── Request outcome log ──────────────────────────────────────────────────────
 // Post-run Event Log source: one row per request keyed on terminal fate. Chips
-// are terminal OUTCOMES a user filters for — never lifecycle transitions, which
+// are terminal OUTCOMES a user filters for - never lifecycle transitions, which
 // live in the per-row drill-down instead. `in-flight` is a confidence state
 // (unfinished at cutoff), styled muted, never as an alarm.
 
@@ -1469,7 +1469,7 @@ function snapshotAtTime(timeSeries: TimeSeriesSnapshot[], t: number): TimeSeries
         activeWorkers: lerp(a.activeWorkers, b.activeWorkers, fraction),
         totalInSystem: lerp(a.totalInSystem, b.totalInSystem, fraction),
         utilization: lerp(a.utilization, b.utilization, fraction),
-        // Status is categorical — snap to the nearer sample rather than blend.
+        // Status is categorical - snap to the nearer sample rather than blend.
         status: fraction < 0.5 ? a.status : b.status
       } satisfies SnapshotNodeState
     } else {
@@ -2249,7 +2249,7 @@ function SummaryPanel({
 }) {
   const { summary } = output
   const l = summary.latency
-  // Only show causes that actually fired — a "Node Failed" card appearing while
+  // Only show causes that actually fired - a "Node Failed" card appearing while
   // "Queue Full" stays absent is exactly the dead-vs-overloaded discriminator.
   const timeToErrorEntries = (
     Object.entries(summary.timeToErrorByCause) as Array<
@@ -2526,7 +2526,7 @@ function conditionRank(condition: ReliabilityStatus): number {
 /**
  * The two one-line verdicts an operator actually wants: where time goes, and
  * where requests die. Computed from the phase-timeline decomposition and the
- * failure-by-locus Pareto — the same data every other panel projects from.
+ * failure-by-locus Pareto - the same data every other panel projects from.
  */
 function BottleneckVerdicts({
   output,
@@ -2623,7 +2623,7 @@ function BottleneckVerdicts({
 /**
  * The status timeline: each component's failure windows shaded over the run's
  * time axis. Partitions the run into before / during / after at a glance, and
- * makes the survivor-bias trap self-evident — success samples all live outside
+ * makes the survivor-bias trap self-evident - success samples all live outside
  * the red bands.
  */
 function StatusTimelineStrip({ output }: { output: SimulationOutput }) {
@@ -4526,7 +4526,7 @@ export function ResultsTray({
 
   return (
     <div className="flex flex-col h-full bg-nss-panel border-t border-nss-border text-nss-text font-sans overflow-hidden">
-      {/* Header — status badge only; raw event count demoted to footer */}
+      {/* Header - status badge only; raw event count demoted to footer */}
       <div className="flex items-center justify-between px-4 py-2.5 border-b border-nss-border shrink-0">
         <span className="text-sm font-semibold text-nss-text">Simulation</span>
         <div className="flex items-center gap-3">

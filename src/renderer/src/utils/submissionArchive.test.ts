@@ -79,7 +79,7 @@ describe('submissionArchive', () => {
     expect(loadArchivedSubmission('sub-1')).toEqual(sealed)
   })
 
-  it('is append-only — a second write of the same id never overwrites', () => {
+  it('is append-only - a second write of the same id never overwrites', () => {
     const first = envelope('sub-1', 'q1', 'attempt-1')
     expect(archiveSubmission(first)).toEqual({ stored: true })
 

@@ -40,7 +40,7 @@ interface HeaderProps {
   simulationDisabled?: boolean
   /** Minimal chrome (EnvironmentProfile ASSIGNMENT/PRACTICE): hide authoring file ops. */
   minimal?: boolean
-  /** Whether opening an external topology is allowed. False in question mode —
+  /** Whether opening an external topology is allowed. False in question mode -
    * loading another topology would bypass (and clear) the active question. */
   canOpen?: boolean
 }

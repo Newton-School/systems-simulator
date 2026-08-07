@@ -14,7 +14,7 @@ interface NodeMetricsDetailProps {
    * The Cache panel below reports hit/miss counters that only mean anything when
    * this trait is actually enabled. When it's absent or 0 the node is a plain
    * datastore that happens to be a cache *type* (e.g. a Redis node fed by
-   * routing-level cache-aside), and the trait counts every arrival as a "miss" —
+   * routing-level cache-aside), and the trait counts every arrival as a "miss" -
    * producing a misleading 0% hit ratio. Gate the panel on this so we never
    * surface phantom misses.
    */
@@ -23,7 +23,7 @@ interface NodeMetricsDetailProps {
    * How this node's outbound traffic was split across its downstream targets,
    * highest share first. Present only for nodes that fan out to more than one
    * target. This is the honest source of truth for routing-level behaviour
-   * (cache-aside hit/miss, DNS weighting, sharding) — the split you'd otherwise
+   * (cache-aside hit/miss, DNS weighting, sharding) - the split you'd otherwise
    * have to infer from a per-node cache panel.
    */
   downstreamSplit?: { targetLabel: string; count: number; share: number }[]
@@ -198,7 +198,7 @@ export const NodeMetricsDetail = ({
           </div>
           <p className="mt-3 text-xs text-nss-muted">
             Share of this node&apos;s outbound requests routed to each target. For a cache-aside
-            path this is the real hit/miss split — cache hits and misses are modelled as which
+            path this is the real hit/miss split - cache hits and misses are modelled as which
             backend the request is routed to.
           </p>
         </Section>

@@ -4,6 +4,7 @@ import {
   type RequestMatchField
 } from '../core/requestSemantics'
 import type { ComponentType } from '../core/types'
+import { validationMessage } from '../validation/validationCopy'
 import type { NodeBehaviourTrait, NodeCapabilityModule } from './types'
 
 export const CONTENT_ROUTING_COMPONENT_TYPES = [
@@ -22,8 +23,7 @@ export interface ContentRoutingRule {
   targetNodeId: string
 }
 
-export const L4_CONTENT_ROUTING_FORBIDDEN_MESSAGE =
-  'L4 operates at the transport layer and cannot inspect HTTP content. Use an L7 Load Balancer for content-based routing.'
+export const L4_CONTENT_ROUTING_FORBIDDEN_MESSAGE = validationMessage('contentRoutingNotAllowed')
 
 function isContentRoutingRule(value: unknown): value is ContentRoutingRule {
   if (!value || typeof value !== 'object') {

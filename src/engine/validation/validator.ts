@@ -12,6 +12,19 @@ import {
   L4_CONTENT_ROUTING_FORBIDDEN_MESSAGE
 } from '../traits/contentRouting'
 import { asDistributionConfig } from '../traits/serviceTimeOverride'
+import {
+  nonNegativeNumber,
+  oneOf,
+  positiveNumber,
+  probability,
+  queueCapacityAtLeastWorkers,
+  queueFieldLabels,
+  routingRuleMissingMatchValue,
+  routingRuleMissingTarget,
+  routingRuleUnsupportedMatchField,
+  validationMessage,
+  validDistribution
+} from './validationCopy'
 
 const COMPONENT_CATEGORIES = [
   'compute',
@@ -725,17 +738,19 @@ export const validateTopology = (input: unknown): ValidationResult => {
       }
     }
 
+    const queueLabels = queueFieldLabels(node.type)
+
     if (node.queue && node.queue.capacity < node.queue.workers) {
       errors.push({
         path: `nodes[${index}].queue.capacity`,
-        message: 'queue.capacity must be greater than or equal to queue.workers.'
+        message: queueCapacityAtLeastWorkers(queueLabels.capacity, queueLabels.workers)
       })
     }
 
     if (node.processing && node.processing.timeout <= 0) {
       errors.push({
         path: `nodes[${index}].processing.timeout`,
-        message: 'processing.timeout must be greater than 0.'
+        message: positiveNumber('Timeout', 'ms')
       })
     }
 
@@ -749,7 +764,7 @@ export const validateTopology = (input: unknown): ValidationResult => {
     ) {
       errors.push({
         path: `nodes[${index}].config.nodeErrorRate`,
-        message: 'nodeErrorRate must be between 0 and 1.'
+        message: probability('Inject failure')
       })
     }
 
@@ -757,7 +772,7 @@ export const validateTopology = (input: unknown): ValidationResult => {
     if (healthCheckEnabled !== undefined && typeof healthCheckEnabled !== 'boolean') {
       errors.push({
         path: `nodes[${index}].config.healthCheckEnabled`,
-        message: 'healthCheckEnabled must be a boolean.'
+        message: 'Health checks must be either on or off.'
       })
     }
 
@@ -771,7 +786,7 @@ export const validateTopology = (input: unknown): ValidationResult => {
     ) {
       errors.push({
         path: `nodes[${index}].config.cacheHitRate`,
-        message: 'cacheHitRate must be between 0 and 1.'
+        message: probability('Cache hit rate')
       })
     }
 
@@ -784,7 +799,7 @@ export const validateTopology = (input: unknown): ValidationResult => {
     ) {
       errors.push({
         path: `nodes[${index}].config.cacheHitLatencyMs`,
-        message: 'cacheHitLatencyMs must be greater than 0.'
+        message: positiveNumber('Cache hit latency', 'ms')
       })
     }
 
@@ -795,7 +810,7 @@ export const validateTopology = (input: unknown): ValidationResult => {
     ) {
       errors.push({
         path: `nodes[${index}].config.ttlSeconds`,
-        message: 'ttlSeconds must be greater than or equal to 0.'
+        message: nonNegativeNumber('TTL', 'seconds')
       })
     }
 
@@ -807,7 +822,7 @@ export const validateTopology = (input: unknown): ValidationResult => {
     ) {
       errors.push({
         path: `nodes[${index}].config.replicationRole`,
-        message: 'replicationRole must be "primary" or "replica".'
+        message: 'Replication role must be either Primary or Replica.'
       })
     }
 
@@ -816,7 +831,7 @@ export const validateTopology = (input: unknown): ValidationResult => {
       if (value !== undefined && !asDistributionConfig(value)) {
         errors.push({
           path: `nodes[${index}].config.${field}`,
-          message: `${field} must be a valid distribution config.`
+          message: validDistribution(field === 'readLatency' ? 'Read latency' : 'Write latency')
         })
       }
     }
@@ -828,7 +843,7 @@ export const validateTopology = (input: unknown): ValidationResult => {
     ) {
       errors.push({
         path: `nodes[${index}].config.maxTokens`,
-        message: 'maxTokens must be greater than 0.'
+        message: positiveNumber('Bucket size')
       })
     }
 
@@ -841,7 +856,7 @@ export const validateTopology = (input: unknown): ValidationResult => {
     ) {
       errors.push({
         path: `nodes[${index}].config.refillRatePerSecond`,
-        message: 'refillRatePerSecond must be greater than or equal to 0.'
+        message: nonNegativeNumber('Refill rate', 'tokens/s')
       })
     }
 
@@ -849,7 +864,7 @@ export const validateTopology = (input: unknown): ValidationResult => {
     if (coldStartLatency !== undefined && !asDistributionConfig(coldStartLatency)) {
       errors.push({
         path: `nodes[${index}].config.coldStartLatency`,
-        message: 'coldStartLatency must be a valid distribution config.'
+        message: validDistribution('Cold start latency')
       })
     }
 
@@ -862,9 +877,15 @@ export const validateTopology = (input: unknown): ValidationResult => {
           value < 0 ||
           (field !== 'dnsCacheTtlSeconds' && value <= 0))
       ) {
+        const message =
+          field === 'idleTimeoutMs'
+            ? positiveNumber('Idle timeout', 'ms')
+            : field === 'maxConcurrency'
+              ? positiveNumber('Max concurrency')
+              : nonNegativeNumber('Cache TTL', 'seconds')
         errors.push({
           path: `nodes[${index}].config.${field}`,
-          message: `${field} must be ${field === 'dnsCacheTtlSeconds' ? 'greater than or equal to 0' : 'greater than 0'}.`
+          message
         })
       }
     }
@@ -876,7 +897,7 @@ export const validateTopology = (input: unknown): ValidationResult => {
     ) {
       errors.push({
         path: `nodes[${index}].config.routingKeyField`,
-        message: 'routingKeyField must be a non-empty string.'
+        message: 'Routing key field cannot be empty.'
       })
     }
 
@@ -889,8 +910,13 @@ export const validateTopology = (input: unknown): ValidationResult => {
     ) {
       errors.push({
         path: `nodes[${index}].config.dnsRoutingPolicy`,
-        message:
-          'dnsRoutingPolicy must be one of "simple", "weighted", "failover", "latency-based", "geolocation".'
+        message: oneOf('DNS routing policy', [
+          'Simple',
+          'Weighted',
+          'Failover',
+          'Latency-based',
+          'Geolocation'
+        ])
       })
     }
 
@@ -913,7 +939,7 @@ export const validateTopology = (input: unknown): ValidationResult => {
     ) {
       errors.push({
         path: `nodes[${index}].config.dnsGeoTargets`,
-        message: 'dnsGeoTargets must be an array of { origin, targetNodeId } entries.'
+        message: validationMessage('dnsGeoTargets')
       })
     }
 
@@ -935,7 +961,7 @@ export const validateTopology = (input: unknown): ValidationResult => {
       ) {
         errors.push({
           path: `nodes[${index}].config.circuitBreaker.failureThreshold`,
-          message: 'failureThreshold must be between 0 and 1.'
+          message: probability('Failure threshold')
         })
       }
 
@@ -945,9 +971,15 @@ export const validateTopology = (input: unknown): ValidationResult => {
         ['halfOpenRequests', halfOpenRequests]
       ] as const) {
         if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
+          const label =
+            field === 'failureCount'
+              ? 'Window size'
+              : field === 'recoveryTimeout'
+                ? 'Recovery timeout'
+                : 'Half-open probes'
           errors.push({
             path: `nodes[${index}].config.circuitBreaker.${field}`,
-            message: `${field} must be greater than 0.`
+            message: positiveNumber(label, field === 'recoveryTimeout' ? 'ms' : undefined)
           })
         }
       }
@@ -962,7 +994,7 @@ export const validateTopology = (input: unknown): ValidationResult => {
       ) {
         errors.push({
           path: `nodes[${index}].config.monitoredNodes`,
-          message: 'monitoredNodes must be an array of non-empty node IDs.'
+          message: validationMessage('monitoredNodes')
         })
       }
 
@@ -972,9 +1004,15 @@ export const validateTopology = (input: unknown): ValidationResult => {
           value !== undefined &&
           (typeof value !== 'number' || !Number.isFinite(value) || value <= 0)
         ) {
+          const label =
+            field === 'checkIntervalMs'
+              ? 'Check interval'
+              : field === 'unhealthyThreshold'
+                ? 'Unhealthy threshold'
+                : 'Healthy threshold'
           errors.push({
             path: `nodes[${index}].config.${field}`,
-            message: `${field} must be a positive number.`
+            message: positiveNumber(label)
           })
         }
       }
@@ -985,7 +1023,7 @@ export const validateTopology = (input: unknown): ValidationResult => {
       if (!Array.isArray(routingRules)) {
         errors.push({
           path: `nodes[${index}].config.routingRules`,
-          message: 'routingRules must be an array.'
+          message: validationMessage('routingRulesArray')
         })
       } else if (node.type === 'load-balancer-l4' && routingRules.length > 0) {
         errors.push({
@@ -1007,19 +1045,24 @@ export const validateTopology = (input: unknown): ValidationResult => {
           ) {
             errors.push({
               path: `nodes[${index}].config.routingRules[${ruleIndex}].matchField`,
-              message: `matchField must be one of ${CONTENT_ROUTING_MATCH_FIELDS.map((field) => `"${field}"`).join(', ')}.`
+              message: routingRuleUnsupportedMatchField(ruleIndex, [
+                'Type',
+                'Method',
+                'Path',
+                'Host'
+              ])
             })
           }
           if (typeof candidate?.matchValue !== 'string' || candidate.matchValue.length === 0) {
             errors.push({
               path: `nodes[${index}].config.routingRules[${ruleIndex}].matchValue`,
-              message: 'matchValue is required.'
+              message: routingRuleMissingMatchValue(ruleIndex)
             })
           }
           if (typeof candidate?.targetNodeId !== 'string' || candidate.targetNodeId.length === 0) {
             errors.push({
               path: `nodes[${index}].config.routingRules[${ruleIndex}].targetNodeId`,
-              message: 'targetNodeId is required.'
+              message: routingRuleMissingTarget(ruleIndex)
             })
           }
         })
@@ -1029,7 +1072,7 @@ export const validateTopology = (input: unknown): ValidationResult => {
     if (role === 'sink' && node.config?.['routingStrategy'] !== undefined) {
       errors.push({
         path: `nodes[${index}].config.routingStrategy`,
-        message: 'Sink nodes cannot expose routing configuration.'
+        message: validationMessage('sinkRoutingForbidden')
       })
     }
 
@@ -1051,7 +1094,7 @@ export const validateTopology = (input: unknown): ValidationResult => {
       if (!hasSecurityKnob) {
         errors.push({
           path: `nodes[${index}].config.securityPolicy`,
-          message: 'Security filter nodes require blockRate or droppedPackets.'
+          message: validationMessage('missingSecurityPolicy')
         })
       }
     }
@@ -1061,15 +1104,14 @@ export const validateTopology = (input: unknown): ValidationResult => {
   if (workloadSourceNodeId && !nodeIds.has(workloadSourceNodeId)) {
     errors.push({
       path: 'workload.sourceNodeId',
-      message: 'Workload sourceNodeId references non-existent node.'
+      message: validationMessage('workloadSourceMissing')
     })
   }
 
   if (!hasSourceNode && topology.nodes.length > 0) {
     errors.push({
       path: 'nodes',
-      message:
-        'Topology must contain at least one source node (e.g., api-gateway) or a workload sourceNodeId.'
+      message: validationMessage('sourceNodeRequired')
     })
   }
 
@@ -1103,7 +1145,7 @@ export const validateTopology = (input: unknown): ValidationResult => {
     if (edge.mode === 'conditional' && (!edge.condition || edge.condition.trim().length === 0)) {
       errors.push({
         path: `edges[${index}].condition`,
-        message: 'Conditional edges must define a condition expression.'
+        message: validationMessage('conditionalEdgeExpression')
       })
     }
 
@@ -1150,7 +1192,7 @@ export const validateTopology = (input: unknown): ValidationResult => {
   if (topology.global.simulationDuration <= topology.global.warmupDuration) {
     errors.push({
       path: 'global.simulationDuration',
-      message: 'simulationDuration must be greater than warmupDuration.'
+      message: validationMessage('simulationTiming')
     })
   }
 

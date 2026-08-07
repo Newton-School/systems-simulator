@@ -246,10 +246,10 @@ export function postQuestionHostMessage(message: QuestionHostOutboundMessage): v
   })
 
   if (target === null) {
-    // Sensitive message (submit/error) with no established host origin — never
+    // Sensitive message (submit/error) with no established host origin - never
     // broadcast it. This should not happen in practice since these follow a
     // launch-context handshake that locks the trusted origin.
-    console.warn(`[ns-simulator] Dropped "${message.type}" — no trusted host origin established.`)
+    console.warn(`[ns-simulator] Dropped "${message.type}" - no trusted host origin established.`)
     return
   }
 

@@ -18,7 +18,7 @@ export interface SnapState {
   domCache: Map<string, HTMLElement>
 }
 
-/** Module-level singleton — safe because there is exactly one ReactFlowProvider. */
+/** Module-level singleton - safe because there is exactly one ReactFlowProvider. */
 export const snapStateRef: MutableRefObject<SnapState> = {
   current: {
     candidates: [],

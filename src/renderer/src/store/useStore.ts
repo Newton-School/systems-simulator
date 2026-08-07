@@ -19,6 +19,7 @@ import type {
   ScenarioState,
   MetricLens
 } from '@renderer/types/ui'
+import type { CanvasTextLabelData } from '../../../engine/catalog/canvasAnnotations'
 import { DEFAULT_SCENARIO_STATE } from '@renderer/types/ui'
 import type { EdgeFailureCause, EdgeFlowEvent } from '../../../engine/core/events'
 import type { WorkloadProfile } from '../../../engine/core/types'
@@ -48,6 +49,14 @@ function isNodeEditLocked(
 import type { RoutingStrategy } from '../../../engine/catalog/nodeSpecTypes'
 
 type FailureCountsByCause = Partial<Record<EdgeFailureCause, number>>
+type GraphSnapshot = { nodes: Node[]; edges: Edge[] }
+type GraphMutationOptions = { history?: 'record' | 'skip'; resetHistory?: boolean }
+type GraphHistoryState = {
+  past: GraphSnapshot[]
+  future: GraphSnapshot[]
+  dragSnapshot: GraphSnapshot | null
+}
+
 const RUNTIME_METRIC_LENSES: ReadonlySet<MetricLens> = new Set([
   'traffic',
   'saturation',
@@ -98,11 +107,19 @@ export interface EdgeFlowRunConfig {
   warmupDurationMs: number
 }
 
+type CanvasNodeDataPatch = Partial<AnyNodeData> | Partial<CanvasTextLabelData>
+
 const EDGE_FLOW_WINDOW_MS = 6_000
 const EDGE_FLOW_MAX_EVENTS = 25_000
 const EDGE_FLOW_HISTORY_MAX_EVENTS = 10_000
 const EDGE_FLOW_PLAYBACK_SPEED = 10
 const EDGE_FLOW_LIVE_RETAINED_EVENTS_PER_BATCH = 100
+const GRAPH_HISTORY_LIMIT = 100
+const EMPTY_GRAPH_HISTORY: GraphHistoryState = {
+  past: [],
+  future: [],
+  dragSnapshot: null
+}
 
 const EMPTY_EDGE_FLOW_STATE: EdgeFlowState = {
   recent: [],
@@ -124,6 +141,99 @@ const EMPTY_EDGE_FLOW_STATE: EdgeFlowState = {
   lastStartedAtMs: 0,
   totalFailedByCause: {},
   totalPostWarmupFailedByCause: {}
+}
+
+function cloneNodeForHistory(node: Node): Node {
+  return {
+    ...node,
+    position: { ...node.position },
+    ...(node.positionAbsolute ? { positionAbsolute: { ...node.positionAbsolute } } : {}),
+    ...(node.data && typeof node.data === 'object' ? { data: { ...node.data } } : {})
+  }
+}
+
+function cloneEdgeForHistory(edge: Edge): Edge {
+  return {
+    ...edge,
+    ...(edge.data && typeof edge.data === 'object' ? { data: { ...edge.data } } : {})
+  }
+}
+
+function cloneGraphSnapshot(snapshot: GraphSnapshot): GraphSnapshot {
+  return {
+    nodes: snapshot.nodes.map(cloneNodeForHistory),
+    edges: snapshot.edges.map(cloneEdgeForHistory)
+  }
+}
+
+function snapshotGraph(state: Pick<RFState, 'nodes' | 'edges'>): GraphSnapshot {
+  return cloneGraphSnapshot({ nodes: state.nodes, edges: state.edges })
+}
+
+function areGraphSnapshotsEqual(first: GraphSnapshot, second: GraphSnapshot): boolean {
+  return JSON.stringify(first) === JSON.stringify(second)
+}
+
+function pushGraphHistory(state: RFState): GraphHistoryState {
+  const snapshot = snapshotGraph(state)
+  const lastSnapshot = state.graphHistory.past[state.graphHistory.past.length - 1]
+
+  if (lastSnapshot && areGraphSnapshotsEqual(lastSnapshot, snapshot)) {
+    return { ...state.graphHistory, future: [], dragSnapshot: null }
+  }
+
+  return {
+    past: [...state.graphHistory.past, snapshot].slice(-GRAPH_HISTORY_LIMIT),
+    future: [],
+    dragSnapshot: null
+  }
+}
+
+function pushGraphDragHistory(state: RFState): GraphHistoryState {
+  if (state.graphHistory.dragSnapshot) {
+    return state.graphHistory
+  }
+
+  return {
+    ...pushGraphHistory(state),
+    dragSnapshot: snapshotGraph(state)
+  }
+}
+
+function resolveGraphHistory(
+  state: RFState,
+  nextSnapshot: GraphSnapshot,
+  options?: GraphMutationOptions
+): GraphHistoryState {
+  if (options?.resetHistory) {
+    return EMPTY_GRAPH_HISTORY
+  }
+
+  if (options?.history === 'skip') {
+    return state.graphHistory
+  }
+
+  if (areGraphSnapshotsEqual(snapshotGraph(state), nextSnapshot)) {
+    return state.graphHistory
+  }
+
+  return pushGraphHistory(state)
+}
+
+function shouldRecordNodeChanges(changes: NodeChange[]): boolean {
+  return changes.some((change) => change.type !== 'select' && change.type !== 'dimensions')
+}
+
+function shouldRecordEdgeChanges(changes: EdgeChange[]): boolean {
+  return changes.some((change) => change.type !== 'select')
+}
+
+function hasNodePositionChange(changes: NodeChange[]): boolean {
+  return changes.some((change) => change.type === 'position')
+}
+
+function hasActiveNodeDrag(changes: NodeChange[]): boolean {
+  return changes.some((change) => change.type === 'position' && change.dragging)
 }
 
 function summarizeEdgeFlow(
@@ -315,7 +425,7 @@ type RFState = {
   onEdgesChange: OnEdgesChange
   onConnect: OnConnect
   addNode: (node: Node) => void
-  updateNodeData: (nodeId: string, patch: Partial<AnyNodeData>) => void
+  updateNodeData: (nodeId: string, patch: CanvasNodeDataPatch) => void
   updateEdgeData: (
     edgeId: string,
     patch: { label?: string; data?: Partial<EdgeSimulationData> }
@@ -331,9 +441,13 @@ type RFState = {
   setRunInspectorDrilldownActive: (active: boolean) => void
   clearEdgeFlow: () => void
   setRoutingStrategyVisualization: (state: RoutingStrategyVisualizationState | null) => void
-  setNodes: (nodes: Node[]) => void
-  setEdges: (edges: Edge[]) => void
+  setNodes: (nodes: Node[], options?: GraphMutationOptions) => void
+  setEdges: (edges: Edge[], options?: GraphMutationOptions) => void
+  setGraph: (nodes: Node[], edges: Edge[], options?: GraphMutationOptions) => void
   selectGraphElements: (selection: { nodeId?: string; edgeId?: string }) => void
+  graphHistory: GraphHistoryState
+  undoGraph: () => void
+  redoGraph: () => void
 
   // --- File Actions ---
   setFileName: (name: string | null) => void
@@ -355,6 +469,7 @@ const useStore = create<RFState>((set, get) => ({
   runInspectorPinned: false,
   runInspectorDrilldownActive: false,
   routingStrategyVisualization: null,
+  graphHistory: EMPTY_GRAPH_HISTORY,
 
   // Initial File State
   fileName: 'Untitled',
@@ -370,30 +485,112 @@ const useStore = create<RFState>((set, get) => ({
   viewportFitVersion: 0,
 
   onNodesChange: (changes: NodeChange[]) => {
-    const { scaffoldNodeIds, environmentProfile, attemptState } = get()
-    // Drop deletions of locked nodes (scaffold-locked or a frozen attempt); all
-    // other changes pass through.
-    const permitted = changes.filter(
-      (change) =>
-        !(
-          change.type === 'remove' &&
-          isNodeEditLocked(change.id, scaffoldNodeIds, environmentProfile, attemptState?.status)
-        )
-    )
-    set({
-      nodes: applyNodeChanges(permitted, get().nodes)
+    set((state) => {
+      // Drop deletions of locked nodes (scaffold-locked or a frozen attempt); all
+      // other changes pass through.
+      const permitted = changes.filter(
+        (change) =>
+          !(
+            change.type === 'remove' &&
+            isNodeEditLocked(
+              change.id,
+              state.scaffoldNodeIds,
+              state.environmentProfile,
+              state.attemptState?.status
+            )
+          )
+      )
+      const nodes = applyNodeChanges(permitted, state.nodes)
+      const hasMeaningfulChange = shouldRecordNodeChanges(permitted)
+      const isDragging = hasActiveNodeDrag(permitted)
+      const hasPositionChange = hasNodePositionChange(permitted)
+      const graphHistory = !hasMeaningfulChange
+        ? state.graphHistory
+        : isDragging
+          ? pushGraphDragHistory(state)
+          : {
+              ...(hasPositionChange && state.graphHistory.dragSnapshot
+                ? state.graphHistory
+                : resolveGraphHistory(state, { nodes, edges: state.edges })),
+              dragSnapshot: null
+            }
+
+      return {
+        nodes,
+        graphHistory
+      }
     })
   },
 
   onEdgesChange: (changes: EdgeChange[]) => {
-    set({
-      edges: applyEdgeChanges(changes, get().edges)
+    set((state) => {
+      const edges = applyEdgeChanges(changes, state.edges)
+      return {
+        edges,
+        graphHistory: shouldRecordEdgeChanges(changes)
+          ? resolveGraphHistory(state, { nodes: state.nodes, edges })
+          : state.graphHistory
+      }
     })
   },
 
   onConnect: (connection: Connection) => {
-    set({
-      edges: addEdge(connection, get().edges)
+    set((state) => {
+      const edges = addEdge(connection, state.edges)
+      return {
+        edges,
+        graphHistory: resolveGraphHistory(state, { nodes: state.nodes, edges })
+      }
+    })
+  },
+
+  undoGraph: () => {
+    set((state) => {
+      if (state.attemptState?.status === 'LOCKED') {
+        return {}
+      }
+
+      const previous = state.graphHistory.past[state.graphHistory.past.length - 1]
+      if (!previous) {
+        return {}
+      }
+
+      const current = snapshotGraph(state)
+      const restored = cloneGraphSnapshot(previous)
+      return {
+        nodes: restored.nodes,
+        edges: restored.edges,
+        graphHistory: {
+          past: state.graphHistory.past.slice(0, -1),
+          future: [current, ...state.graphHistory.future].slice(0, GRAPH_HISTORY_LIMIT),
+          dragSnapshot: null
+        }
+      }
+    })
+  },
+
+  redoGraph: () => {
+    set((state) => {
+      if (state.attemptState?.status === 'LOCKED') {
+        return {}
+      }
+
+      const next = state.graphHistory.future[0]
+      if (!next) {
+        return {}
+      }
+
+      const current = snapshotGraph(state)
+      const restored = cloneGraphSnapshot(next)
+      return {
+        nodes: restored.nodes,
+        edges: restored.edges,
+        graphHistory: {
+          past: [...state.graphHistory.past, current].slice(-GRAPH_HISTORY_LIMIT),
+          future: state.graphHistory.future.slice(1),
+          dragSnapshot: null
+        }
+      }
     })
   },
 
@@ -430,15 +627,35 @@ const useStore = create<RFState>((set, get) => ({
       ...(isVpcContainer && { zIndex: calculatedZIndex })
     }
 
-    set({ nodes: [...currentNodes, safeNode] })
+    set((state) => {
+      const nodes = [...state.nodes, safeNode]
+      return {
+        nodes,
+        graphHistory: resolveGraphHistory(state, { nodes, edges: state.edges })
+      }
+    })
   },
 
-  setNodes: (nodes: Node[]) => {
-    set({ nodes })
+  setNodes: (nodes: Node[], options) => {
+    set((state) => ({
+      nodes,
+      graphHistory: resolveGraphHistory(state, { nodes, edges: state.edges }, options)
+    }))
   },
 
-  setEdges: (edges: Edge[]) => {
-    set({ edges })
+  setEdges: (edges: Edge[], options) => {
+    set((state) => ({
+      edges,
+      graphHistory: resolveGraphHistory(state, { nodes: state.nodes, edges }, options)
+    }))
+  },
+
+  setGraph: (nodes: Node[], edges: Edge[], options) => {
+    set((state) => ({
+      nodes,
+      edges,
+      graphHistory: resolveGraphHistory(state, { nodes, edges }, options)
+    }))
   },
 
   selectGraphElements: ({ nodeId, edgeId }) => {
@@ -458,13 +675,13 @@ const useStore = create<RFState>((set, get) => ({
     })
   },
 
-  updateNodeData: (nodeId: string, patch: Partial<AnyNodeData>) => {
+  updateNodeData: (nodeId: string, patch: CanvasNodeDataPatch) => {
     const { scaffoldNodeIds, environmentProfile, attemptState } = get()
     if (isNodeEditLocked(nodeId, scaffoldNodeIds, environmentProfile, attemptState?.status)) {
       return
     }
-    set({
-      nodes: get().nodes.map((node) => {
+    set((state) => {
+      const nodes = state.nodes.map((node) => {
         if (node.id === nodeId) {
           return {
             ...node,
@@ -476,12 +693,17 @@ const useStore = create<RFState>((set, get) => ({
         }
         return node
       })
+
+      return {
+        nodes,
+        graphHistory: resolveGraphHistory(state, { nodes, edges: state.edges })
+      }
     })
   },
 
   updateEdgeData: (edgeId, patch) => {
-    set({
-      edges: get().edges.map((edge) => {
+    set((state) => {
+      const edges = state.edges.map((edge) => {
         if (edge.id === edgeId) {
           const nextData = patch.data
             ? {
@@ -497,6 +719,11 @@ const useStore = create<RFState>((set, get) => ({
         }
         return edge
       })
+
+      return {
+        edges,
+        graphHistory: resolveGraphHistory(state, { nodes: state.nodes, edges })
+      }
     })
   },
 
