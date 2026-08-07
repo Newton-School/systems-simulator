@@ -1131,7 +1131,15 @@ function applyRewrite(id: string, q: any): Rewrite | undefined {
 }
 
 // ── emit ─────────────────────────────────────────────────────────────────────
+// Deferred to a later version: these questions require coordination/auxiliary
+// nodes (idempotency-manager, event-sourcing-store, distributed-lock, rate-limiter)
+// that are not in the V1 palette and have no special simulation behavior yet. Their
+// generated trios live under `deferred-v2/`; skip them here so the V1 bank has only
+// the 9 buildable, physics-relevant questions.
+const DEFERRED_V2 = new Set(['payment-system', 'ticketmaster', 'rate-limiter'])
+
 for (const [id, build] of Object.entries(builders)) {
+  if (DEFERRED_V2.has(id)) continue
   const trio = build()
   const dir = join(ROOT, id)
   mkdirSync(dir, { recursive: true })
