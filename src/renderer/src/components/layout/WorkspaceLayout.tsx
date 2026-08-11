@@ -31,9 +31,11 @@ import { applyAutoLayout } from '@renderer/utils/autoLayout'
 import { validateTopology } from '../../../../engine/validation/validator'
 import type { LatencyPercentiles } from '../../../../engine/metrics'
 import type { TimeSeriesSnapshot } from '../../../../engine/analysis/output'
+import type { TopologyJSON } from '../../../../engine/core/types'
 import {
   buildNewtonSaveBlob,
-  isNewtonSaveCommand
+  isNewtonSaveCommand,
+  type NewtonSaveMode
 } from '../../../../engine/analysis/newtonGamePlayground'
 import { buildGamePlaygroundResult } from '../../../../engine/analysis/gamePlayground'
 import {
@@ -336,10 +338,13 @@ export const WorkspaceLayout = () => {
   const attemptState = useStore((s) => s.attemptState)
   const environmentProfile = useStore((s) => s.environmentProfile)
   const setActiveQuestion = useStore((s) => s.setActiveQuestion)
+  const setActiveQuestionPromptHtml = useStore((s) => s.setActiveQuestionPromptHtml)
   const clearJustificationAnswers = useStore((s) => s.clearJustificationAnswers)
   const questionLoadRequest = useStore((s) => s.questionLoadRequest)
   const clearQuestionLoadRequest = useStore((s) => s.clearQuestionLoadRequest)
   const setAttemptState = useStore((s) => s.setAttemptState)
+  const newtonSaveMode = useStore((s) => s.newtonSaveMode)
+  const setNewtonSaveMode = useStore((s) => s.setNewtonSaveMode)
   const setEnvironmentProfile = useStore((s) => s.setEnvironmentProfile)
   const setResultsRevealed = useStore((s) => s.setResultsRevealed)
   const requestViewportFit = useStore((s) => s.requestViewportFit)
@@ -347,6 +352,9 @@ export const WorkspaceLayout = () => {
   const setRunInspectorPinned = useStore((s) => s.setRunInspectorPinned)
   const routingVisualization = useStore((s) => s.routingStrategyVisualization)
   const setRoutingVisualization = useStore((s) => s.setRoutingStrategyVisualization)
+  const isNewtonAssignmentHost = isNewtonHostMode()
+  const canUseTopologyFiles =
+    !isNewtonAssignmentHost && (!activeQuestion || environmentProfile.mode === 'AUTHOR')
   const { confirm, dialog } = useConfirmDialog()
   const confirmDiscardChanges = useCallback(
     () =>
@@ -359,15 +367,30 @@ export const WorkspaceLayout = () => {
     [confirm]
   )
 
-  const { handleSave, handleOpen, loadFromData } = useFlowPersistence(confirmDiscardChanges)
+  const { handleSave, handleOpen, loadFromData } = useFlowPersistence(confirmDiscardChanges, {
+    canSave: canUseTopologyFiles,
+    canOpen: canUseTopologyFiles
+  })
 
   const clearQuestionSession = useCallback(() => {
     setActiveQuestion(null)
+    setActiveQuestionPromptHtml(null)
     setAttemptState(null)
-    setEnvironmentProfile(resolveEnvironmentProfile())
+    setNewtonSaveMode(null)
+    setEnvironmentProfile(
+      isNewtonAssignmentHost ? resolveEnvironmentProfile('ASSIGNMENT') : resolveEnvironmentProfile()
+    )
     setResultsRevealed(false)
     setLeftSidebarTab('library')
-  }, [setActiveQuestion, setAttemptState, setEnvironmentProfile, setResultsRevealed])
+  }, [
+    isNewtonAssignmentHost,
+    setActiveQuestion,
+    setActiveQuestionPromptHtml,
+    setAttemptState,
+    setNewtonSaveMode,
+    setEnvironmentProfile,
+    setResultsRevealed
+  ])
 
   const handleOpenTopology = useCallback(async () => {
     const loaded = await handleOpen()
@@ -455,15 +478,22 @@ export const WorkspaceLayout = () => {
   const { serialize } = useTopologySerializer()
 
   useEffect(() => {
+    if (!isNewtonAssignmentHost) {
+      return
+    }
+    setEnvironmentProfile(resolveEnvironmentProfile('ASSIGNMENT'))
+  }, [isNewtonAssignmentHost, setEnvironmentProfile])
+
+  useEffect(() => {
     // Announce readiness in whichever protocol the host speaks. The Newton Game
     // Playground host expects the raw `'ready-event'` string; our own host
     // expects the structured `ns-simulator:ready`.
-    if (isNewtonHostMode()) {
+    if (isNewtonAssignmentHost) {
       postNewtonReady()
     } else {
       postQuestionHostMessage({ type: 'ns-simulator:ready' })
     }
-  }, [])
+  }, [isNewtonAssignmentHost])
 
   useEffect(() => {
     if (!activeQuestion || !attemptState || attemptState.questionId !== activeQuestion.id) {
@@ -479,9 +509,16 @@ export const WorkspaceLayout = () => {
     async (
       questionPackage: QuestionPackage,
       restoredAttempt: AttemptState | undefined,
-      options: { readOnly?: boolean; onError?: () => void } = {}
+      options: {
+        readOnly?: boolean
+        onError?: () => void
+        seedTopology?: TopologyJSON
+        promptHtml?: string
+        newtonSaveMode?: NewtonSaveMode | null
+      } = {}
     ) => {
-      const topologyToLoad = restoredAttempt?.topology ?? questionPackage.scaffold.topology
+      const topologyToLoad =
+        restoredAttempt?.topology ?? options.seedTopology ?? questionPackage.scaffold.topology
       const launchData =
         topologyToLoad ??
         ({ version: '2.0.0', nodes: [], edges: [], scenario: DEFAULT_SCENARIO_STATE } as const)
@@ -503,6 +540,8 @@ export const WorkspaceLayout = () => {
       setLeftSidebarTab('question')
       setIsLeftOpen(true)
       setActiveQuestion(questionPackage)
+      setActiveQuestionPromptHtml(options.promptHtml ?? null)
+      setNewtonSaveMode(options.newtonSaveMode ?? null)
 
       const baseAttempt =
         restoredAttempt ??
@@ -518,7 +557,9 @@ export const WorkspaceLayout = () => {
       loadFromData,
       selectGraphElements,
       setActiveQuestion,
+      setActiveQuestionPromptHtml,
       setAttemptState,
+      setNewtonSaveMode,
       setRoutingVisualization,
       sim,
       setLeftSidebarTab,
@@ -545,7 +586,7 @@ export const WorkspaceLayout = () => {
       }
 
       // Newton Game Playground host: raw `'save'` request, or a JSON seed string.
-      if (isNewtonHostMode()) {
+      if (isNewtonAssignmentHost) {
         if (isNewtonSaveCommand(event.data)) {
           repostLastNewtonSave()
           return
@@ -555,9 +596,13 @@ export const WorkspaceLayout = () => {
           return
         }
         rememberTrustedHostOrigin(event.origin)
+        setEnvironmentProfile(resolveEnvironmentProfile('ASSIGNMENT'))
         setResultsRevealed(false)
         void loadQuestionIntoWorkspace(seed.questionPackage, seed.priorAttempt, {
-          readOnly: seed.readOnly
+          readOnly: seed.readOnly,
+          seedTopology: seed.seedTopology,
+          promptHtml: seed.promptHtml,
+          newtonSaveMode: seed.saveMode
         })
         return
       }
@@ -624,14 +669,20 @@ export const WorkspaceLayout = () => {
 
     window.addEventListener('message', onMessage)
     return () => window.removeEventListener('message', onMessage)
-  }, [loadFromData, loadQuestionIntoWorkspace, setEnvironmentProfile, setResultsRevealed])
+  }, [
+    isNewtonAssignmentHost,
+    loadFromData,
+    loadQuestionIntoWorkspace,
+    setEnvironmentProfile,
+    setResultsRevealed
+  ])
 
   // Newton Game Playground: debounced host-side autosave. On every design edit,
   // persist the current topology to the host (carrying the last-known scores
   // forward - no re-grade), so game_json survives reloads/devices between
   // submits. Skipped in read-only (locked) attempts.
   useEffect(() => {
-    if (!isNewtonHostMode() || !activeQuestion || !attemptState) {
+    if (!isNewtonAssignmentHost || !activeQuestion || !attemptState) {
       return
     }
     if (attemptState.status === 'LOCKED') {
@@ -654,12 +705,23 @@ export const WorkspaceLayout = () => {
           { ...attemptState, topology, lastSavedAt: now },
           result,
           now,
-          useStore.getState().justificationAnswers
+          {
+            justificationAnswers: useStore.getState().justificationAnswers,
+            saveMode: newtonSaveMode ?? 'mutable-only'
+          }
         )
       )
     }, 4000)
     return () => clearTimeout(handle)
-  }, [nodes, edges, activeQuestion, attemptState, serialize])
+  }, [
+    isNewtonAssignmentHost,
+    nodes,
+    edges,
+    activeQuestion,
+    attemptState,
+    newtonSaveMode,
+    serialize
+  ])
 
   const handleLoadScenario = useCallback(
     async (scenarioId: string) => {
@@ -937,7 +999,8 @@ export const WorkspaceLayout = () => {
         scenario={scenario}
         onScenarioChange={updateScenario}
         minimal={environmentProfile.chromeDensity === 'minimal'}
-        canOpen={!activeQuestion || environmentProfile.mode === 'AUTHOR'}
+        canOpen={canUseTopologyFiles}
+        canSave={canUseTopologyFiles}
       />
 
       {runIssues.messages.length > 0 && (

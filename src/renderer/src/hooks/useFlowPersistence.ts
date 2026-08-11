@@ -21,16 +21,25 @@ const normalizeSuggestedFileName = (fileName: string | null): string => {
     : `${trimmedFileName}.json`
 }
 
-const useKeyboardShortcuts = (onSave: () => void, onOpen: () => void) => {
+interface FlowPersistenceCapabilities {
+  canSave?: boolean
+  canOpen?: boolean
+}
+
+const useKeyboardShortcuts = (
+  onSave: () => void,
+  onOpen: () => void,
+  { canSave = true, canOpen = true }: FlowPersistenceCapabilities
+) => {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const isMod = e.metaKey || e.ctrlKey
       if (!isMod) return
 
-      if (e.key.toLowerCase() === 's') {
+      if (canSave && e.key.toLowerCase() === 's') {
         e.preventDefault()
         onSave()
-      } else if (e.key.toLowerCase() === 'o' && !e.shiftKey) {
+      } else if (canOpen && e.key.toLowerCase() === 'o' && !e.shiftKey) {
         e.preventDefault()
         onOpen()
       }
@@ -38,10 +47,13 @@ const useKeyboardShortcuts = (onSave: () => void, onOpen: () => void) => {
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [onSave, onOpen])
+  }, [canOpen, canSave, onSave, onOpen])
 }
 
-export const useFlowPersistence = (confirmDiscardChanges: () => Promise<boolean>) => {
+export const useFlowPersistence = (
+  confirmDiscardChanges: () => Promise<boolean>,
+  { canSave = true, canOpen = true }: FlowPersistenceCapabilities = {}
+) => {
   const nodes = useStore((s) => s.nodes)
   const edges = useStore((s) => s.edges)
   const setGraph = useStore((s) => s.setGraph)
@@ -127,11 +139,13 @@ export const useFlowPersistence = (confirmDiscardChanges: () => Promise<boolean>
   }, [confirmDiscardChanges])
 
   const handleOpenWithCheckIfSaved = useCallback(async (): Promise<boolean> => {
+    if (!canOpen) return false
+
     const ok = await confirmIfUnsaved()
     if (!ok) return false
 
     return handleOpen()
-  }, [confirmIfUnsaved, handleOpen])
+  }, [canOpen, confirmIfUnsaved, handleOpen])
 
   const loadFromData = useCallback(
     async (fileContent: string | object, fileName?: string): Promise<boolean> => {
@@ -144,6 +158,8 @@ export const useFlowPersistence = (confirmDiscardChanges: () => Promise<boolean>
   )
 
   const handleSaveWrapper = useCallback(async () => {
+    if (!canSave) return
+
     const savedFile = await innerSave(normalizeSuggestedFileName(useStore.getState().fileName))
 
     if (savedFile?.name) {
@@ -151,9 +167,9 @@ export const useFlowPersistence = (confirmDiscardChanges: () => Promise<boolean>
       setFileName(savedFile.name)
       setUnsaved(false)
     }
-  }, [handleGetFileData, innerSave, setFileName, setUnsaved])
+  }, [canSave, handleGetFileData, innerSave, setFileName, setUnsaved])
 
-  useKeyboardShortcuts(handleSaveWrapper, handleOpenWithCheckIfSaved)
+  useKeyboardShortcuts(handleSaveWrapper, handleOpenWithCheckIfSaved, { canSave, canOpen })
 
   useEffect(() => {
     const currentSnapshot = handleGetFileData()

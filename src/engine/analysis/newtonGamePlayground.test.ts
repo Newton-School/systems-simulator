@@ -24,8 +24,21 @@ const pkg: QuestionPackage = {
   },
   scaffold: { type: 'empty' },
   constraints: { canModifyScaffold: true, canRemoveScaffoldNodes: true },
-  suite: { name: 's', visibleToStudent: false, cases: [{ id: 'baseline' }] },
+  structuralRules: [
+    {
+      id: 'single-source',
+      kind: 'requires_single_source',
+      description: 'Exactly one traffic source'
+    }
+  ],
+  suite: {
+    name: 'suite',
+    visibleToStudent: false,
+    cases: [{ id: 'baseline' }]
+  },
   rubric: {
+    id: 'url-rubric',
+    passThreshold: 1,
     checks: [{ id: 'c', description: 'c', metric: 'summary.errorRate', op: '<', value: 0.1 }]
   }
 }
@@ -59,38 +72,106 @@ function result(overrides: Partial<GamePlaygroundResult> = {}): GamePlaygroundRe
   }
 }
 
+function rowAuthoredSeed(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    question_title: pkg.title,
+    question_text:
+      '<p>Design a write path that stores short-code mappings.</p><h3>Scale</h3><ul><li>Peak RPS: 200,000</li></ul>',
+    rubric: [
+      {
+        title: 'SIMULATOR_CONFIG',
+        spec: {
+          type: 'SIMULATOR_CONFIG',
+          questionId: pkg.id,
+          questionVersion: pkg.version,
+          questionType: pkg.type,
+          difficulty: pkg.difficulty,
+          presentationMode: 'raw-html',
+          scaffold: pkg.scaffold,
+          constraints: pkg.constraints,
+          suite: pkg.suite,
+          rubric: {
+            id: pkg.rubric.id,
+            passThreshold: pkg.rubric.passThreshold
+          }
+        }
+      },
+      {
+        title: 'STRUCTURAL_RULE: single-source',
+        spec: {
+          type: 'STRUCTURAL_RULE',
+          id: 'single-source',
+          kind: 'requires_single_source',
+          description: 'Exactly one traffic source'
+        }
+      },
+      {
+        title: 'RUBRIC_CHECK: c',
+        spec: {
+          type: 'RUBRIC_CHECK',
+          id: 'c',
+          description: 'c',
+          metric: 'summary.errorRate',
+          op: '<',
+          value: 0.1
+        }
+      }
+    ],
+    ...overrides
+  }
+}
+
 describe('parseNewtonSeed', () => {
-  it('parses a first-open seed where the seed IS the QuestionPackage', () => {
+  it('parses a legacy first-open seed where the seed IS the QuestionPackage', () => {
     const seed = parseNewtonSeed(pkg)
     expect(seed.questionPackage.id).toBe('url-shortener-v1')
     expect(seed.priorAttempt).toBeUndefined()
+    expect(seed.promptHtml).toBeUndefined()
+    expect(seed.saveMode).toBe('legacy-package')
     expect(seed.readOnly).toBe(false)
   })
 
-  it('accepts a JSON string and reads host metadata (read_only, playgroundHash)', () => {
+  it('parses a row-authored Django seed into a QuestionPackage plus raw prompt HTML', () => {
     const seed = parseNewtonSeed(
       JSON.stringify({
-        ...pkg,
+        ...rowAuthoredSeed(),
         read_only: true,
-        playgroundHash: 'abc123',
-        question_text: '<p>x</p>'
+        playgroundHash: 'abc123'
       })
     )
-    expect(seed.questionPackage.id).toBe('url-shortener-v1')
+
+    expect(seed.questionPackage.id).toBe(pkg.id)
+    expect(seed.questionPackage.structuralRules?.[0]?.id).toBe('single-source')
+    expect(seed.questionPackage.prompt.text).toContain('Design a write path')
+    expect(seed.promptHtml).toContain('<h3>Scale</h3>')
     expect(seed.readOnly).toBe(true)
     expect(seed.playgroundHash).toBe('abc123')
+    expect(seed.saveMode).toBe('mutable-only')
   })
 
-  it('parses a reopen seed (prior save blob) and restores the attempt', () => {
+  it('preserves mutable seed topology for row-authored first-open seeds', () => {
+    const seed = parseNewtonSeed(rowAuthoredSeed({ topology: topo() }))
+    expect(seed.priorAttempt).toBeUndefined()
+    expect(seed.seedTopology).toEqual(topo())
+  })
+
+  it('parses a row-authored reopen seed (save blob + Django metadata) and restores the attempt', () => {
     const attempt = createAttemptState({ questionId: pkg.id, topology: topo() })
     const blob = buildNewtonSaveBlob(pkg, attempt, result(), '2026-08-04T00:00:00.000Z')
-    const seed = parseNewtonSeed({ ...blob, playgroundHash: 'p1', read_only: false })
-    expect(seed.questionPackage.id).toBe('url-shortener-v1')
+    const seed = parseNewtonSeed({
+      ...rowAuthoredSeed(),
+      ...blob,
+      playgroundHash: 'p1',
+      read_only: false
+    })
+
+    expect(seed.questionPackage.id).toBe(pkg.id)
     expect(seed.priorAttempt?.attemptId).toBe(attempt.attemptId)
     expect(seed.playgroundHash).toBe('p1')
+    expect(seed.saveMode).toBe('mutable-only')
   })
 
-  it('throws on a seed with no recoverable QuestionPackage', () => {
+  it('throws on a seed with no recoverable question metadata', () => {
     expect(() => parseNewtonSeed({ playgroundHash: 'x' })).toThrow()
     expect(() => parseNewtonSeed('not json')).toThrow()
   })
@@ -114,26 +195,28 @@ describe('mapResultToNewtonScores', () => {
 })
 
 describe('buildNewtonSaveBlob', () => {
-  it('carries the package + attempt forward and puts score keys at the top level', () => {
+  it('builds the mutable-only save blob for row-authored Newton questions', () => {
     const attempt = createAttemptState({ questionId: pkg.id, topology: topo() })
     const blob = buildNewtonSaveBlob(pkg, attempt, result(), '2026-08-04T00:00:00.000Z')
+
     expect(blob.version).toBe(NEWTON_SAVE_BLOB_VERSION)
     expect(blob.test_cases_passed).toBe(3)
     expect(blob.test_cases_total).toBe(4)
     expect(blob.all_test_cases_passed).toBe(false)
-    expect(blob.questionPackage.id).toBe('url-shortener-v1') // carried forward
-    expect(blob.topology).toEqual(attempt.topology) // mirrored at the top level
+    expect(blob.questionPackage).toBeUndefined()
+    expect(blob.topology).toEqual(attempt.topology)
     expect(blob.attemptState.attemptId).toBe(attempt.attemptId)
     expect(blob.rubric_results).toHaveLength(1)
     expect(blob.saved_at).toBe('2026-08-04T00:00:00.000Z')
   })
 
-  it('round-trips through a reopen seed', () => {
+  it('keeps carrying the package forward for legacy Newton questions', () => {
     const attempt = createAttemptState({ questionId: pkg.id, topology: topo() })
-    const blob = buildNewtonSaveBlob(pkg, attempt, result(), '2026-08-04T00:00:00.000Z')
-    const reopened = parseNewtonSeed(JSON.stringify(blob))
-    expect(reopened.questionPackage.id).toBe(pkg.id)
-    expect(reopened.priorAttempt?.attemptId).toBe(attempt.attemptId)
+    const blob = buildNewtonSaveBlob(pkg, attempt, result(), '2026-08-04T00:00:00.000Z', {
+      saveMode: 'legacy-package'
+    })
+
+    expect(blob.questionPackage?.id).toBe(pkg.id)
   })
 })
 
