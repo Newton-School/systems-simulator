@@ -14,40 +14,93 @@
  *     verbatim and reads only `test_cases_passed` / `all_test_cases_passed`.
  *   - the host may post the raw string `'save'` asking for the current state.
  *
- * For the ns-simulator the seed's game state is a self-contained `QuestionPackage`
- * (Strategy A — the package lives in `initial_game_state`; see
- * `newton-api-backend-integration.md` §2). Because the host replaces the seed
- * base with `game_json` after the first save, every save blob must **carry the
- * package forward**.
+ * The adapter now supports two Newton authoring models:
+ *
+ *   - legacy: the seed itself is a full `QuestionPackage`, or a save blob that
+ *     carries one forward.
+ *   - row-authored: immutable question metadata comes from Django
+ *     (`question_title`, `question_text`, `rubric[].spec`), while mutable learner
+ *     state comes from `initial_game_state` / `game_json`.
  *
  * This module is pure (no DOM / postMessage) — the renderer glue lives in
  * `newtonHostMessaging.ts`.
  */
 import type { TopologyJSON } from '../core/types'
+import { TopologyJSONSchema } from '../validation/validator'
 import type { GamePlaygroundResult } from './gamePlayground'
 import {
   parseAttemptState,
   parseQuestionPackage,
+  QUESTION_PACKAGE_VERSION,
   type AttemptState,
   type HostTest,
-  type QuestionPackage
+  type NFRTarget,
+  type QuestionConstraints,
+  type QuestionPackage,
+  type QuestionPrompt,
+  type QuestionScaffold,
+  type QuestionSuite,
+  type ScaleParameters
 } from './question'
+import type { JustifyPrompt, SemanticCriterion, WorkloadCategory } from './gradingCriteria'
+import type { StructuralRule } from './structural'
 
 /** The raw string the game posts to announce it is listening. */
 export const NEWTON_READY_EVENT = 'ready-event' as const
 /** The raw string the host posts to ask the game to persist current state. */
 export const NEWTON_SAVE_COMMAND = 'save' as const
 export const NEWTON_SAVE_BLOB_VERSION = '1.0' as const
+export type NewtonSaveMode = 'legacy-package' | 'mutable-only'
+
+interface NewtonStructuredPresentation {
+  prompt?: string
+  functionalRequirements?: string[]
+  nonFunctionalRequirements?: NFRTarget[]
+  scale?: ScaleParameters
+}
+
+interface NewtonSimulatorConfig {
+  type: 'SIMULATOR_CONFIG'
+  questionId?: string
+  questionVersion?: string
+  questionType?: QuestionPackage['type']
+  difficulty?: QuestionPackage['difficulty']
+  workloadCategory?: WorkloadCategory
+  presentationMode?: 'raw-html' | 'structured'
+  presentation?: NewtonStructuredPresentation
+  promptSource?: 'question_text'
+  scaffold?: QuestionScaffold
+  constraints?: QuestionConstraints
+  suite?: QuestionSuite
+  rubric?: {
+    id?: string
+    passThreshold?: number
+  }
+  justify?: JustifyPrompt[]
+}
+
+interface NewtonRubricRow {
+  hash?: string
+  title?: string
+  hidden?: boolean
+  spec?: unknown
+}
 
 /** The parsed seed the host pushes into the iframe. */
 export interface NewtonGameSeed {
   questionPackage: QuestionPackage
   /** Restored prior attempt (present on a reopen; absent on first open). */
   priorAttempt?: AttemptState
+  /** Draft mutable topology from `initial_game_state` when no attempt exists yet. */
+  seedTopology?: TopologyJSON
   /** Mentor / locked view — editing and submitting must be disabled. */
   readOnly: boolean
   /** The learner's playground hash, when the host provided one. */
   playgroundHash?: string
+  /** Raw learner-visible Django HTML for assignment-mode rendering. */
+  promptHtml?: string
+  /** Whether Newton saves should keep carrying the full package forward. */
+  saveMode: NewtonSaveMode
 }
 
 /**
@@ -64,8 +117,8 @@ export interface NewtonSaveBlob {
   /** The student's design, mirrored at the top level for direct inspection /
    * future server-side grading (also lives inside `attemptState`). */
   topology: TopologyJSON
-  /** Carried forward so the next seed (= game_json) still restores everything. */
-  questionPackage: QuestionPackage
+  /** Legacy compatibility only: old Newton-authored questions still rely on this. */
+  questionPackage?: QuestionPackage
   attemptState: AttemptState
   /** Advisory per-check detail for UI restore — never re-graded by the backend. */
   rubric_results: HostTest[]
@@ -84,6 +137,170 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
 }
 
+function asNonEmptyString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined
+}
+
+function isRubricRow(value: unknown): value is NewtonRubricRow {
+  return isRecord(value)
+}
+
+function toPromptTextFromHtml(html: string | undefined, fallback: string): string {
+  if (!html) {
+    return fallback
+  }
+
+  const text = html
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&#39;/gi, "'")
+    .replace(/&quot;/gi, '"')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  return text.length > 0 ? text : fallback
+}
+
+function defaultPrompt(title: string, questionTextHtml?: string): QuestionPrompt {
+  return {
+    text: toPromptTextFromHtml(questionTextHtml, title),
+    functionalRequirements: [],
+    nonFunctionalRequirements: [],
+    scale: {}
+  }
+}
+
+function promptFromPresentation(
+  title: string,
+  presentation: NewtonStructuredPresentation | undefined,
+  questionTextHtml?: string
+): QuestionPrompt {
+  if (!presentation) {
+    return defaultPrompt(title, questionTextHtml)
+  }
+
+  const promptText = asNonEmptyString(presentation.prompt)
+  return {
+    text: promptText ?? defaultPrompt(title, questionTextHtml).text,
+    functionalRequirements: Array.isArray(presentation.functionalRequirements)
+      ? presentation.functionalRequirements.filter(
+          (value): value is string => typeof value === 'string' && value.trim().length > 0
+        )
+      : [],
+    nonFunctionalRequirements: Array.isArray(presentation.nonFunctionalRequirements)
+      ? presentation.nonFunctionalRequirements
+      : [],
+    scale: isRecord(presentation.scale) ? (presentation.scale as ScaleParameters) : {}
+  }
+}
+
+function stripSpecType<T extends Record<string, unknown>>(spec: T): Omit<T, 'type'> {
+  const { type: _type, ...rest } = spec
+  return rest
+}
+
+function deriveQuestionId(title: string): string {
+  return title
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+}
+
+function legacyQuestionPackageFromSeed(seed: Record<string, unknown>): QuestionPackage | null {
+  const candidate = isRecord(seed.questionPackage) ? seed.questionPackage : seed
+  try {
+    return parseQuestionPackage(candidate)
+  } catch {
+    return null
+  }
+}
+
+function readSeedTopology(seed: Record<string, unknown>): TopologyJSON | undefined {
+  if (!isRecord(seed.topology)) {
+    return undefined
+  }
+  return TopologyJSONSchema.parse(seed.topology)
+}
+
+function buildQuestionPackageFromRows(seed: Record<string, unknown>): {
+  questionPackage: QuestionPackage
+  promptHtml?: string
+} {
+  const title = asNonEmptyString(seed.question_title) ?? 'Untitled Question'
+  const promptHtml = asNonEmptyString(seed.question_text)
+  const rubricRows = Array.isArray(seed.rubric) ? seed.rubric.filter(isRubricRow) : []
+  const specs = rubricRows
+    .map((row) => (isRecord(row.spec) ? row.spec : null))
+    .filter((spec): spec is Record<string, unknown> => spec !== null)
+
+  const config = specs.find((spec) => spec.type === 'SIMULATOR_CONFIG') as
+    | (Record<string, unknown> & NewtonSimulatorConfig)
+    | undefined
+  if (!config) {
+    throw new Error('Newton seed is missing the SIMULATOR_CONFIG rubric row.')
+  }
+
+  const questionId = asNonEmptyString(config.questionId) ?? deriveQuestionId(title)
+  const questionVersion = asNonEmptyString(config.questionVersion) ?? QUESTION_PACKAGE_VERSION
+  const presentationMode = config.presentationMode ?? 'raw-html'
+  const prompt =
+    presentationMode === 'structured'
+      ? promptFromPresentation(title, config.presentation, promptHtml)
+      : defaultPrompt(title, promptHtml)
+
+  const structuralRules = specs
+    .filter((spec) => spec.type === 'STRUCTURAL_RULE')
+    .map((spec) => stripSpecType(spec) as unknown as StructuralRule)
+  const semanticCriteria = specs
+    .filter((spec) => spec.type === 'SEMANTIC_CRITERION')
+    .map((spec) => stripSpecType(spec) as unknown as SemanticCriterion)
+  const rubricChecks = specs
+    .filter((spec) => spec.type === 'RUBRIC_CHECK')
+    .map((spec) => stripSpecType(spec))
+
+  const questionPackage = parseQuestionPackage({
+    version: questionVersion,
+    id: questionId,
+    title,
+    difficulty: config.difficulty ?? 'intermediate',
+    type: config.questionType ?? 'open-build',
+    prompt,
+    scaffold: config.scaffold ?? { type: 'empty' },
+    constraints: config.constraints ?? {
+      canModifyScaffold: true,
+      canRemoveScaffoldNodes: true
+    },
+    ...(structuralRules.length > 0 ? { structuralRules } : {}),
+    ...(semanticCriteria.length > 0 ? { semanticCriteria } : {}),
+    ...(config.workloadCategory ? { workloadCategory: config.workloadCategory } : {}),
+    suite: config.suite ?? {
+      name: `${questionId}-suite`,
+      visibleToStudent: false,
+      cases: [{ id: 'baseline' }]
+    },
+    rubric: {
+      ...(isRecord(config.rubric) && asNonEmptyString(config.rubric.id)
+        ? { id: asNonEmptyString(config.rubric.id) }
+        : {}),
+      ...(isRecord(config.rubric) && typeof config.rubric.passThreshold === 'number'
+        ? { passThreshold: config.rubric.passThreshold }
+        : {}),
+      checks: rubricChecks
+    }
+  })
+
+  return {
+    questionPackage,
+    ...(presentationMode !== 'structured' && promptHtml ? { promptHtml } : {})
+  }
+}
+
 /** Normalizes the host's raw message data (a JSON string, or an object) to an object. */
 function toSeedObject(raw: unknown): Record<string, unknown> | null {
   if (typeof raw === 'string') {
@@ -98,12 +315,13 @@ function toSeedObject(raw: unknown): Record<string, unknown> | null {
 }
 
 /**
- * Parses a host seed into a `NewtonGameSeed`. Handles both shapes:
- *   - first open: the seed *is* the `QuestionPackage` (from `initial_game_state`),
- *   - reopen: the seed is a prior `NewtonSaveBlob` (`game_json`) with the package
- *     nested and a restorable `attemptState`.
- * Host metadata (`playgroundHash`, `read_only`, …) is read then stripped.
- * Throws if no valid `QuestionPackage` can be recovered.
+ * Parses a host seed into a `NewtonGameSeed`.
+ *
+ * Order of precedence:
+ *   1. legacy reopen/first-open (`questionPackage` nested, or seed itself parses
+ *      as a full QuestionPackage)
+ *   2. row-authored Newton metadata (`question_title`, `question_text`,
+ *      `rubric[].spec`) plus mutable `game_json` / `initial_game_state`
  */
 export function parseNewtonSeed(raw: unknown): NewtonGameSeed {
   const seed = toSeedObject(raw)
@@ -117,28 +335,37 @@ export function parseNewtonSeed(raw: unknown): NewtonGameSeed {
       ? seed.playgroundHash
       : undefined
 
-  // Reopen: a prior save blob carries the package + attempt explicitly.
-  if (isRecord(seed.questionPackage)) {
-    const questionPackage = parseQuestionPackage(seed.questionPackage)
+  const legacyQuestionPackage = legacyQuestionPackageFromSeed(seed)
+  if (legacyQuestionPackage) {
+    const legacySeedTopology = readSeedTopology(seed)
     const priorAttempt =
       seed.attemptState === undefined
         ? undefined
-        : parseAttemptState(seed.attemptState, questionPackage.id)
+        : parseAttemptState(seed.attemptState, legacyQuestionPackage.id)
     return {
-      questionPackage,
+      questionPackage: legacyQuestionPackage,
       ...(priorAttempt ? { priorAttempt } : {}),
+      ...(legacySeedTopology ? { seedTopology: legacySeedTopology } : {}),
       readOnly,
-      ...(playgroundHash ? { playgroundHash } : {})
+      ...(playgroundHash ? { playgroundHash } : {}),
+      saveMode: 'legacy-package'
     }
   }
 
-  // First open: the seed itself is the QuestionPackage. Host metadata keys
-  // (playgroundHash / read_only / …) are ignored by the package schema.
-  const questionPackage = parseQuestionPackage(seed)
+  const { questionPackage, promptHtml } = buildQuestionPackageFromRows(seed)
+  const priorAttempt =
+    seed.attemptState === undefined
+      ? undefined
+      : parseAttemptState(seed.attemptState, questionPackage.id)
+  const seedTopology = priorAttempt ? undefined : readSeedTopology(seed)
   return {
     questionPackage,
+    ...(priorAttempt ? { priorAttempt } : {}),
+    ...(seedTopology ? { seedTopology } : {}),
     readOnly,
-    ...(playgroundHash ? { playgroundHash } : {})
+    ...(playgroundHash ? { playgroundHash } : {}),
+    ...(promptHtml ? { promptHtml } : {}),
+    saveMode: 'mutable-only'
   }
 }
 
@@ -159,14 +386,18 @@ export function buildNewtonSaveBlob(
   attemptState: AttemptState,
   result: GamePlaygroundResult,
   savedAt: string,
-  justificationAnswers?: Record<string, string>
+  options: {
+    justificationAnswers?: Record<string, string>
+    saveMode?: NewtonSaveMode
+  } = {}
 ): NewtonSaveBlob {
+  const { justificationAnswers, saveMode = 'mutable-only' } = options
   const hasAnswers = justificationAnswers && Object.keys(justificationAnswers).length > 0
   return {
     version: NEWTON_SAVE_BLOB_VERSION,
     ...mapResultToNewtonScores(result),
     topology: attemptState.topology,
-    questionPackage,
+    ...(saveMode === 'legacy-package' ? { questionPackage } : {}),
     attemptState,
     rubric_results: result.tests.map((test) => ({ ...test })),
     ...(hasAnswers ? { justification_answers: { ...justificationAnswers } } : {}),

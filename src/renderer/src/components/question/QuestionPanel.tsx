@@ -5,6 +5,7 @@ import { useQuestionGrader } from '@renderer/hooks/useQuestionGrader'
 import { SAMPLE_QUESTION } from '@renderer/config/sampleQuestion'
 import { postQuestionHostMessage } from '@renderer/utils/questionHostMessaging'
 import { isNewtonHostMode, postNewtonSave } from '@renderer/utils/newtonHostMessaging'
+import { sanitizeQuestionPromptHtml } from '@renderer/utils/questionPromptHtml'
 import { archiveSubmission, listArchivedSubmissionIds } from '@renderer/utils/submissionArchive'
 import {
   buildGamePlaygroundResult,
@@ -104,8 +105,12 @@ export const QuestionPanel = () => {
   const isEmbedded = typeof window !== 'undefined' && window.parent !== window
   const activeQuestion = useStore((s) => s.activeQuestion)
   const setActiveQuestion = useStore((s) => s.setActiveQuestion)
+  const activeQuestionPromptHtml = useStore((s) => s.activeQuestionPromptHtml)
+  const setActiveQuestionPromptHtml = useStore((s) => s.setActiveQuestionPromptHtml)
   const attemptState = useStore((s) => s.attemptState)
   const setAttemptState = useStore((s) => s.setAttemptState)
+  const newtonSaveMode = useStore((s) => s.newtonSaveMode)
+  const setNewtonSaveMode = useStore((s) => s.setNewtonSaveMode)
   const justificationAnswers = useStore((s) => s.justificationAnswers)
   const setJustificationAnswer = useStore((s) => s.setJustificationAnswer)
   const requestQuestionLoad = useStore((s) => s.requestQuestionLoad)
@@ -129,6 +134,11 @@ export const QuestionPanel = () => {
   const [panelView, setPanelView] = useState<QuestionPanelView>('brief')
   const [archivedCount, setArchivedCount] = useState(0)
   const activeQuestionId = activeQuestion?.id
+  const sanitizedPromptHtml = useMemo(
+    () =>
+      activeQuestionPromptHtml ? sanitizeQuestionPromptHtml(activeQuestionPromptHtml) : undefined,
+    [activeQuestionPromptHtml]
+  )
 
   // Live topology for the budget meter - recomputed on every canvas edit (pure,
   // no simulation), so cost updates as the student adds/sizes components.
@@ -246,7 +256,10 @@ export const QuestionPanel = () => {
               completedAttempt,
               gameResult,
               now,
-              useStore.getState().justificationAnswers
+              {
+                justificationAnswers: useStore.getState().justificationAnswers,
+                saveMode: newtonSaveMode ?? 'mutable-only'
+              }
             )
           )
         } else {
@@ -335,7 +348,9 @@ export const QuestionPanel = () => {
                   type="button"
                   onClick={() => {
                     setAttemptState(null)
+                    setActiveQuestionPromptHtml(null)
                     setActiveQuestion(SAMPLE_QUESTION)
+                    setNewtonSaveMode(null)
                   }}
                   className="w-full rounded-md bg-nss-primary px-3 py-2 text-xs font-semibold text-white hover:bg-nss-primary-hover"
                 >
@@ -475,7 +490,9 @@ export const QuestionPanel = () => {
                 resetGrader()
                 setPendingRun(null)
                 setAttemptState(null)
+                setActiveQuestionPromptHtml(null)
                 setActiveQuestion(null)
+                setNewtonSaveMode(null)
               }}
               className="shrink-0 text-nss-muted hover:text-nss-text"
               aria-label="Close question"
@@ -540,68 +557,70 @@ export const QuestionPanel = () => {
 
         {effectivePanelView === 'brief' ? (
           <>
-            {/* <div className="rounded-md border border-nss-primary/20 bg-nss-primary/5 px-3 py-2 text-[11px] leading-relaxed text-nss-muted">
-              <span className="font-semibold text-nss-primary">Design the architecture.</span> Place
-              and connect components and size them - you are not writing application code. The
-              simulator grades the <em>shape</em> and <em>performance</em> of your system under the
-              question&rsquo;s load.
-            </div> */}
+            {sanitizedPromptHtml ? (
+              <div
+                className="text-xs leading-relaxed text-nss-text/90 [&_a]:text-nss-primary [&_a]:underline [&_blockquote]:border-l-2 [&_blockquote]:border-nss-border [&_blockquote]:pl-3 [&_code]:rounded [&_code]:bg-nss-surface [&_code]:px-1 [&_h1]:mb-2 [&_h1]:text-sm [&_h1]:font-semibold [&_h2]:mb-2 [&_h2]:text-sm [&_h2]:font-semibold [&_h3]:mb-2 [&_h3]:text-[11px] [&_h3]:font-semibold [&_li]:mb-1 [&_ol]:mb-3 [&_ol]:list-decimal [&_ol]:pl-4 [&_p]:mb-3 [&_pre]:overflow-x-auto [&_pre]:rounded [&_pre]:bg-nss-surface [&_pre]:p-2 [&_table]:mb-3 [&_table]:w-full [&_table]:border-collapse [&_td]:border [&_td]:border-nss-border [&_td]:px-2 [&_td]:py-1 [&_th]:border [&_th]:border-nss-border [&_th]:px-2 [&_th]:py-1 [&_th]:text-left [&_ul]:mb-3 [&_ul]:list-disc [&_ul]:pl-4"
+                dangerouslySetInnerHTML={{ __html: sanitizedPromptHtml }}
+              />
+            ) : (
+              <>
+                <p className="text-xs leading-relaxed text-nss-text/90">{activeQuestion.prompt.text}</p>
 
-            <p className="text-xs leading-relaxed text-nss-text/90">{activeQuestion.prompt.text}</p>
-
-            {activeQuestion.prompt.functionalRequirements.length > 0 && (
-              <section className="space-y-2">
-                <h3 className={SECTION_TITLE}>Functional Requirements</h3>
-                <ul className="list-disc space-y-1 pl-4 text-xs text-nss-muted">
-                  {activeQuestion.prompt.functionalRequirements.map((fr) => (
-                    <li key={fr}>{fr}</li>
-                  ))}
-                </ul>
-              </section>
-            )}
-
-            {activeQuestion.prompt.nonFunctionalRequirements.length > 0 && (
-              <section className="space-y-2">
-                <h3 className={SECTION_TITLE}>Non-Functional Targets</h3>
-                <div className="space-y-1">
-                  {activeQuestion.prompt.nonFunctionalRequirements.map((nfr) => (
-                    <div
-                      key={nfr.metric}
-                      className="flex items-center justify-between gap-3 text-xs"
-                    >
-                      <span className="text-nss-muted">{nfr.description}</span>
-                      <span className="shrink-0 font-semibold tabular-nums">
-                        {nfr.operator} {nfr.value}
-                        {nfr.unit === 'percent' ? '%' : nfr.unit === 'ms' ? 'ms' : ''}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </section>
-            )}
-
-            <section className="space-y-2">
-              <h3 className={SECTION_TITLE}>Scale</h3>
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                {activeQuestion.prompt.scale.peakRps !== undefined && (
-                  <div className="rounded border border-nss-border bg-nss-surface px-2 py-1.5">
-                    <div className="text-nss-muted">Peak RPS</div>
-                    <div className="font-semibold tabular-nums">
-                      {activeQuestion.prompt.scale.peakRps}
-                    </div>
-                  </div>
+                {activeQuestion.prompt.functionalRequirements.length > 0 && (
+                  <section className="space-y-2">
+                    <h3 className={SECTION_TITLE}>Functional Requirements</h3>
+                    <ul className="list-disc space-y-1 pl-4 text-xs text-nss-muted">
+                      {activeQuestion.prompt.functionalRequirements.map((fr) => (
+                        <li key={fr}>{fr}</li>
+                      ))}
+                    </ul>
+                  </section>
                 )}
-                {activeQuestion.prompt.scale.readWriteRatio !== undefined && (
-                  <div className="rounded border border-nss-border bg-nss-surface px-2 py-1.5">
-                    <div className="text-nss-muted">Read / Write</div>
-                    <div className="font-semibold tabular-nums">
-                      {activeQuestion.prompt.scale.readWriteRatio}:
-                      {100 - activeQuestion.prompt.scale.readWriteRatio}
+
+                {activeQuestion.prompt.nonFunctionalRequirements.length > 0 && (
+                  <section className="space-y-2">
+                    <h3 className={SECTION_TITLE}>Non-Functional Targets</h3>
+                    <div className="space-y-1">
+                      {activeQuestion.prompt.nonFunctionalRequirements.map((nfr) => (
+                        <div
+                          key={nfr.metric}
+                          className="flex items-center justify-between gap-3 text-xs"
+                        >
+                          <span className="text-nss-muted">{nfr.description}</span>
+                          <span className="shrink-0 font-semibold tabular-nums">
+                            {nfr.operator} {nfr.value}
+                            {nfr.unit === 'percent' ? '%' : nfr.unit === 'ms' ? 'ms' : ''}
+                          </span>
+                        </div>
+                      ))}
                     </div>
-                  </div>
+                  </section>
                 )}
-              </div>
-            </section>
+
+                <section className="space-y-2">
+                  <h3 className={SECTION_TITLE}>Scale</h3>
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    {activeQuestion.prompt.scale.peakRps !== undefined && (
+                      <div className="rounded border border-nss-border bg-nss-surface px-2 py-1.5">
+                        <div className="text-nss-muted">Peak RPS</div>
+                        <div className="font-semibold tabular-nums">
+                          {activeQuestion.prompt.scale.peakRps}
+                        </div>
+                      </div>
+                    )}
+                    {activeQuestion.prompt.scale.readWriteRatio !== undefined && (
+                      <div className="rounded border border-nss-border bg-nss-surface px-2 py-1.5">
+                        <div className="text-nss-muted">Read / Write</div>
+                        <div className="font-semibold tabular-nums">
+                          {activeQuestion.prompt.scale.readWriteRatio}:
+                          {100 - activeQuestion.prompt.scale.readWriteRatio}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </section>
+              </>
+            )}
 
             {budget && liveTopology && <BudgetMeter budget={budget} topology={liveTopology} />}
 

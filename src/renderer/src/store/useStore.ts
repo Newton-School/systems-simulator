@@ -28,6 +28,7 @@ import {
   DEFAULT_ENVIRONMENT_PROFILE,
   type EnvironmentProfile
 } from '../../../engine/analysis/environmentProfile'
+import type { NewtonSaveMode } from '../../../engine/analysis/newtonGamePlayground'
 
 /**
  * A node's edits/deletions are locked when either (a) the whole attempt is frozen
@@ -400,8 +401,14 @@ type RFState = {
   setActiveQuestion: (question: QuestionPackage | null) => void
   /** Ids of canvas nodes that came from the active question's scaffold (provenance). */
   scaffoldNodeIds: string[]
+  /** Raw host-authored HTML prompt for Newton assignment mode, when present. */
+  activeQuestionPromptHtml: string | null
+  setActiveQuestionPromptHtml: (html: string | null) => void
   attemptState: AttemptState | null
   setAttemptState: (attempt: AttemptState | null) => void
+  /** Newton host save compatibility mode for the active question. */
+  newtonSaveMode: NewtonSaveMode | null
+  setNewtonSaveMode: (mode: NewtonSaveMode | null) => void
   /** The student's free-text answers to the active question's justify prompts, by prompt id. */
   justificationAnswers: Record<string, string>
   setJustificationAnswer: (promptId: string, text: string) => void
@@ -477,7 +484,9 @@ const useStore = create<RFState>((set, get) => ({
   scenario: DEFAULT_SCENARIO_STATE,
   activeQuestion: null,
   scaffoldNodeIds: [],
+  activeQuestionPromptHtml: null,
   attemptState: null,
+  newtonSaveMode: null,
   justificationAnswers: {},
   questionLoadRequest: null,
   environmentProfile: DEFAULT_ENVIRONMENT_PROFILE,
@@ -881,7 +890,9 @@ const useStore = create<RFState>((set, get) => ({
           ? activeQuestion.scaffold.topology.nodes.map((node) => node.id)
           : []
     }),
+  setActiveQuestionPromptHtml: (activeQuestionPromptHtml) => set({ activeQuestionPromptHtml }),
   setAttemptState: (attemptState) => set({ attemptState }),
+  setNewtonSaveMode: (newtonSaveMode) => set({ newtonSaveMode }),
   setJustificationAnswer: (promptId, text) =>
     set((state) => ({
       justificationAnswers: { ...state.justificationAnswers, [promptId]: text }
