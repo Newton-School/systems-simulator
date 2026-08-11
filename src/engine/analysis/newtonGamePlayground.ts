@@ -200,7 +200,8 @@ function promptFromPresentation(
 }
 
 function stripSpecType<T extends Record<string, unknown>>(spec: T): Omit<T, 'type'> {
-  const { type: _type, ...rest } = spec
+  const rest = { ...spec }
+  delete rest.type
   return rest
 }
 

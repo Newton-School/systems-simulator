@@ -251,16 +251,10 @@ export const QuestionPanel = () => {
           // the two score keys + carried-forward package (client-computed; the
           // backend does not re-grade).
           postNewtonSave(
-            buildNewtonSaveBlob(
-              activeQuestion,
-              completedAttempt,
-              gameResult,
-              now,
-              {
-                justificationAnswers: useStore.getState().justificationAnswers,
-                saveMode: newtonSaveMode ?? 'mutable-only'
-              }
-            )
+            buildNewtonSaveBlob(activeQuestion, completedAttempt, gameResult, now, {
+              justificationAnswers: useStore.getState().justificationAnswers,
+              saveMode: newtonSaveMode ?? 'mutable-only'
+            })
           )
         } else {
           postQuestionHostMessage({
@@ -285,6 +279,7 @@ export const QuestionPanel = () => {
     graderGrade,
     graderRuns,
     graderStatus,
+    newtonSaveMode,
     pendingRun,
     setAttemptState
   ])
@@ -564,7 +559,9 @@ export const QuestionPanel = () => {
               />
             ) : (
               <>
-                <p className="text-xs leading-relaxed text-nss-text/90">{activeQuestion.prompt.text}</p>
+                <p className="text-xs leading-relaxed text-nss-text/90">
+                  {activeQuestion.prompt.text}
+                </p>
 
                 {activeQuestion.prompt.functionalRequirements.length > 0 && (
                   <section className="space-y-2">

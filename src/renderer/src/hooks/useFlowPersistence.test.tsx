@@ -16,16 +16,9 @@ const fileService = vi.hoisted(() => ({
 vi.mock('../services/FileService', () => ({
   FileService: fileService
 }))
-
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
-function Harness({
-  canSave = true,
-  canOpen = true
-}: {
-  canSave?: boolean
-  canOpen?: boolean
-}) {
+function Harness({ canSave = true, canOpen = true }: { canSave?: boolean; canOpen?: boolean }) {
   useFlowPersistence(async () => true, { canSave, canOpen })
   return null
 }

@@ -378,9 +378,7 @@ export const WorkspaceLayout = () => {
     setAttemptState(null)
     setNewtonSaveMode(null)
     setEnvironmentProfile(
-      isNewtonAssignmentHost
-        ? resolveEnvironmentProfile('ASSIGNMENT')
-        : resolveEnvironmentProfile()
+      isNewtonAssignmentHost ? resolveEnvironmentProfile('ASSIGNMENT') : resolveEnvironmentProfile()
     )
     setResultsRevealed(false)
     setLeftSidebarTab('library')
@@ -715,7 +713,15 @@ export const WorkspaceLayout = () => {
       )
     }, 4000)
     return () => clearTimeout(handle)
-  }, [isNewtonAssignmentHost, nodes, edges, activeQuestion, attemptState, newtonSaveMode, serialize])
+  }, [
+    isNewtonAssignmentHost,
+    nodes,
+    edges,
+    activeQuestion,
+    attemptState,
+    newtonSaveMode,
+    serialize
+  ])
 
   const handleLoadScenario = useCallback(
     async (scenarioId: string) => {

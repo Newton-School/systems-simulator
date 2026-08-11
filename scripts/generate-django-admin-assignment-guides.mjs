@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+/* eslint-disable @typescript-eslint/explicit-function-return-type */
 
 import fs from 'node:fs/promises'
 import path from 'node:path'
@@ -35,9 +36,7 @@ function labelizeScaleKey(key) {
   if (SCALE_LABELS[key]) {
     return SCALE_LABELS[key]
   }
-  return key
-    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
-    .replace(/^./, (char) => char.toUpperCase())
+  return key.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/^./, (char) => char.toUpperCase())
 }
 
 function formatScaleValue(key, value) {

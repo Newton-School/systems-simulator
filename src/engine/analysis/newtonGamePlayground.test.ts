@@ -72,9 +72,7 @@ function result(overrides: Partial<GamePlaygroundResult> = {}): GamePlaygroundRe
   }
 }
 
-function rowAuthoredSeed(
-  overrides: Record<string, unknown> = {}
-): Record<string, unknown> {
+function rowAuthoredSeed(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     question_title: pkg.title,
     question_text:
