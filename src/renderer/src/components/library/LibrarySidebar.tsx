@@ -203,7 +203,7 @@ function ComponentLibraryPanel({
         const matchesV1 =
           V1_PALETTE_NODE_TYPES === null ||
           (componentType !== undefined && V1_PALETTE_NODE_TYPES.has(componentType))
-          
+
         return matchesFilter && matchesSearch && matchesPalette && matchesV1
       })
     })).filter((category) => category.items.length > 0)
