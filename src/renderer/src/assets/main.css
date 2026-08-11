@@ -173,18 +173,18 @@
   background-color: #f59e0b !important;
 }
 
-body.react-flow-connecting .custom-source-handle {
+.react-flow.nss-connection-dragging .custom-source-handle {
   opacity: 0 !important;
   pointer-events: none;
 }
 
-body.react-flow-connecting .custom-target-handle {
+.react-flow.nss-connection-dragging .custom-target-handle {
   z-index: 20 !important;
   pointer-events: all;
   opacity: 0.4 !important;
 }
 
-body.react-flow-connecting .custom-target-handle:hover {
+.react-flow.nss-connection-dragging .custom-target-handle:hover {
   opacity: 1 !important;
   transform: scale(1.7);
   background-color: #3b82f6 !important;
@@ -300,13 +300,13 @@ body.react-flow-connecting .custom-target-handle:hover {
 }
 
 /* All target handles in snap radius: graduated glow */
-body.react-flow-connecting .custom-target-handle.magnetic-nearby {
+.react-flow.nss-connection-dragging .custom-target-handle.magnetic-nearby {
   opacity: var(--magnetic-glow-alpha, 0.4) !important;
   transform: scale(var(--magnetic-scale, 1)) !important;
 }
 
 /* Winner (closest) also gets a colored ring on top */
-body.react-flow-connecting .custom-target-handle.magnetic-snap-winner {
+.react-flow.nss-connection-dragging .custom-target-handle.magnetic-snap-winner {
   opacity: var(--magnetic-glow-alpha, 0.4) !important;
   transform: scale(var(--magnetic-scale, 1)) !important;
   background-color: #3b82f6 !important;
@@ -315,7 +315,7 @@ body.react-flow-connecting .custom-target-handle.magnetic-snap-winner {
     0 0 12px rgba(59, 130, 246, calc(var(--magnetic-glow-alpha, 0) * 0.8)) !important;
 }
 
-[data-theme='dark'] body.react-flow-connecting .custom-target-handle.magnetic-snap-winner {
+[data-theme='dark'] .react-flow.nss-connection-dragging .custom-target-handle.magnetic-snap-winner {
   box-shadow:
     0 0 0 2px rgba(59, 130, 246, calc(var(--magnetic-glow-alpha, 0) * 0.7)),
     0 0 16px rgba(59, 130, 246, calc(var(--magnetic-glow-alpha, 0) * 1.0)) !important;
