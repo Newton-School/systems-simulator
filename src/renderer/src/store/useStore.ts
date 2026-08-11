@@ -404,6 +404,9 @@ type RFState = {
   /** Raw host-authored HTML prompt for Newton assignment mode, when present. */
   activeQuestionPromptHtml: string | null
   setActiveQuestionPromptHtml: (html: string | null) => void
+  /** User-visible host launch/configuration error for embedded assignment mode. */
+  hostLaunchErrorMessage: string | null
+  setHostLaunchErrorMessage: (message: string | null) => void
   attemptState: AttemptState | null
   setAttemptState: (attempt: AttemptState | null) => void
   /** Newton host save compatibility mode for the active question. */
@@ -485,6 +488,7 @@ const useStore = create<RFState>((set, get) => ({
   activeQuestion: null,
   scaffoldNodeIds: [],
   activeQuestionPromptHtml: null,
+  hostLaunchErrorMessage: null,
   attemptState: null,
   newtonSaveMode: null,
   justificationAnswers: {},
@@ -891,6 +895,7 @@ const useStore = create<RFState>((set, get) => ({
           : []
     }),
   setActiveQuestionPromptHtml: (activeQuestionPromptHtml) => set({ activeQuestionPromptHtml }),
+  setHostLaunchErrorMessage: (hostLaunchErrorMessage) => set({ hostLaunchErrorMessage }),
   setAttemptState: (attemptState) => set({ attemptState }),
   setNewtonSaveMode: (newtonSaveMode) => set({ newtonSaveMode }),
   setJustificationAnswer: (promptId, text) =>

@@ -17,10 +17,10 @@ describe('environment profile presets', () => {
     expect(AUTHOR_ENVIRONMENT_PROFILE.visibility.rubricChecks).toBe('LIVE_DURING_BUILD')
 
     expect(ASSIGNMENT_ENVIRONMENT_PROFILE.graded).toBe(true)
-    expect(ASSIGNMENT_ENVIRONMENT_PROFILE.visibility.rubricChecks).toBe('POST_SUBMIT_ONLY')
+    expect(ASSIGNMENT_ENVIRONMENT_PROFILE.visibility.rubricChecks).toBe('LIVE_DURING_BUILD')
     expect(ASSIGNMENT_ENVIRONMENT_PROFILE.visibility.gradingSuiteDetails).toBe(false)
     expect(ASSIGNMENT_ENVIRONMENT_PROFILE.capabilities.canEditScaffoldNodes).toBe(false)
-    expect(ASSIGNMENT_ENVIRONMENT_PROFILE.capabilities.maxTestRuns).toBe(3)
+    expect(ASSIGNMENT_ENVIRONMENT_PROFILE.capabilities.maxTestRuns).toBeUndefined()
 
     expect(PRACTICE_ENVIRONMENT_PROFILE.graded).toBe(false)
     expect(PRACTICE_ENVIRONMENT_PROFILE.visibility.rubricChecks).toBe('LIVE_DURING_BUILD')
@@ -52,7 +52,7 @@ describe('resolveEnvironmentProfile', () => {
     expect(resolved.capabilities.maxTestRuns).toBe(1)
     // untouched preset fields survive
     expect(resolved.capabilities.canEditScaffoldNodes).toBe(false)
-    expect(resolved.visibility.rubricChecks).toBe('POST_SUBMIT_ONLY')
+    expect(resolved.visibility.rubricChecks).toBe('LIVE_DURING_BUILD')
   })
 
   it('lets an override flip a single flag (e.g. graded PRACTICE)', () => {
@@ -88,6 +88,14 @@ describe('canTriggerTestRun', () => {
     ).toBe(true)
     expect(
       canTriggerTestRun(resolveEnvironmentProfile({ mode: 'ASSIGNMENT' }), { testRunCount: 3 })
+    ).toBe(true)
+    expect(
+      canTriggerTestRun(
+        resolveEnvironmentProfile({ mode: 'ASSIGNMENT', capabilities: { maxTestRuns: 3 } }),
+        {
+          testRunCount: 3
+        }
+      )
     ).toBe(false)
     // unlimited when maxTestRuns is undefined
     expect(canTriggerTestRun(AUTHOR_ENVIRONMENT_PROFILE, { testRunCount: 999 })).toBe(true)

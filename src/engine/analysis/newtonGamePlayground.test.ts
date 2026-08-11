@@ -4,6 +4,7 @@ import type { GamePlaygroundResult } from './gamePlayground'
 import { createAttemptState, type QuestionPackage } from './question'
 import {
   buildNewtonSaveBlob,
+  explainNewtonSeedParseFailure,
   isNewtonSaveCommand,
   mapResultToNewtonScores,
   NEWTON_SAVE_BLOB_VERSION,
@@ -202,6 +203,28 @@ describe('parseNewtonSeed', () => {
   it('throws on a seed with no recoverable question metadata', () => {
     expect(() => parseNewtonSeed({ playgroundHash: 'x' })).toThrow()
     expect(() => parseNewtonSeed('not json')).toThrow()
+  })
+
+  it('explains when a row-authored Django seed is missing SIMULATOR_CONFIG', () => {
+    expect(
+      explainNewtonSeedParseFailure({
+        question_title: 'Design a URL shortener',
+        question_text: '<p>Prompt only</p>',
+        rubric: [
+          {
+            title: 'RUBRIC_CHECK: p99',
+            spec: {
+              type: 'RUBRIC_CHECK',
+              id: 'p99',
+              description: 'p99 under 100ms',
+              metric: 'summary.latency.p99',
+              op: '<',
+              value: 100
+            }
+          }
+        ]
+      })
+    ).toContain('SIMULATOR_CONFIG')
   })
 })
 
