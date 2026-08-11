@@ -302,6 +302,16 @@ function buildQuestionPackageFromRows(seed: Record<string, unknown>): {
   }
 }
 
+function hasRowAuthoredQuestionMetadata(seed: Record<string, unknown>): boolean {
+  if (!Array.isArray(seed.rubric)) {
+    return false
+  }
+
+  return seed.rubric.some(
+    (row) => isRubricRow(row) && isRecord(row.spec) && row.spec.type === 'SIMULATOR_CONFIG'
+  )
+}
+
 /** Normalizes the host's raw message data (a JSON string, or an object) to an object. */
 function toSeedObject(raw: unknown): Record<string, unknown> | null {
   if (typeof raw === 'string') {
@@ -319,10 +329,10 @@ function toSeedObject(raw: unknown): Record<string, unknown> | null {
  * Parses a host seed into a `NewtonGameSeed`.
  *
  * Order of precedence:
- *   1. legacy reopen/first-open (`questionPackage` nested, or seed itself parses
- *      as a full QuestionPackage)
- *   2. row-authored Newton metadata (`question_title`, `question_text`,
+ *   1. row-authored Newton metadata (`question_title`, `question_text`,
  *      `rubric[].spec`) plus mutable `game_json` / `initial_game_state`
+ *   2. legacy reopen/first-open (`questionPackage` nested, or seed itself parses
+ *      as a full QuestionPackage)
  */
 export function parseNewtonSeed(raw: unknown): NewtonGameSeed {
   const seed = toSeedObject(raw)
@@ -335,6 +345,24 @@ export function parseNewtonSeed(raw: unknown): NewtonGameSeed {
     typeof seed.playgroundHash === 'string' && seed.playgroundHash.length > 0
       ? seed.playgroundHash
       : undefined
+
+  if (hasRowAuthoredQuestionMetadata(seed)) {
+    const { questionPackage, promptHtml } = buildQuestionPackageFromRows(seed)
+    const priorAttempt =
+      seed.attemptState === undefined
+        ? undefined
+        : parseAttemptState(seed.attemptState, questionPackage.id)
+    const seedTopology = priorAttempt ? undefined : readSeedTopology(seed)
+    return {
+      questionPackage,
+      ...(priorAttempt ? { priorAttempt } : {}),
+      ...(seedTopology ? { seedTopology } : {}),
+      readOnly,
+      ...(playgroundHash ? { playgroundHash } : {}),
+      ...(promptHtml ? { promptHtml } : {}),
+      saveMode: 'mutable-only'
+    }
+  }
 
   const legacyQuestionPackage = legacyQuestionPackageFromSeed(seed)
   if (legacyQuestionPackage) {
@@ -353,21 +381,7 @@ export function parseNewtonSeed(raw: unknown): NewtonGameSeed {
     }
   }
 
-  const { questionPackage, promptHtml } = buildQuestionPackageFromRows(seed)
-  const priorAttempt =
-    seed.attemptState === undefined
-      ? undefined
-      : parseAttemptState(seed.attemptState, questionPackage.id)
-  const seedTopology = priorAttempt ? undefined : readSeedTopology(seed)
-  return {
-    questionPackage,
-    ...(priorAttempt ? { priorAttempt } : {}),
-    ...(seedTopology ? { seedTopology } : {}),
-    readOnly,
-    ...(playgroundHash ? { playgroundHash } : {}),
-    ...(promptHtml ? { promptHtml } : {}),
-    saveMode: 'mutable-only'
-  }
+  throw new Error('Newton seed does not contain any recoverable simulator question metadata.')
 }
 
 /** Collapses a graded result to the two (three, incl. total) backend score keys. */
