@@ -184,8 +184,8 @@ export const PALETTE_TEMPLATES: Record<string, PaletteTemplate> = {
     profile: 'router',
     rendererType: 'serviceNode',
     iconKey: 'network',
-    label: 'Load Balancer (Legacy)',
-    subLabel: 'Generic / Backward Compatible',
+    label: 'Load Balancer',
+    subLabel: 'Distributes traffic across services',
     serializable: true,
     routingStrategy: 'round-robin',
     seed: { throughput: 10000, load: 10, queueDepth: 4 }
