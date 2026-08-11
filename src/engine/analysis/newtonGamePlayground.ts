@@ -384,6 +384,39 @@ export function parseNewtonSeed(raw: unknown): NewtonGameSeed {
   throw new Error('Newton seed does not contain any recoverable simulator question metadata.')
 }
 
+/**
+ * Best-effort human-readable explanation for a rejected Newton host seed. Used
+ * by the embedded UI so Django-authoring mistakes surface as actionable errors
+ * instead of a silent "no question loaded" empty state.
+ */
+export function explainNewtonSeedParseFailure(raw: unknown): string | null {
+  try {
+    parseNewtonSeed(raw)
+    return null
+  } catch (error) {
+    const seed = toSeedObject(raw)
+    if (!seed) {
+      return error instanceof Error
+        ? error.message
+        : 'Newton seed must be a JSON object or JSON string.'
+    }
+
+    const hasQuestionText =
+      asNonEmptyString(seed.question_title) !== undefined ||
+      asNonEmptyString(seed.question_text) !== undefined
+    const hasRubric = Array.isArray(seed.rubric)
+    const hasSimulatorConfig = hasRowAuthoredQuestionMetadata(seed)
+
+    if ((hasQuestionText || hasRubric) && !hasSimulatorConfig) {
+      return 'Newton question is missing the SIMULATOR_CONFIG test-case row. Add the Django assignment_question_test_case_mapping rows from the assignment authoring guide.'
+    }
+
+    return error instanceof Error
+      ? error.message
+      : 'Newton seed does not contain any recoverable simulator question metadata.'
+  }
+}
+
 /** Collapses a graded result to the two (three, incl. total) backend score keys. */
 export function mapResultToNewtonScores(result: GamePlaygroundResult): NewtonScoreKeys {
   return {

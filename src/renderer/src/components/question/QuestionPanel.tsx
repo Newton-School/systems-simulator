@@ -107,6 +107,7 @@ export const QuestionPanel = () => {
   const setActiveQuestion = useStore((s) => s.setActiveQuestion)
   const activeQuestionPromptHtml = useStore((s) => s.activeQuestionPromptHtml)
   const setActiveQuestionPromptHtml = useStore((s) => s.setActiveQuestionPromptHtml)
+  const hostLaunchErrorMessage = useStore((s) => s.hostLaunchErrorMessage)
   const attemptState = useStore((s) => s.attemptState)
   const setAttemptState = useStore((s) => s.setAttemptState)
   const newtonSaveMode = useStore((s) => s.newtonSaveMode)
@@ -334,7 +335,8 @@ export const QuestionPanel = () => {
             <p className="text-xs font-semibold text-nss-text">No question loaded</p>
             <p className="mt-1 text-[11px] leading-relaxed text-nss-muted">
               {isEmbedded
-                ? 'The iframe handshake is active, but the host has not sent a launch context yet.'
+                ? (hostLaunchErrorMessage ??
+                  'The iframe handshake is active, but the host has not sent a launch context yet.')
                 : 'This tab now hosts the question brief, rubric checks, and Test/Submit flow.'}
             </p>
             {!isEmbedded && (
@@ -443,10 +445,6 @@ export const QuestionPanel = () => {
   const hasDryRunCase = Boolean(activeQuestion.suite.dryRunCase)
   const testRunCount = attemptState?.testRunCount ?? 0
   const testRows = buildQuestionTestRows(activeQuestion, latestGrade)
-  const passedTests = testRows.filter((row) => row.status === 'passed').length
-  const failedTests = testRows.filter((row) => row.status === 'failed').length
-  const pendingTests = testRows.filter((row) => row.status === 'pending').length
-
   // --- EnvironmentProfile + host-command gates ---
   const isAttemptLocked = attemptState?.status === 'LOCKED'
   const showPrompt = environmentProfile.visibility.prompt
@@ -459,10 +457,12 @@ export const QuestionPanel = () => {
   const showRubricResults =
     resultsRevealed || shouldShowRubricResults(environmentProfile, { hasSubmittedGrade })
   const showSubmit = environmentProfile.graded
-  const { maxTestRuns } = environmentProfile.capabilities
   const canTest = canTriggerTestRun(environmentProfile, { testRunCount }) && !isAttemptLocked
-  const testRunsRemaining =
-    maxTestRuns === undefined ? null : Math.max(0, maxTestRuns - testRunCount)
+  const visibleTestRows = showRubricResults ? testRows : buildQuestionTestRows(activeQuestion)
+  const passedTests = visibleTestRows.filter((row) => row.status === 'passed').length
+  const failedTests = visibleTestRows.filter((row) => row.status === 'failed').length
+  const pendingTests = visibleTestRows.filter((row) => row.status === 'pending').length
+  const hasEvaluatedTests = showRubricResults && latestGrade !== null
   const effectivePanelView: QuestionPanelView = showPrompt ? panelView : 'tests'
 
   return (
@@ -534,7 +534,7 @@ export const QuestionPanel = () => {
             >
               {view === 'brief'
                 ? 'Brief'
-                : `Tests${failedTests > 0 ? ` (${failedTests} failed)` : pendingTests > 0 ? ` (${pendingTests} pending)` : ''}`}
+                : `Tests${failedTests > 0 ? ` (${failedTests} failed)` : hasEvaluatedTests && pendingTests > 0 ? ` (${pendingTests} pending)` : ''}`}
             </button>
           ))}
         </div>
@@ -716,22 +716,21 @@ export const QuestionPanel = () => {
           <section className="space-y-3">
             <div className="flex items-center justify-between gap-3">
               <h3 className={SECTION_TITLE}>Tests</h3>
-              {showRubricResults && (
-                <span className="text-[10px] uppercase tracking-wide text-nss-muted">
-                  {passedTests} passed · {failedTests} failed · {pendingTests} pending
-                </span>
-              )}
+              <span className="text-[10px] uppercase tracking-wide text-nss-muted">
+                {hasEvaluatedTests
+                  ? `${passedTests} passed · ${failedTests} failed · ${pendingTests} pending`
+                  : `${visibleTestRows.length} checks`}
+              </span>
             </div>
 
-            {!showRubricResults && (
+            {!hasEvaluatedTests && (
               <p className="rounded border border-nss-border bg-nss-surface px-3 py-2 text-[11px] leading-relaxed text-nss-muted">
-                {environmentProfile.visibility.rubricChecks === 'POST_SUBMIT_ONLY'
-                  ? 'Rubric results are revealed after you submit. Use Test to check your design against a representative run.'
-                  : 'Rubric results are hidden for this environment.'}
+                Use Test to evaluate the current topology. Until you run it, the authored checks
+                below stay pending. Submit records the graded attempt.
               </p>
             )}
 
-            {showRubricResults && contract && (
+            {hasEvaluatedTests && contract && (
               <div className="rounded border border-nss-border bg-nss-surface px-3 py-2 text-[11px] text-nss-muted">
                 <span
                   className={`rounded px-2 py-0.5 text-[10px] font-bold uppercase ${
@@ -753,36 +752,35 @@ export const QuestionPanel = () => {
             )}
 
             <div className="space-y-1">
-              {showRubricResults &&
-                testRows.map((row) => (
-                  <div
-                    key={row.id}
-                    className="rounded border border-nss-border/70 bg-nss-surface/40 p-2"
-                  >
-                    <div className="flex items-center gap-2 text-xs">
-                      <span
-                        className={
-                          row.status === 'passed'
-                            ? 'shrink-0 text-nss-success'
-                            : row.status === 'failed'
-                              ? 'shrink-0 text-nss-danger'
-                              : 'shrink-0 text-nss-warning'
-                        }
-                      >
-                        {row.status === 'passed' ? '✓' : row.status === 'failed' ? '✗' : '•'}
-                      </span>
-                      <span className="min-w-0 flex-1 truncate text-nss-muted" title={row.name}>
-                        {row.name}
-                      </span>
-                      <span className="shrink-0 text-[10px] text-nss-muted/70">{row.scope}</span>
-                    </div>
-                    {row.detail && (
-                      <p className="mt-1 pl-5 text-[10px] leading-relaxed text-nss-muted/80">
-                        {row.detail}
-                      </p>
-                    )}
+              {visibleTestRows.map((row) => (
+                <div
+                  key={row.id}
+                  className="rounded border border-nss-border/70 bg-nss-surface/40 p-2"
+                >
+                  <div className="flex items-center gap-2 text-xs">
+                    <span
+                      className={
+                        row.status === 'passed'
+                          ? 'shrink-0 text-nss-success'
+                          : row.status === 'failed'
+                            ? 'shrink-0 text-nss-danger'
+                            : 'shrink-0 text-nss-warning'
+                      }
+                    >
+                      {row.status === 'passed' ? '✓' : row.status === 'failed' ? '✗' : '•'}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate text-nss-muted" title={row.name}>
+                      {row.name}
+                    </span>
+                    <span className="shrink-0 text-[10px] text-nss-muted/70">{row.scope}</span>
                   </div>
-                ))}
+                  {row.detail && (
+                    <p className="mt-1 pl-5 text-[10px] leading-relaxed text-nss-muted/80">
+                      {row.detail}
+                    </p>
+                  )}
+                </div>
+              ))}
             </div>
           </section>
         )}
@@ -795,11 +793,7 @@ export const QuestionPanel = () => {
           disabled={graderStatus === 'grading' || !canTest}
           className="flex-1 rounded-md border border-nss-border bg-nss-surface px-3 py-2 text-xs font-semibold text-nss-text hover:bg-nss-bg disabled:opacity-50"
         >
-          {graderStatus === 'grading'
-            ? 'Grading…'
-            : `${hasDryRunCase ? 'Test (dry run)' : 'Test'}${
-                testRunsRemaining !== null ? ` · ${testRunsRemaining} left` : ''
-              }`}
+          {graderStatus === 'grading' ? 'Grading…' : hasDryRunCase ? 'Test (dry run)' : 'Test'}
         </button>
         {showSubmit && (
           <button

@@ -34,6 +34,7 @@ import type { TimeSeriesSnapshot } from '../../../../engine/analysis/output'
 import type { TopologyJSON } from '../../../../engine/core/types'
 import {
   buildNewtonSaveBlob,
+  explainNewtonSeedParseFailure,
   isNewtonSaveCommand,
   type NewtonSaveMode
 } from '../../../../engine/analysis/newtonGamePlayground'
@@ -345,6 +346,7 @@ export const WorkspaceLayout = () => {
   const setAttemptState = useStore((s) => s.setAttemptState)
   const newtonSaveMode = useStore((s) => s.newtonSaveMode)
   const setNewtonSaveMode = useStore((s) => s.setNewtonSaveMode)
+  const setHostLaunchErrorMessage = useStore((s) => s.setHostLaunchErrorMessage)
   const setEnvironmentProfile = useStore((s) => s.setEnvironmentProfile)
   const setResultsRevealed = useStore((s) => s.setResultsRevealed)
   const requestViewportFit = useStore((s) => s.requestViewportFit)
@@ -541,6 +543,7 @@ export const WorkspaceLayout = () => {
       setIsLeftOpen(true)
       setActiveQuestion(questionPackage)
       setActiveQuestionPromptHtml(options.promptHtml ?? null)
+      setHostLaunchErrorMessage(null)
       setNewtonSaveMode(options.newtonSaveMode ?? null)
 
       const baseAttempt =
@@ -559,6 +562,7 @@ export const WorkspaceLayout = () => {
       setActiveQuestion,
       setActiveQuestionPromptHtml,
       setAttemptState,
+      setHostLaunchErrorMessage,
       setNewtonSaveMode,
       setRoutingVisualization,
       sim,
@@ -593,6 +597,10 @@ export const WorkspaceLayout = () => {
         }
         const seed = parseNewtonSeedMessage(event.data)
         if (!seed) {
+          const errorMessage = explainNewtonSeedParseFailure(event.data)
+          if (errorMessage) {
+            setHostLaunchErrorMessage(errorMessage)
+          }
           return
         }
         rememberTrustedHostOrigin(event.origin)
@@ -674,6 +682,7 @@ export const WorkspaceLayout = () => {
     loadFromData,
     loadQuestionIntoWorkspace,
     setEnvironmentProfile,
+    setHostLaunchErrorMessage,
     setResultsRevealed
   ])
 

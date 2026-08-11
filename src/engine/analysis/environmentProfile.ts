@@ -5,8 +5,8 @@
  * shared QuestionPackage. The same question runs unchanged in three modes:
  *
  *   - AUTHOR     — full UI; the setter sees and can do everything.
- *   - ASSIGNMENT — graded; rubric hidden until submit, scaffold locked,
- *                  test runs limited.
+ *   - ASSIGNMENT — graded; authored checks visible, dry-run feedback live,
+ *                  scaffold locked.
  *   - PRACTICE   — self-paced practice; live rubric feedback, free editing, not
  *                  graded.
  *
@@ -85,13 +85,12 @@ export const ASSIGNMENT_ENVIRONMENT_PROFILE: EnvironmentProfile = {
     scaffoldSourceNodes: true,
     gradingSuiteDetails: false,
     liveMetrics: true,
-    rubricChecks: 'POST_SUBMIT_ONLY'
+    rubricChecks: 'LIVE_DURING_BUILD'
   },
   capabilities: {
     editPaletteList: null,
     canEditScaffoldNodes: false,
-    canTriggerTestRuns: true,
-    maxTestRuns: 3
+    canTriggerTestRuns: true
   },
   graded: true,
   chromeDensity: 'minimal'
