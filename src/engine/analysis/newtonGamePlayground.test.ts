@@ -171,6 +171,34 @@ describe('parseNewtonSeed', () => {
     expect(seed.saveMode).toBe('mutable-only')
   })
 
+  it('prefers row-authored Django metadata over a legacy carried-forward questionPackage', () => {
+    const attempt = createAttemptState({ questionId: pkg.id, topology: topo() })
+    const blob = buildNewtonSaveBlob(
+      {
+        ...pkg,
+        title: 'Old carried package title',
+        prompt: { ...pkg.prompt, text: 'old prompt text' }
+      },
+      attempt,
+      result(),
+      '2026-08-04T00:00:00.000Z',
+      { saveMode: 'legacy-package' }
+    )
+
+    const seed = parseNewtonSeed({
+      ...rowAuthoredSeed({
+        question_title: 'Fresh Django title',
+        question_text: '<p>Fresh Django prompt</p>'
+      }),
+      ...blob
+    })
+
+    expect(seed.questionPackage.title).toBe('Fresh Django title')
+    expect(seed.questionPackage.prompt.text).toContain('Fresh Django prompt')
+    expect(seed.priorAttempt?.attemptId).toBe(attempt.attemptId)
+    expect(seed.saveMode).toBe('mutable-only')
+  })
+
   it('throws on a seed with no recoverable question metadata', () => {
     expect(() => parseNewtonSeed({ playgroundHash: 'x' })).toThrow()
     expect(() => parseNewtonSeed('not json')).toThrow()
