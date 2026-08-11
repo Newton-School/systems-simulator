@@ -53,6 +53,7 @@ export const CATALOG_CONFIG: CatalogCategory[] = [
     title: 'Network',
     items: getItems([
       'api-gateway',
+      'load-balancer',
       'load-balancer-l4',
       'load-balancer-l7',
       'ingress-controller',

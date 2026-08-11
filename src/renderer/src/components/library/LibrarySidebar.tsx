@@ -8,6 +8,7 @@ import {
 } from 'lucide-react'
 import useStore from '../../store/useStore'
 import { CATALOG_CONFIG } from '../../config/catalogConfig'
+import { PALETTE_TEMPLATES } from '../../../../engine/catalog/paletteTemplates'
 import { SAMPLE_SCENARIOS } from '../../config/sampleScenarios'
 import { QuestionPanel } from '../question/QuestionPanel'
 import { LibraryItem } from './LibraryItem'
@@ -32,6 +33,36 @@ const COMMON_IDS = new Set([
   'redis-cache',
   'message-queue',
   'read-replica'
+])
+
+/**
+ * V1 palette allowlist. We ship only the node types the V1 question bank actually
+ * exercises - ones with real, simulatable behavior whose config nuances are
+ * covered. Every other catalog node is HIDDEN from the library (not deleted) until
+ * its behavior is fleshed out in a later version. Set to `null` to reveal the full
+ * catalog again.
+ *
+ * NOTE: these are engine `componentType` values, resolved per catalog item via
+ * `PALETTE_TEMPLATES[item.id].componentType`. Do NOT match against `item.type` -
+ * that is the renderer node type (serviceNode/computeNode/...), not the component
+ * type, and matching it here empties the whole library.
+ * This only hides nodes from the drag-in library; loading a topology JSON that
+ * references any node type still works.
+ */
+const V1_PALETTE_NODE_TYPES: ReadonlySet<string> | null = new Set([
+  'api-endpoint', // Client App (the only valid traffic source)
+  'load-balancer',
+  'cdn',
+  'microservice',
+  'batch-worker',
+  'queue',
+  'message-broker',
+  'in-memory-cache',
+  'kv-store',
+  'nosql-db',
+  'relational-db',
+  'time-series-db',
+  'object-storage'
 ])
 
 const FILTERS: Filter[] = ['common', 'all']
@@ -166,7 +197,14 @@ function ComponentLibraryPanel({
           item.subLabel.toLowerCase().includes(trimmed)
         const matchesPalette =
           allowedPalette === null || allowedPalette.has(item.type) || allowedPalette.has(item.id)
-        return matchesFilter && matchesSearch && matchesPalette
+        // V1: hide catalog nodes we are not shipping yet. Resolve the real engine
+        // componentType from the template (item.type is the renderer node type).
+        const componentType = PALETTE_TEMPLATES[item.id]?.componentType
+        const matchesV1 =
+          V1_PALETTE_NODE_TYPES === null ||
+          (componentType !== undefined && V1_PALETTE_NODE_TYPES.has(componentType))
+
+        return matchesFilter && matchesSearch && matchesPalette && matchesV1
       })
     })).filter((category) => category.items.length > 0)
   }, [allowedPalette, filter, query])

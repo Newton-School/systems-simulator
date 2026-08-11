@@ -1189,7 +1189,7 @@ function questionReadme(id: string, q: any, trio: Trio, rewrite?: Rewrite): stri
 > ${q.prompt.text}
 
 ## Files
-- \`question.json\` - the QuestionPackage (prompt, structural rules, semantic criteria, budget, suite, rubric). Traffic is driven by a Client (api-endpoint) source node feeding the topology.
+- \`question.json\` - the QuestionPackage (prompt, structural rules, semantic criteria, suite, rubric). Traffic is driven by a Client (api-endpoint) source node feeding the topology.
 - \`reference-topology.json\` - a **correct** design. Grades **PASS** on every checkable axis.
 - \`gamed-topology.json\` - a plausible-but-wrong design. Grades **FAIL** on the intended axis.
 
@@ -1204,7 +1204,7 @@ ${rewrite ? bucketTable(rewrite.buckets) : '_n/a_'}
 ${trio.intended}
 
 ## Validate (from the ns-simulator-prod repo)
-The harness grades the whole trio, including justifications and budget:
+The harness grades the whole trio (structural, semantic, simulation):
 \`\`\`bash
 npx tsx scripts/validate-question-dir.ts \\
   ../system-design-simulator-questions/questions/${id}
