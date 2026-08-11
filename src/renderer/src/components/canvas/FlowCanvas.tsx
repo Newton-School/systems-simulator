@@ -81,6 +81,7 @@ function collectSelectedNodeIds(nodes: Node[], ignoredNodeIds = new Set<string>(
 const FlowCanvasInternal = ({ showMetricLens = false, onNodeDoubleClick }: FlowCanvasProps) => {
   const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance | null>(null)
   const [activeTool, setActiveTool] = useState<CanvasTool>('pan')
+  const [isConnectionDragging, setIsConnectionDragging] = useState(false)
   const [validationError, setValidationError] = useState<string | null>(null)
   const shiftPreviousToolRef = useRef<CanvasTool | null>(null)
 
@@ -113,9 +114,48 @@ const FlowCanvasInternal = ({ showMetricLens = false, onNodeDoubleClick }: FlowC
 
   const { edgeTypes, defaultEdgeOptions } = useFlowConfig()
 
-  const { onConnectStart, onConnectEnd, onEdgeUpdateStart, onEdgeUpdateEnd } = useMagneticSnap()
+  const {
+    onConnectStart: onConnectStartBase,
+    onConnectEnd: onConnectEndBase,
+    onEdgeUpdateStart: onEdgeUpdateStartBase,
+    onEdgeUpdateEnd: onEdgeUpdateEndBase
+  } = useMagneticSnap()
   useHandleProximity()
   useCopyPaste()
+
+  const onConnectStart = useCallback<
+    NonNullable<React.ComponentProps<typeof ReactFlow>['onConnectStart']>
+  >(
+    (event, params) => {
+      setIsConnectionDragging(true)
+      onConnectStartBase(event, params)
+    },
+    [onConnectStartBase]
+  )
+
+  const onConnectEnd = useCallback<
+    NonNullable<React.ComponentProps<typeof ReactFlow>['onConnectEnd']>
+  >(() => {
+    setIsConnectionDragging(false)
+    onConnectEndBase()
+  }, [onConnectEndBase])
+
+  const onEdgeUpdateStart = useCallback<
+    NonNullable<React.ComponentProps<typeof ReactFlow>['onEdgeUpdateStart']>
+  >(
+    (event, edge, handleType) => {
+      setIsConnectionDragging(true)
+      onEdgeUpdateStartBase(event, edge, handleType)
+    },
+    [onEdgeUpdateStartBase]
+  )
+
+  const onEdgeUpdateEnd = useCallback<
+    NonNullable<React.ComponentProps<typeof ReactFlow>['onEdgeUpdateEnd']>
+  >(() => {
+    setIsConnectionDragging(false)
+    onEdgeUpdateEndBase()
+  }, [onEdgeUpdateEndBase])
 
   const onEdgeUpdate = useCallback(
     (oldEdge: Edge, newConnection: Connection) => {
@@ -372,6 +412,12 @@ const FlowCanvasInternal = ({ showMetricLens = false, onNodeDoubleClick }: FlowC
   const isPanTool = activeTool === 'pan'
   const isSelectTool = activeTool === 'select'
   const isTextTool = activeTool === 'text'
+  const flowClassName = [
+    isPanTool ? 'cursor-grab' : isTextTool ? 'cursor-text' : 'cursor-default',
+    isConnectionDragging ? 'nss-connection-dragging' : ''
+  ]
+    .filter(Boolean)
+    .join(' ')
 
   return (
     <div style={{ width: '100%', height: '100%' }} className="bg-nss-bg relative">
@@ -420,9 +466,9 @@ const FlowCanvasInternal = ({ showMetricLens = false, onNodeDoubleClick }: FlowC
         selectNodesOnDrag={false}
         elementsSelectable
         nodesDraggable={!isTextTool}
-        nodesConnectable={!isPanTool && !isTextTool}
-        edgesUpdatable={!isPanTool && !isTextTool}
-        className={isPanTool ? 'cursor-grab' : isTextTool ? 'cursor-text' : 'cursor-default'}
+        nodesConnectable={!isTextTool}
+        edgesUpdatable={!isTextTool}
+        className={flowClassName}
       >
         <Background variant={BackgroundVariant.Dots} gap={30} size={1.2} color={GRID_COLOR} />
         <Controls className="!bg-nss-surface !border-nss-border" />

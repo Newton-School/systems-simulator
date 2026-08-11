@@ -46,8 +46,10 @@ const MagneticConnectionLine = memo(
     // if React Flow reports a valid drop before a snap winner is available.
     const canDrop = connectionStatus === 'valid'
 
-    const stroke = canDrop || isSnapping ? '#3b82f6' : '#94a3b8'
-    const strokeWidth = canDrop ? 3 : isSnapping ? 2.5 : 2
+    const stroke = canDrop || isSnapping ? '#3b82f6' : '#f59e0b'
+    const guideStroke =
+      canDrop || isSnapping ? 'rgba(59, 130, 246, 0.22)' : 'rgba(245, 158, 11, 0.2)'
+    const strokeWidth = canDrop ? 3 : isSnapping ? 2.75 : 2.5
 
     // Use the winner's exact handle position when available; otherwise render the affordance
     // at the current connection target so valid drops always get feedback.
@@ -59,9 +61,21 @@ const MagneticConnectionLine = memo(
         <path
           d={dPath}
           fill="none"
+          stroke={guideStroke}
+          strokeWidth={strokeWidth + 4}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          vectorEffect="non-scaling-stroke"
+        />
+        <path
+          d={dPath}
+          fill="none"
           stroke={stroke}
           strokeWidth={strokeWidth}
+          strokeLinecap="round"
+          strokeLinejoin="round"
           strokeDasharray={canDrop || isSnapping ? undefined : '6 3'}
+          vectorEffect="non-scaling-stroke"
           style={{ transition: 'stroke 100ms, stroke-width 100ms' }}
         />
 
