@@ -140,8 +140,78 @@ function validateMetric(
  * Validates a QuestionPackage against the authoring contract. Returns diagnostics
  * (empty ⇒ clean). Errors should block a save; warnings are advisory.
  */
+/**
+ * Domains ↔ rules consistency (advisory). A question's declared `domains` should each
+ * match how it is actually graded, so a mis-tag is caught at authoring time. A question
+ * may span several domains (e.g. compute + storage). V1 only ships `compute` / `storage`;
+ * the other domains warn because their physics/traits are V2.
+ */
+function validateDomains(pkg: QuestionPackage, out: AuthoringDiagnostic[]): void {
+  const domains = pkg.domains
+  if (!domains || domains.length === 0) {
+    out.push(
+      warn('domains.missing', 'No `domains` declared. Set at least one so the platform can switch palette / edge-lock / grading emphasis per bottleneck domain.')
+    )
+    return
+  }
+
+  // Duplicate guard — the schema allows [] but not a set, so catch repeats here.
+  const seen = new Set<string>()
+  for (const d of domains) {
+    if (seen.has(d)) out.push(warn('domains.duplicate', `domain '${d}' is listed more than once.`))
+    seen.add(d)
+  }
+
+  const hasSimCheck = (pkg.rubric?.checks ?? []).some(
+    (c) => inferRubricCheckKind(c) === 'simulation'
+  )
+  // A compute-domain judgment question ("don't add wasteful compute/edge") is graded
+  // by forbidUnjustified rather than a perf metric — accept it as a valid compute shape.
+  const hasForbidUnjustified = (pkg.semanticCriteria ?? []).some(
+    (c) => c.kind === 'forbidUnjustified'
+  )
+  // Storage-domain questions grade the store choice via `storageFit` OR the
+  // fan-out shape via `fanout` — both are data-domain criteria.
+  const hasDataCriterion = (pkg.semanticCriteria ?? []).some(
+    (c) => c.kind === 'storageFit' || c.kind === 'fanout'
+  )
+  const hasJustify = (pkg.justify ?? []).length > 0
+
+  for (const domain of seen) {
+    switch (domain) {
+      case 'compute':
+        if (!hasSimCheck && !hasForbidUnjustified)
+          out.push(
+            warn('domains.mismatch', "domain 'compute' expects a simulation check (summary.latency.p99 / summary.throughput) or a forbidUnjustified judgment criterion.")
+          )
+        break
+      case 'storage':
+        if (!hasDataCriterion)
+          out.push(
+            warn('domains.mismatch', "domain 'storage' expects a `storageFit` (store choice) or `fanout` (broadcast) semantic criterion.")
+          )
+        break
+      case 'correctness':
+        if (!hasJustify)
+          out.push(
+            warn('domains.mismatch', "domain 'correctness' is carried by topology + justification; expected a `justify` prompt.")
+          )
+        break
+      case 'network':
+      case 'resilience':
+      case 'cost':
+        out.push(
+          warn('domains.v2', `domain '${domain}' is a V2 domain — its physics/traits (edge cost, circuit-breaking, budget) are not built yet.`)
+        )
+        break
+    }
+  }
+}
+
 export function validateAuthoredQuestion(pkg: QuestionPackage): AuthoringDiagnostic[] {
   const out: AuthoringDiagnostic[] = []
+
+  validateDomains(pkg, out)
 
   // ── suite / rubric presence ────────────────────────────────────────────────
   if (!pkg.suite || pkg.suite.cases.length === 0) {

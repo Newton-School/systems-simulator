@@ -38,6 +38,22 @@ export type WorkloadCategory =
   | 'correctness-heavy'
   | 'batch-heavy'
 
+/**
+ * A bottleneck *domain* a question teaches — the organizing axis of the question
+ * taxonomy (see specs/question-families-and-bottlenecks.md). Distinct from `type`
+ * (task shape) and `workloadCategory` (injected load): a question's `domains` are
+ * what the platform switches behavior off (palette subset, edge-config lock policy,
+ * grading emphasis). A single question may span several (e.g. compute + storage).
+ * V1 ships only `compute` and `storage`; the rest arrive with V2 physics/traits.
+ */
+export type QuestionDomain =
+  | 'compute' // node-bottleneck: read-heavy saturation, sync-blocking, CPU contention
+  | 'storage' // data-bottleneck: write-throughput, fan-out, scan-vs-lookup, tiering
+  | 'network' // connection-bottleneck: pools/ports, bandwidth, geo-latency (V2)
+  | 'resilience' // fault-bottleneck: retry storms, circuit-breaking, failover (V2)
+  | 'correctness' // concurrency-bottleneck: double-booking, exactly-once (V2)
+  | 'cost' // meta-constraint: fix a bottleneck within a budget cap (V2)
+
 interface CriterionBase {
   id: string
   description?: string
@@ -167,6 +183,15 @@ export const WorkloadCategorySchema = z.enum([
   'connection-heavy',
   'correctness-heavy',
   'batch-heavy'
+])
+
+export const QuestionDomainSchema = z.enum([
+  'compute',
+  'storage',
+  'network',
+  'resilience',
+  'correctness',
+  'cost'
 ])
 
 const criterionBase = {

@@ -4,6 +4,7 @@ import {
   DEFAULT_ENVIRONMENT_PROFILE,
   ASSIGNMENT_ENVIRONMENT_PROFILE,
   PRACTICE_ENVIRONMENT_PROFILE,
+  canEditEdgesForQuestion,
   canTriggerTestRun,
   resolveEnvironmentProfile,
   shouldShowRubricResults
@@ -106,5 +107,32 @@ describe('canTriggerTestRun', () => {
         { testRunCount: 0 }
       )
     ).toBe(false)
+  })
+})
+
+describe('canEditEdgesForQuestion', () => {
+  const assignment = resolveEnvironmentProfile('ASSIGNMENT')
+
+  it('keeps edges locked for compute/storage questions under a locking profile', () => {
+    expect(canEditEdgesForQuestion(assignment, { domains: ['compute'] })).toBe(false)
+    expect(canEditEdgesForQuestion(assignment, { domains: ['compute', 'storage'] })).toBe(false)
+  })
+
+  it('unlocks edges for a network question even under a locking profile', () => {
+    expect(canEditEdgesForQuestion(assignment, { domains: ['network'] })).toBe(true)
+    expect(canEditEdgesForQuestion(assignment, { domains: ['storage', 'network'] })).toBe(true)
+  })
+
+  it('falls back to the profile default when domains are absent or empty', () => {
+    expect(canEditEdgesForQuestion(assignment, null)).toBe(false)
+    expect(canEditEdgesForQuestion(assignment, { domains: [] })).toBe(false)
+    expect(canEditEdgesForQuestion(assignment, {})).toBe(false)
+  })
+
+  it('always allows edges when the profile already permits it (AUTHOR/PRACTICE)', () => {
+    expect(canEditEdgesForQuestion(AUTHOR_ENVIRONMENT_PROFILE, { domains: ['compute'] })).toBe(true)
+    expect(canEditEdgesForQuestion(PRACTICE_ENVIRONMENT_PROFILE, { domains: ['storage'] })).toBe(
+      true
+    )
   })
 })

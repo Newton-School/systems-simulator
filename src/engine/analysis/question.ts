@@ -48,10 +48,12 @@ import {
   JustifyPromptSchema,
   SemanticCriterionSchema,
   WorkloadCategorySchema,
+  QuestionDomainSchema,
   type Budget,
   type JustifyPrompt,
   type SemanticCriterion,
-  type WorkloadCategory
+  type WorkloadCategory,
+  type QuestionDomain
 } from './gradingCriteria'
 import { buildReplayDigest, type ReplayDigest } from './replay'
 import { hostSafeToken, stableSerialize } from './stableHash'
@@ -178,6 +180,21 @@ export interface QuestionPackage {
   budget?: Budget
   /** The dominant workload character ("the workload is [X]"). */
   workloadCategory?: WorkloadCategory
+  /**
+   * The bottleneck *domain(s)* the question teaches (compute / storage / network /
+   * resilience / correctness / cost). Distinct from `type` and `workloadCategory`;
+   * the platform switches palette / edge-lock / grading emphasis off these. A single
+   * question may span several (e.g. news-feed = compute + storage).
+   * Optional for back-compat; V1 uses `compute` | `storage` only.
+   */
+  domains?: QuestionDomain[]
+  /**
+   * The specific concept(s) this question *teaches* — the lesson-level tag, finer-grained
+   * than `domains` (e.g. `async-decoupling`, `store-fit`, `read-cache`). Kebab-case slugs.
+   * A composed question lists several (url-shortener = `read-cache` + `store-fit`).
+   * Free-form (concepts grow per lesson), so not a controlled enum.
+   */
+  concepts?: string[]
   suite: QuestionSuite
   rubric: Rubric
   author?: string
@@ -825,6 +842,8 @@ export const QuestionPackageSchema: z.ZodType<QuestionPackage> = z
     justify: z.array(JustifyPromptSchema).optional(),
     budget: BudgetSchema.optional(),
     workloadCategory: WorkloadCategorySchema.optional(),
+    domains: z.array(QuestionDomainSchema).nonempty().optional(),
+    concepts: z.array(z.string().min(1)).nonempty().optional(),
     suite: QuestionSuiteSchema,
     rubric: RubricSchema,
     author: z.string().min(1).optional(),

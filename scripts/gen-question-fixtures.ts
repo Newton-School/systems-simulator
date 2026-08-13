@@ -7,7 +7,7 @@
  * in one place. Run scripts/validate-question-dir.ts afterwards to confirm each
  * reference PASSES and each gamed FAILS on the intended axis.
  */
-import { mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs'
+import { mkdirSync, writeFileSync, readFileSync, rmSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import type { ComponentCategory, ComponentType, TopologyJSON } from '../src/engine/core/types'
 
@@ -83,8 +83,13 @@ function edge(source: string, target: string, o: EdgeOpts = {}) {
       distribution: { type: 'constant' as const, value: ms },
       pathType: 'same-dc' as const
     },
-    bandwidth: 1_000_000,
-    maxConcurrentRequests: 200_000,
+    // Realistic-but-non-binding edge sizing (V1: nodes are the sole bottleneck).
+    // 1 Gbps far exceeds payload throughput (~rps × payload, capped by the source),
+    // and 50k concurrency stays above the saturated worst case (~rps × timeout), so an
+    // edge never binds and never produces false rejections that would corrupt the
+    // node-saturation lesson. Avoids the absurd 1 Tbps / 200k defaults.
+    bandwidth: 1_000, // Mbps (1 Gbps)
+    maxConcurrentRequests: 50_000,
     packetLossRate: 0,
     errorRate: 0
   }
@@ -1138,6 +1143,44 @@ function applyRewrite(id: string, q: any): Rewrite | undefined {
 // the 9 buildable, physics-relevant questions.
 const DEFERRED_V2 = new Set(['payment-system', 'ticketmaster', 'rate-limiter'])
 
+// Bottleneck domain(s) each question exercises (see specs/question-families-and-bottlenecks.md).
+// A question can span several — a domain is only listed where the question actually grades it
+// (compute → a sim/forbidUnjustified check; storage → a storageFit/fanout criterion), so the
+// authoring validator stays clean. Used as the first-class `domains` field + the guide's name.
+const DOMAINS: Record<string, string[]> = {
+  'url-shortener': ['compute', 'storage'],
+  'cache-placement': ['compute'],
+  'cargo-cult-cdn': ['compute'],
+  'news-feed': ['compute', 'storage'],
+  'ride-hailing': ['compute', 'storage'],
+  'web-crawler': ['compute'],
+  'async-sla': ['compute'],
+  'messaging-fanout': ['storage'],
+  'sensor-store': ['storage']
+}
+// The specific concept(s) each question teaches (lesson-level, finer than `domains`).
+// Kebab-case slugs; composed questions list several. See the "Concept taught per question"
+// table in specs/question-families-and-bottlenecks.md.
+const CONCEPTS: Record<string, string[]> = {
+  'async-sla': ['async-decoupling'],
+  'cache-placement': ['cache-placement'],
+  'cargo-cult-cdn': ['justified-omission'],
+  'url-shortener': ['read-cache', 'store-fit'],
+  'news-feed': ['fan-out-on-write', 'read-cache'],
+  'ride-hailing': ['store-fit', 'geo-cache-placement'],
+  'messaging-fanout': ['pubsub-fanout'],
+  'sensor-store': ['store-fit'],
+  'web-crawler': ['dedup-gate']
+}
+const DOMAIN_LABEL: Record<string, string> = {
+  compute: 'Compute & Capacity (node-bottleneck)',
+  storage: 'Storage & State (data-bottleneck)',
+  network: 'Network & Edge (connection-bottleneck)',
+  resilience: 'Resilience & Chaos (fault-bottleneck)',
+  correctness: 'Correctness (concurrency-bottleneck)',
+  cost: 'Cost (meta-constraint)'
+}
+
 for (const [id, build] of Object.entries(builders)) {
   if (DEFERRED_V2.has(id)) continue
   const trio = build()
@@ -1147,6 +1190,14 @@ for (const [id, build] of Object.entries(builders)) {
   const q = JSON.parse(readFileSync(questionSource(id), 'utf-8'))
   trio.patchQuestion?.(q)
   const rewrite = applyRewrite(id, q)
+
+  // Persist the bottleneck domain(s) as a first-class field (source of truth for the
+  // Django file name, the platform's per-domain switching, and the authoring check).
+  const domains = DOMAINS[id] ?? ['compute']
+  q.domains = domains
+  // The concept(s) taught (lesson-level tag, finer-grained than domains).
+  const concepts = CONCEPTS[id]
+  if (concepts) q.concepts = concepts
 
   // V1: hide the justification feature. Move `justify` to `_justify` (an unknown
   // key the parser strips), so no justify prompts are graded or shown, while the
@@ -1168,7 +1219,125 @@ for (const [id, build] of Object.entries(builders)) {
   w('reference-topology.json', trio.ref)
   w('gamed-topology.json', trio.gamed)
   writeFileSync(join(dir, 'README.md'), questionReadme(id, q, trio, rewrite))
+  // Remove stale domain-suffixed guides from a prior run's domain set (e.g. a rename
+  // from `-compute` to `-compute-storage`). The hand-authored suffix-less
+  // `django-admin-assignment.md` has no `-` after "assignment", so it is never matched.
+  const djangoName = `django-admin-assignment-${domains.join('-')}.md`
+  for (const f of readdirSync(dir)) {
+    if (/^django-admin-assignment-.+\.md$/.test(f) && f !== djangoName) {
+      rmSync(join(dir, f), { force: true })
+    }
+  }
+  writeFileSync(join(dir, djangoName), djangoAdmin(id, q, domains))
   console.log(`wrote ${id}/ - intended failure: ${trio.intended}`)
+}
+
+// ── Django-admin authoring guide (Newton GAME assignment mode) ────────────────
+// Fully derived from question.json, so it stays in sync. Justify prompts are hidden
+// for V1 (stored as `_justify`), so they are NOT emitted into the SIMULATOR_CONFIG.
+function questionTextHtml(q: any): string {
+  const paras = String(q.prompt.text)
+    .split(/\n\n+/)
+    .map((p: string) => `<p>${p.trim().replace(/\s*\n\s*/g, ' ')}</p>`)
+    .join('\n')
+  const list = (title: string, items: string[]) =>
+    items.length ? `<h3>${title}</h3>\n<ul>\n${items.map((i) => `  <li>${i}</li>`).join('\n')}\n</ul>` : ''
+  const frs = list('Functional Requirements', q.prompt.functionalRequirements ?? [])
+  const nfrs = list(
+    'Non-Functional Targets',
+    (q.prompt.nonFunctionalRequirements ?? []).map((n: any) => n.description)
+  )
+  const s = q.prompt.scale ?? {}
+  const scaleItems: string[] = []
+  if (s.dau !== undefined) scaleItems.push(`<strong>DAU:</strong> ${s.dau.toLocaleString('en-US')}`)
+  if (s.peakRps !== undefined)
+    scaleItems.push(`<strong>Peak RPS:</strong> ${s.peakRps.toLocaleString('en-US')}`)
+  if (s.readWriteRatio !== undefined)
+    scaleItems.push(`<strong>Read / Write:</strong> ${s.readWriteRatio}:${100 - s.readWriteRatio}`)
+  const scale = list('Scale', scaleItems)
+  return [paras, frs, nfrs, scale].filter(Boolean).join('\n')
+}
+
+function djangoRow(n: number, title: string, input: unknown): string {
+  return `## Row ${n}\n\n- \`title\`: \`${title}\`\n- \`input\`:\n\n\`\`\`json\n${JSON.stringify(
+    input,
+    null,
+    2
+  )}\n\`\`\``
+}
+
+function djangoAdmin(id: string, q: any, domains: string[]): string {
+  const rows: string[] = []
+  rows.push(
+    djangoRow(1, `SIMULATOR_CONFIG: ${id}`, {
+      type: 'SIMULATOR_CONFIG',
+      configVersion: '1.0',
+      questionId: id,
+      questionVersion: q.version,
+      questionType: q.type,
+      domains,
+      concepts: q.concepts,
+      difficulty: q.difficulty,
+      workloadCategory: q.workloadCategory,
+      presentationMode: 'raw-html',
+      promptSource: 'question_text',
+      scaffold: q.scaffold,
+      constraints: q.constraints,
+      suite: q.suite,
+      rubric: { id: q.rubric.id, passThreshold: q.rubric.passThreshold }
+    })
+  )
+  let n = 2
+  for (const r of q.structuralRules ?? [])
+    rows.push(djangoRow(n++, `STRUCTURAL_RULE: ${r.id}`, { type: 'STRUCTURAL_RULE', ...r }))
+  for (const c of q.semanticCriteria ?? [])
+    rows.push(djangoRow(n++, `SEMANTIC_CRITERION: ${c.id}`, { type: 'SEMANTIC_CRITERION', ...c }))
+  for (const c of q.rubric.checks ?? [])
+    rows.push(djangoRow(n++, `RUBRIC_CHECK: ${c.id}`, { type: 'RUBRIC_CHECK', ...c }))
+
+  return `# Django Admin Setup: ${q.title}
+
+> Domain(s): ${domains.map((d) => DOMAIN_LABEL[d] ?? d).join(' + ')}. This authoring shape is for Newton assignment mode
+> only (GAME iframe with \`?host=newton\`). Standalone/local authoring at
+> \`https://systems-simulator.newtonschool.co/\` must keep topology open/save available.
+>
+> V1 note: justification prompts are hidden (stored as \`_justify\`) and are **not** graded,
+> so they are not emitted below. Budget is not used for V1.
+
+## Frontend contract
+
+- GAME iframe URL: \`https://systems-simulator.newtonschool.co/?host=newton\`
+- Newton-hosted assignment mode must render \`question_text\` as raw Django HTML.
+- The frontend translator must rebuild immutable simulator config from the test-case rows below, not from \`initial_game_state\`.
+- Newton-hosted assignment mode must hide topology \`Open\` / \`Save\` actions and disable \`Ctrl/Cmd+O\` and \`Ctrl/Cmd+S\`.
+- V1: edge configuration is locked in assignment mode (edges are non-editable; the edge config panel is hidden) - students only drag nodes, change storage types, and scale workers/replicas.
+
+## Django fields
+
+- \`question_type\`: \`GAME\`
+- \`question_title\`: \`${q.title}\`
+- \`question_text\`:
+
+\`\`\`html
+${questionTextHtml(q)}
+\`\`\`
+
+- \`initial_game_state\`:
+
+\`\`\`json
+{}
+\`\`\`
+
+- \`initial_game_state\` must stay mutable-only. Do not paste the full \`question.json\` here.
+
+## Test-case mapping rules
+
+- Create the rows in the exact order shown below.
+- For every row: \`hidden = false\`, \`output = ""\`, \`output_file = empty\`.
+- Paste each JSON block into the Django \`input\` field exactly as shown.
+
+${rows.join('\n\n')}
+`
 }
 
 function bucketTable(b: Buckets): string {

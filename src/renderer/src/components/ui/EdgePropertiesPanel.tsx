@@ -31,6 +31,8 @@ export interface EdgePropertiesPanelProps {
   children?: ReactNode
   onChange: (patch: Partial<EdgePropertiesPanelValue>) => void
   onClose: () => void
+  /** Lock the config form (edge results stay interactive). V1 assignment mode. */
+  readOnly?: boolean
 }
 
 const CONTROL_CLASS =
@@ -98,7 +100,8 @@ export const EdgePropertiesPanel = ({
   tabs,
   children,
   onChange,
-  onClose
+  onClose,
+  readOnly = false
 }: EdgePropertiesPanelProps) => {
   const defaults = inferEdgeDefaults(sourceNodeData, targetNodeData)
   const constraints = getEdgeConstraints(
@@ -208,6 +211,17 @@ export const EdgePropertiesPanel = ({
         <div className="flex-1 overflow-y-auto custom-scrollbar p-5 bg-nss-panel">{children}</div>
       ) : (
         <div className="flex-1 overflow-y-auto custom-scrollbar p-5 space-y-3">
+          {readOnly && (
+            <div className="rounded border border-nss-border bg-nss-surface px-3 py-2 text-[11px] leading-relaxed text-nss-muted">
+              🔒 Edge configuration is locked for this assignment. Edit nodes, storage
+              types, and worker/replica counts instead — you can still inspect edge results
+              after a run.
+            </div>
+          )}
+          <fieldset
+            disabled={readOnly}
+            className="m-0 space-y-3 border-0 p-0 disabled:opacity-70"
+          >
           <div className="space-y-1">
             <FieldLabel label="Label" help={EDGE_PROPERTY_HELP.label} />
             <input
@@ -465,6 +479,7 @@ export const EdgePropertiesPanel = ({
               {latencySummary}
             </div>
           )}
+          </fieldset>
         </div>
       )}
     </div>
