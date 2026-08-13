@@ -12,6 +12,7 @@ import {
   X
 } from 'lucide-react'
 import type { SimulationOutput } from '../../../../engine/analysis/output'
+import { canEditEdgesForQuestion } from '../../../../engine/analysis/environmentProfile'
 import {
   REQUEST_OUTCOME_FAMILIES,
   type RequestOutcomeFamily
@@ -1373,6 +1374,12 @@ export const PropertiesPanel = ({ results = null }: { results?: SimulationOutput
   const canEditScaffoldNodes = useStore(
     (state) => state.environmentProfile.capabilities.canEditScaffoldNodes
   )
+  // Effective edge-editability: the profile's base policy, unlocked for questions
+  // whose bottleneck `domains` make edges the lesson (`network`). compute/storage
+  // questions keep edges locked in student modes.
+  const canEditEdges = useStore((state) =>
+    canEditEdgesForQuestion(state.environmentProfile, state.activeQuestion)
+  )
   const selectedNode = nodes.find((node) => node.selected)
   const selectedEdge = edges.find((edge) => edge.selected)
   const selectedNodeId = selectedNode?.id
@@ -1557,6 +1564,7 @@ export const PropertiesPanel = ({ results = null }: { results?: SimulationOutput
     )?.pathType
 
     const handleEdgeChange = (patch: Partial<EdgePropertiesPanelValue>) => {
+      if (!canEditEdges) return // locked in assignment mode; results stay inspectable
       const { label, ...dataPatch } = patch
       const hasDataPatch = Object.keys(dataPatch).length > 0
 
@@ -1589,6 +1597,7 @@ export const PropertiesPanel = ({ results = null }: { results?: SimulationOutput
         }}
         onChange={handleEdgeChange}
         onClose={() => selectGraphElements({})}
+        readOnly={!canEditEdges}
         tabs={selectedEdgeHasRuntime ? <InspectorTabs active={tab} onChange={setTab} /> : undefined}
       >
         {selectedEdgeHasRuntime && tab === 'metrics' ? (

@@ -31,6 +31,8 @@ export interface EdgePropertiesPanelProps {
   children?: ReactNode
   onChange: (patch: Partial<EdgePropertiesPanelValue>) => void
   onClose: () => void
+  /** Lock the config form (edge results stay interactive). V1 assignment mode. */
+  readOnly?: boolean
 }
 
 const CONTROL_CLASS =
@@ -98,7 +100,8 @@ export const EdgePropertiesPanel = ({
   tabs,
   children,
   onChange,
-  onClose
+  onClose,
+  readOnly = false
 }: EdgePropertiesPanelProps) => {
   const defaults = inferEdgeDefaults(sourceNodeData, targetNodeData)
   const constraints = getEdgeConstraints(
@@ -208,263 +211,274 @@ export const EdgePropertiesPanel = ({
         <div className="flex-1 overflow-y-auto custom-scrollbar p-5 bg-nss-panel">{children}</div>
       ) : (
         <div className="flex-1 overflow-y-auto custom-scrollbar p-5 space-y-3">
-          <div className="space-y-1">
-            <FieldLabel label="Label" help={EDGE_PROPERTY_HELP.label} />
-            <input
-              type="text"
-              value={value.label ?? ''}
-              onChange={(e) => onChange({ label: e.target.value })}
-              placeholder="e.g. HTTP, gRPC"
-              className={CONTROL_CLASS}
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-2">
-            <div className="space-y-1">
-              <FieldLabel label="Protocol" help={EDGE_PROPERTY_HELP.protocol} />
-              <select
-                value={selectedProtocol}
-                onChange={(e) =>
-                  onChange({ protocol: e.target.value as EdgeSimulationData['protocol'] })
-                }
-                className={CONTROL_CLASS}
-              >
-                {EDGE_PROTOCOL_OPTIONS.map((option) => (
-                  <option
-                    key={option}
-                    value={option}
-                    disabled={!constraints.allowedProtocols.includes(option)}
-                  >
-                    {option}
-                    {!constraints.allowedProtocols.includes(option)
-                      ? ` - ${constraints.reasons.protocol[option]}`
-                      : ''}
-                  </option>
-                ))}
-              </select>
-              {protocolWarning && (
-                <p className="text-[10px] leading-relaxed text-nss-warning">{protocolWarning}</p>
-              )}
+          {readOnly && (
+            <div className="rounded border border-nss-border bg-nss-surface px-3 py-2 text-[11px] leading-relaxed text-nss-muted">
+              🔒 Edge configuration is locked for this assignment. Edit nodes, storage types, and
+              worker/replica counts instead — you can still inspect edge results after a run.
             </div>
-
+          )}
+          <fieldset disabled={readOnly} className="m-0 space-y-3 border-0 p-0 disabled:opacity-70">
             <div className="space-y-1">
-              <FieldLabel label="Mode" help={EDGE_PROPERTY_HELP.mode} />
-              <select
-                value={selectedMode}
-                onChange={(e) => onChange({ mode: e.target.value as EdgeSimulationData['mode'] })}
-                className={CONTROL_CLASS}
-              >
-                {EDGE_MODE_OPTIONS.map((option) => (
-                  <option
-                    key={option}
-                    value={option}
-                    disabled={!constraints.allowedModes.includes(option)}
-                  >
-                    {option}
-                    {!constraints.allowedModes.includes(option)
-                      ? ` - ${constraints.reasons.mode[option]}`
-                      : ''}
-                  </option>
-                ))}
-              </select>
-              {modeWarning && (
-                <p className="text-[10px] leading-relaxed text-nss-warning">{modeWarning}</p>
-              )}
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-2">
-            <div className="space-y-1">
-              <FieldLabel label="Path Type" help={EDGE_PROPERTY_HELP.pathType} />
-              <select
-                value={value.pathType ?? 'auto'}
-                onChange={(e) =>
-                  onChange({
-                    pathType:
-                      e.target.value === 'auto'
-                        ? undefined
-                        : (e.target.value as EdgeSimulationData['pathType'])
-                  })
-                }
-                className={CONTROL_CLASS}
-              >
-                <option value="auto">{autoPathOptionLabel}</option>
-                {['same-rack', 'same-dc', 'cross-zone', 'cross-region', 'internet'].map(
-                  (option) => (
-                    <option key={option} value={option}>
-                      {option}
-                    </option>
-                  )
-                )}
-              </select>
-              <p className="text-[10px] leading-relaxed text-nss-muted">{pathTypeHelpText}</p>
-            </div>
-            <div className="space-y-1">
-              <FieldLabel label="Condition" help={EDGE_PROPERTY_HELP.condition} />
+              <FieldLabel label="Label" help={EDGE_PROPERTY_HELP.label} />
               <input
                 type="text"
-                value={selectedCondition}
-                onChange={(e) => onChange({ condition: e.target.value })}
-                placeholder='request.metadata.origin == "eu-west"'
+                value={value.label ?? ''}
+                onChange={(e) => onChange({ label: e.target.value })}
+                placeholder="e.g. HTTP, gRPC"
                 className={CONTROL_CLASS}
               />
             </div>
-          </div>
 
-          <div className="space-y-1">
-            <FieldLabel label="Latency" help={EDGE_PROPERTY_HELP.latencyModel} />
-            <select
-              value={isLatencyAuto ? 'auto' : 'manual'}
-              onChange={(e) =>
-                onChange(
-                  e.target.value === 'auto'
-                    ? {
-                        latencyDistributionType: undefined,
-                        latencyValue: undefined,
-                        latencyMu: undefined,
-                        latencySigma: undefined
-                      }
-                    : {
-                        latencyDistributionType: 'log-normal',
-                        latencyMu: selectedLatencyMu,
-                        latencySigma: selectedLatencySigma
-                      }
-                )
-              }
-              className={CONTROL_CLASS}
-            >
-              <option value="auto">Auto (from path type)</option>
-              <option value="manual">Manual</option>
-            </select>
-          </div>
-
-          {isLatencyAuto ? (
-            <p className="text-[10px] leading-relaxed text-nss-muted">
-              {autoLatencyText} Switch to Manual to set an explicit latency; you can switch back to
-              Auto at any time.
-            </p>
-          ) : (
-            <>
+            <div className="grid grid-cols-2 gap-2">
               <div className="space-y-1">
-                <FieldLabel label="Latency Model" help={EDGE_PROPERTY_HELP.latencyModel} />
+                <FieldLabel label="Protocol" help={EDGE_PROPERTY_HELP.protocol} />
                 <select
-                  value={selectedLatencyDistributionType}
+                  value={selectedProtocol}
+                  onChange={(e) =>
+                    onChange({ protocol: e.target.value as EdgeSimulationData['protocol'] })
+                  }
+                  className={CONTROL_CLASS}
+                >
+                  {EDGE_PROTOCOL_OPTIONS.map((option) => (
+                    <option
+                      key={option}
+                      value={option}
+                      disabled={!constraints.allowedProtocols.includes(option)}
+                    >
+                      {option}
+                      {!constraints.allowedProtocols.includes(option)
+                        ? ` - ${constraints.reasons.protocol[option]}`
+                        : ''}
+                    </option>
+                  ))}
+                </select>
+                {protocolWarning && (
+                  <p className="text-[10px] leading-relaxed text-nss-warning">{protocolWarning}</p>
+                )}
+              </div>
+
+              <div className="space-y-1">
+                <FieldLabel label="Mode" help={EDGE_PROPERTY_HELP.mode} />
+                <select
+                  value={selectedMode}
+                  onChange={(e) => onChange({ mode: e.target.value as EdgeSimulationData['mode'] })}
+                  className={CONTROL_CLASS}
+                >
+                  {EDGE_MODE_OPTIONS.map((option) => (
+                    <option
+                      key={option}
+                      value={option}
+                      disabled={!constraints.allowedModes.includes(option)}
+                    >
+                      {option}
+                      {!constraints.allowedModes.includes(option)
+                        ? ` - ${constraints.reasons.mode[option]}`
+                        : ''}
+                    </option>
+                  ))}
+                </select>
+                {modeWarning && (
+                  <p className="text-[10px] leading-relaxed text-nss-warning">{modeWarning}</p>
+                )}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <FieldLabel label="Path Type" help={EDGE_PROPERTY_HELP.pathType} />
+                <select
+                  value={value.pathType ?? 'auto'}
                   onChange={(e) =>
                     onChange({
-                      latencyDistributionType: e.target
-                        .value as EdgeSimulationData['latencyDistributionType'],
-                      ...(e.target.value === 'constant' && value.latencyValue === undefined
-                        ? { latencyValue: defaultConstantLatencyMs }
-                        : {})
+                      pathType:
+                        e.target.value === 'auto'
+                          ? undefined
+                          : (e.target.value as EdgeSimulationData['pathType'])
                     })
                   }
                   className={CONTROL_CLASS}
                 >
-                  <option value="log-normal">Log-normal (jittered)</option>
-                  <option value="constant">Constant (no jitter)</option>
+                  <option value="auto">{autoPathOptionLabel}</option>
+                  {['same-rack', 'same-dc', 'cross-zone', 'cross-region', 'internet'].map(
+                    (option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    )
+                  )}
                 </select>
+                <p className="text-[10px] leading-relaxed text-nss-muted">{pathTypeHelpText}</p>
               </div>
+              <div className="space-y-1">
+                <FieldLabel label="Condition" help={EDGE_PROPERTY_HELP.condition} />
+                <input
+                  type="text"
+                  value={selectedCondition}
+                  onChange={(e) => onChange({ condition: e.target.value })}
+                  placeholder='request.metadata.origin == "eu-west"'
+                  className={CONTROL_CLASS}
+                />
+              </div>
+            </div>
 
-              {selectedLatencyDistributionType === 'constant' ? (
+            <div className="space-y-1">
+              <FieldLabel label="Latency" help={EDGE_PROPERTY_HELP.latencyModel} />
+              <select
+                value={isLatencyAuto ? 'auto' : 'manual'}
+                onChange={(e) =>
+                  onChange(
+                    e.target.value === 'auto'
+                      ? {
+                          latencyDistributionType: undefined,
+                          latencyValue: undefined,
+                          latencyMu: undefined,
+                          latencySigma: undefined
+                        }
+                      : {
+                          latencyDistributionType: 'log-normal',
+                          latencyMu: selectedLatencyMu,
+                          latencySigma: selectedLatencySigma
+                        }
+                  )
+                }
+                className={CONTROL_CLASS}
+              >
+                <option value="auto">Auto (from path type)</option>
+                <option value="manual">Manual</option>
+              </select>
+            </div>
+
+            {isLatencyAuto ? (
+              <p className="text-[10px] leading-relaxed text-nss-muted">
+                {autoLatencyText} Switch to Manual to set an explicit latency; you can switch back
+                to Auto at any time.
+              </p>
+            ) : (
+              <>
                 <div className="space-y-1">
-                  <FieldLabel label="Latency (ms)" help={EDGE_PROPERTY_HELP.latencyValue} />
-                  <input
-                    type="number"
-                    min={0}
-                    step={0.01}
-                    value={selectedLatencyValue}
-                    onChange={(e) => onChange({ latencyValue: Number(e.target.value) })}
+                  <FieldLabel label="Latency Model" help={EDGE_PROPERTY_HELP.latencyModel} />
+                  <select
+                    value={selectedLatencyDistributionType}
+                    onChange={(e) =>
+                      onChange({
+                        latencyDistributionType: e.target
+                          .value as EdgeSimulationData['latencyDistributionType'],
+                        ...(e.target.value === 'constant' && value.latencyValue === undefined
+                          ? { latencyValue: defaultConstantLatencyMs }
+                          : {})
+                      })
+                    }
                     className={CONTROL_CLASS}
-                  />
+                  >
+                    <option value="log-normal">Log-normal (jittered)</option>
+                    <option value="constant">Constant (no jitter)</option>
+                  </select>
                 </div>
-              ) : (
-                <div className="grid grid-cols-2 gap-2">
+
+                {selectedLatencyDistributionType === 'constant' ? (
                   <div className="space-y-1">
-                    <FieldLabel
-                      label="Latency Mu (log-space)"
-                      help={EDGE_PROPERTY_HELP.latencyMu}
-                    />
+                    <FieldLabel label="Latency (ms)" help={EDGE_PROPERTY_HELP.latencyValue} />
                     <input
                       type="number"
+                      min={0}
                       step={0.01}
-                      value={selectedLatencyMu}
-                      onChange={(e) => onChange({ latencyMu: Number(e.target.value) })}
+                      value={selectedLatencyValue}
+                      onChange={(e) => onChange({ latencyValue: Number(e.target.value) })}
                       className={CONTROL_CLASS}
                     />
                   </div>
-                  <div className="space-y-1">
-                    <FieldLabel label="Jitter Sigma" help={EDGE_PROPERTY_HELP.latencySigma} />
-                    <input
-                      type="number"
-                      min={0.01}
-                      step={0.01}
-                      value={selectedLatencySigma}
-                      onChange={(e) => onChange({ latencySigma: Number(e.target.value) })}
-                      className={CONTROL_CLASS}
-                    />
+                ) : (
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-1">
+                      <FieldLabel
+                        label="Latency Mu (log-space)"
+                        help={EDGE_PROPERTY_HELP.latencyMu}
+                      />
+                      <input
+                        type="number"
+                        step={0.01}
+                        value={selectedLatencyMu}
+                        onChange={(e) => onChange({ latencyMu: Number(e.target.value) })}
+                        className={CONTROL_CLASS}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <FieldLabel label="Jitter Sigma" help={EDGE_PROPERTY_HELP.latencySigma} />
+                      <input
+                        type="number"
+                        min={0.01}
+                        step={0.01}
+                        value={selectedLatencySigma}
+                        onChange={(e) => onChange({ latencySigma: Number(e.target.value) })}
+                        className={CONTROL_CLASS}
+                      />
+                    </div>
                   </div>
-                </div>
-              )}
-            </>
-          )}
+                )}
+              </>
+            )}
 
-          <div className="grid grid-cols-2 gap-2">
-            <div className="space-y-1">
-              <FieldLabel label="Bandwidth (Mbps)" help={EDGE_PROPERTY_HELP.bandwidth} />
-              <input
-                type="number"
-                min={1}
-                step={1}
-                value={value.bandwidth ?? defaults.bandwidth}
-                onChange={(e) => onChange({ bandwidth: Number(e.target.value) })}
-                className={CONTROL_CLASS}
-              />
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <FieldLabel label="Bandwidth (Mbps)" help={EDGE_PROPERTY_HELP.bandwidth} />
+                <input
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={value.bandwidth ?? defaults.bandwidth}
+                  onChange={(e) => onChange({ bandwidth: Number(e.target.value) })}
+                  className={CONTROL_CLASS}
+                />
+              </div>
+              <div className="space-y-1">
+                <FieldLabel
+                  label="Max Concurrent"
+                  help={EDGE_PROPERTY_HELP.maxConcurrentRequests}
+                />
+                <input
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={value.maxConcurrentRequests ?? defaults.maxConcurrentRequests}
+                  onChange={(e) => onChange({ maxConcurrentRequests: Number(e.target.value) })}
+                  className={CONTROL_CLASS}
+                />
+              </div>
             </div>
-            <div className="space-y-1">
-              <FieldLabel label="Max Concurrent" help={EDGE_PROPERTY_HELP.maxConcurrentRequests} />
-              <input
-                type="number"
-                min={1}
-                step={1}
-                value={value.maxConcurrentRequests ?? defaults.maxConcurrentRequests}
-                onChange={(e) => onChange({ maxConcurrentRequests: Number(e.target.value) })}
-                className={CONTROL_CLASS}
-              />
-            </div>
-          </div>
 
-          <div className="grid grid-cols-2 gap-2">
-            <div className="space-y-1">
-              <FieldLabel label="Packet Loss (%)" help={EDGE_PROPERTY_HELP.packetLossRate} />
-              <input
-                type="number"
-                min={0}
-                max={100}
-                step={0.01}
-                value={value.packetLossRate ?? defaults.packetLossRatePercent}
-                onChange={(e) => onChange({ packetLossRate: Number(e.target.value) })}
-                className={CONTROL_CLASS}
-              />
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <FieldLabel label="Packet Loss (%)" help={EDGE_PROPERTY_HELP.packetLossRate} />
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  step={0.01}
+                  value={value.packetLossRate ?? defaults.packetLossRatePercent}
+                  onChange={(e) => onChange({ packetLossRate: Number(e.target.value) })}
+                  className={CONTROL_CLASS}
+                />
+              </div>
+              <div className="space-y-1">
+                <FieldLabel label="Edge Error (%)" help={EDGE_PROPERTY_HELP.errorRate} />
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  step={0.01}
+                  value={value.errorRate ?? defaults.errorRatePercent}
+                  onChange={(e) => onChange({ errorRate: Number(e.target.value) })}
+                  className={CONTROL_CLASS}
+                />
+              </div>
             </div>
-            <div className="space-y-1">
-              <FieldLabel label="Edge Error (%)" help={EDGE_PROPERTY_HELP.errorRate} />
-              <input
-                type="number"
-                min={0}
-                max={100}
-                step={0.01}
-                value={value.errorRate ?? defaults.errorRatePercent}
-                onChange={(e) => onChange({ errorRate: Number(e.target.value) })}
-                className={CONTROL_CLASS}
-              />
-            </div>
-          </div>
 
-          {!isLatencyAuto && (
-            <div className="rounded border border-nss-border bg-nss-surface px-2 py-2 text-[10px] leading-relaxed text-nss-muted">
-              {latencySummary}
-            </div>
-          )}
+            {!isLatencyAuto && (
+              <div className="rounded border border-nss-border bg-nss-surface px-2 py-2 text-[10px] leading-relaxed text-nss-muted">
+                {latencySummary}
+              </div>
+            )}
+          </fieldset>
         </div>
       )}
     </div>

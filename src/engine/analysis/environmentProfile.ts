@@ -15,6 +15,7 @@
  * host-supplied input (a mode string or a partial override) onto a preset.
  */
 import { z } from 'zod'
+import type { QuestionDomain } from './gradingCriteria'
 
 export type EnvironmentProfileMode = 'AUTHOR' | 'ASSIGNMENT' | 'PRACTICE'
 
@@ -41,6 +42,12 @@ export interface EnvironmentCapabilities {
   canEditScaffoldNodes: boolean
   /** Whether the student can trigger test/dry runs before submitting. */
   canTriggerTestRuns: boolean
+  /**
+   * Whether edge configuration is editable. V1: false for student modes (edge/network
+   * physics isn't built yet, so editing bandwidth/concurrency only invites brute-forcing);
+   * edge *results* stay inspectable. AUTHOR keeps full edge editing.
+   */
+  canEditEdges: boolean
   /** Maximum test runs allowed (undefined = unlimited). */
   maxTestRuns?: number
 }
@@ -72,7 +79,8 @@ export const AUTHOR_ENVIRONMENT_PROFILE: EnvironmentProfile = {
   capabilities: {
     editPaletteList: null,
     canEditScaffoldNodes: true,
-    canTriggerTestRuns: true
+    canTriggerTestRuns: true,
+    canEditEdges: true
   },
   graded: true,
   chromeDensity: 'full'
@@ -90,7 +98,8 @@ export const ASSIGNMENT_ENVIRONMENT_PROFILE: EnvironmentProfile = {
   capabilities: {
     editPaletteList: null,
     canEditScaffoldNodes: false,
-    canTriggerTestRuns: true
+    canTriggerTestRuns: true,
+    canEditEdges: false
   },
   graded: true,
   chromeDensity: 'minimal'
@@ -108,7 +117,8 @@ export const PRACTICE_ENVIRONMENT_PROFILE: EnvironmentProfile = {
   capabilities: {
     editPaletteList: null,
     canEditScaffoldNodes: true,
-    canTriggerTestRuns: true
+    canTriggerTestRuns: true,
+    canEditEdges: true
   },
   graded: false,
   chromeDensity: 'minimal'
@@ -142,6 +152,7 @@ const InputObjectSchema = z
         editPaletteList: z.array(z.string()).nullable().optional(),
         canEditScaffoldNodes: z.boolean().optional(),
         canTriggerTestRuns: z.boolean().optional(),
+        canEditEdges: z.boolean().optional(),
         maxTestRuns: z.number().int().nonnegative().optional()
       })
       .optional(),
@@ -198,6 +209,28 @@ export function shouldShowRubricResults(
     case 'LIVE_DURING_BUILD':
       return true
   }
+}
+
+/**
+ * Effective edge-editability for the *loaded question*, layering the question's
+ * bottleneck `domains` over the profile's base `canEditEdges` capability.
+ *
+ * The base capability locks edges in student modes because edge/network physics
+ * isn't built yet (V1). But when a question's lesson *is* the network — its
+ * `domains` include `'network'` (connection pools, bandwidth, geo-latency) — edges
+ * are the thing the student must size, so they are unlocked even under a locking
+ * profile. `compute` / `storage` (and domains-less) questions keep the base policy,
+ * so V1 stays locked. This is the single consumption point, so every load path
+ * (Newton seed, launch-context, local dev) gets the same behavior for free.
+ */
+export function canEditEdgesForQuestion(
+  profile: EnvironmentProfile,
+  question?: { domains?: readonly QuestionDomain[] } | null
+): boolean {
+  if (profile.capabilities.canEditEdges) {
+    return true
+  }
+  return question?.domains?.includes('network') ?? false
 }
 
 /** Whether the student may trigger another test run right now. */

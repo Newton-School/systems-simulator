@@ -10,6 +10,7 @@ function base(): QuestionPackage {
     title: 'q',
     difficulty: 'intermediate',
     type: 'open-build',
+    domains: ['compute'],
     prompt: {
       text: 't',
       functionalRequirements: [],
@@ -59,6 +60,42 @@ describe('validateAuthoredQuestion', () => {
     const d = validateAuthoredQuestion(base())
     expect(d).toEqual([])
     expect(isAuthoredValid(d)).toBe(true)
+  })
+
+  it('warns when no domains are declared', () => {
+    const pkg = base()
+    delete pkg.domains
+    expect(codes(pkg)).toContain('domains.missing')
+  })
+
+  it('warns when a domain is storage but there is no storageFit/fanout criterion', () => {
+    const pkg = base()
+    pkg.domains = ['storage'] // base() grades by a simulation p99 check, not storageFit
+    expect(codes(pkg)).toContain('domains.mismatch')
+  })
+
+  it('accepts a multi-domain question when each domain matches its grading', () => {
+    const pkg = base()
+    pkg.domains = ['compute', 'storage']
+    pkg.semanticCriteria = [
+      {
+        id: 'store',
+        kind: 'storageFit',
+        accessPattern: 'point-lookup',
+        accept: ['kv-store' as ComponentType],
+        points: 2
+      }
+    ]
+    // compute is satisfied by the base p99 sim check; storage by the storageFit above
+    const cs = codes(pkg)
+    expect(cs).not.toContain('domains.mismatch')
+    expect(cs).not.toContain('domains.missing')
+  })
+
+  it('warns that a V2 domain (network) has no physics yet', () => {
+    const pkg = base()
+    pkg.domains = ['network']
+    expect(codes(pkg)).toContain('domains.v2')
   })
 
   it('errors on the classic bad latency metric key', () => {
