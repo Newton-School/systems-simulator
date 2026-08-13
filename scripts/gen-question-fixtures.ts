@@ -1241,7 +1241,9 @@ function questionTextHtml(q: any): string {
     .map((p: string) => `<p>${p.trim().replace(/\s*\n\s*/g, ' ')}</p>`)
     .join('\n')
   const list = (title: string, items: string[]) =>
-    items.length ? `<h3>${title}</h3>\n<ul>\n${items.map((i) => `  <li>${i}</li>`).join('\n')}\n</ul>` : ''
+    items.length
+      ? `<h3>${title}</h3>\n<ul>\n${items.map((i) => `  <li>${i}</li>`).join('\n')}\n</ul>`
+      : ''
   const frs = list('Functional Requirements', q.prompt.functionalRequirements ?? [])
   const nfrs = list(
     'Non-Functional Targets',

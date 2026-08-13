@@ -150,7 +150,10 @@ function validateDomains(pkg: QuestionPackage, out: AuthoringDiagnostic[]): void
   const domains = pkg.domains
   if (!domains || domains.length === 0) {
     out.push(
-      warn('domains.missing', 'No `domains` declared. Set at least one so the platform can switch palette / edge-lock / grading emphasis per bottleneck domain.')
+      warn(
+        'domains.missing',
+        'No `domains` declared. Set at least one so the platform can switch palette / edge-lock / grading emphasis per bottleneck domain.'
+      )
     )
     return
   }
@@ -182,26 +185,38 @@ function validateDomains(pkg: QuestionPackage, out: AuthoringDiagnostic[]): void
       case 'compute':
         if (!hasSimCheck && !hasForbidUnjustified)
           out.push(
-            warn('domains.mismatch', "domain 'compute' expects a simulation check (summary.latency.p99 / summary.throughput) or a forbidUnjustified judgment criterion.")
+            warn(
+              'domains.mismatch',
+              "domain 'compute' expects a simulation check (summary.latency.p99 / summary.throughput) or a forbidUnjustified judgment criterion."
+            )
           )
         break
       case 'storage':
         if (!hasDataCriterion)
           out.push(
-            warn('domains.mismatch', "domain 'storage' expects a `storageFit` (store choice) or `fanout` (broadcast) semantic criterion.")
+            warn(
+              'domains.mismatch',
+              "domain 'storage' expects a `storageFit` (store choice) or `fanout` (broadcast) semantic criterion."
+            )
           )
         break
       case 'correctness':
         if (!hasJustify)
           out.push(
-            warn('domains.mismatch', "domain 'correctness' is carried by topology + justification; expected a `justify` prompt.")
+            warn(
+              'domains.mismatch',
+              "domain 'correctness' is carried by topology + justification; expected a `justify` prompt."
+            )
           )
         break
       case 'network':
       case 'resilience':
       case 'cost':
         out.push(
-          warn('domains.v2', `domain '${domain}' is a V2 domain — its physics/traits (edge cost, circuit-breaking, budget) are not built yet.`)
+          warn(
+            'domains.v2',
+            `domain '${domain}' is a V2 domain — its physics/traits (edge cost, circuit-breaking, budget) are not built yet.`
+          )
         )
         break
     }
