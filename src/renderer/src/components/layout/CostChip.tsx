@@ -108,7 +108,7 @@ export function CostChip(): React.JSX.Element {
                     {item.formula}
                   </td>
                   <td className="px-3 py-1 text-right font-semibold tabular-nums text-nss-text">
-                    {item.priced ? formatCostPerHour(item.costPerHour) : '—'}
+                    {item.priced ? formatCostPerHour(item.costPerHour) : '-'}
                   </td>
                 </tr>
               ))}

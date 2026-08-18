@@ -121,12 +121,25 @@ export const EdgePropertiesPanel = ({
     targetNodeData
   )
   const selectedCondition = value.condition ?? ''
+  const hasExplicitLatencyValue =
+    typeof value.latencyValue === 'number' && Number.isFinite(value.latencyValue)
+  const hasExplicitLogNormalParams =
+    (typeof value.latencyMu === 'number' && Number.isFinite(value.latencyMu)) ||
+    (typeof value.latencySigma === 'number' && Number.isFinite(value.latencySigma))
   const selectedLatencyDistributionType =
-    value.latencyDistributionType ?? (value.latencyValue !== undefined ? 'constant' : 'log-normal')
+    value.latencyDistributionType === 'constant'
+      ? 'constant'
+      : value.latencyDistributionType === 'log-normal'
+        ? 'log-normal'
+        : hasExplicitLatencyValue && !hasExplicitLogNormalParams
+          ? 'constant'
+          : hasExplicitLogNormalParams
+            ? 'log-normal'
+            : 'constant'
   const selectedLatencyMu = value.latencyMu ?? defaults.latencyDistribution.mu
   const selectedLatencySigma = value.latencySigma ?? defaults.latencyDistribution.sigma
   const defaultConstantLatencyMs = Number(Math.exp(defaults.latencyDistribution.mu).toFixed(2))
-  const selectedLatencyValue = value.latencyValue ?? defaultConstantLatencyMs
+  const selectedLatencyValue = hasExplicitLatencyValue ? value.latencyValue : defaultConstantLatencyMs
   const jitterCv = logNormalJitterCv(selectedLatencySigma)
   const sourceLabel = sourceNodeData?.label
   const targetLabel = targetNodeData?.label
@@ -218,7 +231,7 @@ export const EdgePropertiesPanel = ({
         <div className="flex-1 overflow-y-auto custom-scrollbar p-5 space-y-3">
           <div className="rounded border border-nss-border bg-nss-surface px-3 py-2 text-[11px] leading-relaxed text-nss-muted">
             This connection is a simple link showing how the components are wired. It carries no
-            latency, bandwidth, or cost in this environment — focus on the components and how they
+            latency, bandwidth, or cost in this environment - focus on the components and how they
             fit together.
           </div>
           <div className="space-y-1">
@@ -239,7 +252,7 @@ export const EdgePropertiesPanel = ({
           {readOnly && (
             <div className="rounded border border-nss-border bg-nss-surface px-3 py-2 text-[11px] leading-relaxed text-nss-muted">
               🔒 Edge configuration is locked for this assignment. Edit nodes, storage types, and
-              worker/replica counts instead — you can still inspect edge results after a run.
+              worker/replica counts instead - you can still inspect edge results after a run.
             </div>
           )}
           <fieldset disabled={readOnly} className="m-0 space-y-3 border-0 p-0 disabled:opacity-70">
@@ -360,9 +373,8 @@ export const EdgePropertiesPanel = ({
                           latencySigma: undefined
                         }
                       : {
-                          latencyDistributionType: 'log-normal',
-                          latencyMu: selectedLatencyMu,
-                          latencySigma: selectedLatencySigma
+                          latencyDistributionType: 'constant',
+                          latencyValue: selectedLatencyValue
                         }
                   )
                 }
@@ -390,6 +402,12 @@ export const EdgePropertiesPanel = ({
                           .value as EdgeSimulationData['latencyDistributionType'],
                         ...(e.target.value === 'constant' && value.latencyValue === undefined
                           ? { latencyValue: defaultConstantLatencyMs }
+                          : {}),
+                        ...(e.target.value === 'log-normal'
+                          ? {
+                              latencyMu: selectedLatencyMu,
+                              latencySigma: selectedLatencySigma
+                            }
                           : {})
                       })
                     }

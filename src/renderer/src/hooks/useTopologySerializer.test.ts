@@ -59,6 +59,13 @@ describe('container-derived edge pathType', () => {
 const SAME_DC_PROFILE = { type: 'log-normal' as const, mu: 0, sigma: 0.4 }
 
 describe('resolveEdgeLatencyDistribution', () => {
+  it('defaults a bare edge to constant median latency with no jitter', () => {
+    expect(resolveEdgeLatencyDistribution({}, SAME_DC_PROFILE)).toEqual({
+      distribution: { type: 'constant', value: 1 },
+      derivedFromPathType: true
+    })
+  })
+
   it('serializes an explicit constant edge latency as a constant distribution', () => {
     expect(
       resolveEdgeLatencyDistribution(

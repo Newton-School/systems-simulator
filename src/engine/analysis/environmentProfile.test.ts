@@ -19,15 +19,18 @@ describe('environment profile presets', () => {
 
     expect(AUTHOR_ENVIRONMENT_PROFILE.graded).toBe(true)
     expect(AUTHOR_ENVIRONMENT_PROFILE.visibility.rubricChecks).toBe('LIVE_DURING_BUILD')
+    expect(AUTHOR_ENVIRONMENT_PROFILE.capabilities.canEditExecutionProfile).toBe(true)
 
     expect(ASSIGNMENT_ENVIRONMENT_PROFILE.graded).toBe(true)
     expect(ASSIGNMENT_ENVIRONMENT_PROFILE.visibility.rubricChecks).toBe('LIVE_DURING_BUILD')
     expect(ASSIGNMENT_ENVIRONMENT_PROFILE.visibility.gradingSuiteDetails).toBe(false)
     expect(ASSIGNMENT_ENVIRONMENT_PROFILE.capabilities.canEditScaffoldNodes).toBe(false)
+    expect(ASSIGNMENT_ENVIRONMENT_PROFILE.capabilities.canEditExecutionProfile).toBe(false)
     expect(ASSIGNMENT_ENVIRONMENT_PROFILE.capabilities.maxTestRuns).toBeUndefined()
 
     expect(PRACTICE_ENVIRONMENT_PROFILE.graded).toBe(false)
     expect(PRACTICE_ENVIRONMENT_PROFILE.visibility.rubricChecks).toBe('LIVE_DURING_BUILD')
+    expect(PRACTICE_ENVIRONMENT_PROFILE.capabilities.canEditExecutionProfile).toBe(false)
   })
 })
 
@@ -47,7 +50,7 @@ describe('resolveEnvironmentProfile', () => {
   it('merges a partial override onto the mode preset and ignores unknown keys', () => {
     const resolved = resolveEnvironmentProfile({
       mode: 'ASSIGNMENT',
-      capabilities: { maxTestRuns: 1 },
+      capabilities: { maxTestRuns: 1, canEditExecutionProfile: true },
       // unknown keys must not break resolution
       somethingExtra: true
     } as unknown)
@@ -55,6 +58,7 @@ describe('resolveEnvironmentProfile', () => {
     expect(resolved.mode).toBe('ASSIGNMENT')
     // overridden field
     expect(resolved.capabilities.maxTestRuns).toBe(1)
+    expect(resolved.capabilities.canEditExecutionProfile).toBe(true)
     // untouched preset fields survive
     expect(resolved.capabilities.canEditScaffoldNodes).toBe(false)
     expect(resolved.visibility.rubricChecks).toBe('LIVE_DURING_BUILD')

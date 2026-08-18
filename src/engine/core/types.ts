@@ -247,7 +247,9 @@ export interface ResourceConfig {
   /**
    * Purchasing model — the flexibility/commitment/risk tradeoff on price.
    * on-demand (full price, default) · reserved (~40% off, committed) · spot
-   * (~70% off, but can be reclaimed → a node failure). Absent = 'on-demand'.
+   * (~70% off). In this simulator today it changes provisioned cost only;
+   * commitment guarantees and spot interruption behavior are not simulated.
+   * Absent = 'on-demand'.
    */
   pricingModel?: PricingModel
 

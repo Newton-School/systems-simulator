@@ -43,7 +43,7 @@ export function EnvironmentsTab(): React.JSX.Element {
 
       <SettingRow
         label="Edge model"
-        hint="Network = edges carry latency/bandwidth and can be inspected. Connector = dumb wires that only show how components connect (no physics, no cost, no properties) so students focus on the high-level design."
+        hint="Network = edges carry latency/bandwidth and can be inspected. Connector = dumb wires that only show how components connect (no physics, no cost, no properties) so the focus stays on the high-level design."
       >
         <Segmented
           value={caps.edgeModel}
@@ -56,10 +56,10 @@ export function EnvironmentsTab(): React.JSX.Element {
       </SettingRow>
 
       <SettingRow
-        label="Students can edit edge properties"
+        label="Edit edge properties"
         hint={
           isConnector
-            ? 'Only applies in Network mode — connector edges have nothing to edit.'
+            ? 'Only applies in Network mode - connector edges have nothing to edit.'
             : 'When off, edges still affect the simulation but their bandwidth/latency are locked.'
         }
         disabled={isConnector}
@@ -74,13 +74,25 @@ export function EnvironmentsTab(): React.JSX.Element {
       <SectionLabel>Resources & budget</SectionLabel>
 
       <SettingRow
-        label="Students can change resource allocation"
-        hint="Instance type, count, and workload kind. Off in graded assignments unless the lesson is allocation itself."
+        label="Change resource allocation"
+        hint="Instance type and count. Off in graded assignments unless the lesson is allocation itself."
       >
         <Toggle
           checked={caps.canEditResources}
           onChange={(canEditResources) =>
             setProfile(patchCapabilities(profile, { canEditResources }))
+          }
+        />
+      </SettingRow>
+
+      <SettingRow
+        label="Change execution profile"
+        hint="Expose the advanced CPU-bound / IO-bound behavior knob. Best left off in introductory HLD so the focus stays on architecture rather than gaming concurrency assumptions."
+      >
+        <Toggle
+          checked={caps.canEditExecutionProfile}
+          onChange={(canEditExecutionProfile) =>
+            setProfile(patchCapabilities(profile, { canEditExecutionProfile }))
           }
         />
       </SettingRow>
@@ -144,7 +156,7 @@ export function EnvironmentsTab(): React.JSX.Element {
 
       <SettingRow
         label="Test-run limit"
-        hint="Max dry runs a student may trigger. Empty = unlimited."
+        hint="Max dry runs that can be triggered. Empty = unlimited."
       >
         <OptionalNumber
           value={caps.maxTestRuns}
@@ -154,7 +166,7 @@ export function EnvironmentsTab(): React.JSX.Element {
         />
       </SettingRow>
 
-      <SettingRow label="Rubric check visibility" hint="When students see grading-check results.">
+      <SettingRow label="Rubric check visibility" hint="When grading-check results are shown.">
         <div className="flex items-center gap-1.5">
           <select
             value={profile.visibility.rubricChecks}

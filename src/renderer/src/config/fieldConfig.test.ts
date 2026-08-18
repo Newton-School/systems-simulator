@@ -239,4 +239,44 @@ describe('getNodeConfigSections', () => {
     expect(sections.find((section) => section.id === 'workload')).toBeTruthy()
     expect(sections.find((section) => section.id === 'request-templates')).toBeTruthy()
   })
+
+  it('shows purchase model only for provisioned nodes and keeps it advanced', () => {
+    const microservice = makeRuntimeNode({
+      templateId: 'api-server',
+      componentType: 'microservice',
+      structuralRole: 'processor',
+      profile: 'compute-service',
+      label: 'API Server'
+    })
+    const clientApp = makeRuntimeNode({
+      templateId: 'client-user',
+      componentType: 'api-endpoint',
+      structuralRole: 'source',
+      profile: 'source',
+      label: 'Client App'
+    })
+    const serverless = makeRuntimeNode({
+      templateId: 'lambda-function',
+      componentType: 'serverless-function',
+      structuralRole: 'processor',
+      profile: 'compute-service',
+      label: 'Lambda'
+    })
+
+    const provisionedPurchaseModel = getNodeConfigSections(microservice)
+      .find((section) => section.id === 'resources')
+      ?.fields.find((field) => field.path === 'sim.resources.pricingModel')
+    const clientPurchaseModel = getNodeConfigSections(clientApp)
+      .find((section) => section.id === 'resources')
+      ?.fields.find((field) => field.path === 'sim.resources.pricingModel')
+    const serverlessPurchaseModel = getNodeConfigSections(serverless)
+      .find((section) => section.id === 'resources')
+      ?.fields.find((field) => field.path === 'sim.resources.pricingModel')
+
+    expect(provisionedPurchaseModel?.label).toBe('Purchase model')
+    expect(provisionedPurchaseModel?.altitude).toBe('advanced')
+    expect(provisionedPurchaseModel?.why).toContain('Reserved/spot change cost only here')
+    expect(clientPurchaseModel).toBeUndefined()
+    expect(serverlessPurchaseModel).toBeUndefined()
+  })
 })

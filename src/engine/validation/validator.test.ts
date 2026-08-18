@@ -383,6 +383,58 @@ describe('validateTopology active-source validation', () => {
       ])
     )
   })
+
+  it('suppresses edge-constraint warnings in connector mode', () => {
+    const source = makeSourceNode('client', 'Client App')
+    const service = makeProcessorNode('api', 'API Server')
+
+    const result = validateTopology(
+      makeTopology({
+        nodes: [source, service],
+        edges: [
+          {
+            ...makeEdge('client-api', source.id, service.id),
+            maxConcurrentRequests: Number.MAX_SAFE_INTEGER
+          }
+        ],
+        sourceNodeId: source.id
+      }),
+      { edgeModel: 'connector' }
+    )
+
+    expect(result.valid).toBe(true)
+    expect(
+      (result.warnings ?? []).some((warning) =>
+        warning.includes('Max concurrent requests above 10,000')
+      )
+    ).toBe(false)
+  })
+
+  it('keeps edge-constraint warnings in network mode', () => {
+    const source = makeSourceNode('client', 'Client App')
+    const service = makeProcessorNode('api', 'API Server')
+
+    const result = validateTopology(
+      makeTopology({
+        nodes: [source, service],
+        edges: [
+          {
+            ...makeEdge('client-api', source.id, service.id),
+            maxConcurrentRequests: Number.MAX_SAFE_INTEGER
+          }
+        ],
+        sourceNodeId: source.id
+      }),
+      { edgeModel: 'network' }
+    )
+
+    expect(result.valid).toBe(true)
+    expect(result.warnings).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('Max concurrent requests above 10,000')
+      ])
+    )
+  })
 })
 
 describe('validateTopology node config validation', () => {

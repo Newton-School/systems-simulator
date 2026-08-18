@@ -1391,6 +1391,9 @@ export const PropertiesPanel = ({ results = null }: { results?: SimulationOutput
   const canEditResources = useStore((state) =>
     canEditResourcesForQuestion(state.environmentProfile, state.activeQuestion)
   )
+  const canEditExecutionProfile = useStore(
+    (state) => state.environmentProfile.capabilities.canEditExecutionProfile
+  )
   const selectedNode = nodes.find((node) => node.selected)
   const selectedEdge = edges.find((edge) => edge.selected)
   const selectedNodeId = selectedNode?.id
@@ -1559,6 +1562,7 @@ export const PropertiesPanel = ({ results = null }: { results?: SimulationOutput
               data={data}
               onUpdate={handleUpdate}
               resourcesLocked={!canEditResources}
+              executionProfileEnabled={canEditExecutionProfile}
             />
           )}
         </div>

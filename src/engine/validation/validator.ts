@@ -587,6 +587,10 @@ export interface ValidationResult {
   warnings?: string[]
 }
 
+export interface ValidationOptions {
+  edgeModel?: 'network' | 'connector'
+}
+
 function resolvedRole(node: TopologyJSON['nodes'][number]) {
   return node.role ?? inferStructuralRole(node.type)
 }
@@ -694,9 +698,13 @@ function displayNodeLabel(node: TopologyJSON['nodes'][number]): string {
   return trimmedLabel.length > 0 ? trimmedLabel : node.id
 }
 
-export const validateTopology = (input: unknown): ValidationResult => {
+export const validateTopology = (
+  input: unknown,
+  options: ValidationOptions = {}
+): ValidationResult => {
   const warnings: string[] = []
   const errors: ValidationError[] = []
+  const includeEdgeConstraintWarnings = options.edgeModel !== 'connector'
 
   //Zod Structural Parse
   const parseResult = TopologyJSONSchema.safeParse(input)
@@ -1178,14 +1186,16 @@ export const validateTopology = (input: unknown): ValidationResult => {
 
     const sourceNode = nodeById.get(edge.source)
     const targetNode = nodeById.get(edge.target)
-    const edgeWarnings = validateEdgeConstraintSelection(edge, sourceNode?.type, targetNode?.type)
-    const sourceLabel = sourceNode ? displayNodeLabel(sourceNode) : edge.source
-    const targetLabel = targetNode ? displayNodeLabel(targetNode) : edge.target
-    warnings.push(
-      ...edgeWarnings.map(
-        (message) => `Edge '${edge.id}' (${sourceLabel} → ${targetLabel}): ${message}`
+    if (includeEdgeConstraintWarnings) {
+      const edgeWarnings = validateEdgeConstraintSelection(edge, sourceNode?.type, targetNode?.type)
+      const sourceLabel = sourceNode ? displayNodeLabel(sourceNode) : edge.source
+      const targetLabel = targetNode ? displayNodeLabel(targetNode) : edge.target
+      warnings.push(
+        ...edgeWarnings.map(
+          (message) => `Edge '${edge.id}' (${sourceLabel} → ${targetLabel}): ${message}`
+        )
       )
-    )
+    }
   })
 
   topology.nodes.forEach((node, index) => {

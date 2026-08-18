@@ -19,6 +19,11 @@ const FLOW_DANGER_COLOR = 'rgb(var(--nss-danger))'
 const FLOW_PRIMARY_COLOR = 'rgb(var(--nss-primary))'
 const ROUTING_PREVIEW_DECISION_SAMPLE_LIMIT = 2_000
 const EMPTY_EDGE_FLOW_BY_ID: Record<string, EdgeFlowState> = {}
+const CONNECTOR_IDLE_STROKE_WIDTH = 2.5
+const CONNECTOR_IDLE_OPACITY = 0.68
+const RECEDING_EDGE_OPACITY = 0.42
+const INACTIVE_EDGE_OPACITY = 0.28
+const UNSELECTED_ROUTING_PREVIEW_OPACITY = 0.28
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value))
@@ -217,6 +222,10 @@ export const PacketEdge = ({
     ? hasFlow
       ? clamp(2.5 + previewShare * 1.2, 2.5, 3.7)
       : 2
+    : edgeIsConnectorOnly
+      ? selected
+        ? 3
+        : CONNECTOR_IDLE_STROKE_WIDTH
     : hasFlow
       ? clamp(3 + Math.log2(visualRequestRate + 1) * 0.55, selected ? 3.5 : 3, 5)
       : selected
@@ -233,6 +242,17 @@ export const PacketEdge = ({
   // Node-first lenses (timeout, queue capacity) recede: the edge dims to its
   // identity and lets the nodes carry the lens.
   const lensRecedes = !isRoutingPreviewEdge && lensProjection.recedes
+  const baseEdgeOpacity = isRoutingPreviewEdge
+    ? routingPreview?.isSelected
+      ? 1
+      : UNSELECTED_ROUTING_PREVIEW_OPACITY
+    : edgeIsConnectorOnly && !selected
+      ? CONNECTOR_IDLE_OPACITY
+      : isInactiveAfterRun
+        ? INACTIVE_EDGE_OPACITY
+        : lensRecedes
+          ? RECEDING_EDGE_OPACITY
+          : 1
   const flowLabelText = isRoutingPreviewEdge
     ? routingPreview?.isSelected
       ? `${routingPreview.selectedCount}/${routingPreview.totalCount} preview`
@@ -294,13 +314,7 @@ export const PacketEdge = ({
             : selected
               ? FLOW_PRIMARY_COLOR
               : (failureStroke ?? 'var(--nss-border-high)'),
-          opacity: isRoutingPreviewEdge
-            ? routingPreview?.isSelected
-              ? 1
-              : 0.28
-            : isInactiveAfterRun || lensRecedes
-              ? 0.28
-              : 1
+          opacity: baseEdgeOpacity
         }}
         interactionWidth={30}
       />

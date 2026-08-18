@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Pause, Play, RotateCcw, Square, X } from 'lucide-react'
 import type { FaultSpec, WorkloadProfile } from '../../../../engine/core/types'
 import type { FaultTargetOption, ScenarioState, SourceNodeOption } from '@renderer/types/ui'
@@ -68,6 +69,16 @@ const CONTROL_BASE =
 const ACTION_BUTTON_BASE =
   'h-7 px-3 text-xs font-semibold font-sans rounded-md border transition-colors disabled:opacity-40 disabled:cursor-not-allowed'
 
+const WORKLOAD_PANEL_WIDTH_PX = 320
+const WORKLOAD_PANEL_GUTTER_PX = 16
+const WORKLOAD_PANEL_OFFSET_PX = 8
+
+interface WorkloadPanelPosition {
+  top: number
+  left: number
+  width: number
+}
+
 interface SimulationControlsProps {
   onRun: () => void
   onReset: () => void
@@ -111,6 +122,8 @@ export function SimulationControls({
 }: SimulationControlsProps) {
   const [isOpen, setIsOpen] = useState(false)
   const wrapperRef = useRef<HTMLDivElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
+  const [panelPosition, setPanelPosition] = useState<WorkloadPanelPosition | null>(null)
 
   const selectedSource =
     sourceNodes.find((node) => node.id === scenario.selectedSourceNodeId) ?? sourceNodes[0]
@@ -127,7 +140,15 @@ export function SimulationControls({
     if (!isOpen) return
 
     function onMouseDown(event: MouseEvent) {
-      if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
+      const target = event.target as Node
+      if (
+        wrapperRef.current?.contains(target) ||
+        panelRef.current?.contains(target)
+      ) {
+        return
+      }
+
+      if (wrapperRef.current) {
         setIsOpen(false)
       }
     }
@@ -142,6 +163,37 @@ export function SimulationControls({
       document.removeEventListener('mousedown', onMouseDown, true)
       document.removeEventListener('keydown', onKeyDown, true)
     }
+  }, [isOpen])
+
+  useEffect(() => {
+    if (!isOpen) {
+      setPanelPosition(null)
+      return
+    }
+
+    const updatePanelPosition = () => {
+      const anchor = wrapperRef.current
+      if (!anchor) return
+
+      const rect = anchor.getBoundingClientRect()
+      const width = Math.min(WORKLOAD_PANEL_WIDTH_PX, window.innerWidth - WORKLOAD_PANEL_GUTTER_PX * 2)
+      const centeredLeft = rect.left + rect.width / 2 - width / 2
+      const left = Math.min(
+        Math.max(WORKLOAD_PANEL_GUTTER_PX, centeredLeft),
+        window.innerWidth - width - WORKLOAD_PANEL_GUTTER_PX
+      )
+
+      setPanelPosition({
+        top: rect.bottom + WORKLOAD_PANEL_OFFSET_PX,
+        left,
+        width
+      })
+    }
+
+    updatePanelPosition()
+    window.addEventListener('resize', updatePanelPosition)
+
+    return () => window.removeEventListener('resize', updatePanelPosition)
   }, [isOpen])
 
   useEffect(() => {
@@ -280,8 +332,20 @@ export function SimulationControls({
         </>
       )}
 
-      {isOpen && (
-        <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 z-50 bg-nss-panel border border-nss-border rounded-lg shadow-2xl p-4 w-80 font-sans">
+      {isOpen &&
+        panelPosition &&
+        typeof document !== 'undefined' &&
+        createPortal(
+          <div
+            ref={panelRef}
+            style={{
+              top: panelPosition.top,
+              left: panelPosition.left,
+              width: panelPosition.width,
+              maxHeight: `calc(100vh - ${panelPosition.top + WORKLOAD_PANEL_GUTTER_PX}px)`
+            }}
+            className="fixed z-[90] overflow-y-auto rounded-lg border border-nss-border bg-nss-panel p-4 font-sans shadow-2xl"
+          >
           <div className="flex items-center justify-between mb-2">
             <p className="text-[10px] font-semibold uppercase tracking-widest text-nss-muted">
               Workload
@@ -320,7 +384,7 @@ export function SimulationControls({
           <div className="grid grid-cols-2 gap-2 mb-2">
             <Field label="Pattern">
               <select
-                value={effectiveWorkload?.pattern ?? 'poisson'}
+                value={effectiveWorkload?.pattern ?? 'constant'}
                 onChange={(event) =>
                   setWorkloadField('pattern', event.target.value as WorkloadPattern)
                 }
@@ -534,8 +598,9 @@ export function SimulationControls({
           >
             Start Simulation
           </button>
-        </div>
-      )}
+          </div>,
+          document.body
+        )}
     </div>
   )
 }

@@ -109,7 +109,7 @@ function RoadmapTab({ title, items }: { title: string; items: string[] }): React
     <div className="space-y-3">
       <p className="text-[12px] text-nss-text">{title}</p>
       <p className="text-[11px] leading-relaxed text-nss-muted">
-        Planned for this tab — not yet wired up:
+        Planned for this tab - not yet wired up:
       </p>
       <ul className="space-y-1.5">
         {items.map((item) => (

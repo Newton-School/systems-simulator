@@ -45,7 +45,10 @@ import {
   type AttemptState,
   type QuestionPackage
 } from '../../../../engine/analysis/question'
-import { resolveEnvironmentProfile } from '../../../../engine/analysis/environmentProfile'
+import {
+  resolveEdgeModel,
+  resolveEnvironmentProfile
+} from '../../../../engine/analysis/environmentProfile'
 import type { ValidationError } from '../../../../engine/validation/validator'
 import {
   hasWorkloadSourceConfig,
@@ -879,7 +882,9 @@ export const WorkspaceLayout = () => {
       return
     }
 
-    const validation = validateTopology(topology)
+    const validation = validateTopology(topology, {
+      edgeModel: resolveEdgeModel(environmentProfile, activeQuestion)
+    })
     if (!validation.valid) {
       const validationErrors = validation.errors?.map((error) =>
         formatValidationIssue(error, nodes, edges)

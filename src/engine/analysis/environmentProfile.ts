@@ -69,12 +69,19 @@ export interface EnvironmentCapabilities {
   canEditEdges: boolean
   /**
    * Whether the student may change a node's resource allocation (instance type,
-   * count, workers). Base policy: mutable in AUTHOR/PRACTICE (the deployed sandbox),
-   * locked in ASSIGNMENT — but a question whose lesson *is* allocation unlocks it
-   * (see `canEditResourcesForQuestion`). Cost/derived read-outs stay visible either
-   * way; this only gates editing.
+   * count). Base policy: mutable in AUTHOR/PRACTICE (the deployed sandbox), locked
+   * in ASSIGNMENT — but a question whose lesson *is* allocation unlocks it (see
+   * `canEditResourcesForQuestion`). Cost/derived read-outs stay visible either way;
+   * this only gates editing.
    */
   canEditResources: boolean
+  /**
+   * Whether the student may change the advanced execution profile
+   * (`cpu-bound`/`io-bound`). Keep this off in introductory HLD so generic
+   * services don't become a game of flipping concurrency heuristics; turn it on
+   * only when service behavior itself is the lesson.
+   */
+  canEditExecutionProfile: boolean
   /** Maximum test runs allowed (undefined = unlimited). */
   maxTestRuns?: number
   /**
@@ -121,7 +128,8 @@ export const AUTHOR_ENVIRONMENT_PROFILE: EnvironmentProfile = {
     canTriggerTestRuns: true,
     edgeModel: 'network',
     canEditEdges: true,
-    canEditResources: true
+    canEditResources: true,
+    canEditExecutionProfile: true
   },
   graded: true,
   chromeDensity: 'full'
@@ -142,7 +150,8 @@ export const ASSIGNMENT_ENVIRONMENT_PROFILE: EnvironmentProfile = {
     canTriggerTestRuns: true,
     edgeModel: 'connector',
     canEditEdges: false,
-    canEditResources: false
+    canEditResources: false,
+    canEditExecutionProfile: false
   },
   graded: true,
   chromeDensity: 'minimal'
@@ -165,7 +174,8 @@ export const PRACTICE_ENVIRONMENT_PROFILE: EnvironmentProfile = {
     // A `network`-domain question still upgrades to full network edges per question.
     edgeModel: 'connector',
     canEditEdges: true,
-    canEditResources: true
+    canEditResources: true,
+    canEditExecutionProfile: false
   },
   graded: false,
   chromeDensity: 'minimal'
@@ -209,6 +219,7 @@ const InputObjectSchema = z
         edgeModel: z.enum(['network', 'connector']).optional(),
         canEditEdges: z.boolean().optional(),
         canEditResources: z.boolean().optional(),
+        canEditExecutionProfile: z.boolean().optional(),
         maxTestRuns: z.number().int().nonnegative().optional()
       })
       .optional(),
