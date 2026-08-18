@@ -5,6 +5,7 @@ import { resolveNodeConfig } from '@renderer/config/nodeRegistry'
 import { useNodeMetrics } from '@renderer/hooks/useNodeMetrics'
 import { useEffectiveSourceWorkload } from '@renderer/hooks/useEffectiveSourceWorkload'
 import { useMetricLens } from '@renderer/hooks/useMetricLens'
+import useStore from '@renderer/store/useStore'
 import BaseNode from '@renderer/components/nodes/BaseNode'
 import { InlineEditableLabel } from '@renderer/components/properties/InlineEditable'
 import { useFlowStore } from '@renderer/components/canvas/hooks/useFlowStore'
@@ -51,7 +52,11 @@ const ComputeNode = ({ id, data, selected }: NodeProps<ComputeNodeData>) => {
     active
   } = metrics
   const lens = useMetricLens()
-  const lensCard = hasRuntime && lens !== 'traffic' ? getLensCard(lens, data, metrics) : null
+  const latencyLensPercentile = useStore((s) => s.displaySettings.latencyLensPercentile)
+  const lensCard =
+    hasRuntime && lens !== 'traffic'
+      ? getLensCard(lens, data, metrics, latencyLensPercentile)
+      : null
   const preRunMetric = isPreRunMetricLens(lens) ? getPreRunMetric(lens, data) : null
   const reliabilityStatus = getRuntimeReliabilityStatus(
     'healthy',

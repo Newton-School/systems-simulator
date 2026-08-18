@@ -3,7 +3,7 @@ import {
   resolveEnvironmentProfile,
   type EnvironmentProfileMode
 } from '../../../../../engine/analysis/environmentProfile'
-import { OptionalNumber, Segmented, SettingRow, Toggle } from './SettingsControls'
+import { OptionalNumber, SectionLabel, Segmented, SettingRow, Toggle } from './SettingsControls'
 import { patchCapabilities, patchVisibility } from './settingsTypes'
 
 /**
@@ -187,14 +187,6 @@ export function EnvironmentsTab(): React.JSX.Element {
           <span className="w-10 shrink-0" />
         </div>
       </SettingRow>
-    </div>
-  )
-}
-
-function SectionLabel({ children }: { children: React.ReactNode }): React.JSX.Element {
-  return (
-    <div className="mt-4 mb-1 border-t border-nss-border/60 pt-3 text-[10px] font-bold uppercase tracking-widest text-nss-muted">
-      {children}
     </div>
   )
 }

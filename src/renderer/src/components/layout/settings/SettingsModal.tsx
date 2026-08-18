@@ -1,12 +1,15 @@
 import { useEffect, useState } from 'react'
 import { X } from 'lucide-react'
 import { EnvironmentsTab } from './EnvironmentsTab'
+import { SimulationTab } from './SimulationTab'
+import { DisplayTab } from './DisplayTab'
 import { SETTINGS_TABS, type SettingsTabId } from './settingsTypes'
 
 /**
- * The settings modal. A tabbed overlay opened from the header gear. The
- * Environments tab is live; the remaining tabs are signposted roadmap so the
- * intended structure is visible without shipping non-functional controls.
+ * The settings modal. A tabbed overlay opened from the header gear. It surfaces
+ * environment policy, simulation defaults, and display preferences; pedagogy
+ * controls are intentionally deferred from the shipped UI and documented in the
+ * docs repo instead.
  */
 export function SettingsModal({ onClose }: { onClose: () => void }): React.JSX.Element {
   const [tab, setTab] = useState<SettingsTabId>('environments')
@@ -70,55 +73,11 @@ export function SettingsModal({ onClose }: { onClose: () => void }): React.JSX.E
 
           <div className="flex-1 overflow-y-auto custom-scrollbar px-5 py-3">
             {tab === 'environments' && <EnvironmentsTab />}
-            {tab === 'simulation' && (
-              <RoadmapTab
-                title="Simulation defaults"
-                items={[
-                  'Run length & warmup duration',
-                  'Random seed (deterministic, reproducible runs)',
-                  'Default edge-latency jitter'
-                ]}
-              />
-            )}
-            {tab === 'display' && (
-              <RoadmapTab
-                title="Display & appearance"
-                items={[
-                  'Theme (currently in the header)',
-                  'Default metric lens',
-                  'Latency percentile (p50 / p95 / p99)',
-                  'Chrome density'
-                ]}
-              />
-            )}
-            {tab === 'pedagogy' && (
-              <RoadmapTab
-                title="Teaching"
-                items={['Hint verbosity', 'Show number provenance (why each metric has its value)']}
-              />
-            )}
+            {tab === 'simulation' && <SimulationTab />}
+            {tab === 'display' && <DisplayTab />}
           </div>
         </div>
       </div>
-    </div>
-  )
-}
-
-function RoadmapTab({ title, items }: { title: string; items: string[] }): React.JSX.Element {
-  return (
-    <div className="space-y-3">
-      <p className="text-[12px] text-nss-text">{title}</p>
-      <p className="text-[11px] leading-relaxed text-nss-muted">
-        Planned for this tab - not yet wired up:
-      </p>
-      <ul className="space-y-1.5">
-        {items.map((item) => (
-          <li key={item} className="flex items-start gap-2 text-[11px] text-nss-muted">
-            <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-nss-muted" />
-            {item}
-          </li>
-        ))}
-      </ul>
     </div>
   )
 }

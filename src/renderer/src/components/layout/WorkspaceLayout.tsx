@@ -78,6 +78,7 @@ import {
   type ScenarioRunContext,
   type SourceNodeOption
 } from '@renderer/types/ui'
+import { generateRunSeed } from '@renderer/components/simulation/simulationControlModel'
 
 type RunIssueTone = 'warning' | 'error'
 
@@ -334,6 +335,7 @@ export const WorkspaceLayout = () => {
   const edges = useStore((s) => s.edges)
   const scenario = useStore((s) => s.scenario)
   const updateScenario = useStore((s) => s.updateScenario)
+  const displaySettings = useStore((s) => s.displaySettings)
   const setNodes = useStore((s) => s.setNodes)
   const setSimulationMetrics = useStore((s) => s.setSimulationMetrics)
   const clearSimulationMetrics = useStore((s) => s.clearSimulationMetrics)
@@ -872,7 +874,22 @@ export const WorkspaceLayout = () => {
   }, [sim.status, clearSimulationMetrics])
 
   function startSimulation() {
-    const { topology, errors, runContext } = serialize()
+    const scenarioForRun =
+      scenario.randomizeSeedEachRun === true
+        ? {
+            ...scenario,
+            global: {
+              ...scenario.global,
+              seed: generateRunSeed()
+            }
+          }
+        : scenario
+
+    if (scenarioForRun !== scenario) {
+      updateScenario(() => scenarioForRun)
+    }
+
+    const { topology, errors, runContext } = serialize(scenarioForRun)
 
     if (!topology || !runContext || errors.length > 0) {
       setRunIssues({
@@ -894,7 +911,7 @@ export const WorkspaceLayout = () => {
     }
 
     setRunIssues({ messages: validation.warnings ?? [], tone: 'warning' })
-    setShowResults(true)
+    setShowResults(displaySettings.autoOpenSimulationTray)
     setLastRunContext(runContext)
     clearSimulationMetrics()
     const flowStore = useStore.getState()

@@ -10,9 +10,20 @@ export type ComputeNodeData = CanvasNodeDataV2
 export type SecurityNodeData = CanvasNodeDataV2
 export type VpcNodeData = CanvasNodeDataV2
 
+export type ThemeMode = 'light' | 'dark'
 export type PreRunMetricLens = 'instance' | 'concurrency' | 'queueCapacity' | 'timeout' | 'cost'
 export type RuntimeMetricLens = 'traffic' | 'saturation' | 'latency' | 'errors' | 'throughput'
 export type MetricLens = PreRunMetricLens | RuntimeMetricLens
+export type LatencyLensPercentile = 'p50' | 'p95' | 'p99'
+export type ResultsTabId = 'overview' | 'bottlenecks' | 'nodes' | 'traffic'
+
+export interface DisplaySettings {
+  theme: ThemeMode
+  defaultMetricLens: PreRunMetricLens
+  latencyLensPercentile: LatencyLensPercentile
+  autoOpenSimulationTray: boolean
+  defaultResultsTab: ResultsTabId
+}
 
 export interface NodeSimulationMetrics {
   throughput?: number
@@ -99,6 +110,8 @@ export interface ScenarioState {
   workloadOverride?: Partial<Omit<WorkloadProfile, 'sourceNodeId' | 'requestDistribution'>>
   /** Chaos faults injected at run time (scheduled node-failure/recovery events). */
   faults?: FaultSpec[]
+  /** Regenerate the seed before each run, while still recording the actual seed used. */
+  randomizeSeedEachRun?: boolean
 }
 
 export interface SourceNodeOption {
@@ -130,7 +143,16 @@ export const DEFAULT_SCENARIO_STATE: ScenarioState = {
   },
   selectedSourceNodeId: undefined,
   workloadOverride: {},
-  faults: []
+  faults: [],
+  randomizeSeedEachRun: false
+}
+
+export const DEFAULT_DISPLAY_SETTINGS: DisplaySettings = {
+  theme: 'dark',
+  defaultMetricLens: 'concurrency',
+  latencyLensPercentile: 'p95',
+  autoOpenSimulationTray: true,
+  defaultResultsTab: 'overview'
 }
 
 export function normalizeScenarioState(value: unknown): ScenarioState {
@@ -138,7 +160,9 @@ export function normalizeScenarioState(value: unknown): ScenarioState {
     return {
       global: { ...DEFAULT_SCENARIO_STATE.global },
       selectedSourceNodeId: DEFAULT_SCENARIO_STATE.selectedSourceNodeId,
-      workloadOverride: {}
+      workloadOverride: {},
+      faults: [],
+      randomizeSeedEachRun: false
     }
   }
 
@@ -160,6 +184,7 @@ export function normalizeScenarioState(value: unknown): ScenarioState {
         ? scenario.selectedSourceNodeId
         : undefined,
     workloadOverride: workloadOverride ? { ...workloadOverride } : {},
-    faults: Array.isArray(scenario.faults) ? scenario.faults : []
+    faults: Array.isArray(scenario.faults) ? scenario.faults : [],
+    randomizeSeedEachRun: scenario.randomizeSeedEachRun === true
   }
 }

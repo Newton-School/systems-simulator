@@ -1,14 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { Sun, Moon } from 'lucide-react'
+import useStore from '@renderer/store/useStore'
 
 export const ThemeToggle = () => {
-  const [theme, setTheme] = useState(() => {
-    //Check local storage or default to 'dark'
-    if (typeof window !== 'undefined') {
-      return localStorage.getItem('theme') || 'dark'
-    }
-    return 'dark'
-  })
+  const theme = useStore((s) => s.displaySettings.theme)
+  const updateDisplaySettings = useStore((s) => s.updateDisplaySettings)
 
   useEffect(() => {
     const root = document.documentElement
@@ -17,12 +13,16 @@ export const ThemeToggle = () => {
     } else {
       root.removeAttribute('data-theme')
     }
-    localStorage.setItem('theme', theme)
   }, [theme])
 
   return (
     <button
-      onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+      onClick={() =>
+        updateDisplaySettings((current) => ({
+          ...current,
+          theme: current.theme === 'dark' ? 'light' : 'dark'
+        }))
+      }
       className="
         p-2 rounded-md transition-colors
         text-nss-muted hover:text-nss-text hover:bg-nss-surface

@@ -1,6 +1,6 @@
 import type { EnvironmentProfile } from '../../../../../engine/analysis/environmentProfile'
 
-export type SettingsTabId = 'environments' | 'simulation' | 'display' | 'pedagogy'
+export type SettingsTabId = 'environments' | 'simulation' | 'display'
 
 export interface SettingsTabDef {
   id: SettingsTabId
@@ -10,8 +10,7 @@ export interface SettingsTabDef {
 export const SETTINGS_TABS: SettingsTabDef[] = [
   { id: 'environments', label: 'Environments' },
   { id: 'simulation', label: 'Simulation' },
-  { id: 'display', label: 'Display' },
-  { id: 'pedagogy', label: 'Pedagogy' }
+  { id: 'display', label: 'Display' }
 ]
 
 /** Immutably merge a capability patch onto a profile (nested `capabilities`). */

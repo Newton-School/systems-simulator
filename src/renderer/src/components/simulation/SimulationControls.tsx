@@ -1,67 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Pause, Play, RotateCcw, Square, X } from 'lucide-react'
-import type { FaultSpec, WorkloadProfile } from '../../../../engine/core/types'
 import type { FaultTargetOption, ScenarioState, SourceNodeOption } from '@renderer/types/ui'
 import { mergeWorkloadDefaults } from '@renderer/utils/workloadDefaults'
+import {
+  buildFault,
+  FAILURE_MODE_OPTIONS,
+  PATTERN_OPTIONS,
+  readFault,
+  type SimpleFault,
+  type WorkloadPattern,
+  type FailureMode
+} from './simulationControlModel'
 
 type WorkloadOverride = NonNullable<ScenarioState['workloadOverride']>
-type WorkloadPattern = WorkloadProfile['pattern']
-
-type FailureMode = 'blackhole' | 'hang' | 'reject' | 'degraded'
-const FAILURE_MODE_OPTIONS: { value: FailureMode; label: string }[] = [
-  { value: 'blackhole', label: 'Blackhole (silent, walls at timeout)' },
-  { value: 'hang', label: 'Hang (accept then freeze)' },
-  { value: 'reject', label: 'Reject (instant node_failed)' },
-  { value: 'degraded', label: 'Degraded (slower service)' }
-]
-
-interface SimpleFault {
-  targetId: string
-  atS: number
-  durationS: number
-  mode: FailureMode
-}
-
-function readFault(fault: FaultSpec): SimpleFault {
-  const params = (fault.params ?? {}) as Record<string, unknown>
-  const num = (v: unknown): number => (typeof v === 'number' && v >= 0 ? v : 0)
-  const mode = typeof params.mode === 'string' ? (params.mode as FailureMode) : 'blackhole'
-  return {
-    targetId: fault.targetId,
-    atS: Math.round(num(params.atMs) / 1000),
-    durationS: Math.round(num(params.durationMs) / 1000),
-    mode
-  }
-}
-
-function buildFault(simple: SimpleFault): FaultSpec {
-  return {
-    targetId: simple.targetId,
-    faultType: 'chaos',
-    timing: 'deterministic',
-    duration: simple.durationS > 0 ? 'fixed' : 'permanent',
-    params: {
-      atMs: Math.max(0, simple.atS) * 1000,
-      durationMs: Math.max(0, simple.durationS) * 1000,
-      mode: simple.mode,
-      inFlightPolicy: 'hang',
-      recoveryPolicy: 'reset',
-      ...(simple.mode === 'degraded'
-        ? { degradation: { fraction: 0.3, serviceTimeMultiplier: 10 } }
-        : {})
-    }
-  }
-}
-
-const PATTERN_OPTIONS: { value: WorkloadPattern; label: string }[] = [
-  { value: 'constant', label: 'Constant' },
-  { value: 'poisson', label: 'Poisson' },
-  { value: 'bursty', label: 'Bursty' },
-  { value: 'spike', label: 'Spike' },
-  { value: 'diurnal', label: 'Diurnal' },
-  { value: 'sawtooth', label: 'Sawtooth' }
-]
 
 const CONTROL_BASE =
   'h-7 w-full rounded-md border border-nss-border bg-nss-input-bg text-nss-text text-xs font-sans px-2 outline-none disabled:opacity-50 disabled:cursor-not-allowed focus:border-nss-primary'

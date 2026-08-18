@@ -559,11 +559,13 @@ function scopedLatencyValue(
 
 export function buildLatencyLensCard(
   sloP99: number | undefined,
-  metrics: LatencyLensMetrics
+  metrics: LatencyLensMetrics,
+  headlineBucket: 'p50' | 'p95' | 'p99' = 'p95'
 ): LensCardData | null {
   const successP50 = scopedLatencyValue(metrics, 'p50')
   const successP95 = scopedLatencyValue(metrics, 'p95')
   const successP99 = scopedLatencyValue(metrics, 'p99')
+  const headlineValue = scopedLatencyValue(metrics, headlineBucket)
   const successLatencySamples = metrics.successLatencySamples ?? 0
   const failureRateRatio = metrics.latencyWindowErrorRate ?? (metrics.errorRate ?? 0) / 100
   const failureRateText = formatFailurePercentLabel(failureRateRatio * 100)
@@ -610,8 +612,8 @@ export function buildLatencyLensCard(
   }
 
   return {
-    value: formatLatencyMetric(successP95),
-    limit: 'p95',
+    value: formatLatencyMetric(headlineValue),
+    limit: headlineBucket,
     glyph: GLYPH_BY_TONE[tone],
     why,
     tone,
@@ -638,7 +640,8 @@ export function buildLatencyLensCard(
 export function getLensCard(
   lens: MetricLens,
   data: AnyNodeData,
-  metrics: NodeSimulationMetrics
+  metrics: NodeSimulationMetrics,
+  latencyHeadlineBucket: 'p50' | 'p95' | 'p99' = 'p95'
 ): LensCardData | null {
   switch (lens) {
     case 'saturation': {
@@ -678,7 +681,7 @@ export function getLensCard(
     }
     case 'latency': {
       const sloP99 = data.sim?.slo?.latencyP99
-      return buildLatencyLensCard(sloP99, metrics)
+      return buildLatencyLensCard(sloP99, metrics, latencyHeadlineBucket)
     }
     case 'errors': {
       if (metrics.errorRate === undefined) {
