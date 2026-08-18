@@ -139,7 +139,9 @@ export const EdgePropertiesPanel = ({
   const selectedLatencyMu = value.latencyMu ?? defaults.latencyDistribution.mu
   const selectedLatencySigma = value.latencySigma ?? defaults.latencyDistribution.sigma
   const defaultConstantLatencyMs = Number(Math.exp(defaults.latencyDistribution.mu).toFixed(2))
-  const selectedLatencyValue = hasExplicitLatencyValue ? value.latencyValue : defaultConstantLatencyMs
+  const selectedLatencyValue = hasExplicitLatencyValue
+    ? value.latencyValue
+    : defaultConstantLatencyMs
   const jitterCv = logNormalJitterCv(selectedLatencySigma)
   const sourceLabel = sourceNodeData?.label
   const targetLabel = targetNodeData?.label

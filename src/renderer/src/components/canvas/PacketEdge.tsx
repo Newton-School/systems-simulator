@@ -226,11 +226,11 @@ export const PacketEdge = ({
       ? selected
         ? 3
         : CONNECTOR_IDLE_STROKE_WIDTH
-    : hasFlow
-      ? clamp(3 + Math.log2(visualRequestRate + 1) * 0.55, selected ? 3.5 : 3, 5)
-      : selected
-        ? 3
-        : 2
+      : hasFlow
+        ? clamp(3 + Math.log2(visualRequestRate + 1) * 0.55, selected ? 3.5 : 3, 5)
+        : selected
+          ? 3
+          : 2
   // Health severity drives the stroke colour and is computed independently of
   // the active lens, so a failing link stays red even under a non-error lens.
   const failureStroke =

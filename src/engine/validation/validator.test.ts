@@ -430,9 +430,7 @@ describe('validateTopology active-source validation', () => {
 
     expect(result.valid).toBe(true)
     expect(result.warnings).toEqual(
-      expect.arrayContaining([
-        expect.stringContaining('Max concurrent requests above 10,000')
-      ])
+      expect.arrayContaining([expect.stringContaining('Max concurrent requests above 10,000')])
     )
   })
 })

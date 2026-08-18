@@ -82,8 +82,7 @@ export const EDGE_PROPERTY_HELP = {
       'Physical distance and network locality: same rack, same DC, cross-zone, cross-region, or internet.',
     simulationEffect:
       'Drives runtime latency whenever the edge has not been given an explicit fixed latency or explicit log-normal parameters.',
-    note:
-      'If you set a fixed latency value or explicit mu/sigma, path type becomes descriptive metadata.'
+    note: 'If you set a fixed latency value or explicit mu/sigma, path type becomes descriptive metadata.'
   },
   condition: {
     title: 'Condition',
