@@ -956,7 +956,7 @@ export const WorkspaceLayout = () => {
         id: node.id,
         label: data.label && data.label.trim().length > 0 ? `${data.label} (${node.id})` : node.id,
         workload: data.source?.defaultWorkload ?? {
-          pattern: 'poisson',
+          pattern: 'constant',
           baseRps: 100,
           bursty: { burstRps: 500, burstDuration: 2000, normalDuration: 8000 },
           spike: { spikeTime: 30_000, spikeRps: 1000, spikeDuration: 5000 },

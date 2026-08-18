@@ -6,8 +6,10 @@ import { IconButton } from '../ui/IconButton'
 import { ToggleButton } from '../ui/ToggleButton'
 import { Branding } from './Branding'
 import { CostChip } from './CostChip'
+import { ModeBadge } from './ModeBadge'
 import { FileStatus } from './FileStatus'
 import { ThemeToggle } from './ThemeToggle'
+import { SettingsButton } from './settings/SettingsButton'
 import { SimulationControls } from '../simulation/SimulationControls'
 import type { FaultTargetOption, ScenarioState, SourceNodeOption } from '@renderer/types/ui'
 
@@ -90,6 +92,8 @@ export const Header = memo(
           />
           <Divider />
           <CostChip />
+          <Divider />
+          <ModeBadge />
         </div>
 
         {/* CENTER: File status + simulation controls */}
@@ -127,6 +131,7 @@ export const Header = memo(
 
         {/* RIGHT: Theme & right sidebar toggle */}
         <div className="flex items-center gap-3 shrink-0">
+          <SettingsButton />
           <ThemeToggle />
           <Divider />
           <ToggleButton

@@ -43,9 +43,28 @@ export interface EnvironmentCapabilities {
   /** Whether the student can trigger test/dry runs before submitting. */
   canTriggerTestRuns: boolean
   /**
-   * Whether edge configuration is editable. V1: false for student modes (edge/network
-   * physics isn't built yet, so editing bandwidth/concurrency only invites brute-forcing);
-   * edge *results* stay inspectable. AUTHOR keeps full edge editing.
+   * How much of an *edge* is a modeled thing in this environment — the top-level
+   * switch instructors asked for so students can focus on the HLD and not get
+   * tangled in edges.
+   *
+   *   - `'network'`  — edges are a first-class modeled layer: they carry latency /
+   *                    bandwidth into the simulation, expose a properties panel, and
+   *                    project the edge metric lenses. Whether the student may *edit*
+   *                    those properties is then gated by `canEditEdges`.
+   *   - `'connector'`— edges are dumb wires that only express topology: zero sim
+   *                    physics, no properties panel, no edge lenses, no egress bill.
+   *                    `canEditEdges` is moot here (there is nothing to edit).
+   *
+   * Composes with `canEditEdges` as a ladder: connector < network+read-only <
+   * network+editable. Resolved per loaded question by `resolveEdgeModel` (a
+   * `'network'`-domain question forces `'network'`, since the network *is* the lesson).
+   */
+  edgeModel: 'network' | 'connector'
+  /**
+   * Whether edge configuration is editable — only meaningful when `edgeModel` is
+   * `'network'` (in `'connector'` mode edges have no properties to edit). V1: false
+   * for student modes (editing bandwidth/concurrency invites brute-forcing); edge
+   * *results* stay inspectable. AUTHOR keeps full edge editing.
    */
   canEditEdges: boolean
   /**
@@ -100,6 +119,7 @@ export const AUTHOR_ENVIRONMENT_PROFILE: EnvironmentProfile = {
     editPaletteList: null,
     canEditScaffoldNodes: true,
     canTriggerTestRuns: true,
+    edgeModel: 'network',
     canEditEdges: true,
     canEditResources: true
   },
@@ -120,6 +140,7 @@ export const ASSIGNMENT_ENVIRONMENT_PROFILE: EnvironmentProfile = {
     editPaletteList: null,
     canEditScaffoldNodes: false,
     canTriggerTestRuns: true,
+    edgeModel: 'connector',
     canEditEdges: false,
     canEditResources: false
   },
@@ -140,6 +161,9 @@ export const PRACTICE_ENVIRONMENT_PROFILE: EnvironmentProfile = {
     editPaletteList: null,
     canEditScaffoldNodes: true,
     canTriggerTestRuns: true,
+    // Deployed default: edges are dumb connectors so learners focus on the HLD.
+    // A `network`-domain question still upgrades to full network edges per question.
+    edgeModel: 'connector',
     canEditEdges: true,
     canEditResources: true
   },
@@ -153,8 +177,15 @@ export const ENVIRONMENT_PROFILE_PRESETS: Record<EnvironmentProfileMode, Environ
   PRACTICE: PRACTICE_ENVIRONMENT_PROFILE
 }
 
-/** The default when a host supplies no profile — full authoring UI. */
-export const DEFAULT_ENVIRONMENT_PROFILE = AUTHOR_ENVIRONMENT_PROFILE
+/**
+ * The default when a host supplies no profile — the online deployed / standalone
+ * experience. This is the student-facing practice sandbox (ungraded, free editing)
+ * with edges as dumb connectors, so a learner lands focused on the high-level
+ * design rather than edge physics. Authors switch to AUTHOR from Settings →
+ * Environments. (The Newton assignment host forces ASSIGNMENT on its own path, so
+ * this default never overrides a graded launch.)
+ */
+export const DEFAULT_ENVIRONMENT_PROFILE = PRACTICE_ENVIRONMENT_PROFILE
 
 const ModeSchema = z.enum(['AUTHOR', 'ASSIGNMENT', 'PRACTICE'])
 
@@ -175,6 +206,7 @@ const InputObjectSchema = z
         editPaletteList: z.array(z.string()).nullable().optional(),
         canEditScaffoldNodes: z.boolean().optional(),
         canTriggerTestRuns: z.boolean().optional(),
+        edgeModel: z.enum(['network', 'connector']).optional(),
         canEditEdges: z.boolean().optional(),
         canEditResources: z.boolean().optional(),
         maxTestRuns: z.number().int().nonnegative().optional()
@@ -235,22 +267,50 @@ export function shouldShowRubricResults(
   }
 }
 
+export type EdgeModel = 'network' | 'connector'
+
 /**
- * Effective edge-editability for the *loaded question*, layering the question's
- * bottleneck `domains` over the profile's base `canEditEdges` capability.
+ * Effective edge model for the *loaded question* — the top-level "are edges a
+ * modeled thing here?" switch, layering the question's `domains` over the profile's
+ * base `edgeModel` capability.
  *
- * The base capability locks edges in student modes because edge/network physics
- * isn't built yet (V1). But when a question's lesson *is* the network — its
- * `domains` include `'network'` (connection pools, bandwidth, geo-latency) — edges
- * are the thing the student must size, so they are unlocked even under a locking
- * profile. `compute` / `storage` (and domains-less) questions keep the base policy,
- * so V1 stays locked. This is the single consumption point, so every load path
- * (Newton seed, launch-context, local dev) gets the same behavior for free.
+ *   - `'network'`  — edges carry latency/bandwidth into the sim, have a properties
+ *                    panel, and project the edge lenses. Editing is then gated by
+ *                    `canEditEdgesForQuestion` (locked edges still affect the calc).
+ *   - `'connector'`— dumb wires: they express topology only, with zero effect on the
+ *                    simulation, no properties, no edge lenses, no egress bill.
+ *
+ * A `'network'`-domain question forces `'network'` even under a connector profile,
+ * because sizing the network *is* the lesson there. Everything else keeps the base
+ * policy (student modes default to `'connector'`). Single consumption point, so every
+ * load path (Newton seed, launch-context, local dev) gets the same behavior for free.
+ */
+export function resolveEdgeModel(
+  profile: EnvironmentProfile,
+  question?: { domains?: readonly QuestionDomain[] } | null
+): EdgeModel {
+  if (profile.capabilities.edgeModel === 'network') {
+    return 'network'
+  }
+  return question?.domains?.includes('network') ? 'network' : 'connector'
+}
+
+/**
+ * Effective edge-*editability* for the loaded question. Only meaningful in `'network'`
+ * mode — in `'connector'` mode edges have no properties to edit, so this is always
+ * false. Within network mode, editing follows the base `canEditEdges` capability, and
+ * a `'network'`-domain question unlocks it (the student must size the network).
+ *
+ * The ladder: connector (no edit, no calc) < network + locked (no edit, affects calc)
+ * < network + editable (edit + affects calc).
  */
 export function canEditEdgesForQuestion(
   profile: EnvironmentProfile,
   question?: { domains?: readonly QuestionDomain[] } | null
 ): boolean {
+  if (resolveEdgeModel(profile, question) === 'connector') {
+    return false
+  }
   if (profile.capabilities.canEditEdges) {
     return true
   }

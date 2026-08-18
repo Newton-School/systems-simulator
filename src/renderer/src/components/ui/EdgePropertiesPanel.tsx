@@ -33,6 +33,12 @@ export interface EdgePropertiesPanelProps {
   onClose: () => void
   /** Lock the config form (edge results stay interactive). V1 assignment mode. */
   readOnly?: boolean
+  /**
+   * Connector mode (`edgeModel === 'connector'`): the edge is a dumb wire that only
+   * expresses topology. Hide every physics field — only the label (a basic interface
+   * for naming the connection) remains. The edge contributes nothing to the sim.
+   */
+  connectorOnly?: boolean
 }
 
 const CONTROL_CLASS =
@@ -101,7 +107,8 @@ export const EdgePropertiesPanel = ({
   children,
   onChange,
   onClose,
-  readOnly = false
+  readOnly = false,
+  connectorOnly = false
 }: EdgePropertiesPanelProps) => {
   const defaults = inferEdgeDefaults(sourceNodeData, targetNodeData)
   const constraints = getEdgeConstraints(
@@ -207,7 +214,25 @@ export const EdgePropertiesPanel = ({
 
       {tabs}
 
-      {children ? (
+      {connectorOnly && !children ? (
+        <div className="flex-1 overflow-y-auto custom-scrollbar p-5 space-y-3">
+          <div className="rounded border border-nss-border bg-nss-surface px-3 py-2 text-[11px] leading-relaxed text-nss-muted">
+            This connection is a simple link showing how the components are wired. It carries no
+            latency, bandwidth, or cost in this environment — focus on the components and how they
+            fit together.
+          </div>
+          <div className="space-y-1">
+            <FieldLabel label="Label" help={EDGE_PROPERTY_HELP.label} />
+            <input
+              type="text"
+              value={value.label ?? ''}
+              onChange={(e) => onChange({ label: e.target.value })}
+              placeholder="e.g. reads, writes, publishes"
+              className={CONTROL_CLASS}
+            />
+          </div>
+        </div>
+      ) : children ? (
         <div className="flex-1 overflow-y-auto custom-scrollbar p-5 bg-nss-panel">{children}</div>
       ) : (
         <div className="flex-1 overflow-y-auto custom-scrollbar p-5 space-y-3">

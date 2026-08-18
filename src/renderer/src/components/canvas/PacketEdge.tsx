@@ -5,6 +5,7 @@ import { getEdgeModePresentation, inferCanvasEdgeMode } from '@renderer/config/e
 import useStore, { type EdgeFlowRunConfig, type EdgeFlowState } from '@renderer/store/useStore'
 import { getRoutingPreviewSnapshot } from '@renderer/utils/routingStrategyPreview'
 import { inferEdgeDefaults } from '../../../../engine/defaults/edgeDefaults'
+import { resolveEdgeModel } from '../../../../engine/analysis/environmentProfile'
 import { patternMultiplier } from './edgeFlowPatterns'
 import { resolveEdgeLensProjection } from './edgeLensPresentation'
 
@@ -103,6 +104,9 @@ export const PacketEdge = ({
   const flow = useStore((state) => state.edgeFlowById[id])
   const flowStatus = useStore((state) => state.edgeFlowStatus)
   const metricLens = useStore((state) => state.metricLens)
+  const edgeIsConnectorOnly = useStore(
+    (state) => resolveEdgeModel(state.environmentProfile, state.activeQuestion) === 'connector'
+  )
   const runConfig = useStore((state) => state.edgeFlowRunConfig)
   const playback = useStore((state) => state.edgeFlowPlayback)
   const routingVisualization = useStore((state) => state.routingStrategyVisualization)
@@ -181,9 +185,10 @@ export const PacketEdge = ({
         lens: metricLens,
         flow,
         config: (data ?? {}) as EdgeSimulationData,
-        defaults: edgeDefaults
+        defaults: edgeDefaults,
+        connectorOnly: edgeIsConnectorOnly
       }),
-    [metricLens, flow, data, edgeDefaults]
+    [metricLens, flow, data, edgeDefaults, edgeIsConnectorOnly]
   )
   const visualMultiplier = patternMultiplier(runConfig, playback, now, id, hash01)
   const steadyRequestRate = isComplete ? postRunPacketRate : liveSuccessRate
