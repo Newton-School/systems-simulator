@@ -35,9 +35,10 @@ describe('inferCanvasEdgeMode', () => {
 })
 
 describe('isPathTypeDrivingLatency', () => {
-  it('treats implicit log-normal latency as path-type derived', () => {
+  it('treats fully automatic latency as path-type derived', () => {
     expect(isPathTypeDrivingLatency({})).toBe(true)
     expect(isPathTypeDrivingLatency({ latencyDistributionType: 'log-normal' })).toBe(true)
+    expect(isPathTypeDrivingLatency({ latencyDistributionType: 'constant' })).toBe(true)
   })
 
   it('treats constant latency as an explicit override', () => {

@@ -5,7 +5,9 @@ const DEFAULT_REQUEST_TYPE = 'default'
 const DEFAULT_REQUEST_SIZE_BYTES = 1024
 
 function createSourceConfig(seed?: PaletteTemplate['seed']): SourceConfig {
-  const pattern = seed?.pattern ?? 'poisson'
+  // Default to a flat, no-variance arrival pattern so a new source is predictable
+  // out of the box; authors opt into poisson/bursty/spike/etc. per source.
+  const pattern = seed?.pattern ?? 'constant'
   const baseRps = seed?.baseRps ?? seed?.throughput ?? 100
 
   return {

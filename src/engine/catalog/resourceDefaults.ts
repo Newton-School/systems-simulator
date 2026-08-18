@@ -402,6 +402,22 @@ export function getResourceDefaults(type: ComponentType): ResourceTypeDefault {
 }
 
 /**
+ * Build the default instance-backed resource profile for a freshly created node.
+ * This follows the curated per-type allocation table rather than trying to
+ * preserve any legacy queue heuristic. Legacy migrations still use
+ * `buildReproducingResources(...)` below to remain byte-identical.
+ */
+export function buildDefaultResources(type: ComponentType): ResourceConfig {
+  const defaults = getResourceDefaults(type)
+  return {
+    instanceType: defaults.instanceType,
+    instanceCount: 1,
+    workloadKind: defaults.workloadKind,
+    perRequestMemMb: defaults.perRequestMemMb
+  }
+}
+
+/**
  * Build an instance-model `resources` block that reproduces a node's authored
  * (workers, capacity) exactly, so the simulation stays byte-identical while the
  * node becomes instance-backed and cost-computable (the Slice-0 "wrap"):

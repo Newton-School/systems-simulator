@@ -33,6 +33,12 @@ export interface EdgePropertiesPanelProps {
   onClose: () => void
   /** Lock the config form (edge results stay interactive). V1 assignment mode. */
   readOnly?: boolean
+  /**
+   * Connector mode (`edgeModel === 'connector'`): the edge is a dumb wire that only
+   * expresses topology. Hide every physics field — only the label (a basic interface
+   * for naming the connection) remains. The edge contributes nothing to the sim.
+   */
+  connectorOnly?: boolean
 }
 
 const CONTROL_CLASS =
@@ -101,7 +107,8 @@ export const EdgePropertiesPanel = ({
   children,
   onChange,
   onClose,
-  readOnly = false
+  readOnly = false,
+  connectorOnly = false
 }: EdgePropertiesPanelProps) => {
   const defaults = inferEdgeDefaults(sourceNodeData, targetNodeData)
   const constraints = getEdgeConstraints(
@@ -114,12 +121,27 @@ export const EdgePropertiesPanel = ({
     targetNodeData
   )
   const selectedCondition = value.condition ?? ''
+  const hasExplicitLatencyValue =
+    typeof value.latencyValue === 'number' && Number.isFinite(value.latencyValue)
+  const hasExplicitLogNormalParams =
+    (typeof value.latencyMu === 'number' && Number.isFinite(value.latencyMu)) ||
+    (typeof value.latencySigma === 'number' && Number.isFinite(value.latencySigma))
   const selectedLatencyDistributionType =
-    value.latencyDistributionType ?? (value.latencyValue !== undefined ? 'constant' : 'log-normal')
+    value.latencyDistributionType === 'constant'
+      ? 'constant'
+      : value.latencyDistributionType === 'log-normal'
+        ? 'log-normal'
+        : hasExplicitLatencyValue && !hasExplicitLogNormalParams
+          ? 'constant'
+          : hasExplicitLogNormalParams
+            ? 'log-normal'
+            : 'constant'
   const selectedLatencyMu = value.latencyMu ?? defaults.latencyDistribution.mu
   const selectedLatencySigma = value.latencySigma ?? defaults.latencyDistribution.sigma
   const defaultConstantLatencyMs = Number(Math.exp(defaults.latencyDistribution.mu).toFixed(2))
-  const selectedLatencyValue = value.latencyValue ?? defaultConstantLatencyMs
+  const selectedLatencyValue = hasExplicitLatencyValue
+    ? value.latencyValue
+    : defaultConstantLatencyMs
   const jitterCv = logNormalJitterCv(selectedLatencySigma)
   const sourceLabel = sourceNodeData?.label
   const targetLabel = targetNodeData?.label
@@ -207,14 +229,32 @@ export const EdgePropertiesPanel = ({
 
       {tabs}
 
-      {children ? (
+      {connectorOnly && !children ? (
+        <div className="flex-1 overflow-y-auto custom-scrollbar p-5 space-y-3">
+          <div className="rounded border border-nss-border bg-nss-surface px-3 py-2 text-[11px] leading-relaxed text-nss-muted">
+            This connection is a simple link showing how the components are wired. It carries no
+            latency, bandwidth, or cost in this environment - focus on the components and how they
+            fit together.
+          </div>
+          <div className="space-y-1">
+            <FieldLabel label="Label" help={EDGE_PROPERTY_HELP.label} />
+            <input
+              type="text"
+              value={value.label ?? ''}
+              onChange={(e) => onChange({ label: e.target.value })}
+              placeholder="e.g. reads, writes, publishes"
+              className={CONTROL_CLASS}
+            />
+          </div>
+        </div>
+      ) : children ? (
         <div className="flex-1 overflow-y-auto custom-scrollbar p-5 bg-nss-panel">{children}</div>
       ) : (
         <div className="flex-1 overflow-y-auto custom-scrollbar p-5 space-y-3">
           {readOnly && (
             <div className="rounded border border-nss-border bg-nss-surface px-3 py-2 text-[11px] leading-relaxed text-nss-muted">
               🔒 Edge configuration is locked for this assignment. Edit nodes, storage types, and
-              worker/replica counts instead — you can still inspect edge results after a run.
+              worker/replica counts instead - you can still inspect edge results after a run.
             </div>
           )}
           <fieldset disabled={readOnly} className="m-0 space-y-3 border-0 p-0 disabled:opacity-70">
@@ -335,9 +375,8 @@ export const EdgePropertiesPanel = ({
                           latencySigma: undefined
                         }
                       : {
-                          latencyDistributionType: 'log-normal',
-                          latencyMu: selectedLatencyMu,
-                          latencySigma: selectedLatencySigma
+                          latencyDistributionType: 'constant',
+                          latencyValue: selectedLatencyValue
                         }
                   )
                 }
@@ -365,6 +404,12 @@ export const EdgePropertiesPanel = ({
                           .value as EdgeSimulationData['latencyDistributionType'],
                         ...(e.target.value === 'constant' && value.latencyValue === undefined
                           ? { latencyValue: defaultConstantLatencyMs }
+                          : {}),
+                        ...(e.target.value === 'log-normal'
+                          ? {
+                              latencyMu: selectedLatencyMu,
+                              latencySigma: selectedLatencySigma
+                            }
                           : {})
                       })
                     }

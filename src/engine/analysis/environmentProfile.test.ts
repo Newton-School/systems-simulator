@@ -7,33 +7,39 @@ import {
   canEditEdgesForQuestion,
   canEditResourcesForQuestion,
   canTriggerTestRun,
+  resolveEdgeModel,
   resolveEnvironmentProfile,
   shouldShowRubricResults
 } from './environmentProfile'
 
 describe('environment profile presets', () => {
   it('encodes the three modes distinctly', () => {
-    expect(DEFAULT_ENVIRONMENT_PROFILE).toBe(AUTHOR_ENVIRONMENT_PROFILE)
+    // Deployed/standalone default is the practice sandbox (connector edges).
+    expect(DEFAULT_ENVIRONMENT_PROFILE).toBe(PRACTICE_ENVIRONMENT_PROFILE)
 
     expect(AUTHOR_ENVIRONMENT_PROFILE.graded).toBe(true)
     expect(AUTHOR_ENVIRONMENT_PROFILE.visibility.rubricChecks).toBe('LIVE_DURING_BUILD')
+    expect(AUTHOR_ENVIRONMENT_PROFILE.capabilities.canEditExecutionProfile).toBe(true)
 
     expect(ASSIGNMENT_ENVIRONMENT_PROFILE.graded).toBe(true)
     expect(ASSIGNMENT_ENVIRONMENT_PROFILE.visibility.rubricChecks).toBe('LIVE_DURING_BUILD')
     expect(ASSIGNMENT_ENVIRONMENT_PROFILE.visibility.gradingSuiteDetails).toBe(false)
     expect(ASSIGNMENT_ENVIRONMENT_PROFILE.capabilities.canEditScaffoldNodes).toBe(false)
+    expect(ASSIGNMENT_ENVIRONMENT_PROFILE.capabilities.canEditExecutionProfile).toBe(false)
     expect(ASSIGNMENT_ENVIRONMENT_PROFILE.capabilities.maxTestRuns).toBeUndefined()
 
     expect(PRACTICE_ENVIRONMENT_PROFILE.graded).toBe(false)
     expect(PRACTICE_ENVIRONMENT_PROFILE.visibility.rubricChecks).toBe('LIVE_DURING_BUILD')
+    expect(PRACTICE_ENVIRONMENT_PROFILE.capabilities.canEditExecutionProfile).toBe(false)
   })
 })
 
 describe('resolveEnvironmentProfile', () => {
-  it('defaults to AUTHOR for missing or unrecognized input', () => {
-    expect(resolveEnvironmentProfile()).toEqual(AUTHOR_ENVIRONMENT_PROFILE)
-    expect(resolveEnvironmentProfile(42)).toEqual(AUTHOR_ENVIRONMENT_PROFILE)
-    expect(resolveEnvironmentProfile({ mode: 'NOPE' })).toEqual(AUTHOR_ENVIRONMENT_PROFILE)
+  it('defaults to the deployed practice sandbox for missing or unrecognized input', () => {
+    expect(resolveEnvironmentProfile()).toEqual(DEFAULT_ENVIRONMENT_PROFILE)
+    expect(resolveEnvironmentProfile()).toEqual(PRACTICE_ENVIRONMENT_PROFILE)
+    expect(resolveEnvironmentProfile(42)).toEqual(PRACTICE_ENVIRONMENT_PROFILE)
+    expect(resolveEnvironmentProfile({ mode: 'NOPE' })).toEqual(PRACTICE_ENVIRONMENT_PROFILE)
   })
 
   it('resolves a bare mode string to its preset', () => {
@@ -44,7 +50,7 @@ describe('resolveEnvironmentProfile', () => {
   it('merges a partial override onto the mode preset and ignores unknown keys', () => {
     const resolved = resolveEnvironmentProfile({
       mode: 'ASSIGNMENT',
-      capabilities: { maxTestRuns: 1 },
+      capabilities: { maxTestRuns: 1, canEditExecutionProfile: true },
       // unknown keys must not break resolution
       somethingExtra: true
     } as unknown)
@@ -52,6 +58,7 @@ describe('resolveEnvironmentProfile', () => {
     expect(resolved.mode).toBe('ASSIGNMENT')
     // overridden field
     expect(resolved.capabilities.maxTestRuns).toBe(1)
+    expect(resolved.capabilities.canEditExecutionProfile).toBe(true)
     // untouched preset fields survive
     expect(resolved.capabilities.canEditScaffoldNodes).toBe(false)
     expect(resolved.visibility.rubricChecks).toBe('LIVE_DURING_BUILD')
@@ -130,11 +137,72 @@ describe('canEditEdgesForQuestion', () => {
     expect(canEditEdgesForQuestion(assignment, {})).toBe(false)
   })
 
-  it('always allows edges when the profile already permits it (AUTHOR/PRACTICE)', () => {
+  it('always allows edges when the profile already models + permits them (AUTHOR)', () => {
     expect(canEditEdgesForQuestion(AUTHOR_ENVIRONMENT_PROFILE, { domains: ['compute'] })).toBe(true)
+  })
+
+  it('locks edges in the connector practice sandbox, but unlocks a network question', () => {
+    // PRACTICE defaults to connector → no edges to edit for a non-network question…
     expect(canEditEdgesForQuestion(PRACTICE_ENVIRONMENT_PROFILE, { domains: ['storage'] })).toBe(
+      false
+    )
+    // …but a network-domain question upgrades to full, editable network edges.
+    expect(canEditEdgesForQuestion(PRACTICE_ENVIRONMENT_PROFILE, { domains: ['network'] })).toBe(
       true
     )
+  })
+})
+
+describe('edgeModel presets', () => {
+  it('models edges only in AUTHOR; ASSIGNMENT and PRACTICE default to connector', () => {
+    expect(AUTHOR_ENVIRONMENT_PROFILE.capabilities.edgeModel).toBe('network')
+    expect(ASSIGNMENT_ENVIRONMENT_PROFILE.capabilities.edgeModel).toBe('connector')
+    expect(PRACTICE_ENVIRONMENT_PROFILE.capabilities.edgeModel).toBe('connector')
+  })
+})
+
+describe('resolveEdgeModel', () => {
+  const assignment = resolveEnvironmentProfile('ASSIGNMENT')
+
+  it('is connector for a compute/storage question under a connector profile', () => {
+    expect(resolveEdgeModel(assignment, { domains: ['compute'] })).toBe('connector')
+    expect(resolveEdgeModel(assignment, { domains: ['storage', 'compute'] })).toBe('connector')
+    expect(resolveEdgeModel(assignment, null)).toBe('connector')
+  })
+
+  it('forces network for a network-domain question even under a connector profile', () => {
+    expect(resolveEdgeModel(assignment, { domains: ['network'] })).toBe('network')
+    expect(resolveEdgeModel(assignment, { domains: ['storage', 'network'] })).toBe('network')
+  })
+
+  it('is network whenever the profile itself models edges (AUTHOR)', () => {
+    expect(resolveEdgeModel(AUTHOR_ENVIRONMENT_PROFILE, { domains: ['compute'] })).toBe('network')
+  })
+
+  it('is connector for the practice sandbox unless the question is about the network', () => {
+    expect(resolveEdgeModel(PRACTICE_ENVIRONMENT_PROFILE, null)).toBe('connector')
+    expect(resolveEdgeModel(PRACTICE_ENVIRONMENT_PROFILE, { domains: ['storage'] })).toBe(
+      'connector'
+    )
+    expect(resolveEdgeModel(PRACTICE_ENVIRONMENT_PROFILE, { domains: ['network'] })).toBe('network')
+  })
+
+  it('composes with canEditEdges as a ladder: connector edges are never editable', () => {
+    // connector (assignment, non-network) → no edit, even though nothing is locked per se
+    expect(canEditEdgesForQuestion(assignment, { domains: ['compute'] })).toBe(false)
+    // network + locked (a hypothetical network profile with canEditEdges off) → still not editable
+    const networkLocked = resolveEnvironmentProfile({
+      mode: 'ASSIGNMENT',
+      capabilities: { edgeModel: 'network', canEditEdges: false }
+    })
+    expect(resolveEdgeModel(networkLocked, { domains: ['compute'] })).toBe('network')
+    expect(canEditEdgesForQuestion(networkLocked, { domains: ['compute'] })).toBe(false)
+    // network + editable → editable
+    const networkOpen = resolveEnvironmentProfile({
+      mode: 'ASSIGNMENT',
+      capabilities: { edgeModel: 'network', canEditEdges: true }
+    })
+    expect(canEditEdgesForQuestion(networkOpen, { domains: ['compute'] })).toBe(true)
   })
 })
 

@@ -39,6 +39,12 @@ export interface EdgeLensInput {
    *  same way the edge properties panel resolves them, so a default-only edge
    *  still shows a real number instead of receding. */
   defaults: EdgeDefaults
+  /**
+   * Connector mode (`edgeModel === 'connector'`): the edge is a dumb wire with no
+   * physics, so it carries no lens projection at all — it recedes to its identity
+   * under every lens and lets the nodes tell the whole story.
+   */
+  connectorOnly?: boolean
 }
 
 const FAILURE_CAUSE_LABELS: Record<EdgeFailureCause, string> = {
@@ -151,7 +157,8 @@ export function resolveEdgeLensProjection({
   lens,
   flow,
   config,
-  defaults
+  defaults,
+  connectorOnly = false
 }: EdgeLensInput): EdgeLensProjection {
   const severity = edgeSeverity(flow)
   const recede = (why: string): EdgeLensProjection => ({
@@ -160,6 +167,17 @@ export function resolveEdgeLensProjection({
     recedes: true,
     why
   })
+
+  // Connector mode: a dumb wire has no lens story and no physics — recede under
+  // every lens as a neutral link, never colored by residual flow.
+  if (connectorOnly) {
+    return {
+      headline: '',
+      severity: 'ok',
+      recedes: true,
+      why: 'Connections are simple links in this environment'
+    }
+  }
 
   switch (lens) {
     // ── PRE-RUN: declared capacity, config value or its inferred default ──

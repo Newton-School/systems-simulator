@@ -81,8 +81,8 @@ export const EDGE_PROPERTY_HELP = {
     summary:
       'Physical distance and network locality: same rack, same DC, cross-zone, cross-region, or internet.',
     simulationEffect:
-      'Only drives runtime latency when the edge is still using the path-type-derived log-normal profile.',
-    note: 'If you switch to constant latency or set explicit mu/sigma, path type becomes descriptive metadata.'
+      'Drives runtime latency whenever the edge has not been given an explicit fixed latency or explicit log-normal parameters.',
+    note: 'If you set a fixed latency value or explicit mu/sigma, path type becomes descriptive metadata.'
   },
   condition: {
     title: 'Condition',
@@ -93,9 +93,10 @@ export const EDGE_PROPERTY_HELP = {
   },
   latencyModel: {
     title: 'Latency Model',
-    summary: 'Choose either a jittered log-normal hop delay or a fixed constant delay.',
+    summary:
+      'Auto follows the path-type median with no jitter; manual lets you choose a fixed constant delay or a jittered log-normal profile.',
     simulationEffect:
-      'This directly changes the sampled transit time for every request on the edge.'
+      'Auto keeps latency derived from path type. Manual directly changes the sampled transit time for every request on the edge.'
   },
   latencyValue: {
     title: 'Latency (ms)',
@@ -250,20 +251,22 @@ export function isPathTypeDrivingLatency(
     'latencyDistributionType' | 'latencyValue' | 'latencyMu' | 'latencySigma'
   >
 ): boolean {
+  const hasExplicitLatencyValue = hasFiniteNumber(edgeData.latencyValue)
+  const hasExplicitLogNormalParams =
+    hasFiniteNumber(edgeData.latencyMu) || hasFiniteNumber(edgeData.latencySigma)
   const distributionType =
     edgeData.latencyDistributionType === 'constant'
       ? 'constant'
       : edgeData.latencyDistributionType === 'log-normal'
         ? 'log-normal'
-        : hasFiniteNumber(edgeData.latencyValue) &&
-            !hasFiniteNumber(edgeData.latencyMu) &&
-            !hasFiniteNumber(edgeData.latencySigma)
+        : hasExplicitLatencyValue && !hasExplicitLogNormalParams
           ? 'constant'
-          : 'log-normal'
+          : hasExplicitLogNormalParams
+            ? 'log-normal'
+            : 'constant'
 
   return (
-    distributionType === 'log-normal' &&
-    !hasFiniteNumber(edgeData.latencyMu) &&
-    !hasFiniteNumber(edgeData.latencySigma)
+    (distributionType === 'constant' && !hasExplicitLatencyValue) ||
+    (distributionType === 'log-normal' && !hasExplicitLogNormalParams)
   )
 }

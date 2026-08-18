@@ -2,10 +2,10 @@ import type { MetricLens } from '@renderer/types/ui'
 
 export const METRIC_LENS_TOOLTIPS: Record<MetricLens, string> = {
   instance:
-    'Shows the instance type (and count) provisioned for each node — the primary allocation knob.',
+    'Shows the instance type (and count) provisioned for each node - the primary allocation knob.',
   concurrency:
-    'Shows how much work each node can process at once — derived from its instance (vCPU × workload).',
-  queueCapacity: 'Shows how much work each node can buffer — derived from its instance RAM.',
+    'Shows how much work each node can process at once - derived from its instance (vCPU × workload).',
+  queueCapacity: 'Shows how much work each node can buffer - derived from its instance RAM.',
   cost: 'Shows the provisioned cost per hour of each node.',
   timeout: 'Shows the timeout budget configured on each node before requests fail.',
   traffic: 'Highlights request flow and fail rate across nodes and edges.',

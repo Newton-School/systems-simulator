@@ -14,6 +14,7 @@ import {
 import type { SimulationOutput } from '../../../../engine/analysis/output'
 import {
   canEditEdgesForQuestion,
+  resolveEdgeModel,
   canEditResourcesForQuestion
 } from '../../../../engine/analysis/environmentProfile'
 import {
@@ -1383,8 +1384,15 @@ export const PropertiesPanel = ({ results = null }: { results?: SimulationOutput
   const canEditEdges = useStore((state) =>
     canEditEdgesForQuestion(state.environmentProfile, state.activeQuestion)
   )
+  // Connector mode: edges are dumb wires (no physics, no properties, no lenses).
+  const edgeIsConnectorOnly = useStore(
+    (state) => resolveEdgeModel(state.environmentProfile, state.activeQuestion) === 'connector'
+  )
   const canEditResources = useStore((state) =>
     canEditResourcesForQuestion(state.environmentProfile, state.activeQuestion)
+  )
+  const canEditExecutionProfile = useStore(
+    (state) => state.environmentProfile.capabilities.canEditExecutionProfile
   )
   const selectedNode = nodes.find((node) => node.selected)
   const selectedEdge = edges.find((edge) => edge.selected)
@@ -1554,6 +1562,7 @@ export const PropertiesPanel = ({ results = null }: { results?: SimulationOutput
               data={data}
               onUpdate={handleUpdate}
               resourcesLocked={!canEditResources}
+              executionProfileEnabled={canEditExecutionProfile}
             />
           )}
         </div>
@@ -1609,6 +1618,7 @@ export const PropertiesPanel = ({ results = null }: { results?: SimulationOutput
         onChange={handleEdgeChange}
         onClose={() => selectGraphElements({})}
         readOnly={!canEditEdges}
+        connectorOnly={edgeIsConnectorOnly}
         tabs={selectedEdgeHasRuntime ? <InspectorTabs active={tab} onChange={setTab} /> : undefined}
       >
         {selectedEdgeHasRuntime && tab === 'metrics' ? (

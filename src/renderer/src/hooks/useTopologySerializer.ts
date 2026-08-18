@@ -14,6 +14,7 @@ import { hasWorkloadSourceConfig } from '../../../engine/catalog/sourceNodeSeman
 import { getPathTypeLatencyProfile, inferEdgeDefaults } from '../../../engine/defaults/edgeDefaults'
 import { inferCanvasEdgeMode } from '@renderer/config/edgeSemantics'
 import useStore from '../store/useStore'
+import { resolveEdgeModel } from '../../../engine/analysis/environmentProfile'
 import type { ScenarioRunContext, ScenarioState } from '@renderer/types/ui'
 import { normalizeScenarioState } from '@renderer/types/ui'
 import { mergeWorkloadDefaults } from '@renderer/utils/workloadDefaults'
@@ -123,16 +124,18 @@ export function resolveEdgeLatencyDistribution(
   const explicitLatencyValue = asNonNegativeNumber(edgeData.latencyValue)
   const explicitLatencyMu = asFiniteNumber(edgeData.latencyMu)
   const explicitLatencySigma = asPositiveNumber(edgeData.latencySigma)
+  const hasExplicitLogNormalParams = explicitLatencyMu !== null || explicitLatencySigma !== null
+  // Default distribution: constant (NO JITTER). An edge is only log-normal if the
+  // author explicitly picks that model or sets mu/sigma. A fully-auto edge (no
+  // latency fields at all) takes the path-type MEDIAN as a flat, jitter-free hop.
   const distributionType =
     edgeData.latencyDistributionType === 'constant'
       ? 'constant'
       : edgeData.latencyDistributionType === 'log-normal'
         ? 'log-normal'
-        : explicitLatencyValue !== null &&
-            explicitLatencyMu === null &&
-            explicitLatencySigma === null
-          ? 'constant'
-          : 'log-normal'
+        : hasExplicitLogNormalParams
+          ? 'log-normal'
+          : 'constant'
 
   if (distributionType === 'constant') {
     return {
@@ -140,7 +143,8 @@ export function resolveEdgeLatencyDistribution(
         type: 'constant',
         value: explicitLatencyValue ?? Math.exp(pathLatencyProfile.mu)
       },
-      derivedFromPathType: false
+      // A bare auto edge (no explicit value) took its constant from the path type.
+      derivedFromPathType: explicitLatencyValue === null
     }
   }
 
@@ -306,6 +310,29 @@ function serializeEdge(
   }
 }
 
+/**
+ * Connector mode (`edgeModel === 'connector'`): the edge is a dumb wire that only
+ * expresses topology, so it must contribute NOTHING to the simulation or the cost
+ * model. We keep the edge (routing/topology needs it) but strip all physics to
+ * neutral values: zero transit latency, a free same-rack path (no egress bill),
+ * effectively-unlimited bandwidth/concurrency, and no packet loss / error. Applied
+ * to the serialized copy only — the authored edge data on the canvas is untouched.
+ */
+function neutralizeConnectorEdge(edge: EdgeDefinition): EdgeDefinition {
+  return {
+    ...edge,
+    latency: {
+      distribution: { type: 'constant', value: 0 },
+      pathType: 'same-rack',
+      derivedFromPathType: false
+    },
+    bandwidth: Number.MAX_SAFE_INTEGER,
+    maxConcurrentRequests: Number.MAX_SAFE_INTEGER,
+    packetLossRate: 0,
+    errorRate: 0
+  }
+}
+
 export interface SerializerResult {
   topology: TopologyJSON | null
   errors: string[]
@@ -316,6 +343,9 @@ export function useTopologySerializer() {
   const nodes = useStore((state) => state.nodes)
   const edges = useStore((state) => state.edges)
   const scenario = useStore((state) => state.scenario)
+  const connectorMode = useStore(
+    (state) => resolveEdgeModel(state.environmentProfile, state.activeQuestion) === 'connector'
+  )
 
   const serialize = useCallback(
     (overrideScenario?: ScenarioState): SerializerResult => {
@@ -419,6 +449,7 @@ export function useTopologySerializer() {
           )
         )
         .filter((edge): edge is EdgeDefinition => edge !== null)
+        .map((edge) => (connectorMode ? neutralizeConnectorEdge(edge) : edge))
 
       // Only forward faults that target a serializable node in this topology.
       const faults = (resolvedScenario.faults ?? []).filter((fault) =>
@@ -447,7 +478,7 @@ export function useTopologySerializer() {
         }
       }
     },
-    [edges, nodes, scenario]
+    [edges, nodes, scenario, connectorMode]
   )
 
   return { serialize }

@@ -386,6 +386,7 @@ function resourcesNote(data: CanvasNodeDataV2): string | null {
   const workloadKind = resources.workloadKind ?? getResourceDefaults(type).workloadKind
   const perf = effectivePerfFactor(spec.perfFactor, workloadKind)
   const hw = `${spec.vcpu} vCPU · ${spec.ramGb} GB`
+  const profile = workloadKind
   const conc = `${derived.workersPerInstance} workers/inst → eff. concurrency ${derived.effectiveC}`
   const admission = `admission ${derived.effectiveK}${derived.admissionBoundBy === 'ram' ? ' (RAM-bound)' : ''}`
   const speed = perf !== 1 ? ` · service ×${(1 / perf).toFixed(2)}` : ''
@@ -402,7 +403,12 @@ function resourcesNote(data: CanvasNodeDataV2): string | null {
           ? 'not billable'
           : `$${nodeCostPerHour(node).toFixed(3)}/hr${pricing}`
 
-  return `${hw} · ${conc} · ${admission}${speed} · ${cost}`
+  return `${hw} · ${profile} · ${conc} · ${admission}${speed} · ${cost}`
+}
+
+function isProvisionedPurchaseNode(data: CanvasNodeDataV2): boolean {
+  if (!data.componentType) return false
+  return (getResourceDefaults(data.componentType).costModel ?? 'provisioned') === 'provisioned'
 }
 
 const RESOURCES_FIELDS: readonly ConfigField[] = [
@@ -423,17 +429,19 @@ const RESOURCES_FIELDS: readonly ConfigField[] = [
   {
     path: 'sim.resources.pricingModel',
     type: 'select',
-    label: 'Pricing',
+    label: 'Purchase model',
     options: PRICING_MODELS,
-    why: 'on-demand (full price) · reserved (~40% off, committed) · spot (~70% off, but can be reclaimed → a node failure).'
+    altitude: 'advanced',
+    visible: (data) => isProvisionedPurchaseNode(data),
+    why: 'How the provisioned capacity is purchased: on-demand (full price), reserved (~40% off), or spot (~70% off). Reserved/spot change cost only here; commitment guarantees and spot interruption behavior are not yet simulated.'
   },
   {
     path: 'sim.resources.workloadKind',
     type: 'select',
-    label: 'Workload',
+    label: 'Execution profile',
     options: ['io-bound', 'cpu-bound'],
     altitude: 'advanced',
-    why: 'CPU-bound work is capped at ~1 parallel worker per vCPU; IO-bound work can run many more.'
+    why: 'CPU-bound work spends most of its time computing on the core; IO-bound work spends more time waiting on downstream systems, so the same hardware can keep more requests in flight.'
   }
 ]
 
@@ -455,7 +463,12 @@ const RESOURCES_MODULE: NodeCapabilityModule = {
     simulates: [
       'physical allocation: instance type × count → effective concurrency (vCPU-capped), admission limit (RAM-bound), and provisioned cost'
     ],
-    notModeled: ['reserved/spot pricing, autoscaling, per-region hardware availability']
+    notModeled: [
+      'reserved-commitment semantics',
+      'spot interruption behavior',
+      'autoscaling',
+      'per-region hardware availability'
+    ]
   }
 }
 

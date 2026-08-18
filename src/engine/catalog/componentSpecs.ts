@@ -7,7 +7,7 @@ import type {
   SerializeContext,
   StructuralRole
 } from './nodeSpecTypes'
-import { buildReproducingResources } from './resourceDefaults'
+import { buildDefaultResources, buildReproducingResources } from './resourceDefaults'
 import { CACHE_COMPONENT_TYPES } from '../traits/cache'
 import {
   CONTENT_ROUTING_MATCH_FIELDS,
@@ -240,10 +240,11 @@ export function buildSeededSimulationConfig(
 
   const sim: NodeSimulationConfig = {
     queue: { workers, capacity, discipline: queueDiscipline },
-    // Authorable instance allocation, seeded to reproduce the queue exactly
-    // (io-bound → effectiveC = workers). Edited via the RESOURCES section; the
-    // user can switch instance/count/workload and watch concurrency + cost move.
-    resources: buildReproducingResources(componentType, workers, capacity),
+    // Fresh palette nodes start from the curated per-type instance profile so a
+    // generic API server, worker, cache, etc. lands with the intended execution
+    // model. Legacy/migrated nodes still use buildReproducingResources(...) to
+    // preserve older queue-authored behavior exactly.
+    resources: buildDefaultResources(componentType),
     processing: {
       distribution: { type: 'exponential', lambda: 1 / meanServiceMs },
       timeout: timeoutMs

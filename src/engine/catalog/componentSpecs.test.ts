@@ -240,6 +240,20 @@ describe('component spec validation copy', () => {
   })
 })
 
+describe('default simulation config resources', () => {
+  it('seeds new microservice nodes from the curated compute defaults', () => {
+    const spec = getComponentSpec('microservice')!
+    const sim = spec.createDefaultSimulationConfig()
+
+    expect(sim.resources).toMatchObject({
+      instanceType: 'c5.large',
+      instanceCount: 1,
+      workloadKind: 'cpu-bound',
+      perRequestMemMb: 16
+    })
+  })
+})
+
 describe('relational-db serializeCanvas readLatencyMs/writeLatencyMs', () => {
   it('converts mean-latency inputs into exponential distributions', () => {
     const spec = getComponentSpec('relational-db')!

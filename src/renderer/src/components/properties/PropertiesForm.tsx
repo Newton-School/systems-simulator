@@ -38,11 +38,14 @@ interface PropertiesFormProps {
   /** Lock the allocation sections (instance type/count/workers) — set in ASSIGNMENT
    * unless the question's lesson is resource allocation. Read-outs stay visible. */
   resourcesLocked?: boolean
+  /** Whether the advanced CPU-bound / IO-bound control is exposed at all. */
+  executionProfileEnabled?: boolean
 }
 
 /** Config sections gated by `resourcesLocked` (the allocation lesson). Workers/K are
  * derived from the instance now, so only the RESOURCES section carries allocation. */
 const RESOURCE_SECTION_IDS = new Set(['resources'])
+const EXECUTION_PROFILE_FIELD_PATH = 'sim.resources.workloadKind'
 
 function getPathValue(target: unknown, path: string): unknown {
   return path.split('.').reduce<unknown>((current, segment) => {
@@ -129,7 +132,8 @@ export const PropertiesForm = ({
   nodeId,
   data,
   onUpdate,
-  resourcesLocked = false
+  resourcesLocked = false,
+  executionProfileEnabled = true
 }: PropertiesFormProps) => {
   const effectiveSourceWorkload = useEffectiveSourceWorkload(nodeId, data)
   const effectiveSelectedSourceNodeId = useStore((state) =>
@@ -151,6 +155,16 @@ export const PropertiesForm = ({
     [data, effectiveSourceWorkload, isScenarioManagedSourceNode]
   )
   const sections = getNodeConfigSections(formData)
+  const visibleSections = useMemo(
+    () =>
+      sections.map((section) => ({
+        ...section,
+        fields: section.fields.filter(
+          (field) => executionProfileEnabled || field.path !== EXECUTION_PROFILE_FIELD_PATH
+        )
+      })),
+    [executionProfileEnabled, sections]
+  )
   const routingStrategy = getRoutingStrategy(data)
   const isRoutingVisualizationActive = routingVisualization?.sourceNodeId === nodeId
   const [expandedOptionalFields, setExpandedOptionalFields] = useState<Set<FieldPath>>(new Set())
@@ -349,7 +363,7 @@ export const PropertiesForm = ({
           engine.
         </div>
       ) : (
-        sections.map((section) => {
+        visibleSections.map((section) => {
           const primaryFields = section.fields.filter((field) => field.altitude === 'primary')
           const advancedFields = section.fields.filter((field) => field.altitude === 'advanced')
 
@@ -367,7 +381,7 @@ export const PropertiesForm = ({
               <div className="rounded-lg border border-nss-border bg-nss-surface px-4 py-3">
                 {sectionLocked && (
                   <p className="mb-4 rounded-md border border-nss-warning/20 bg-nss-warning/10 px-3 py-2 text-[11px] font-medium leading-relaxed text-nss-warning">
-                    Resource allocation is fixed for this question — solve it with the design, not
+                    Resource allocation is fixed for this question - solve it with the design, not
                     by resizing instances. Cost and derived limits stay visible.
                   </p>
                 )}

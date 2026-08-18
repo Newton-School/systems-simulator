@@ -1,4 +1,4 @@
-import { memo } from 'react'
+import { memo, useLayoutEffect, useRef, useState } from 'react'
 import { FolderOpen, Save, Sidebar, Workflow } from 'lucide-react'
 
 import { Divider } from '../ui/Divider'
@@ -6,8 +6,10 @@ import { IconButton } from '../ui/IconButton'
 import { ToggleButton } from '../ui/ToggleButton'
 import { Branding } from './Branding'
 import { CostChip } from './CostChip'
+import { ModeBadge } from './ModeBadge'
 import { FileStatus } from './FileStatus'
 import { ThemeToggle } from './ThemeToggle'
+import { SettingsButton } from './settings/SettingsButton'
 import { SimulationControls } from '../simulation/SimulationControls'
 import type { FaultTargetOption, ScenarioState, SourceNodeOption } from '@renderer/types/ui'
 
@@ -48,6 +50,9 @@ interface HeaderProps {
   canSave?: boolean
 }
 
+const HEADER_HORIZONTAL_PADDING_PX = 32
+const CENTER_CLEARANCE_PX = 16
+
 export const Header = memo(
   ({
     toggleLeft,
@@ -76,10 +81,49 @@ export const Header = memo(
     canOpen = true,
     canSave = true
   }: HeaderProps) => {
+    const headerRef = useRef<HTMLElement>(null)
+    const leftGroupRef = useRef<HTMLDivElement>(null)
+    const centerGroupRef = useRef<HTMLDivElement>(null)
+    const rightGroupRef = useRef<HTMLDivElement>(null)
+    const [centerControlsPinned, setCenterControlsPinned] = useState(true)
+
+    useLayoutEffect(() => {
+      const header = headerRef.current
+      const leftGroup = leftGroupRef.current
+      const centerGroup = centerGroupRef.current
+      const rightGroup = rightGroupRef.current
+
+      if (!header || !leftGroup || !centerGroup || !rightGroup) {
+        return
+      }
+
+      const updatePinnedState = () => {
+        const contentWidth = Math.max(0, header.clientWidth - HEADER_HORIZONTAL_PADDING_PX)
+        const widestSideWidth = Math.max(leftGroup.offsetWidth, rightGroup.offsetWidth)
+        const requiredWidth =
+          widestSideWidth * 2 + centerGroup.offsetWidth + CENTER_CLEARANCE_PX * 2
+
+        setCenterControlsPinned(requiredWidth <= contentWidth)
+      }
+
+      updatePinnedState()
+
+      const observer = new ResizeObserver(updatePinnedState)
+      observer.observe(header)
+      observer.observe(leftGroup)
+      observer.observe(centerGroup)
+      observer.observe(rightGroup)
+
+      return () => observer.disconnect()
+    }, [])
+
     return (
-      <header className="h-12 bg-nss-panel text-nss-text flex items-center justify-between px-4 shrink-0 border-b border-nss-border transition-colors duration-200 overflow-visible">
+      <header
+        ref={headerRef}
+        className="relative h-12 bg-nss-panel text-nss-text flex items-center justify-between px-4 shrink-0 border-b border-nss-border transition-colors duration-200 overflow-visible"
+      >
         {/* LEFT: Branding & left sidebar toggle */}
-        <div className="flex items-center gap-1 shrink-0">
+        <div ref={leftGroupRef} className="flex items-center gap-1 shrink-0">
           <Branding />
           <Divider />
           <ToggleButton
@@ -90,10 +134,19 @@ export const Header = memo(
           />
           <Divider />
           <CostChip />
+          <Divider />
+          <ModeBadge />
         </div>
 
         {/* CENTER: File status + simulation controls */}
-        <div className="flex items-center gap-3">
+        <div
+          ref={centerGroupRef}
+          className={
+            centerControlsPinned
+              ? 'absolute left-1/2 top-1/2 z-10 flex -translate-x-1/2 -translate-y-1/2 items-center gap-3'
+              : 'flex items-center gap-3'
+          }
+        >
           {!minimal && <FileStatus fileName={fileName} isUnsaved={isUnsaved} />}
 
           <div className="flex items-center gap-1">
@@ -126,7 +179,8 @@ export const Header = memo(
         </div>
 
         {/* RIGHT: Theme & right sidebar toggle */}
-        <div className="flex items-center gap-3 shrink-0">
+        <div ref={rightGroupRef} className="flex items-center gap-3 shrink-0">
+          <SettingsButton />
           <ThemeToggle />
           <Divider />
           <ToggleButton

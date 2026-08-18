@@ -45,7 +45,10 @@ import {
   type AttemptState,
   type QuestionPackage
 } from '../../../../engine/analysis/question'
-import { resolveEnvironmentProfile } from '../../../../engine/analysis/environmentProfile'
+import {
+  resolveEdgeModel,
+  resolveEnvironmentProfile
+} from '../../../../engine/analysis/environmentProfile'
 import type { ValidationError } from '../../../../engine/validation/validator'
 import {
   hasWorkloadSourceConfig,
@@ -879,7 +882,9 @@ export const WorkspaceLayout = () => {
       return
     }
 
-    const validation = validateTopology(topology)
+    const validation = validateTopology(topology, {
+      edgeModel: resolveEdgeModel(environmentProfile, activeQuestion)
+    })
     if (!validation.valid) {
       const validationErrors = validation.errors?.map((error) =>
         formatValidationIssue(error, nodes, edges)
@@ -956,7 +961,7 @@ export const WorkspaceLayout = () => {
         id: node.id,
         label: data.label && data.label.trim().length > 0 ? `${data.label} (${node.id})` : node.id,
         workload: data.source?.defaultWorkload ?? {
-          pattern: 'poisson',
+          pattern: 'constant',
           baseRps: 100,
           bursty: { burstRps: 500, burstDuration: 2000, normalDuration: 8000 },
           spike: { spikeTime: 30_000, spikeRps: 1000, spikeDuration: 5000 },
