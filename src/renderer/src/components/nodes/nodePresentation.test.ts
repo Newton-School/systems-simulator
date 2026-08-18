@@ -13,6 +13,7 @@ const EMPTY_LATENCY = {
 
 const EMPTY_TTE = {
   queue_full: { count: 0, errorRate: 0, shareOfErrors: 0, p50: null, p95: null, p99: null },
+  oom: { count: 0, errorRate: 0, shareOfErrors: 0, p50: null, p95: null, p99: null },
   node_failed: { count: 0, errorRate: 0, shareOfErrors: 0, p50: null, p95: null, p99: null },
   network_error: { count: 0, errorRate: 0, shareOfErrors: 0, p50: null, p95: null, p99: null },
   timeout: { count: 0, errorRate: 0, shareOfErrors: 0, p50: null, p95: null, p99: null },

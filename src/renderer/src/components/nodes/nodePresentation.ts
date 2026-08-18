@@ -24,6 +24,9 @@ import {
 } from '../../../../engine/catalog/sourceNodeSemantics'
 import { ACK_AND_RELEASE_COMPONENT_TYPES } from '../../../../engine/traits/ackAndRelease'
 import { HEALTH_AWARE_COMPONENT_TYPES } from '../../../../engine/traits/healthAwareRouting'
+import { getInstanceCount, type ComponentNode } from '../../../../engine/core/types'
+import { deriveNodeConcurrency } from '../../../../engine/nodes/resourceDerivation'
+import { nodeCostPerHour } from '../../../../engine/analysis/cost'
 
 const ACK_AND_RELEASE_COMPONENT_TYPE_SET = new Set<string>(ACK_AND_RELEASE_COMPONENT_TYPES)
 const HEALTH_AWARE_COMPONENT_TYPE_SET = new Set<string>(HEALTH_AWARE_COMPONENT_TYPES)
@@ -361,7 +364,13 @@ function getPreRunMetricVocabulary(data: AnyNodeData): PreRunMetricVocabulary {
 }
 
 export function isPreRunMetricLens(lens: MetricLens): lens is PreRunMetricLens {
-  return lens === 'concurrency' || lens === 'queueCapacity' || lens === 'timeout'
+  return (
+    lens === 'instance' ||
+    lens === 'concurrency' ||
+    lens === 'queueCapacity' ||
+    lens === 'timeout' ||
+    lens === 'cost'
+  )
 }
 
 export function getPreRunMetric(lens: PreRunMetricLens, data: AnyNodeData): SummaryMetric | null {
@@ -371,25 +380,39 @@ export function getPreRunMetric(lens: PreRunMetricLens, data: AnyNodeData): Summ
 
   const vocabulary = getPreRunMetricVocabulary(data)
 
+  // Concurrency/queue are DERIVED from the instance now — badges must show the
+  // effective values (deriveNodeConcurrency), not the vestigial authored queue.
+  const derivedNode = {
+    type: data.componentType,
+    queue: data.sim?.queue,
+    resources: data.sim?.resources
+  } as unknown as ComponentNode
+
   switch (lens) {
-    case 'concurrency': {
-      const workers = data.sim?.queue?.workers
-      if (workers === undefined) {
-        return null
+    case 'instance': {
+      const type = data.sim?.resources?.instanceType
+      if (!type) return null
+      const count = getInstanceCount(data.sim?.resources)
+      return {
+        label: 'Instance',
+        value: count > 1 ? `${count} × ${type}` : type
       }
+    }
+    case 'concurrency': {
+      if (!data.sim?.queue) return null
       return {
         label: vocabulary.concurrencyLabel,
-        value: formatCount(workers, vocabulary.concurrencyUnit)
+        value: formatCount(
+          deriveNodeConcurrency(derivedNode).effectiveC,
+          vocabulary.concurrencyUnit
+        )
       }
     }
     case 'queueCapacity': {
-      const capacity = data.sim?.queue?.capacity
-      if (capacity === undefined) {
-        return null
-      }
+      if (!data.sim?.queue) return null
       return {
         label: vocabulary.queueLabel,
-        value: formatCount(capacity, vocabulary.queueUnit)
+        value: formatCount(deriveNodeConcurrency(derivedNode).effectiveK, vocabulary.queueUnit)
       }
     }
     case 'timeout': {
@@ -400,6 +423,13 @@ export function getPreRunMetric(lens: PreRunMetricLens, data: AnyNodeData): Summ
       return {
         label: 'Timeout',
         value: `${formatInteger(timeout)} ms`
+      }
+    }
+    case 'cost': {
+      if (!data.sim?.resources?.instanceType) return null
+      return {
+        label: 'Cost',
+        value: `$${nodeCostPerHour(derivedNode).toFixed(3)}/hr`
       }
     }
   }
@@ -612,7 +642,13 @@ export function getLensCard(
 ): LensCardData | null {
   switch (lens) {
     case 'saturation': {
-      const workers = data.sim?.queue?.workers
+      // Workers are DERIVED from the instance now — the saturation denominator must
+      // be the effective concurrency the node actually ran with, not queue.workers.
+      const workers = deriveNodeConcurrency({
+        type: data.componentType,
+        queue: data.sim?.queue,
+        resources: data.sim?.resources
+      } as unknown as ComponentNode).effectiveC
       if (!workers || metrics.utilization === undefined) {
         return null
       }

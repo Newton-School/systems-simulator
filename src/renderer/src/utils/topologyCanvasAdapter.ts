@@ -147,6 +147,12 @@ function overlaySimulationConfig(
     sim.queue = structuredClone(node.queue)
   }
 
+  // Preserve an authored instance allocation so the RESOURCES selector reflects
+  // the loaded topology's real instance, not a fallback default.
+  if (node.resources) {
+    sim.resources = structuredClone(node.resources)
+  }
+
   if (node.processing) {
     sim.processing = structuredClone(node.processing)
   }

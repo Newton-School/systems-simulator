@@ -50,6 +50,9 @@ export type ConfigField =
       type: 'input'
       step?: number
       inputType?: ConfigInputType
+      /** Clamp bounds for numeric inputs (rejects absurd values like 1e38). */
+      min?: number
+      max?: number
     })
   | (ConfigFieldBase & {
       type: 'boolean'

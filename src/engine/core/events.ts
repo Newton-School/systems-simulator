@@ -86,6 +86,7 @@ export interface RequestEdgePhase {
 export type RequestTerminalCause =
   | 'completed'
   | 'queue_full'
+  | 'oom'
   | 'node_failed'
   | 'network_error'
   | 'timeout'

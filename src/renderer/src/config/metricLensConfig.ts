@@ -6,9 +6,11 @@ export type MetricLensOption<T extends MetricLens = MetricLens> = {
 }
 
 export const PRE_RUN_LENSES: Array<MetricLensOption<PreRunMetricLens>> = [
+  { id: 'instance', label: 'Instance' },
   { id: 'concurrency', label: 'Concurrency' },
   { id: 'queueCapacity', label: 'Queue Capacity' },
-  { id: 'timeout', label: 'Timeout' }
+  { id: 'timeout', label: 'Timeout' },
+  { id: 'cost', label: 'Cost' }
 ]
 
 export const RUNTIME_LENSES: Array<MetricLensOption<RuntimeMetricLens>> = [
@@ -20,9 +22,11 @@ export const RUNTIME_LENSES: Array<MetricLensOption<RuntimeMetricLens>> = [
 ]
 
 const METRIC_LENS_LABELS: Record<MetricLens, string> = {
+  instance: 'Instance',
   concurrency: 'Concurrency',
   queueCapacity: 'Queue Capacity',
   timeout: 'Timeout',
+  cost: 'Cost',
   traffic: 'Traffic',
   saturation: 'Saturation',
   latency: 'Latency',

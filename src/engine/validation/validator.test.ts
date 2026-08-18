@@ -506,6 +506,63 @@ describe('validateTopology node config validation', () => {
       ])
     )
   })
+
+  function makeResourcesTopology(resources: Record<string, unknown>): TopologyJSON {
+    const source = makeSourceNode('client', 'Client')
+    const service: ComponentNode = {
+      ...makeProcessorNode('service', 'Service'),
+      resources: resources as ComponentNode['resources']
+    }
+    return makeTopology({
+      nodes: [source, service],
+      edges: [makeEdge('client-service', source.id, service.id)],
+      sourceNodeId: source.id
+    })
+  }
+
+  it('accepts the AWS instance-family resource model', () => {
+    const result = validateTopology(
+      makeResourcesTopology({
+        instanceType: 'c5.xlarge',
+        instanceCount: 2,
+        maxInstances: 4,
+        workloadKind: 'cpu-bound',
+        workersPerInstance: 8,
+        perRequestMemMb: 40
+      })
+    )
+    expect(result.valid).toBe(true)
+  })
+
+  it('rejects instanceCount exceeding maxInstances', () => {
+    const result = validateTopology(
+      makeResourcesTopology({ instanceType: 'c5.xlarge', instanceCount: 5, maxInstances: 4 })
+    )
+    expect(result.valid).toBe(false)
+    expect(result.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: expect.stringContaining('instanceCount'),
+          message: 'instanceCount must not exceed maxInstances'
+        })
+      ])
+    )
+  })
+
+  it('rejects an unknown instanceType', () => {
+    const result = validateTopology(makeResourcesTopology({ instanceType: 'c5.42xlarge' }))
+    expect(result.valid).toBe(false)
+    expect(result.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: expect.stringContaining('instanceType') })
+      ])
+    )
+  })
+
+  it('still accepts the legacy cpu/memory/replicas resource shape', () => {
+    const result = validateTopology(makeResourcesTopology({ cpu: 4, memory: 2048, replicas: 2 }))
+    expect(result.valid).toBe(true)
+  })
 })
 
 describe('validateTopology advanced trait validation', () => {

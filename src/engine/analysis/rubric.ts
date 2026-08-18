@@ -1,4 +1,5 @@
 import type { TopologyJSON } from '../core/types'
+import { deriveNodeConcurrency } from '../nodes/resourceDerivation'
 import type { EvaluationBatch } from './evaluate'
 import type { SimulationVerdict } from './verdict'
 
@@ -187,9 +188,16 @@ export function resolveTopologyMetric(topology: TopologyJSON, metric: string): n
     case 'topology.sourceCount':
       return topology.nodes.filter((node) => node.role === 'source').length
     case 'topology.totalWorkers':
-      return topology.nodes.reduce((sum, node) => sum + (node.queue?.workers ?? 0), 0)
+      // Derived effective concurrency (instance × workload), not the vestigial queue.
+      return topology.nodes.reduce(
+        (sum, node) => sum + (node.queue ? deriveNodeConcurrency(node).effectiveC : 0),
+        0
+      )
     case 'topology.totalReplicas':
-      return topology.nodes.reduce((sum, node) => sum + (node.resources?.replicas ?? 0), 0)
+      return topology.nodes.reduce(
+        (sum, node) => sum + (node.resources?.instanceCount ?? node.resources?.replicas ?? 0),
+        0
+      )
   }
 
   if (metric.startsWith('topology.componentCounts.')) {

@@ -14,6 +14,11 @@ import { rateLimiterCapabilityModule } from './rateLimiter'
 import { readOnlyCapabilityModule } from './readOnly'
 import { readWriteSplitCapabilityModule } from './readWriteSplit'
 import type { ConfigField, NodeCapabilityModule } from './types'
+import type { ComponentNode } from '../core/types'
+import { INSTANCE_CATALOG, INSTANCE_TYPES, PRICING_MODELS } from '../catalog/instanceCatalog'
+import { getResourceDefaults } from '../catalog/resourceDefaults'
+import { deriveNodeConcurrency, effectivePerfFactor } from '../nodes/resourceDerivation'
+import { nodeCostPerHour } from '../analysis/cost'
 
 const CONTENT_ROUTING_COMPONENT_TYPE_SET = new Set<ComponentType>(CONTENT_ROUTING_COMPONENT_TYPES)
 
@@ -362,21 +367,102 @@ const COMPOSITE_LOCATION_MODULE: NodeCapabilityModule = {
   }
 }
 
-const BASE_QUEUE_FIELDS: readonly ConfigField[] = [
+/**
+ * Derived, read-only allocation summary for the RESOURCES section note — the
+ * inline provenance the honesty principle requires. Computes effective c/K and
+ * cost from the authored `sim.resources` so the user sees what their instance
+ * choice actually buys, and why cost moved.
+ */
+function resourcesNote(data: CanvasNodeDataV2): string | null {
+  const resources = data.sim?.resources
+  const type = data.componentType
+  if (!resources?.instanceType || !type) return null
+
+  const spec = INSTANCE_CATALOG[resources.instanceType]
+  const node = { type, queue: data.sim?.queue, resources } as unknown as ComponentNode
+  const derived = deriveNodeConcurrency(node)
+  const costModel = getResourceDefaults(type).costModel ?? 'provisioned'
+
+  const workloadKind = resources.workloadKind ?? getResourceDefaults(type).workloadKind
+  const perf = effectivePerfFactor(spec.perfFactor, workloadKind)
+  const hw = `${spec.vcpu} vCPU · ${spec.ramGb} GB`
+  const conc = `${derived.workersPerInstance} workers/inst → eff. concurrency ${derived.effectiveC}`
+  const admission = `admission ${derived.effectiveK}${derived.admissionBoundBy === 'ram' ? ' (RAM-bound)' : ''}`
+  const speed = perf !== 1 ? ` · service ×${(1 / perf).toFixed(2)}` : ''
+  const pricing =
+    resources.pricingModel && resources.pricingModel !== 'on-demand'
+      ? ` (${resources.pricingModel})`
+      : ''
+  const cost =
+    costModel === 'volume'
+      ? `$${(getResourceDefaults(type).pricePerGb ?? 0).toFixed(3)}/GB egress`
+      : costModel === 'consumption'
+        ? `$${(getResourceDefaults(type).pricePerMillionRequests ?? 0).toFixed(2)}/M req`
+        : costModel === 'none'
+          ? 'not billable'
+          : `$${nodeCostPerHour(node).toFixed(3)}/hr${pricing}`
+
+  return `${hw} · ${conc} · ${admission}${speed} · ${cost}`
+}
+
+const RESOURCES_FIELDS: readonly ConfigField[] = [
   {
-    path: 'sim.queue.workers',
+    path: 'sim.resources.instanceType',
+    type: 'select',
+    label: 'Instance type',
+    options: INSTANCE_TYPES,
+    why: 'The hardware SKU. Sets vCPU, RAM, and price per instance — the primary allocation knob.'
+  },
+  {
+    path: 'sim.resources.instanceCount',
     type: 'input',
-    label: (data) => queueVocabulary(data).workers,
+    label: 'Instances',
     unit: 'count',
-    why: 'Sets how much concurrent work this node can process at once.'
+    why: 'How many instances run. Scales concurrency, memory, and cost together (horizontal scale).'
   },
   {
-    path: 'sim.queue.capacity',
-    type: 'input',
-    label: (data) => queueVocabulary(data).capacity,
-    unit: 'req',
-    why: 'Sets how many requests can wait once all workers are busy.'
+    path: 'sim.resources.pricingModel',
+    type: 'select',
+    label: 'Pricing',
+    options: PRICING_MODELS,
+    why: 'on-demand (full price) · reserved (~40% off, committed) · spot (~70% off, but can be reclaimed → a node failure).'
   },
+  {
+    path: 'sim.resources.workloadKind',
+    type: 'select',
+    label: 'Workload',
+    options: ['io-bound', 'cpu-bound'],
+    altitude: 'advanced',
+    why: 'CPU-bound work is capped at ~1 parallel worker per vCPU; IO-bound work can run many more.'
+  }
+]
+
+const RESOURCES_MODULE: NodeCapabilityModule = {
+  name: 'base.resources',
+  appliesWhen: (data) => isRuntimeNode(data),
+  config: {
+    sections: [
+      {
+        id: 'resources',
+        title: 'Resources',
+        fields: RESOURCES_FIELDS,
+        note: resourcesNote
+      }
+    ]
+  },
+  defaults: [],
+  honesty: {
+    simulates: [
+      'physical allocation: instance type × count → effective concurrency (vCPU-capped), admission limit (RAM-bound), and provisioned cost'
+    ],
+    notModeled: ['reserved/spot pricing, autoscaling, per-region hardware availability']
+  }
+}
+
+// Concurrency (workers) and admission (K) are DERIVED from the instance and shown
+// read-only in the RESOURCES note — no longer free inputs. Only the queue discipline
+// (ordering of already-waiting work) remains authored here.
+const BASE_QUEUE_FIELDS: readonly ConfigField[] = [
   {
     path: 'sim.queue.discipline',
     type: 'select',
@@ -420,16 +506,20 @@ const PROCESSING_MODULE: NodeCapabilityModule = {
             type: 'input',
             label: 'Timeout',
             unit: 'ms',
-            why: 'Sets how long the node will wait before timing out a request.'
+            min: 1,
+            max: 60000,
+            why: 'Sets how long the node will wait before timing out a request (≤ 60s).'
           },
           {
             path: 'sim.processing.distribution.value',
             type: 'input',
             label: 'Mean service time',
             unit: 'ms',
+            min: 0,
+            max: 10000,
             visible: (data) =>
               isDistribution(data, 'constant') || isDistribution(data, 'deterministic'),
-            why: 'Sets the service time when processing is modeled as a fixed latency.'
+            why: 'Sets the service time when processing is modeled as a fixed latency (≤ 10s).'
           },
           {
             path: 'sim.processing.distribution.lambda',
@@ -437,12 +527,14 @@ const PROCESSING_MODULE: NodeCapabilityModule = {
             label: 'Mean service time',
             unit: 'ms',
             step: 0.001,
+            min: 0.001,
+            max: 10000,
             visible: (data) => isDistribution(data, 'exponential'),
             displayAs: {
               toDisplay: (rawValue) => lambdaToMeanMs(rawValue),
               fromDisplay: (displayValue) => meanMsToLambda(displayValue)
             },
-            why: 'Displays the engine’s exponential rate parameter as the latency humans actually reason about.'
+            why: 'Displays the engine’s exponential rate parameter as the latency humans actually reason about (≤ 10s).'
           },
           {
             path: 'sim.processing.distribution.mean',
@@ -450,8 +542,10 @@ const PROCESSING_MODULE: NodeCapabilityModule = {
             label: 'Mean service time',
             unit: 'ms',
             step: 0.01,
+            min: 0,
+            max: 10000,
             visible: (data) => isDistribution(data, 'normal'),
-            why: 'Sets the average service time for a normal distribution.'
+            why: 'Sets the average service time for a normal distribution (≤ 10s).'
           },
           {
             path: 'sim.processing.distribution.type',
@@ -756,6 +850,7 @@ export const NODE_CONFIG_MODULES: readonly NodeCapabilityModule[] = [
   ROUTING_STRATEGY_MODULE,
   COMPOSITE_LOCATION_MODULE,
   ...TRAIT_CAPABILITY_MODULES,
+  RESOURCES_MODULE,
   BASE_QUEUE_MODULE,
   PROCESSING_MODULE,
   SECURITY_POLICY_MODULE,

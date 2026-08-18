@@ -34,6 +34,7 @@ const CLIENT_ERROR_HINTS: Record<string, string> = {
 
 const SERVER_ERROR_HINTS: Record<string, string> = {
   capacity_exceeded: '503',
+  oom: '503',
   max_concurrency_exceeded: '503',
   no_healthy_targets: '503',
   circuit_breaker_open: '503',

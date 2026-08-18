@@ -214,6 +214,8 @@ export interface PerEdgeMetrics {
   targetNodeId: string
   totalSuccessfulTransits: number
   totalFailedTerminals: number
+  /** Total request bytes that transited this edge post-warmup (for egress cost). */
+  bytesTransferred: number
   successLatencySamples: number
   timeToErrorSamples: number
   latencyWindowErrorRate: number
@@ -245,6 +247,8 @@ export interface SimulationSummary {
   /** Termination-time latency windows for the system scope. */
   latencyWindows: LatencyWindowPoint[]
   duration: number // ms
+  /** Post-warmup window in seconds (duration − warmup) — the rate basis for cost. */
+  postWarmupDurationSec: number
   throughput: number // successful req / sec after warmup
   errorRate: number // post-warmup failed / post-warmup total
   latency: LatencyPercentiles
@@ -346,6 +350,8 @@ export class MetricsCollector {
   private readonly perNode = new Map<string, InternalNodeMetrics>()
   private readonly nodeMetadata = new Map<string, NodeMetadata>()
   private readonly edgeMetadata = new Map<string, EdgeMetadata>()
+  /** Cumulative post-warmup bytes transited per edge (drives measured egress cost). */
+  private readonly edgeBytesById = new Map<string, number>()
 
   /** Per-component latency contributions summed over post-warmup completed requests. */
   private readonly decompositionByKey = new Map<
@@ -638,13 +644,19 @@ export class MetricsCollector {
     sourceNodeId: string,
     targetNodeId: string,
     transitLatencyUs: bigint,
-    edgeOutUs: bigint
+    edgeOutUs: bigint,
+    sizeBytes = 0
   ): void {
     this.ensureEdgeAggregator(edgeId, {
       label: `${sourceNodeId}→${targetNodeId}`,
       sourceNodeId,
       targetNodeId
     }).onTerminal('completed', transitLatencyUs, edgeOutUs)
+    // Accumulate transited bytes only post-warmup (aligned with the aggregator's
+    // window) so measured egress cost matches the steady-state throughput.
+    if (this.isPostWarmup(edgeOutUs)) {
+      this.edgeBytesById.set(edgeId, (this.edgeBytesById.get(edgeId) ?? 0) + sizeBytes)
+    }
   }
 
   generateSummary(duration: number): SimulationSummary {
@@ -680,6 +692,7 @@ export class MetricsCollector {
       rejectedRequests: this.rejectedRequests,
       timedOutRequests: this.timedOutRequests,
       connectionResetRequests: this.connectionResetRequests,
+      postWarmupDurationSec: effectiveDurationMs / 1000,
       successLatencySamples,
       timeToErrorSamples,
       latencyWindowErrorRate,
@@ -857,6 +870,7 @@ export class MetricsCollector {
         targetNodeId: metadata.targetNodeId,
         totalSuccessfulTransits: successLatencySamples,
         totalFailedTerminals: timeToErrorSamples,
+        bytesTransferred: this.edgeBytesById.get(edgeId) ?? 0,
         successLatencySamples,
         timeToErrorSamples,
         latencyWindowErrorRate,

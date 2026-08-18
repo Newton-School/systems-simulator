@@ -2,6 +2,7 @@ import type { Node } from 'reactflow'
 import { getComponentSpec } from './componentSpecs'
 import { getPaletteTemplate, instantiateTemplate } from './paletteTemplates'
 import { isCanvasAnnotationNodeType } from './canvasAnnotations'
+import { buildReproducingResources } from './resourceDefaults'
 import type { CanvasNodeDataV2 } from './nodeSpecTypes'
 
 const LEGACY_COMPUTE_TYPE_TO_TEMPLATE: Record<string, string> = {
@@ -115,9 +116,29 @@ function resolveLegacyTemplateId(node: Node): string | null {
   return null
 }
 
+/**
+ * Backfill an instance allocation onto a runtime node that has a queue but no
+ * `sim.resources` (older scenarios / topologies saved before the instance model).
+ * Reproduces the queue exactly so the RESOURCES selector shows a sensible instance
+ * instead of falling back to the first option. Nodes that already carry resources
+ * (authored or adapter-preserved) are left untouched.
+ */
+function ensureResources(data: CanvasNodeDataV2): CanvasNodeDataV2 {
+  const queue = data.sim?.queue
+  if (!queue || data.sim?.resources || !data.componentType) return data
+  if (data.structuralRole === 'source' || data.structuralRole === 'composite') return data
+  return {
+    ...data,
+    sim: {
+      ...data.sim,
+      resources: buildReproducingResources(data.componentType, queue.workers, queue.capacity)
+    }
+  }
+}
+
 export function migrateCanvasNodeData(node: Node): CanvasNodeDataV2 {
   if (isCanvasNodeDataV2(node.data)) {
-    return node.data
+    return ensureResources(node.data)
   }
 
   const templateId = resolveLegacyTemplateId(node)

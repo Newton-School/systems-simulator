@@ -3,6 +3,7 @@ import type {
   ComponentNode,
   ComponentType,
   DistributionConfig,
+  ResourceConfig,
   SLOConfig,
   WorkloadProfile
 } from '../core/types'
@@ -35,6 +36,13 @@ export type RoutingStrategy =
   | 'passthrough'
 
 export interface NodeSimulationConfig {
+  /**
+   * Authored physical resource allocation (AWS instance model). When present, it
+   * drives serialized `resources` and thus effective concurrency/K and cost; when
+   * absent, serialization falls back to reproducing the raw queue. Edited via the
+   * RESOURCES config section.
+   */
+  resources?: ResourceConfig
   queue?: {
     workers: number
     capacity: number

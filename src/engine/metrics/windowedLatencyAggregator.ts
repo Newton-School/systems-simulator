@@ -28,7 +28,8 @@ import { Hist } from './hist'
  * fundamentally different failures — a full queue (overloaded) vs. a dead node
  * vs. an edge drop — so the UI could not answer the operator's first question:
  * is this thing dead, sick, or overloaded? Splitting them makes that readable.
- *   - queue_full:       admission refused because all K slots were taken (overload)
+ *   - queue_full:       admission refused because the accept backlog was full (overload)
+ *   - oom:              admission refused because the node ran out of memory (RAM-bound K)
  *   - node_failed:      node was down and instantly refused the request (dead)
  *   - network_error:    the edge terminated it (connection refused / edge error)
  *   - timeout:          the client's clock ran out (silent failure / packet loss)
@@ -38,6 +39,7 @@ import { Hist } from './hist'
 export type TerminalState =
   | 'completed'
   | 'queue_full'
+  | 'oom'
   | 'node_failed'
   | 'network_error'
   | 'timeout'
@@ -47,6 +49,7 @@ export type ErrorCause = Exclude<TerminalState, 'completed'>
 
 export const ERROR_CAUSES: readonly ErrorCause[] = [
   'queue_full',
+  'oom',
   'node_failed',
   'network_error',
   'timeout',
@@ -63,6 +66,8 @@ export function classifyRejectionCause(reason: string): ErrorCause {
   switch (reason) {
     case 'capacity_exceeded':
       return 'queue_full'
+    case 'oom':
+      return 'oom'
     case 'node_failed':
       return 'node_failed'
     case 'connection_refused':
@@ -97,6 +102,7 @@ function emptyCounts(): Record<TerminalState, number> {
   return {
     completed: 0,
     queue_full: 0,
+    oom: 0,
     node_failed: 0,
     network_error: 0,
     timeout: 0,
@@ -108,6 +114,7 @@ function emptyCounts(): Record<TerminalState, number> {
 function emptyErrorHists(): Record<ErrorCause, Hist> {
   return {
     queue_full: new Hist(),
+    oom: new Hist(),
     node_failed: new Hist(),
     network_error: new Hist(),
     timeout: new Hist(),

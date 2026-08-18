@@ -5,6 +5,7 @@ import { Divider } from '../ui/Divider'
 import { IconButton } from '../ui/IconButton'
 import { ToggleButton } from '../ui/ToggleButton'
 import { Branding } from './Branding'
+import { CostChip } from './CostChip'
 import { FileStatus } from './FileStatus'
 import { ThemeToggle } from './ThemeToggle'
 import { SimulationControls } from '../simulation/SimulationControls'
@@ -87,6 +88,8 @@ export const Header = memo(
             label="Toggle left sidebar"
             icon={<Sidebar size={18} />}
           />
+          <Divider />
+          <CostChip />
         </div>
 
         {/* CENTER: File status + simulation controls */}

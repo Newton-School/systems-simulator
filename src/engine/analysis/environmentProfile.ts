@@ -48,8 +48,28 @@ export interface EnvironmentCapabilities {
    * edge *results* stay inspectable. AUTHOR keeps full edge editing.
    */
   canEditEdges: boolean
+  /**
+   * Whether the student may change a node's resource allocation (instance type,
+   * count, workers). Base policy: mutable in AUTHOR/PRACTICE (the deployed sandbox),
+   * locked in ASSIGNMENT — but a question whose lesson *is* allocation unlocks it
+   * (see `canEditResourcesForQuestion`). Cost/derived read-outs stay visible either
+   * way; this only gates editing.
+   */
+  canEditResources: boolean
   /** Maximum test runs allowed (undefined = unlimited). */
   maxTestRuns?: number
+  /**
+   * Per-environment hardware quota — total vCPU / RAM the whole topology may
+   * provision across all nodes. Absent = unbounded (no gate). The topology's cost
+   * and resource totals are always *displayed* regardless; this only gates.
+   */
+  resourceBudget?: { totalVcpu: number; totalRamGb: number }
+  /**
+   * Per-environment money cap — max provisioned spend for the whole topology, in
+   * USD/hour. Independent of `resourceBudget`: a design can pass the vCPU/RAM quota
+   * yet exceed the cost cap, and vice versa. Absent = unbounded.
+   */
+  costBudget?: { maxPerHour: number }
 }
 
 export interface EnvironmentProfile {
@@ -80,7 +100,8 @@ export const AUTHOR_ENVIRONMENT_PROFILE: EnvironmentProfile = {
     editPaletteList: null,
     canEditScaffoldNodes: true,
     canTriggerTestRuns: true,
-    canEditEdges: true
+    canEditEdges: true,
+    canEditResources: true
   },
   graded: true,
   chromeDensity: 'full'
@@ -99,7 +120,8 @@ export const ASSIGNMENT_ENVIRONMENT_PROFILE: EnvironmentProfile = {
     editPaletteList: null,
     canEditScaffoldNodes: false,
     canTriggerTestRuns: true,
-    canEditEdges: false
+    canEditEdges: false,
+    canEditResources: false
   },
   graded: true,
   chromeDensity: 'minimal'
@@ -118,7 +140,8 @@ export const PRACTICE_ENVIRONMENT_PROFILE: EnvironmentProfile = {
     editPaletteList: null,
     canEditScaffoldNodes: true,
     canTriggerTestRuns: true,
-    canEditEdges: true
+    canEditEdges: true,
+    canEditResources: true
   },
   graded: false,
   chromeDensity: 'minimal'
@@ -153,6 +176,7 @@ const InputObjectSchema = z
         canEditScaffoldNodes: z.boolean().optional(),
         canTriggerTestRuns: z.boolean().optional(),
         canEditEdges: z.boolean().optional(),
+        canEditResources: z.boolean().optional(),
         maxTestRuns: z.number().int().nonnegative().optional()
       })
       .optional(),
@@ -231,6 +255,26 @@ export function canEditEdgesForQuestion(
     return true
   }
   return question?.domains?.includes('network') ?? false
+}
+
+/**
+ * Effective resource-editability for the *loaded question*, layering the question's
+ * bottleneck `domains` over the profile's base `canEditResources` capability.
+ *
+ * Mutable by default in AUTHOR/PRACTICE (the deployed sandbox). Locked in ASSIGNMENT
+ * so a graded student can't brute-force by cranking instances — UNLESS the question's
+ * lesson *is* resource allocation (`domains` include `'cost'`: fix a bottleneck within
+ * a budget), in which case picking instances is the exercise and editing is unlocked.
+ * Single consumption point, so every load path gets the same behavior.
+ */
+export function canEditResourcesForQuestion(
+  profile: EnvironmentProfile,
+  question?: { domains?: readonly QuestionDomain[] } | null
+): boolean {
+  if (profile.capabilities.canEditResources) {
+    return true
+  }
+  return question?.domains?.includes('cost') ?? false
 }
 
 /** Whether the student may trigger another test run right now. */

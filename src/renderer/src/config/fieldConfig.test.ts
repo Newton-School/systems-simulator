@@ -68,11 +68,9 @@ describe('getNodeConfigSections', () => {
 
     expect(routing?.fields.map((field) => field.label)).toEqual(['Strategy', 'Health checks'])
     expect(queueing?.title).toBe('Forwarding')
-    expect(queueing?.fields.map((field) => field.label)).toEqual([
-      'Max concurrent connections',
-      'Connection queue limit',
-      'Queue discipline'
-    ])
+    // Workers/capacity are now DERIVED from the instance (shown read-only in the
+    // RESOURCES note); only the queue discipline remains authored here.
+    expect(queueing?.fields.map((field) => field.label)).toEqual(['Queue discipline'])
     expect(contentRouting?.note).toEqual({
       tone: 'locked',
       text: L4_CONTENT_ROUTING_FORBIDDEN_MESSAGE
@@ -102,7 +100,8 @@ describe('getNodeConfigSections', () => {
     expect(model?.note?.text).toContain('generic request queue')
     expect(model?.note?.text).toContain('heartbeats')
     expect(queueing?.title).toBe('Discovery')
-    expect(queueing?.fields[0]?.label).toBe('Lookup concurrency')
+    // Concurrency is derived from the instance now; queueing carries only discipline.
+    expect(queueing?.fields[0]?.label).toBe('Queue discipline')
   })
 
   it('keeps replica role honest while hiding primary-only read/write latency fields', () => {
