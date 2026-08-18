@@ -365,7 +365,9 @@ function buildScenarioState(topology: TopologyJSON): ScenarioState {
         topology.global.traceSampleRate ?? DEFAULT_SCENARIO_STATE.global.traceSampleRate
     },
     selectedSourceNodeId: topology.workload?.sourceNodeId,
-    workloadOverride: {}
+    workloadOverride: {},
+    faults: topology.faults ?? [],
+    randomizeSeedEachRun: false
   }
 }
 

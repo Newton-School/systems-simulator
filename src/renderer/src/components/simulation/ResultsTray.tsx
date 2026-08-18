@@ -39,7 +39,7 @@ import {
   RESULTS_SUMMARY_TOOLTIPS,
   formatInFlightAtCutoffBanner
 } from '@renderer/config/tooltipCatalog'
-import type { EdgeSimulationData, ScenarioRunContext } from '@renderer/types/ui'
+import type { EdgeSimulationData, ResultsTabId, ScenarioRunContext } from '@renderer/types/ui'
 import {
   ERROR_CAUSE_LABELS,
   dominantTimeToErrorCause
@@ -92,7 +92,7 @@ interface EventGraphLookup {
   edgeById: Map<string, EventEdgeDisplayInfo>
 }
 
-type ResultsTab = 'overview' | 'bottlenecks' | 'nodes' | 'traffic'
+type ResultsTab = ResultsTabId
 type SelectedComponent = { kind: 'node'; id: string } | { kind: 'edge'; id: string }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -4440,7 +4440,8 @@ export function ResultsTray({
   runContext,
   onClose
 }: ResultsTrayProps) {
-  const [activeTab, setActiveTab] = useState<ResultsTab>('overview')
+  const defaultResultsTab = useStore((state) => state.displaySettings.defaultResultsTab)
+  const [activeTab, setActiveTab] = useState<ResultsTab>(defaultResultsTab)
   const [selectedComponent, setSelectedComponent] = useState<SelectedComponent | null>(null)
   const nodes = useStore((state) => state.nodes)
   const edges = useStore((state) => state.edges)
@@ -4502,10 +4503,10 @@ export function ResultsTray({
 
   useEffect(() => {
     if (results) {
-      setActiveTab('overview')
+      setActiveTab(defaultResultsTab)
       setSelectedComponent(defaultSelectedComponent(results))
     }
-  }, [results])
+  }, [defaultResultsTab, results])
 
   useEffect(() => {
     if (!results && (status === 'running' || status === 'paused') && activeTab !== 'traffic') {

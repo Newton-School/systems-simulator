@@ -134,3 +134,101 @@ export function OptionalNumber({
     </div>
   )
 }
+
+export function NumberField({
+  value,
+  onChange,
+  min = 0,
+  step = 1,
+  disabled,
+  suffix,
+  widthClassName = 'w-24'
+}: {
+  value: number
+  onChange: (value: number) => void
+  min?: number
+  step?: number
+  disabled?: boolean
+  suffix?: string
+  widthClassName?: string
+}): React.JSX.Element {
+  return (
+    <div className="flex items-center gap-1.5">
+      <input
+        type="number"
+        min={min}
+        step={step}
+        disabled={disabled}
+        value={value}
+        onChange={(e) => {
+          const parsed = Number(e.target.value)
+          onChange(Number.isFinite(parsed) ? Math.max(min, parsed) : min)
+        }}
+        className={`${widthClassName} rounded border border-nss-border bg-nss-input-bg px-2 py-1 text-right text-[11px] tabular-nums text-nss-text focus:border-nss-info focus:outline-none focus:ring-1 focus:ring-nss-info`}
+      />
+      <span className="w-10 shrink-0 text-left text-[11px] text-nss-muted">{suffix ?? ''}</span>
+    </div>
+  )
+}
+
+export function TextField({
+  value,
+  onChange,
+  placeholder,
+  disabled,
+  widthClassName = 'w-44'
+}: {
+  value: string
+  onChange: (value: string) => void
+  placeholder?: string
+  disabled?: boolean
+  widthClassName?: string
+}): React.JSX.Element {
+  return (
+    <input
+      type="text"
+      disabled={disabled}
+      value={value}
+      placeholder={placeholder}
+      onChange={(e) => onChange(e.target.value)}
+      className={`${widthClassName} rounded border border-nss-border bg-nss-input-bg px-2 py-1 text-[11px] text-nss-text placeholder-nss-placeholder focus:border-nss-info focus:outline-none focus:ring-1 focus:ring-nss-info`}
+    />
+  )
+}
+
+export function SelectField<T extends string>({
+  value,
+  options,
+  onChange,
+  disabled,
+  widthClassName = 'w-44'
+}: {
+  value: T
+  options: Array<{ value: T; label: string }>
+  onChange: (value: T) => void
+  disabled?: boolean
+  widthClassName?: string
+}): React.JSX.Element {
+  return (
+    <select
+      value={value}
+      disabled={disabled}
+      onChange={(e) => onChange(e.target.value as T)}
+      className={`${widthClassName} rounded border border-nss-border bg-nss-input-bg px-2 py-1 text-[11px] text-nss-text focus:border-nss-info focus:outline-none focus:ring-1 focus:ring-nss-info disabled:cursor-not-allowed disabled:opacity-50`}
+    >
+      {options.map((option) => (
+        <option key={option.value} value={option.value}>
+          {option.label}
+        </option>
+      ))}
+    </select>
+  )
+}
+
+export function SectionLabel({ children }: { children: React.ReactNode }): React.JSX.Element {
+  return (
+    <div className="mt-4 mb-1 border-t border-nss-border/60 pt-3 text-[10px] font-bold uppercase tracking-widest text-nss-muted">
+      {children}
+    </div>
+  )
+}

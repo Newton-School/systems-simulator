@@ -17,7 +17,8 @@ import type {
   AnyNodeData,
   EdgeSimulationData,
   ScenarioState,
-  MetricLens
+  MetricLens,
+  DisplaySettings
 } from '@renderer/types/ui'
 import type { CanvasTextLabelData } from '../../../engine/catalog/canvasAnnotations'
 import { DEFAULT_SCENARIO_STATE } from '@renderer/types/ui'
@@ -30,6 +31,10 @@ import {
 } from '../../../engine/analysis/environmentProfile'
 import type { NewtonSaveMode } from '../../../engine/analysis/newtonGamePlayground'
 import type { SimulationOutput } from '../../../engine/analysis/output'
+import {
+  loadDisplaySettings,
+  persistDisplaySettings
+} from '@renderer/utils/displaySettingsPersistence'
 
 /**
  * A node's edits/deletions are locked when either (a) the whole attempt is frozen
@@ -66,6 +71,7 @@ const RUNTIME_METRIC_LENSES: ReadonlySet<MetricLens> = new Set([
   'errors',
   'throughput'
 ])
+const displaySettingsInitial = loadDisplaySettings()
 
 export type EdgeFlowRenderEvent = EdgeFlowEvent & {
   receivedAtMs: number
@@ -395,6 +401,7 @@ type RFState = {
   fileName: string | null
   isUnsaved: boolean
   scenario: ScenarioState
+  displaySettings: DisplaySettings
 
   // --- Question mode ---
   /** The question the student is attempting, if any (injected by the host or a sample loader). */
@@ -469,13 +476,14 @@ type RFState = {
   setUnsaved: (unsaved: boolean) => void
   setScenario: (scenario: ScenarioState) => void
   updateScenario: (updater: (scenario: ScenarioState) => ScenarioState) => void
+  updateDisplaySettings: (updater: (settings: DisplaySettings) => DisplaySettings) => void
 }
 
 const useStore = create<RFState>((set, get) => ({
   nodes: [],
   edges: [],
   simulationMetricsByNode: {},
-  metricLens: 'concurrency',
+  metricLens: displaySettingsInitial.defaultMetricLens,
   edgeFlowById: {},
   edgeFlowHistory: [],
   edgeFlowPlayback: null,
@@ -490,6 +498,7 @@ const useStore = create<RFState>((set, get) => ({
   fileName: 'Untitled',
   isUnsaved: false,
   scenario: DEFAULT_SCENARIO_STATE,
+  displaySettings: displaySettingsInitial,
   activeQuestion: null,
   scaffoldNodeIds: [],
   activeQuestionPromptHtml: null,
@@ -758,7 +767,10 @@ const useStore = create<RFState>((set, get) => ({
   },
 
   clearSimulationMetrics: () => {
-    set({ simulationMetricsByNode: {}, metricLens: 'concurrency' })
+    set((state) => ({
+      simulationMetricsByNode: {},
+      metricLens: state.displaySettings.defaultMetricLens
+    }))
   },
 
   recordEdgeFlowEvent: (event) => {
@@ -918,7 +930,19 @@ const useStore = create<RFState>((set, get) => ({
     set((state) => ({
       viewportFitVersion: state.viewportFitVersion + 1
     })),
-  updateScenario: (updater) => set((state) => ({ scenario: updater(state.scenario) }))
+  updateScenario: (updater) => set((state) => ({ scenario: updater(state.scenario) })),
+  updateDisplaySettings: (updater) =>
+    set((state) => {
+      const displaySettings = updater(state.displaySettings)
+      persistDisplaySettings(displaySettings)
+
+      return {
+        displaySettings,
+        ...(Object.keys(state.simulationMetricsByNode).length === 0
+          ? { metricLens: displaySettings.defaultMetricLens }
+          : {})
+      }
+    })
 }))
 
 export default useStore
