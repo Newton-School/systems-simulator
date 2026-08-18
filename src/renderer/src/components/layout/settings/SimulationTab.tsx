@@ -25,7 +25,9 @@ const AUTO_SOURCE_VALUE = '__AUTO__'
 
 function updateWorkloadOverride(
   current: ScenarioState,
-  updater: (override: NonNullable<ScenarioState['workloadOverride']>) => NonNullable<ScenarioState['workloadOverride']>
+  updater: (
+    override: NonNullable<ScenarioState['workloadOverride']>
+  ) => NonNullable<ScenarioState['workloadOverride']>
 ): ScenarioState {
   return {
     ...current,
@@ -46,7 +48,8 @@ export function SimulationTab(): React.JSX.Element {
           const data = node.data as CanvasNodeDataV2
           return {
             id: node.id,
-            label: data.label && data.label.trim().length > 0 ? `${data.label} (${node.id})` : node.id,
+            label:
+              data.label && data.label.trim().length > 0 ? `${data.label} (${node.id})` : node.id,
             workload: data.source?.defaultWorkload ?? {
               pattern: 'constant',
               baseRps: 100,
@@ -70,7 +73,8 @@ export function SimulationTab(): React.JSX.Element {
           const data = node.data as CanvasNodeDataV2
           return {
             id: node.id,
-            label: data.label && data.label.trim().length > 0 ? `${data.label} (${node.id})` : node.id
+            label:
+              data.label && data.label.trim().length > 0 ? `${data.label} (${node.id})` : node.id
           }
         }),
     [nodes]
@@ -127,7 +131,9 @@ export function SimulationTab(): React.JSX.Element {
   const toggleFault = (enabled: boolean) => {
     updateScenario((current) => {
       if (!enabled) return { ...current, faults: [] }
-      const target = current.faults?.[0] ? readFault(current.faults[0]).targetId : faultTargets[0]?.id
+      const target = current.faults?.[0]
+        ? readFault(current.faults[0]).targetId
+        : faultTargets[0]?.id
       return target
         ? {
             ...current,
@@ -227,7 +233,10 @@ export function SimulationTab(): React.JSX.Element {
         />
       </SettingRow>
 
-      <SettingRow label="Base RPS" hint="Offered steady-state request rate before burst/spike multipliers.">
+      <SettingRow
+        label="Base RPS"
+        hint="Offered steady-state request rate before burst/spike multipliers."
+      >
         <NumberField
           value={effectiveWorkload?.baseRps ?? 100}
           min={1}
@@ -256,7 +265,10 @@ export function SimulationTab(): React.JSX.Element {
 
       {faultEnabled && faultTargets.length > 0 && (
         <>
-          <SettingRow label="Fault target" hint="Which runtime component the injected failure applies to.">
+          <SettingRow
+            label="Fault target"
+            hint="Which runtime component the injected failure applies to."
+          >
             <SelectField
               value={fault.targetId}
               options={faultTargets.map((target) => ({ value: target.id, label: target.label }))}
@@ -264,7 +276,10 @@ export function SimulationTab(): React.JSX.Element {
             />
           </SettingRow>
 
-          <SettingRow label="Fault mode" hint="What kind of failure the simulator injects when the timer fires.">
+          <SettingRow
+            label="Fault mode"
+            hint="What kind of failure the simulator injects when the timer fires."
+          >
             <SelectField
               value={fault.mode}
               options={FAILURE_MODE_OPTIONS}

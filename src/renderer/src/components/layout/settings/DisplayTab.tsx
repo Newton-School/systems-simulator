@@ -1,12 +1,6 @@
 import useStore from '@renderer/store/useStore'
 import { PRE_RUN_LENSES } from '@renderer/config/metricLensConfig'
-import {
-  SectionLabel,
-  Segmented,
-  SelectField,
-  SettingRow,
-  Toggle
-} from './SettingsControls'
+import { SectionLabel, Segmented, SelectField, SettingRow, Toggle } from './SettingsControls'
 
 const LATENCY_PERCENTILE_OPTIONS = [
   { value: 'p50', label: 'p50' },
