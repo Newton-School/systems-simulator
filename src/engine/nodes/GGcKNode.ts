@@ -518,7 +518,8 @@ export class GGcKNode {
     // Instance compute speed scales the base service time (faster hardware → lower
     // latency) before any degraded-mode penalty.
     let serviceTimeMs =
-      Math.max(0, rawServiceTimeMs) * this.serviceMultiplier + readServiceTimeLatencyPenaltyMs(request)
+      Math.max(0, rawServiceTimeMs) * this.serviceMultiplier +
+      readServiceTimeLatencyPenaltyMs(request)
 
     // Degraded mode: a `fraction` of requests take `serviceTimeMultiplier`× as
     // long. Decided at service start; already-scheduled completions are untouched.

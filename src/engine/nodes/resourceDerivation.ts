@@ -48,9 +48,7 @@ export const IO_PERF_SENSITIVITY = 0.25
  * by this, so a faster instance (perfFactor > 1) serves each request quicker.
  */
 export function effectivePerfFactor(perfFactor: number, workloadKind: WorkloadKind): number {
-  return workloadKind === 'cpu-bound'
-    ? perfFactor
-    : 1 + (perfFactor - 1) * IO_PERF_SENSITIVITY
+  return workloadKind === 'cpu-bound' ? perfFactor : 1 + (perfFactor - 1) * IO_PERF_SENSITIVITY
 }
 
 /**

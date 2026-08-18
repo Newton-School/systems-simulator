@@ -367,8 +367,8 @@ export const PropertiesForm = ({
               <div className="rounded-lg border border-nss-border bg-nss-surface px-4 py-3">
                 {sectionLocked && (
                   <p className="mb-4 rounded-md border border-nss-warning/20 bg-nss-warning/10 px-3 py-2 text-[11px] font-medium leading-relaxed text-nss-warning">
-                    Resource allocation is fixed for this question — solve it with the design, not by
-                    resizing instances. Cost and derived limits stay visible.
+                    Resource allocation is fixed for this question — solve it with the design, not
+                    by resizing instances. Cost and derived limits stay visible.
                   </p>
                 )}
                 <fieldset
@@ -377,27 +377,29 @@ export const PropertiesForm = ({
                   disabled={sectionLocked}
                   className={`m-0 min-w-0 border-0 p-0 ${sectionLocked ? 'opacity-60' : ''}`}
                 >
-                {section.note && (
-                  <p
-                    className={[
-                      'mb-4 rounded-md border px-3 py-2 text-[11px] leading-relaxed',
-                      section.note.tone === 'locked'
-                        ? 'border-nss-warning/20 bg-nss-warning/10 font-medium text-nss-warning'
-                        : 'border-nss-border bg-nss-panel text-nss-muted'
-                    ].join(' ')}
-                  >
-                    {section.note.text}
-                  </p>
-                )}
-                {primaryFields.map((field) => renderField(field))}
-                {advancedFields.length > 0 && (
-                  <details className="rounded-md border border-dashed border-nss-border px-3 py-2">
-                    <summary className="cursor-pointer text-[11px] font-semibold uppercase tracking-wide text-nss-muted">
-                      Advanced
-                    </summary>
-                    <div className="mt-3">{advancedFields.map((field) => renderField(field))}</div>
-                  </details>
-                )}
+                  {section.note && (
+                    <p
+                      className={[
+                        'mb-4 rounded-md border px-3 py-2 text-[11px] leading-relaxed',
+                        section.note.tone === 'locked'
+                          ? 'border-nss-warning/20 bg-nss-warning/10 font-medium text-nss-warning'
+                          : 'border-nss-border bg-nss-panel text-nss-muted'
+                      ].join(' ')}
+                    >
+                      {section.note.text}
+                    </p>
+                  )}
+                  {primaryFields.map((field) => renderField(field))}
+                  {advancedFields.length > 0 && (
+                    <details className="rounded-md border border-dashed border-nss-border px-3 py-2">
+                      <summary className="cursor-pointer text-[11px] font-semibold uppercase tracking-wide text-nss-muted">
+                        Advanced
+                      </summary>
+                      <div className="mt-3">
+                        {advancedFields.map((field) => renderField(field))}
+                      </div>
+                    </details>
+                  )}
                 </fieldset>
               </div>
             </section>

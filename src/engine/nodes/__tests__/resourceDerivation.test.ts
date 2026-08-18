@@ -47,7 +47,9 @@ describe('deriveNodeConcurrency', () => {
     it('io-bound derives IO_WORKERS_PER_VCPU per vCPU', () => {
       // m5.large = 2 vCPU × 1 → 2 × 32 = 64 workers (io-bound)
       const d = deriveNodeConcurrency(
-        node({ resources: { instanceType: 'm5.large', instanceCount: 1, workloadKind: 'io-bound' } })
+        node({
+          resources: { instanceType: 'm5.large', instanceCount: 1, workloadKind: 'io-bound' }
+        })
       )
       expect(d.workersPerInstance).toBe(2 * IO_WORKERS_PER_VCPU)
       expect(d.effectiveC).toBe(2 * IO_WORKERS_PER_VCPU)
@@ -69,10 +71,14 @@ describe('deriveNodeConcurrency', () => {
 
     it('scales concurrency by instance count', () => {
       const one = deriveNodeConcurrency(
-        node({ resources: { instanceType: 'c5.large', instanceCount: 1, workloadKind: 'cpu-bound' } })
+        node({
+          resources: { instanceType: 'c5.large', instanceCount: 1, workloadKind: 'cpu-bound' }
+        })
       )
       const three = deriveNodeConcurrency(
-        node({ resources: { instanceType: 'c5.large', instanceCount: 3, workloadKind: 'cpu-bound' } })
+        node({
+          resources: { instanceType: 'c5.large', instanceCount: 3, workloadKind: 'cpu-bound' }
+        })
       )
       expect(three.effectiveC).toBe(one.effectiveC * 3)
     })
@@ -94,7 +100,6 @@ describe('deriveNodeConcurrency', () => {
       expect(d.effectiveK).toBe(20)
       expect(d.admissionBoundBy).toBe('ram')
     })
-
   })
 
   describe('compute-perf factor', () => {

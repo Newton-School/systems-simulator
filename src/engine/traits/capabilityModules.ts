@@ -389,9 +389,10 @@ function resourcesNote(data: CanvasNodeDataV2): string | null {
   const conc = `${derived.workersPerInstance} workers/inst → eff. concurrency ${derived.effectiveC}`
   const admission = `admission ${derived.effectiveK}${derived.admissionBoundBy === 'ram' ? ' (RAM-bound)' : ''}`
   const speed = perf !== 1 ? ` · service ×${(1 / perf).toFixed(2)}` : ''
-  const pricing = resources.pricingModel && resources.pricingModel !== 'on-demand'
-    ? ` (${resources.pricingModel})`
-    : ''
+  const pricing =
+    resources.pricingModel && resources.pricingModel !== 'on-demand'
+      ? ` (${resources.pricingModel})`
+      : ''
   const cost =
     costModel === 'volume'
       ? `$${(getResourceDefaults(type).pricePerGb ?? 0).toFixed(3)}/GB egress`

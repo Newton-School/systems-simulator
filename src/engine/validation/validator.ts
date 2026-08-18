@@ -361,10 +361,16 @@ export const ComponentNodeSchema = z.object({
       replicas: z.number().int().positive().optional(),
       maxReplicas: z.number().int().positive().optional()
     })
-    .refine((r) => r.instanceCount === undefined || r.maxInstances === undefined || r.instanceCount <= r.maxInstances, {
-      message: 'instanceCount must not exceed maxInstances',
-      path: ['instanceCount']
-    })
+    .refine(
+      (r) =>
+        r.instanceCount === undefined ||
+        r.maxInstances === undefined ||
+        r.instanceCount <= r.maxInstances,
+      {
+        message: 'instanceCount must not exceed maxInstances',
+        path: ['instanceCount']
+      }
+    )
     .optional(),
 
   queue: z

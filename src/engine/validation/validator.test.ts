@@ -560,9 +560,7 @@ describe('validateTopology node config validation', () => {
   })
 
   it('still accepts the legacy cpu/memory/replicas resource shape', () => {
-    const result = validateTopology(
-      makeResourcesTopology({ cpu: 4, memory: 2048, replicas: 2 })
-    )
+    const result = validateTopology(makeResourcesTopology({ cpu: 4, memory: 2048, replicas: 2 }))
     expect(result.valid).toBe(true)
   })
 })

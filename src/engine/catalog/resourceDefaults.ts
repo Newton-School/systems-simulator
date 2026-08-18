@@ -74,21 +74,88 @@ export const RESOURCE_DEFAULTS: Partial<Record<ComponentType, ResourceTypeDefaul
   },
 
   // --- CPU / compute tier ---
-  'api-endpoint': { instanceType: 'm5.large', workloadKind: 'io-bound', workersPerInstance: 64, queueSlots: 512, perRequestMemMb: 4, costModel: 'none' },
-  'load-balancer': { instanceType: 'm5.large', workloadKind: 'io-bound', workersPerInstance: 64, queueSlots: 512, perRequestMemMb: 4 },
-  microservice: { instanceType: 'c5.large', workloadKind: 'cpu-bound', workersPerInstance: 16, queueSlots: 256, perRequestMemMb: 16 },
-  'batch-worker': { instanceType: 'c5.large', workloadKind: 'cpu-bound', workersPerInstance: 8, queueSlots: 512, perRequestMemMb: 32 },
+  'api-endpoint': {
+    instanceType: 'm5.large',
+    workloadKind: 'io-bound',
+    workersPerInstance: 64,
+    queueSlots: 512,
+    perRequestMemMb: 4,
+    costModel: 'none'
+  },
+  'load-balancer': {
+    instanceType: 'm5.large',
+    workloadKind: 'io-bound',
+    workersPerInstance: 64,
+    queueSlots: 512,
+    perRequestMemMb: 4
+  },
+  microservice: {
+    instanceType: 'c5.large',
+    workloadKind: 'cpu-bound',
+    workersPerInstance: 16,
+    queueSlots: 256,
+    perRequestMemMb: 16
+  },
+  'batch-worker': {
+    instanceType: 'c5.large',
+    workloadKind: 'cpu-bound',
+    workersPerInstance: 8,
+    queueSlots: 512,
+    perRequestMemMb: 32
+  },
 
   // --- Fan-out / async (backpressure nodes) ---
-  queue: { instanceType: 'm5.large', workloadKind: 'io-bound', workersPerInstance: 32, queueSlots: 4096, perRequestMemMb: 8 },
-  'message-broker': { instanceType: 'r5.large', workloadKind: 'io-bound', workersPerInstance: 32, queueSlots: 4096, perRequestMemMb: 8 },
+  queue: {
+    instanceType: 'm5.large',
+    workloadKind: 'io-bound',
+    workersPerInstance: 32,
+    queueSlots: 4096,
+    perRequestMemMb: 8
+  },
+  'message-broker': {
+    instanceType: 'r5.large',
+    workloadKind: 'io-bound',
+    workersPerInstance: 32,
+    queueSlots: 4096,
+    perRequestMemMb: 8
+  },
 
   // --- IO-bound stores (migration-critical: kv-store, relational-db, time-series-db) ---
-  'in-memory-cache': { instanceType: 'r5.large', workloadKind: 'io-bound', workersPerInstance: 64, queueSlots: 512, perRequestMemMb: 8 },
-  'kv-store': { instanceType: 'm5.large', workloadKind: 'io-bound', workersPerInstance: 32, queueSlots: 256, perRequestMemMb: 16 },
-  'nosql-db': { instanceType: 'm5.xlarge', workloadKind: 'io-bound', workersPerInstance: 48, queueSlots: 384, perRequestMemMb: 16 },
-  'relational-db': { instanceType: 'm5.xlarge', workloadKind: 'io-bound', workersPerInstance: 32, queueSlots: 256, perRequestMemMb: 32 },
-  'time-series-db': { instanceType: 'r5.xlarge', workloadKind: 'io-bound', workersPerInstance: 48, queueSlots: 512, perRequestMemMb: 16 },
+  'in-memory-cache': {
+    instanceType: 'r5.large',
+    workloadKind: 'io-bound',
+    workersPerInstance: 64,
+    queueSlots: 512,
+    perRequestMemMb: 8
+  },
+  'kv-store': {
+    instanceType: 'm5.large',
+    workloadKind: 'io-bound',
+    workersPerInstance: 32,
+    queueSlots: 256,
+    perRequestMemMb: 16
+  },
+  'nosql-db': {
+    instanceType: 'm5.xlarge',
+    workloadKind: 'io-bound',
+    workersPerInstance: 48,
+    queueSlots: 384,
+    perRequestMemMb: 16
+  },
+  'relational-db': {
+    instanceType: 'm5.xlarge',
+    workloadKind: 'io-bound',
+    workersPerInstance: 32,
+    queueSlots: 256,
+    perRequestMemMb: 32
+  },
+  'time-series-db': {
+    instanceType: 'r5.xlarge',
+    workloadKind: 'io-bound',
+    workersPerInstance: 48,
+    queueSlots: 512,
+    perRequestMemMb: 16
+  },
 
   // --- Edge / storage: volume-priced (per-GB egress), NOT instance-hours.
   // instanceType is retained only to size the queue (they still serve requests);
@@ -114,41 +181,219 @@ export const RESOURCE_DEFAULTS: Partial<Record<ComponentType, ResourceTypeDefaul
 
   // ── Long-tail palette (sensible defaults so these don't fall back to generic). ──
   // Routers / proxies / gateways — io-bound, forward-heavy, negligible per-req CPU.
-  'load-balancer-l4': { instanceType: 'm5.large', workloadKind: 'io-bound', workersPerInstance: 64, queueSlots: 512, perRequestMemMb: 4 },
-  'load-balancer-l7': { instanceType: 'm5.large', workloadKind: 'io-bound', workersPerInstance: 64, queueSlots: 512, perRequestMemMb: 4 },
-  'api-gateway': { instanceType: 'm5.large', workloadKind: 'io-bound', workersPerInstance: 64, queueSlots: 512, perRequestMemMb: 4 },
-  'ingress-controller': { instanceType: 'm5.large', workloadKind: 'io-bound', workersPerInstance: 64, queueSlots: 512, perRequestMemMb: 4 },
-  'reverse-proxy': { instanceType: 'm5.large', workloadKind: 'io-bound', workersPerInstance: 64, queueSlots: 512, perRequestMemMb: 4 },
-  'service-mesh': { instanceType: 'm5.large', workloadKind: 'io-bound', workersPerInstance: 64, queueSlots: 512, perRequestMemMb: 4 },
-  'nat-gateway': { instanceType: 'm5.large', workloadKind: 'io-bound', workersPerInstance: 64, queueSlots: 512, perRequestMemMb: 4 },
-  'vpn-gateway': { instanceType: 'm5.large', workloadKind: 'io-bound', workersPerInstance: 64, queueSlots: 512, perRequestMemMb: 4 },
+  'load-balancer-l4': {
+    instanceType: 'm5.large',
+    workloadKind: 'io-bound',
+    workersPerInstance: 64,
+    queueSlots: 512,
+    perRequestMemMb: 4
+  },
+  'load-balancer-l7': {
+    instanceType: 'm5.large',
+    workloadKind: 'io-bound',
+    workersPerInstance: 64,
+    queueSlots: 512,
+    perRequestMemMb: 4
+  },
+  'api-gateway': {
+    instanceType: 'm5.large',
+    workloadKind: 'io-bound',
+    workersPerInstance: 64,
+    queueSlots: 512,
+    perRequestMemMb: 4
+  },
+  'ingress-controller': {
+    instanceType: 'm5.large',
+    workloadKind: 'io-bound',
+    workersPerInstance: 64,
+    queueSlots: 512,
+    perRequestMemMb: 4
+  },
+  'reverse-proxy': {
+    instanceType: 'm5.large',
+    workloadKind: 'io-bound',
+    workersPerInstance: 64,
+    queueSlots: 512,
+    perRequestMemMb: 4
+  },
+  'service-mesh': {
+    instanceType: 'm5.large',
+    workloadKind: 'io-bound',
+    workersPerInstance: 64,
+    queueSlots: 512,
+    perRequestMemMb: 4
+  },
+  'nat-gateway': {
+    instanceType: 'm5.large',
+    workloadKind: 'io-bound',
+    workersPerInstance: 64,
+    queueSlots: 512,
+    perRequestMemMb: 4
+  },
+  'vpn-gateway': {
+    instanceType: 'm5.large',
+    workloadKind: 'io-bound',
+    workersPerInstance: 64,
+    queueSlots: 512,
+    perRequestMemMb: 4
+  },
 
   // Compute services — business logic, CPU-bound like microservice.
-  'auth-service': { instanceType: 'c5.large', workloadKind: 'cpu-bound', workersPerInstance: 16, queueSlots: 256, perRequestMemMb: 16 },
-  'search-service': { instanceType: 'c5.large', workloadKind: 'cpu-bound', workersPerInstance: 16, queueSlots: 256, perRequestMemMb: 16 },
-  sidecar: { instanceType: 't3.medium', workloadKind: 'cpu-bound', workersPerInstance: 4, queueSlots: 128, perRequestMemMb: 16 },
-  container: { instanceType: 'c5.large', workloadKind: 'cpu-bound', workersPerInstance: 16, queueSlots: 256, perRequestMemMb: 16 },
-  'vm-instance': { instanceType: 'm5.large', workloadKind: 'cpu-bound', workersPerInstance: 16, queueSlots: 256, perRequestMemMb: 16 },
-  'edge-compute': { instanceType: 'c5.large', workloadKind: 'cpu-bound', workersPerInstance: 16, queueSlots: 256, perRequestMemMb: 16 },
-  'gpu-node': { instanceType: 'c5.2xlarge', workloadKind: 'cpu-bound', workersPerInstance: 8, queueSlots: 128, perRequestMemMb: 64 },
+  'auth-service': {
+    instanceType: 'c5.large',
+    workloadKind: 'cpu-bound',
+    workersPerInstance: 16,
+    queueSlots: 256,
+    perRequestMemMb: 16
+  },
+  'search-service': {
+    instanceType: 'c5.large',
+    workloadKind: 'cpu-bound',
+    workersPerInstance: 16,
+    queueSlots: 256,
+    perRequestMemMb: 16
+  },
+  sidecar: {
+    instanceType: 't3.medium',
+    workloadKind: 'cpu-bound',
+    workersPerInstance: 4,
+    queueSlots: 128,
+    perRequestMemMb: 16
+  },
+  container: {
+    instanceType: 'c5.large',
+    workloadKind: 'cpu-bound',
+    workersPerInstance: 16,
+    queueSlots: 256,
+    perRequestMemMb: 16
+  },
+  'vm-instance': {
+    instanceType: 'm5.large',
+    workloadKind: 'cpu-bound',
+    workersPerInstance: 16,
+    queueSlots: 256,
+    perRequestMemMb: 16
+  },
+  'edge-compute': {
+    instanceType: 'c5.large',
+    workloadKind: 'cpu-bound',
+    workersPerInstance: 16,
+    queueSlots: 256,
+    perRequestMemMb: 16
+  },
+  'gpu-node': {
+    instanceType: 'c5.2xlarge',
+    workloadKind: 'cpu-bound',
+    workersPerInstance: 8,
+    queueSlots: 128,
+    perRequestMemMb: 64
+  },
 
   // Data stores — io-bound; analytics/memory-heavy ones get memory-optimized boxes.
-  'columnar-db': { instanceType: 'r5.xlarge', workloadKind: 'io-bound', workersPerInstance: 48, queueSlots: 512, perRequestMemMb: 16 },
-  'data-warehouse': { instanceType: 'r5.2xlarge', workloadKind: 'io-bound', workersPerInstance: 48, queueSlots: 512, perRequestMemMb: 32 },
-  'graph-db': { instanceType: 'r5.large', workloadKind: 'io-bound', workersPerInstance: 32, queueSlots: 256, perRequestMemMb: 32 },
-  'vector-db': { instanceType: 'r5.xlarge', workloadKind: 'io-bound', workersPerInstance: 32, queueSlots: 256, perRequestMemMb: 32 },
-  'search-index': { instanceType: 'r5.large', workloadKind: 'io-bound', workersPerInstance: 48, queueSlots: 384, perRequestMemMb: 16 },
-  'block-storage': { instanceType: 'm5.large', workloadKind: 'io-bound', workersPerInstance: 64, queueSlots: 512, perRequestMemMb: 8 },
-  'distributed-file-system': { instanceType: 'm5.xlarge', workloadKind: 'io-bound', workersPerInstance: 64, queueSlots: 512, perRequestMemMb: 8 },
-  'data-lake': { instanceType: 'm5.large', workloadKind: 'io-bound', workersPerInstance: 64, queueSlots: 1024, perRequestMemMb: 8, costModel: 'volume', pricePerGb: 0.09 },
-  'archive-storage': { instanceType: 'm5.large', workloadKind: 'io-bound', workersPerInstance: 64, queueSlots: 1024, perRequestMemMb: 8, costModel: 'volume', pricePerGb: 0.09 },
+  'columnar-db': {
+    instanceType: 'r5.xlarge',
+    workloadKind: 'io-bound',
+    workersPerInstance: 48,
+    queueSlots: 512,
+    perRequestMemMb: 16
+  },
+  'data-warehouse': {
+    instanceType: 'r5.2xlarge',
+    workloadKind: 'io-bound',
+    workersPerInstance: 48,
+    queueSlots: 512,
+    perRequestMemMb: 32
+  },
+  'graph-db': {
+    instanceType: 'r5.large',
+    workloadKind: 'io-bound',
+    workersPerInstance: 32,
+    queueSlots: 256,
+    perRequestMemMb: 32
+  },
+  'vector-db': {
+    instanceType: 'r5.xlarge',
+    workloadKind: 'io-bound',
+    workersPerInstance: 32,
+    queueSlots: 256,
+    perRequestMemMb: 32
+  },
+  'search-index': {
+    instanceType: 'r5.large',
+    workloadKind: 'io-bound',
+    workersPerInstance: 48,
+    queueSlots: 384,
+    perRequestMemMb: 16
+  },
+  'block-storage': {
+    instanceType: 'm5.large',
+    workloadKind: 'io-bound',
+    workersPerInstance: 64,
+    queueSlots: 512,
+    perRequestMemMb: 8
+  },
+  'distributed-file-system': {
+    instanceType: 'm5.xlarge',
+    workloadKind: 'io-bound',
+    workersPerInstance: 64,
+    queueSlots: 512,
+    perRequestMemMb: 8
+  },
+  'data-lake': {
+    instanceType: 'm5.large',
+    workloadKind: 'io-bound',
+    workersPerInstance: 64,
+    queueSlots: 1024,
+    perRequestMemMb: 8,
+    costModel: 'volume',
+    pricePerGb: 0.09
+  },
+  'archive-storage': {
+    instanceType: 'm5.large',
+    workloadKind: 'io-bound',
+    workersPerInstance: 64,
+    queueSlots: 1024,
+    perRequestMemMb: 8,
+    costModel: 'volume',
+    pricePerGb: 0.09
+  },
 
   // Messaging / streaming — io-bound backpressure nodes like queue/broker.
-  'pub-sub': { instanceType: 'r5.large', workloadKind: 'io-bound', workersPerInstance: 32, queueSlots: 4096, perRequestMemMb: 8 },
-  'event-bus': { instanceType: 'r5.large', workloadKind: 'io-bound', workersPerInstance: 32, queueSlots: 4096, perRequestMemMb: 8 },
-  stream: { instanceType: 'r5.large', workloadKind: 'io-bound', workersPerInstance: 32, queueSlots: 4096, perRequestMemMb: 8 },
-  'task-queue': { instanceType: 'm5.large', workloadKind: 'io-bound', workersPerInstance: 32, queueSlots: 4096, perRequestMemMb: 8 },
-  'event-sourcing-store': { instanceType: 'r5.large', workloadKind: 'io-bound', workersPerInstance: 32, queueSlots: 2048, perRequestMemMb: 16 }
+  'pub-sub': {
+    instanceType: 'r5.large',
+    workloadKind: 'io-bound',
+    workersPerInstance: 32,
+    queueSlots: 4096,
+    perRequestMemMb: 8
+  },
+  'event-bus': {
+    instanceType: 'r5.large',
+    workloadKind: 'io-bound',
+    workersPerInstance: 32,
+    queueSlots: 4096,
+    perRequestMemMb: 8
+  },
+  stream: {
+    instanceType: 'r5.large',
+    workloadKind: 'io-bound',
+    workersPerInstance: 32,
+    queueSlots: 4096,
+    perRequestMemMb: 8
+  },
+  'task-queue': {
+    instanceType: 'm5.large',
+    workloadKind: 'io-bound',
+    workersPerInstance: 32,
+    queueSlots: 4096,
+    perRequestMemMb: 8
+  },
+  'event-sourcing-store': {
+    instanceType: 'r5.large',
+    workloadKind: 'io-bound',
+    workersPerInstance: 32,
+    queueSlots: 2048,
+    perRequestMemMb: 16
+  }
 }
 
 /** Resolve the default allocation for a component type (never throws). */

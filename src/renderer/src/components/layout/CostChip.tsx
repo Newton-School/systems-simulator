@@ -180,7 +180,9 @@ function BudgetRow({
   return (
     <div className="flex items-center justify-between">
       <span className="text-nss-muted">{label}</span>
-      <span className={`font-semibold tabular-nums ${within ? 'text-nss-text' : 'text-nss-danger'}`}>
+      <span
+        className={`font-semibold tabular-nums ${within ? 'text-nss-text' : 'text-nss-danger'}`}
+      >
         {used} <span className="text-nss-muted">/ {cap}</span>
         {!within && <span className="ml-1 text-nss-danger">over</span>}
       </span>

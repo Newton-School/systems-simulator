@@ -415,7 +415,9 @@ function buildRuntimeNode(
   // the raw queue so the node stays cost-computable and byte-identical.
   const resources =
     data.sim?.resources ??
-    (queue ? buildReproducingResources(spec.componentType, queue.workers, queue.capacity) : undefined)
+    (queue
+      ? buildReproducingResources(spec.componentType, queue.workers, queue.capacity)
+      : undefined)
 
   return {
     id: ctx.nodeId,

@@ -61,13 +61,55 @@ export const INSTANCE_CATALOG: Readonly<Record<InstanceType, InstanceSpec>> = Ob
   'm5.large': { vcpu: 2, ramGb: 8, family: 'general', pricePerHour: 0.096, perfFactor: 1.0 },
   'm5.xlarge': { vcpu: 4, ramGb: 16, family: 'general', pricePerHour: 0.192, perfFactor: 1.0 },
   'm5.2xlarge': { vcpu: 8, ramGb: 32, family: 'general', pricePerHour: 0.384, perfFactor: 1.0 },
-  'c5.large': { vcpu: 2, ramGb: 4, family: 'compute-optimized', pricePerHour: 0.085, perfFactor: 1.3 },
-  'c5.xlarge': { vcpu: 4, ramGb: 8, family: 'compute-optimized', pricePerHour: 0.17, perfFactor: 1.3 },
-  'c5.2xlarge': { vcpu: 8, ramGb: 16, family: 'compute-optimized', pricePerHour: 0.34, perfFactor: 1.3 },
-  'r5.large': { vcpu: 2, ramGb: 16, family: 'memory-optimized', pricePerHour: 0.126, perfFactor: 1.0 },
-  'r5.xlarge': { vcpu: 4, ramGb: 32, family: 'memory-optimized', pricePerHour: 0.252, perfFactor: 1.0 },
-  'r5.2xlarge': { vcpu: 8, ramGb: 64, family: 'memory-optimized', pricePerHour: 0.504, perfFactor: 1.0 },
-  'x1e.xlarge': { vcpu: 4, ramGb: 122, family: 'memory-extreme', pricePerHour: 0.834, perfFactor: 1.0 }
+  'c5.large': {
+    vcpu: 2,
+    ramGb: 4,
+    family: 'compute-optimized',
+    pricePerHour: 0.085,
+    perfFactor: 1.3
+  },
+  'c5.xlarge': {
+    vcpu: 4,
+    ramGb: 8,
+    family: 'compute-optimized',
+    pricePerHour: 0.17,
+    perfFactor: 1.3
+  },
+  'c5.2xlarge': {
+    vcpu: 8,
+    ramGb: 16,
+    family: 'compute-optimized',
+    pricePerHour: 0.34,
+    perfFactor: 1.3
+  },
+  'r5.large': {
+    vcpu: 2,
+    ramGb: 16,
+    family: 'memory-optimized',
+    pricePerHour: 0.126,
+    perfFactor: 1.0
+  },
+  'r5.xlarge': {
+    vcpu: 4,
+    ramGb: 32,
+    family: 'memory-optimized',
+    pricePerHour: 0.252,
+    perfFactor: 1.0
+  },
+  'r5.2xlarge': {
+    vcpu: 8,
+    ramGb: 64,
+    family: 'memory-optimized',
+    pricePerHour: 0.504,
+    perfFactor: 1.0
+  },
+  'x1e.xlarge': {
+    vcpu: 4,
+    ramGb: 122,
+    family: 'memory-extreme',
+    pricePerHour: 0.834,
+    perfFactor: 1.0
+  }
 })
 
 /** All catalog keys, e.g. for building a zod enum or a palette dropdown. */
@@ -82,7 +124,9 @@ export function isInstanceType(value: unknown): value is InstanceType {
 export function resolveInstanceSpec(type: InstanceType): InstanceSpec {
   const spec = INSTANCE_CATALOG[type]
   if (!spec) {
-    throw new Error(`Unknown instance type '${type}'. Expected one of: ${INSTANCE_TYPES.join(', ')}.`)
+    throw new Error(
+      `Unknown instance type '${type}'. Expected one of: ${INSTANCE_TYPES.join(', ')}.`
+    )
   }
   return spec
 }

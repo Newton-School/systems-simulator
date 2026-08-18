@@ -11,7 +11,7 @@
  *
  * Pure — safe to call live on every canvas edit. Distinct from the abstract Budget
  * DSL `cost` unit (`estimateNodeCost`), which is a capacity-cost *score*, not $/hr.
-*
+ *
  * See ns-simulator-docs/specs/resource-allocation-and-derived-concurrency.md
  * ("Cost model" + "Always show the cost").
  */
@@ -66,7 +66,9 @@ export function nodeCostPerHour(node: ComponentNode): number {
   const spec = INSTANCE_CATALOG[type]
   if (!spec) return 0
   return (
-    spec.pricePerHour * pricingMultiplier(node.resources?.pricingModel) * getInstanceCount(node.resources)
+    spec.pricePerHour *
+    pricingMultiplier(node.resources?.pricingModel) *
+    getInstanceCount(node.resources)
   )
 }
 
@@ -318,9 +320,15 @@ export function evaluateBudgets(topology: TopologyJSON, caps: BudgetCaps): Budge
   const res = topologyResources(topology)
   const cost = topologyCost(topology)
 
-  const vcpu = caps.resourceBudget ? dimension(res.totalVcpu, caps.resourceBudget.totalVcpu) : undefined
-  const ramGb = caps.resourceBudget ? dimension(res.totalRamGb, caps.resourceBudget.totalRamGb) : undefined
-  const costDim = caps.costBudget ? dimension(cost.totalPerHour, caps.costBudget.maxPerHour) : undefined
+  const vcpu = caps.resourceBudget
+    ? dimension(res.totalVcpu, caps.resourceBudget.totalVcpu)
+    : undefined
+  const ramGb = caps.resourceBudget
+    ? dimension(res.totalRamGb, caps.resourceBudget.totalRamGb)
+    : undefined
+  const costDim = caps.costBudget
+    ? dimension(cost.totalPerHour, caps.costBudget.maxPerHour)
+    : undefined
 
   const allWithin = [vcpu, ramGb, costDim].every((d) => d === undefined || d.within)
   return { vcpu, ramGb, cost: costDim, allWithin }

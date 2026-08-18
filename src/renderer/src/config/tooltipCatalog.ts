@@ -1,7 +1,8 @@
 import type { MetricLens } from '@renderer/types/ui'
 
 export const METRIC_LENS_TOOLTIPS: Record<MetricLens, string> = {
-  instance: 'Shows the instance type (and count) provisioned for each node — the primary allocation knob.',
+  instance:
+    'Shows the instance type (and count) provisioned for each node — the primary allocation knob.',
   concurrency:
     'Shows how much work each node can process at once — derived from its instance (vCPU × workload).',
   queueCapacity: 'Shows how much work each node can buffer — derived from its instance RAM.',

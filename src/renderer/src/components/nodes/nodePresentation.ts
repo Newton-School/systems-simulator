@@ -402,7 +402,10 @@ export function getPreRunMetric(lens: PreRunMetricLens, data: AnyNodeData): Summ
       if (!data.sim?.queue) return null
       return {
         label: vocabulary.concurrencyLabel,
-        value: formatCount(deriveNodeConcurrency(derivedNode).effectiveC, vocabulary.concurrencyUnit)
+        value: formatCount(
+          deriveNodeConcurrency(derivedNode).effectiveC,
+          vocabulary.concurrencyUnit
+        )
       }
     }
     case 'queueCapacity': {

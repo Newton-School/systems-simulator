@@ -54,7 +54,9 @@ function topoWithEdge(pathType: string, workload: unknown = WORKLOAD_1K): Topolo
 describe('nodeCostPerHour', () => {
   it('multiplies the instance price by the count', () => {
     // c5.xlarge = $0.170/hr, × 3 = 0.51
-    expect(nodeCostPerHour(node('a', { instanceType: 'c5.xlarge', instanceCount: 3 }))).toBeCloseTo(0.51)
+    expect(nodeCostPerHour(node('a', { instanceType: 'c5.xlarge', instanceCount: 3 }))).toBeCloseTo(
+      0.51
+    )
   })
 
   it('treats a node with no instance model as unpriced ($0)', () => {
@@ -69,9 +71,15 @@ describe('nodeCostPerHour', () => {
 
   it('applies the pricing model multiplier (reserved ~40% off, spot ~70% off)', () => {
     // c5.large = $0.085/hr on-demand
-    expect(nodeCostPerHour(node('a', { instanceType: 'c5.large', pricingModel: 'on-demand' }))).toBeCloseTo(0.085)
-    expect(nodeCostPerHour(node('a', { instanceType: 'c5.large', pricingModel: 'reserved' }))).toBeCloseTo(0.051)
-    expect(nodeCostPerHour(node('a', { instanceType: 'c5.large', pricingModel: 'spot' }))).toBeCloseTo(0.0255)
+    expect(
+      nodeCostPerHour(node('a', { instanceType: 'c5.large', pricingModel: 'on-demand' }))
+    ).toBeCloseTo(0.085)
+    expect(
+      nodeCostPerHour(node('a', { instanceType: 'c5.large', pricingModel: 'reserved' }))
+    ).toBeCloseTo(0.051)
+    expect(
+      nodeCostPerHour(node('a', { instanceType: 'c5.large', pricingModel: 'spot' }))
+    ).toBeCloseTo(0.0255)
   })
 })
 
@@ -152,7 +160,9 @@ describe('topologyCost', () => {
   it('cross-zone egress is cheaper than cross-region; same-dc is free', () => {
     const zone = topologyCost(topoWithEdge('cross-zone')).items.find((i) => i.id === 'edge:e')!
     expect(zone.costPerHour).toBeCloseTo(0.036) // $0.01/GB × 3.6
-    expect(topologyCost(topoWithEdge('same-dc')).items.find((i) => i.id === 'edge:e')).toBeUndefined()
+    expect(
+      topologyCost(topoWithEdge('same-dc')).items.find((i) => i.id === 'edge:e')
+    ).toBeUndefined()
   })
 })
 
