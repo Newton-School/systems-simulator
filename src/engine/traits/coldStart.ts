@@ -7,6 +7,7 @@ import type {
   RandomGenerator
 } from '../core/types'
 import { Distributions } from '../stochastic/distribution'
+import { deriveNodeConcurrency } from '../nodes/resourceDerivation'
 import { SERVICE_TIME_LATENCY_PENALTY_MS_KEY, asDistributionConfig } from './serviceTimeOverride'
 import type { NodeBehaviourTrait, NodeCapabilityModule } from './types'
 
@@ -72,8 +73,7 @@ export function readColdStartConfig(node: ComponentNode): ColdStartConfig {
     maxConcurrency:
       asPositiveInt(node.config?.['maxConcurrency']) ??
       node.resilience?.bulkhead?.maxConcurrent ??
-      node.queue?.workers ??
-      DEFAULT_MAX_CONCURRENCY
+      deriveNodeConcurrency(node).effectiveC
   }
 }
 

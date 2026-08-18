@@ -97,6 +97,8 @@ export const FormField = ({
           <Input
             type="number"
             step={config.step}
+            min={config.min}
+            max={config.max}
             value={normalizedValue as string | number}
             rightElement={config.unit}
             placeholder={config.placeholder}
@@ -107,11 +109,15 @@ export const FormField = ({
                 return
               }
 
-              const parsed = Number(val)
+              let parsed = Number(val)
               if (Number.isNaN(parsed)) {
                 onChange(undefined)
                 return
               }
+
+              // Clamp the human-readable value to sane bounds (rejects 1e38 etc.).
+              if (config.min !== undefined) parsed = Math.max(config.min, parsed)
+              if (config.max !== undefined) parsed = Math.min(config.max, parsed)
 
               onChange(config.displayAs ? config.displayAs.fromDisplay(parsed, data) : parsed)
             }}

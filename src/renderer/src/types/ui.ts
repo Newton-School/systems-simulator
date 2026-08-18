@@ -10,7 +10,7 @@ export type ComputeNodeData = CanvasNodeDataV2
 export type SecurityNodeData = CanvasNodeDataV2
 export type VpcNodeData = CanvasNodeDataV2
 
-export type PreRunMetricLens = 'concurrency' | 'queueCapacity' | 'timeout'
+export type PreRunMetricLens = 'instance' | 'concurrency' | 'queueCapacity' | 'timeout' | 'cost'
 export type RuntimeMetricLens = 'traffic' | 'saturation' | 'latency' | 'errors' | 'throughput'
 export type MetricLens = PreRunMetricLens | RuntimeMetricLens
 

@@ -35,7 +35,14 @@ interface PropertiesFormProps {
   nodeId: string
   data: AnyNodeData
   onUpdate: (path: FieldPath, value: unknown) => void
+  /** Lock the allocation sections (instance type/count/workers) — set in ASSIGNMENT
+   * unless the question's lesson is resource allocation. Read-outs stay visible. */
+  resourcesLocked?: boolean
 }
+
+/** Config sections gated by `resourcesLocked` (the allocation lesson). Workers/K are
+ * derived from the instance now, so only the RESOURCES section carries allocation. */
+const RESOURCE_SECTION_IDS = new Set(['resources'])
 
 function getPathValue(target: unknown, path: string): unknown {
   return path.split('.').reduce<unknown>((current, segment) => {
@@ -118,7 +125,12 @@ function NodeHealthField({
   )
 }
 
-export const PropertiesForm = ({ nodeId, data, onUpdate }: PropertiesFormProps) => {
+export const PropertiesForm = ({
+  nodeId,
+  data,
+  onUpdate,
+  resourcesLocked = false
+}: PropertiesFormProps) => {
   const effectiveSourceWorkload = useEffectiveSourceWorkload(nodeId, data)
   const effectiveSelectedSourceNodeId = useStore((state) =>
     resolveEffectiveSelectedSourceNodeId(
@@ -345,12 +357,26 @@ export const PropertiesForm = ({ nodeId, data, onUpdate }: PropertiesFormProps) 
             return null
           }
 
+          const sectionLocked = resourcesLocked && RESOURCE_SECTION_IDS.has(section.id)
+
           return (
             <section key={section.id} className="space-y-4">
               <h3 className="text-[10px] font-bold uppercase tracking-widest text-nss-muted">
                 {section.title}
               </h3>
               <div className="rounded-lg border border-nss-border bg-nss-surface px-4 py-3">
+                {sectionLocked && (
+                  <p className="mb-4 rounded-md border border-nss-warning/20 bg-nss-warning/10 px-3 py-2 text-[11px] font-medium leading-relaxed text-nss-warning">
+                    Resource allocation is fixed for this question — solve it with the design, not by
+                    resizing instances. Cost and derived limits stay visible.
+                  </p>
+                )}
+                <fieldset
+                  // A disabled fieldset natively disables every control inside (no
+                  // focus, no edit) while the values + derived note stay readable.
+                  disabled={sectionLocked}
+                  className={`m-0 min-w-0 border-0 p-0 ${sectionLocked ? 'opacity-60' : ''}`}
+                >
                 {section.note && (
                   <p
                     className={[
@@ -372,6 +398,7 @@ export const PropertiesForm = ({ nodeId, data, onUpdate }: PropertiesFormProps) 
                     <div className="mt-3">{advancedFields.map((field) => renderField(field))}</div>
                   </details>
                 )}
+                </fieldset>
               </div>
             </section>
           )

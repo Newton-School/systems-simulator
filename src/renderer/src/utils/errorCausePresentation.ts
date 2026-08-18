@@ -3,6 +3,7 @@ import type { ErrorCause } from '../../../engine/metrics/windowedLatencyAggregat
 
 export const ERROR_CAUSE_LABELS: Record<ErrorCause, string> = {
   queue_full: 'Queue Full',
+  oom: 'Out of Memory',
   node_failed: 'Node Failed',
   network_error: 'Network Error',
   timeout: 'Timed Out',

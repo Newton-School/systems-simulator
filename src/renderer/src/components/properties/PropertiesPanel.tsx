@@ -12,7 +12,10 @@ import {
   X
 } from 'lucide-react'
 import type { SimulationOutput } from '../../../../engine/analysis/output'
-import { canEditEdgesForQuestion } from '../../../../engine/analysis/environmentProfile'
+import {
+  canEditEdgesForQuestion,
+  canEditResourcesForQuestion
+} from '../../../../engine/analysis/environmentProfile'
 import {
   REQUEST_OUTCOME_FAMILIES,
   type RequestOutcomeFamily
@@ -1380,6 +1383,9 @@ export const PropertiesPanel = ({ results = null }: { results?: SimulationOutput
   const canEditEdges = useStore((state) =>
     canEditEdgesForQuestion(state.environmentProfile, state.activeQuestion)
   )
+  const canEditResources = useStore((state) =>
+    canEditResourcesForQuestion(state.environmentProfile, state.activeQuestion)
+  )
   const selectedNode = nodes.find((node) => node.selected)
   const selectedEdge = edges.find((edge) => edge.selected)
   const selectedNodeId = selectedNode?.id
@@ -1543,7 +1549,12 @@ export const PropertiesPanel = ({ results = null }: { results?: SimulationOutput
               />
             )
           ) : (
-            <PropertiesForm nodeId={selectedNode.id} data={data} onUpdate={handleUpdate} />
+            <PropertiesForm
+              nodeId={selectedNode.id}
+              data={data}
+              onUpdate={handleUpdate}
+              resourcesLocked={!canEditResources}
+            />
           )}
         </div>
       </div>

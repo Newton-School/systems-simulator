@@ -50,6 +50,7 @@ import {
 import { MetricsCollector } from './metrics'
 import { classifyRejectionCause } from './metrics/windowedLatencyAggregator'
 import { GGcKNode } from './nodes/GGcKNode'
+import { deriveNodeConcurrency } from './nodes/resourceDerivation'
 import {
   DEFAULT_CHAOS_FAILURE_SPEC,
   LEGACY_REJECT_FAILURE_SPEC,
@@ -209,9 +210,13 @@ export class SimulationEngine {
       this.nodeDefinitionsById.set(node.id, normalized)
       this.traitsByNodeId.set(node.id, traitResolver(normalized))
       this.nodes.set(node.id, new GGcKNode(normalized, this.distributions, scheduler))
+      // Report limits against the DERIVED effective c/K (what the node actually
+      // ran with), not the vestigial authored queue — so utilization, saturation
+      // "workers avg", and node metrics all divide by the real concurrency.
+      const derived = deriveNodeConcurrency(normalized)
       this.nodeLimitsById.set(node.id, {
-        workers: normalized.queue?.workers ?? 1,
-        capacity: normalized.queue?.capacity ?? 100
+        workers: derived.effectiveC,
+        capacity: derived.effectiveK
       })
 
       const nodeErrorRate = this.readNodeErrorRate(normalized)
@@ -1438,6 +1443,8 @@ export class SimulationEngine {
     switch (classifyRejectionCause(reason)) {
       case 'queue_full':
         return 'queue_full'
+      case 'oom':
+        return 'oom'
       case 'node_failed':
         return 'node_failed'
       case 'network_error':
@@ -1901,7 +1908,7 @@ export class SimulationEngine {
   }
 
   private markNodeUnhealthyForReason(nodeId: string, reason: string): void {
-    if (reason === 'node_failed' || reason === 'capacity_exceeded') {
+    if (reason === 'node_failed' || reason === 'capacity_exceeded' || reason === 'oom') {
       this.markNodeTemporarilyUnhealthy(nodeId)
     }
   }
@@ -2225,7 +2232,14 @@ export class SimulationEngine {
       edgeInUs: this.clock,
       edgeOutUs: arrivalTime
     })
-    this.metrics.recordEdgeTransit(edge.id, edge.source, targetNodeId, edgeLatencyUs, arrivalTime)
+    this.metrics.recordEdgeTransit(
+      edge.id,
+      edge.source,
+      targetNodeId,
+      edgeLatencyUs,
+      arrivalTime,
+      request.sizeBytes
+    )
     this.eventQueue.insert(
       createEvent(
         'request-arrival',

@@ -29,6 +29,7 @@ import {
   type EnvironmentProfile
 } from '../../../engine/analysis/environmentProfile'
 import type { NewtonSaveMode } from '../../../engine/analysis/newtonGamePlayground'
+import type { SimulationOutput } from '../../../engine/analysis/output'
 
 /**
  * A node's edits/deletions are locked when either (a) the whole attempt is frozen
@@ -427,6 +428,10 @@ type RFState = {
   /** Host `reveal` command: force rubric results visible regardless of profile timing. */
   resultsRevealed: boolean
   setResultsRevealed: (revealed: boolean) => void
+  /** Last completed run's output — lets the always-on cost chip switch estimates
+   *  to measured (consumption throughput, egress bytes). Cleared on reset/new run. */
+  lastRunOutput: SimulationOutput | null
+  setLastRunOutput: (output: SimulationOutput | null) => void
   viewportFitVersion: number
   requestViewportFit: () => void
 
@@ -495,6 +500,7 @@ const useStore = create<RFState>((set, get) => ({
   questionLoadRequest: null,
   environmentProfile: DEFAULT_ENVIRONMENT_PROFILE,
   resultsRevealed: false,
+  lastRunOutput: null,
   viewportFitVersion: 0,
 
   onNodesChange: (changes: NodeChange[]) => {
@@ -907,6 +913,7 @@ const useStore = create<RFState>((set, get) => ({
   clearQuestionLoadRequest: () => set({ questionLoadRequest: null }),
   setEnvironmentProfile: (environmentProfile) => set({ environmentProfile }),
   setResultsRevealed: (resultsRevealed) => set({ resultsRevealed }),
+  setLastRunOutput: (lastRunOutput) => set({ lastRunOutput }),
   requestViewportFit: () =>
     set((state) => ({
       viewportFitVersion: state.viewportFitVersion + 1

@@ -9,7 +9,14 @@
  */
 import { mkdirSync, writeFileSync, readFileSync, rmSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
-import type { ComponentCategory, ComponentType, TopologyJSON } from '../src/engine/core/types'
+import type {
+  ComponentCategory,
+  ComponentType,
+  TopologyJSON,
+  WorkloadKind
+} from '../src/engine/core/types'
+import type { InstanceType } from '../src/engine/catalog/instanceCatalog'
+import { buildReproducingResources } from '../src/engine/catalog/resourceDefaults'
 
 // Self-contained: each question's package now lives in its own directory. The
 // builders only patch it idempotently, so re-running regenerates topologies in
@@ -47,10 +54,19 @@ interface NodeOpts {
   cap?: number
   config?: Record<string, unknown>
   label?: string
+  /** Override the resolved instance type (e.g. a deliberately-small bottleneck). */
+  instanceType?: InstanceType
+  /** Override workloadKind — cpu-bound gives ~1 worker/vCPU (a tight bottleneck). */
+  workloadKind?: WorkloadKind
 }
 function node(id: string, type: ComponentType, o: NodeOpts = {}) {
   const { workers = 50, proc = 1, cap = 100000, config, label } = o
   py += 90
+  // Concurrency is derived from the instance now (workers/cap here only seed the
+  // read-only queue). Override instance type / workload to size a node deliberately.
+  const resources = buildReproducingResources(type, workers, cap)
+  if (o.instanceType) resources.instanceType = o.instanceType
+  if (o.workloadKind) resources.workloadKind = o.workloadKind
   return {
     id,
     type,
@@ -58,6 +74,7 @@ function node(id: string, type: ComponentType, o: NodeOpts = {}) {
     label: label ?? id,
     position: { x: 0, y: py },
     queue: { workers, capacity: cap, discipline: 'fifo' as const },
+    resources,
     processing: { distribution: { type: 'constant' as const, value: proc }, timeout: 5000 },
     ...(config ? { config } : {})
   }
@@ -148,8 +165,11 @@ const CACHE = (id: string) =>
     proc: 1,
     config: { cacheHitRate: 0.9, cacheHitLatencyMs: 1 }
   })
-// A deliberately small store: saturates (p99 → ~1003ms) unless a cache fronts it.
-const SMALL_STORE = (id: string, type: ComponentType) => node(id, type, { workers: 3, proc: 3 })
+// A deliberately small store: a 2-vCPU cpu-bound instance derives ~2 parallel
+// servers, so at ~3ms/lookup its throughput ceiling (~667 rps) is far below peak —
+// it saturates (p99 → ~1003ms) unless a cache fronts it and offloads the reads.
+const SMALL_STORE = (id: string, type: ComponentType) =>
+  node(id, type, { proc: 3, instanceType: 't3.small', workloadKind: 'cpu-bound' })
 
 // ── per-question builders ────────────────────────────────────────────────────
 interface Trio {
@@ -338,7 +358,7 @@ const builders: Record<string, () => Trio> = {
         node('lb', 'load-balancer', { workers: 300 }),
         node('svc', 'microservice', { workers: 80, proc: 2 }),
         CACHE('cache'),
-        node('kv', 'kv-store', { workers: 4, proc: 3 }),
+        node('kv', 'kv-store', { proc: 3, instanceType: 't3.small', workloadKind: 'cpu-bound' }),
         node('broker', 'message-broker', { workers: 200 }),
         node('tb1', 'batch-worker'),
         node('tb2', 'batch-worker')
@@ -361,7 +381,7 @@ const builders: Record<string, () => Trio> = {
       [
         node('lb', 'load-balancer', { workers: 300 }),
         node('svc', 'microservice', { workers: 80, proc: 2 }),
-        node('kv', 'kv-store', { workers: 4, proc: 3 }),
+        node('kv', 'kv-store', { proc: 3, instanceType: 't3.small', workloadKind: 'cpu-bound' }),
         node('broker', 'message-broker', { workers: 200 }),
         node('tb1', 'batch-worker'),
         node('tb2', 'batch-worker')

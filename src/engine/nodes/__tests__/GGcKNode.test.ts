@@ -56,19 +56,19 @@ describe('GGcKNode', () => {
   describe('constructor validation', () => {
     it('throws when workers is not a positive integer', () => {
       expect(() => new GGcKNode(makeConfig(0, 1), makeDist(), makeScheduler())).toThrow(
-        /queue\.workers/
+        /effective concurrency/
       )
     })
 
     it('throws when capacity is not a positive integer', () => {
       expect(() => new GGcKNode(makeConfig(1, 0), makeDist(), makeScheduler())).toThrow(
-        /queue\.capacity/
+        /effective capacity/
       )
     })
 
     it('throws when capacity is less than workers', () => {
       expect(() => new GGcKNode(makeConfig(3, 2), makeDist(), makeScheduler())).toThrow(
-        /greater than or equal/
+        /effective capacity >= effective concurrency/
       )
     })
   })
@@ -97,6 +97,37 @@ describe('GGcKNode', () => {
     expect(node.getState().activeWorkers).toBe(2)
     expect(node.getState().queueLength).toBe(1)
     expect(node.getMetrics().totalRejections).toBe(1)
+  })
+
+  it('rejects with reason "oom" when the RAM ceiling binds admission', () => {
+    // t3.small = 2 vCPU / 2 GB. cpu-bound → derived c = 2. perRequestMemMb 512 →
+    // memCeiling = 2048/512 = 4 → effectiveK = max(2, 4) = 4 (RAM-bound).
+    const config: ComponentNode = {
+      ...makeConfig(2, 999, 'fifo'),
+      resources: {
+        instanceType: 't3.small',
+        instanceCount: 1,
+        perRequestMemMb: 512,
+        workloadKind: 'cpu-bound'
+      }
+    }
+    const node = new GGcKNode(config, makeDist(), makeScheduler())
+
+    expect(node.handleArrival(makeRequest('r1'), 0n).status).toBe('processed')
+    expect(node.handleArrival(makeRequest('r2'), 1n).status).toBe('processed')
+    expect(node.handleArrival(makeRequest('r3'), 2n).status).toBe('queued')
+    expect(node.handleArrival(makeRequest('r4'), 3n).status).toBe('queued')
+    const rejected = node.handleArrival(makeRequest('r5'), 4n)
+    expect(rejected).toEqual({ status: 'rejected', reason: 'oom' })
+  })
+
+  it('rejects with reason "capacity_exceeded" (not oom) when the backlog binds admission', () => {
+    // Legacy queue-only node: no instance model → backlog-bound.
+    const node = new GGcKNode(makeConfig(1, 2), makeDist(), makeScheduler())
+    node.handleArrival(makeRequest('r1'), 0n) // processed
+    node.handleArrival(makeRequest('r2'), 1n) // queued (K=2 full)
+    const rejected = node.handleArrival(makeRequest('r3'), 2n)
+    expect(rejected).toEqual({ status: 'rejected', reason: 'capacity_exceeded' })
   })
 
   it('schedules a processing-complete event for each immediately processed request', () => {

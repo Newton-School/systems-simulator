@@ -1,4 +1,5 @@
 import { inferStructuralRole } from '../catalog/componentSpecs'
+import { getInstanceCount } from '../core/types'
 import type {
   ComponentCategory,
   ComponentNode,
@@ -244,7 +245,7 @@ function evaluateRule(topology: TopologyJSON, rule: StructuralRule): StructuralC
     case 'requires_redundancy': {
       const replicas = topology.nodes
         .filter((node) => node.type === rule.componentType)
-        .reduce((sum, node) => sum + (node.resources?.replicas ?? 1), 0)
+        .reduce((sum, node) => sum + getInstanceCount(node.resources), 0)
       return {
         id: rule.id,
         description: rule.description,

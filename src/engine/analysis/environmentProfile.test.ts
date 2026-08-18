@@ -5,6 +5,7 @@ import {
   ASSIGNMENT_ENVIRONMENT_PROFILE,
   PRACTICE_ENVIRONMENT_PROFILE,
   canEditEdgesForQuestion,
+  canEditResourcesForQuestion,
   canTriggerTestRun,
   resolveEnvironmentProfile,
   shouldShowRubricResults
@@ -134,5 +135,28 @@ describe('canEditEdgesForQuestion', () => {
     expect(canEditEdgesForQuestion(PRACTICE_ENVIRONMENT_PROFILE, { domains: ['storage'] })).toBe(
       true
     )
+  })
+})
+
+describe('canEditResourcesForQuestion', () => {
+  const assignment = resolveEnvironmentProfile('ASSIGNMENT')
+
+  it('locks resources under ASSIGNMENT for non-cost questions', () => {
+    expect(canEditResourcesForQuestion(assignment, { domains: ['compute'] })).toBe(false)
+    expect(canEditResourcesForQuestion(assignment, { domains: ['storage', 'compute'] })).toBe(false)
+    expect(canEditResourcesForQuestion(assignment, null)).toBe(false)
+    expect(canEditResourcesForQuestion(assignment, {})).toBe(false)
+  })
+
+  it('unlocks resources when the question lesson is allocation (cost domain)', () => {
+    expect(canEditResourcesForQuestion(assignment, { domains: ['cost'] })).toBe(true)
+    expect(canEditResourcesForQuestion(assignment, { domains: ['compute', 'cost'] })).toBe(true)
+  })
+
+  it('always allows resources in the deployed sandbox (AUTHOR/PRACTICE)', () => {
+    expect(canEditResourcesForQuestion(AUTHOR_ENVIRONMENT_PROFILE, { domains: ['compute'] })).toBe(
+      true
+    )
+    expect(canEditResourcesForQuestion(PRACTICE_ENVIRONMENT_PROFILE, null)).toBe(true)
   })
 })

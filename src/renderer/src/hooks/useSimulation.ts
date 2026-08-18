@@ -85,6 +85,9 @@ export function useSimulation(): SimulationState & SimulationControls {
           useStore.getState().setEdgeFlowStatus('complete')
           useStore.getState().selectGraphElements({})
           useStore.getState().setRunInspectorPinned(true)
+          // Publish the run output so the always-on cost chip can switch its
+          // consumption/egress estimates to measured figures.
+          useStore.getState().setLastRunOutput(msg.payload.output)
           setState((s) => ({
             ...s,
             status: 'complete',
@@ -178,6 +181,7 @@ export function useSimulation(): SimulationState & SimulationControls {
     workerRef.current?.terminate()
     workerRef.current = null
     useStore.getState().clearEdgeFlow()
+    useStore.getState().setLastRunOutput(null)
     setState(INITIAL_STATE)
   }, [])
 

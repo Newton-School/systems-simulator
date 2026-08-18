@@ -108,6 +108,8 @@ function resolveField(field: ConfigField, data: AnyNodeData): ResolvedFieldDefin
       return {
         ...base,
         step: field.step,
+        min: field.min,
+        max: field.max,
         inputType: field.inputType ?? 'number'
       }
   }

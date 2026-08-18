@@ -12,11 +12,12 @@ import {
 } from '../core/types'
 import { Distributions } from '../stochastic/distribution'
 import { NodeFailureSpec } from './failure'
+import { deriveNodeConcurrency, serviceTimeMultiplier } from './resourceDerivation'
 
 export type ArrivalResult =
   | { status: 'processed' }
   | { status: 'queued' }
-  | { status: 'rejected'; reason: 'capacity_exceeded' | 'node_failed' }
+  | { status: 'rejected'; reason: 'capacity_exceeded' | 'oom' | 'node_failed' }
   // Admitted into a failed node's silent limbo: no service is scheduled, the
   // client will burn its timeout. `blackhole` consumes no K slot; `hang` does.
   | { status: 'held'; heldKind: 'blackhole' | 'hang' }
@@ -48,6 +49,12 @@ export class GGcKNode {
   private readonly id: string
   private readonly maxWorkers: number
   private readonly maxCapacity: number
+  /** How `maxWorkers` was derived (e.g. "effective c = 3 × 8 = 24") — for inline UI provenance. */
+  readonly concurrencyProvenance: string = ''
+  /** Rejection reason when the node is at K: 'oom' if RAM-bound, else 'capacity_exceeded'. */
+  private readonly capacityRejectReason: 'capacity_exceeded' | 'oom' = 'capacity_exceeded'
+  /** Instance compute-speed multiplier on service time (< 1 faster, > 1 slower). */
+  private readonly serviceMultiplier: number = 1
   private readonly serviceDistribution: DistributionConfig
   private readonly discipline: 'fifo' | 'lifo' | 'priority' | 'wfq'
 
@@ -95,28 +102,39 @@ export class GGcKNode {
       throw new Error(`GGcKNode requires a 'queue' configuration for component '${config.id}'.`)
     }
 
-    const { workers, capacity, discipline } = config.queue
+    // Effective c/K derive from the node's provisioned resources when present,
+    // else pass through the raw authored queue values (legacy / questions).
+    const {
+      effectiveC: workers,
+      effectiveK: capacity,
+      provenance,
+      admissionBoundBy
+    } = deriveNodeConcurrency(config)
+    const { discipline } = config.queue
     if (!Number.isInteger(workers) || workers < 1) {
       throw new Error(
-        `GGcKNode for component '${config.id}' requires 'queue.workers' to be a positive integer (got ${workers}).`
+        `GGcKNode for component '${config.id}' requires effective concurrency to be a positive integer (${provenance}).`
       )
     }
 
     if (!Number.isInteger(capacity) || capacity < 1) {
       throw new Error(
-        `GGcKNode for component '${config.id}' requires 'queue.capacity' to be a positive integer (got ${capacity}).`
+        `GGcKNode for component '${config.id}' requires effective capacity to be a positive integer (got ${capacity}).`
       )
     }
 
     if (capacity < workers) {
       throw new Error(
-        `GGcKNode for component '${config.id}' requires 'queue.capacity' to be greater than or equal to 'queue.workers' (capacity=${capacity}, workers=${workers}).`
+        `GGcKNode for component '${config.id}' requires effective capacity >= effective concurrency (capacity=${capacity}, ${provenance}).`
       )
     }
 
     this.id = config.id
     this.maxWorkers = workers
     this.maxCapacity = capacity
+    this.concurrencyProvenance = provenance
+    this.capacityRejectReason = admissionBoundBy === 'ram' ? 'oom' : 'capacity_exceeded'
+    this.serviceMultiplier = serviceTimeMultiplier(config)
     this.discipline = discipline
     this.serviceDistribution = config.processing?.distribution ?? { type: 'constant', value: 10 }
     this.distributions = distributions
@@ -158,7 +176,7 @@ export class GGcKNode {
     // Not failed. Degraded nodes admit normally; only the service sampler changes.
     if (this.inSystem() >= this.maxCapacity) {
       this.metrics.totalRejections++
-      return { status: 'rejected', reason: 'capacity_exceeded' }
+      return { status: 'rejected', reason: this.capacityRejectReason }
     }
 
     this.arrivalTimes.set(request.id, currentTime)
@@ -497,7 +515,10 @@ export class GGcKNode {
         `Invalid service time generated for node ${this.id}: ${String(rawServiceTimeMs)}`
       )
     }
-    let serviceTimeMs = Math.max(0, rawServiceTimeMs) + readServiceTimeLatencyPenaltyMs(request)
+    // Instance compute speed scales the base service time (faster hardware → lower
+    // latency) before any degraded-mode penalty.
+    let serviceTimeMs =
+      Math.max(0, rawServiceTimeMs) * this.serviceMultiplier + readServiceTimeLatencyPenaltyMs(request)
 
     // Degraded mode: a `fraction` of requests take `serviceTimeMultiplier`× as
     // long. Decided at service start; already-scheduled completions are untouched.

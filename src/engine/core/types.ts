@@ -1,5 +1,6 @@
 import type { SimulationEvent } from './events'
 import type { StructuralRole } from '../catalog/nodeSpecTypes'
+import type { InstanceType, PricingModel } from '../catalog/instanceCatalog'
 
 /**
  * Accuracy contract classification for simulator parameters.
@@ -211,11 +212,62 @@ export type DistributionConfig =
       components: Array<{ weight: number; distribution: BaseDistributionConfig }>
     }
 
+/**
+ * Whether a node's work is bound by CPU (compute) or by IO (waiting on a store /
+ * network). Decides whether the vCPU ceiling caps concurrency: cpu-bound work runs
+ * ~1 truly-parallel worker per vCPU, while io-bound work legitimately runs workers
+ * ≫ vCPU because the workers are mostly waiting, not computing.
+ */
+export type WorkloadKind = 'cpu-bound' | 'io-bound'
+
+/**
+ * Physical resource allocation for a node, in the AWS instance-family model. The
+ * author picks a discrete `instanceType` (per-instance vCPU/RAM/price resolve from
+ * INSTANCE_CATALOG — never free-typed) and scales by `instanceCount`. Workers and
+ * queue depth get sensible defaults derived from the instance + `workloadKind`, but
+ * remain editable so they can be tuned or intentionally misconfigured.
+ *
+ * See ns-simulator-docs/specs/resource-allocation-and-derived-concurrency.md.
+ */
 export interface ResourceConfig {
-  cpu: number // vCPUs
-  memory: number //in MB
-  replicas: number
+  /** Hardware SKU key into INSTANCE_CATALOG; resolves to { vcpu, ramGb, pricePerHour }. */
+  instanceType?: InstanceType
+  /** Number of instances of that type (horizontal scale). Supersedes `replicas`. */
+  instanceCount?: number
+  /** Per-node quota: `instanceCount` may not exceed this (build-time validation). */
+  maxInstances?: number
+  /** CPU-bound vs IO-bound — decides whether the vCPU ceiling caps workers. */
+  workloadKind?: WorkloadKind
+  /** App concurrency per instance (parallel servers). Derived default, editable, vCPU-capped. */
+  workersPerInstance?: number
+  /** Waiting-room depth beyond in-service workers. Derived default, editable, RAM-capped. */
+  queueSlots?: number
+  /** Memory footprint of one in-flight request, in MB. Divides RAM into the admission ceiling. */
+  perRequestMemMb?: number
+  /**
+   * Purchasing model — the flexibility/commitment/risk tradeoff on price.
+   * on-demand (full price, default) · reserved (~40% off, committed) · spot
+   * (~70% off, but can be reclaimed → a node failure). Absent = 'on-demand'.
+   */
+  pricingModel?: PricingModel
+
+  /** @deprecated Legacy free-typed vCPU count. Superseded by `instanceType`. Read for back-compat. */
+  cpu?: number
+  /** @deprecated Legacy free-typed memory (MB). Superseded by `instanceType`. Read for back-compat. */
+  memory?: number
+  /** @deprecated Renamed to `instanceCount`. Read for back-compat via `getInstanceCount`. */
+  replicas?: number
+  /** @deprecated Renamed to `maxInstances`. */
   maxReplicas?: number
+}
+
+/**
+ * Back-compat accessor for a node's instance count, reading the new `instanceCount`
+ * and falling back to the legacy `replicas` (default 1). Use everywhere that used to
+ * read `resources.replicas` directly.
+ */
+export function getInstanceCount(resources: ResourceConfig | undefined): number {
+  return resources?.instanceCount ?? resources?.replicas ?? 1
 }
 
 export interface QueueConfig {

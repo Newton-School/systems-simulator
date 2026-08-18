@@ -7,6 +7,7 @@ import type {
   SerializeContext,
   StructuralRole
 } from './nodeSpecTypes'
+import { buildReproducingResources } from './resourceDefaults'
 import { CACHE_COMPONENT_TYPES } from '../traits/cache'
 import {
   CONTENT_ROUTING_MATCH_FIELDS,
@@ -239,6 +240,10 @@ export function buildSeededSimulationConfig(
 
   const sim: NodeSimulationConfig = {
     queue: { workers, capacity, discipline: queueDiscipline },
+    // Authorable instance allocation, seeded to reproduce the queue exactly
+    // (io-bound → effectiveC = workers). Edited via the RESOURCES section; the
+    // user can switch instance/count/workload and watch concurrency + cost move.
+    resources: buildReproducingResources(componentType, workers, capacity),
     processing: {
       distribution: { type: 'exponential', lambda: 1 / meanServiceMs },
       timeout: timeoutMs
@@ -405,6 +410,13 @@ function buildRuntimeNode(
     config.writeLatency = { type: 'exponential', lambda: 1 / data.sim.writeLatencyMs }
   }
 
+  const queue = data.sim?.queue
+  // Prefer authored resources (edited via the RESOURCES section); else reproduce
+  // the raw queue so the node stays cost-computable and byte-identical.
+  const resources =
+    data.sim?.resources ??
+    (queue ? buildReproducingResources(spec.componentType, queue.workers, queue.capacity) : undefined)
+
   return {
     id: ctx.nodeId,
     type: spec.componentType,
@@ -412,7 +424,8 @@ function buildRuntimeNode(
     role: spec.structuralRole,
     label: data.label,
     position: ctx.position,
-    queue: data.sim?.queue,
+    queue,
+    resources,
     processing: data.sim?.processing,
     resilience: Object.keys(resilience).length > 0 ? resilience : undefined,
     slo: normalizeSLOConfig(data.sim?.slo),

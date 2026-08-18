@@ -12,6 +12,7 @@ import {
   L4_CONTENT_ROUTING_FORBIDDEN_MESSAGE
 } from '../traits/contentRouting'
 import { asDistributionConfig } from '../traits/serviceTimeOverride'
+import { INSTANCE_TYPES } from '../catalog/instanceCatalog'
 import {
   nonNegativeNumber,
   oneOf,
@@ -345,10 +346,24 @@ export const ComponentNodeSchema = z.object({
 
   resources: z
     .object({
-      cpu: z.number().positive(),
-      memory: z.number().positive(),
-      replicas: z.number().int().positive(),
+      // New AWS instance-family model (all optional; a topology may still be legacy).
+      instanceType: z.enum(INSTANCE_TYPES).optional(),
+      instanceCount: z.number().int().positive().optional(),
+      maxInstances: z.number().int().positive().optional(),
+      workloadKind: z.enum(['cpu-bound', 'io-bound']).optional(),
+      pricingModel: z.enum(['on-demand', 'reserved', 'spot']).optional(),
+      workersPerInstance: z.number().int().positive().optional(),
+      queueSlots: z.number().int().nonnegative().optional(),
+      perRequestMemMb: z.number().positive().optional(),
+      // Legacy free-typed fields, retained for back-compat with older topologies.
+      cpu: z.number().positive().optional(),
+      memory: z.number().positive().optional(),
+      replicas: z.number().int().positive().optional(),
       maxReplicas: z.number().int().positive().optional()
+    })
+    .refine((r) => r.instanceCount === undefined || r.maxInstances === undefined || r.instanceCount <= r.maxInstances, {
+      message: 'instanceCount must not exceed maxInstances',
+      path: ['instanceCount']
     })
     .optional(),
 

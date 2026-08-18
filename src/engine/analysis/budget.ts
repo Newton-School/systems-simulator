@@ -11,6 +11,7 @@
  * Pure and deterministic — mirrors `structural.ts` / `semanticCriteria.ts`.
  */
 import type { ComponentNode, TopologyJSON } from '../core/types'
+import { getInstanceCount } from '../core/types'
 import type { Budget } from './gradingCriteria'
 
 export const BUDGET_VERSION = '1.0' as const
@@ -35,7 +36,7 @@ const EDGE_COST = 1
  * over-provisioning (the anti-kitchen-sink intent) without a real price sheet.
  */
 export function estimateNodeCost(node: ComponentNode): number {
-  const replicas = node.resources?.replicas ?? 1
+  const replicas = getInstanceCount(node.resources)
   const workers = node.queue?.workers ?? 0
   return 1 + replicas + Math.ceil(workers / 50)
 }
@@ -69,7 +70,7 @@ export function budgetBreakdown(topology: TopologyJSON, budget: Budget): BudgetB
   let items: BudgetLineItem[]
   if (budget.unit === 'cost') {
     const nodeItems = topology.nodes.map((node) => {
-      const replicas = node.resources?.replicas ?? 1
+      const replicas = getInstanceCount(node.resources)
       const workers = node.queue?.workers ?? 0
       const workerCharge = Math.ceil(workers / 50)
       return {

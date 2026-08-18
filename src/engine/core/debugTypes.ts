@@ -2,6 +2,7 @@ import type { EventType, SimulationEvent } from './events'
 import { microToMs } from './time'
 import type { ComponentNode, EdgeDefinition, NodeState, TopologyJSON } from './types'
 import type { RequestTrace, RequestTraceSpan } from '../tracer'
+import { deriveNodeConcurrency } from '../nodes/resourceDerivation'
 
 export interface NodeSnapshot {
   status: 'idle' | 'busy' | 'saturated' | 'failed'
@@ -119,12 +120,15 @@ function toNodeSnapshot(
     return null
   }
 
+  // Snapshot the DERIVED effective c/K (what the node actually ran with), not the
+  // vestigial authored queue.
+  const derived = deriveNodeConcurrency(nodeConfig)
   return {
     status: nodeState.status,
     activeWorkers: nodeState.activeWorkers,
-    maxWorkers: nodeConfig.queue.workers,
+    maxWorkers: derived.effectiveC,
     queueLength: nodeState.queueLength,
-    capacity: nodeConfig.queue.capacity,
+    capacity: derived.effectiveK,
     utilization: nodeState.utilization,
     totalInSystem: nodeState.totalInSystem
   }

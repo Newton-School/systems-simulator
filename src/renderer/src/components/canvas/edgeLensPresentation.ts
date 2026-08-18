@@ -254,5 +254,17 @@ export function resolveEdgeLensProjection({
         why: 'Failures attributable to this hop'
       }
     }
+
+    // ── NODE-ONLY lenses: instance / cost are per-node concepts an edge has
+    // none of, so the edge recedes (like queueCapacity) rather than crashing. ──
+    case 'instance':
+      return recede('Instance is a node property; edges carry no instance')
+    case 'cost':
+      return recede('Cost is a node property; edges carry no provisioned cost')
+
+    default:
+      // Exhaustive fallback — never return undefined (crashes PacketEdge on
+      // `.severity`). Any future lens recedes until it has an edge projection.
+      return recede('This lens has no edge projection')
   }
 }
