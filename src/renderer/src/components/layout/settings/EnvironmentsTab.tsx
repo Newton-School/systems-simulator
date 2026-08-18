@@ -85,7 +85,10 @@ export function EnvironmentsTab(): React.JSX.Element {
         />
       </SettingRow>
 
-      <SettingRow label="Cost cap" hint="Max provisioned spend for the whole topology. Empty = unbounded.">
+      <SettingRow
+        label="Cost cap"
+        hint="Max provisioned spend for the whole topology. Empty = unbounded."
+      >
         <OptionalNumber
           value={caps.costBudget?.maxPerHour}
           suffix="$/hr"
@@ -100,7 +103,10 @@ export function EnvironmentsTab(): React.JSX.Element {
         />
       </SettingRow>
 
-      <SettingRow label="vCPU quota" hint="Total vCPU the topology may provision. Empty = unbounded.">
+      <SettingRow
+        label="vCPU quota"
+        hint="Total vCPU the topology may provision. Empty = unbounded."
+      >
         <OptionalNumber
           value={caps.resourceBudget?.totalVcpu}
           suffix="vCPU"
@@ -136,7 +142,10 @@ export function EnvironmentsTab(): React.JSX.Element {
 
       <SectionLabel>Grading flow</SectionLabel>
 
-      <SettingRow label="Test-run limit" hint="Max dry runs a student may trigger. Empty = unlimited.">
+      <SettingRow
+        label="Test-run limit"
+        hint="Max dry runs a student may trigger. Empty = unlimited."
+      >
         <OptionalNumber
           value={caps.maxTestRuns}
           suffix="runs"
@@ -145,10 +154,7 @@ export function EnvironmentsTab(): React.JSX.Element {
         />
       </SettingRow>
 
-      <SettingRow
-        label="Rubric check visibility"
-        hint="When students see grading-check results."
-      >
+      <SettingRow label="Rubric check visibility" hint="When students see grading-check results.">
         <div className="flex items-center gap-1.5">
           <select
             value={profile.visibility.rubricChecks}

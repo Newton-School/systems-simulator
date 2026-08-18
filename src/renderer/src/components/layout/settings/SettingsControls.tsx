@@ -16,7 +16,9 @@ export function SettingRow({
   disabled?: boolean
 }): React.JSX.Element {
   return (
-    <div className={`flex items-start justify-between gap-4 py-2.5 ${disabled ? 'opacity-50' : ''}`}>
+    <div
+      className={`flex items-start justify-between gap-4 py-2.5 ${disabled ? 'opacity-50' : ''}`}
+    >
       <div className="min-w-0 flex-1">
         <div className="text-[12px] font-medium text-nss-text">{label}</div>
         {hint && <div className="mt-0.5 text-[11px] leading-relaxed text-nss-muted">{hint}</div>}

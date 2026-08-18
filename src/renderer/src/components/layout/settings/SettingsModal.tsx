@@ -94,10 +94,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }): React.JSX.E
             {tab === 'pedagogy' && (
               <RoadmapTab
                 title="Teaching"
-                items={[
-                  'Hint verbosity',
-                  'Show number provenance (why each metric has its value)'
-                ]}
+                items={['Hint verbosity', 'Show number provenance (why each metric has its value)']}
               />
             )}
           </div>
