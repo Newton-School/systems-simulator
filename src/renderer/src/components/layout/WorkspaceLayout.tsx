@@ -609,7 +609,7 @@ export const WorkspaceLayout = () => {
           return
         }
         rememberTrustedHostOrigin(event.origin)
-        setEnvironmentProfile(resolveEnvironmentProfile('ASSIGNMENT'))
+        setEnvironmentProfile(resolveEnvironmentProfile(seed.environmentProfile ?? 'ASSIGNMENT'))
         setResultsRevealed(false)
         void loadQuestionIntoWorkspace(seed.questionPackage, seed.priorAttempt, {
           readOnly: seed.readOnly,

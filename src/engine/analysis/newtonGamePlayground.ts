@@ -28,6 +28,7 @@
 import type { TopologyJSON } from '../core/types'
 import { TopologyJSONSchema } from '../validation/validator'
 import type { GamePlaygroundResult } from './gamePlayground'
+import type { EnvironmentProfileInput } from './environmentProfile'
 import {
   parseAttemptState,
   parseQuestionPackage,
@@ -42,7 +43,12 @@ import {
   type QuestionSuite,
   type ScaleParameters
 } from './question'
-import type { JustifyPrompt, SemanticCriterion, WorkloadCategory } from './gradingCriteria'
+import type {
+  JustifyPrompt,
+  QuestionDomain,
+  SemanticCriterion,
+  WorkloadCategory
+} from './gradingCriteria'
 import type { StructuralRule } from './structural'
 
 /** The raw string the game posts to announce it is listening. */
@@ -72,11 +78,14 @@ interface NewtonSimulatorConfig {
   scaffold?: QuestionScaffold
   constraints?: QuestionConstraints
   suite?: QuestionSuite
+  domains?: QuestionDomain[]
+  concepts?: string[]
   rubric?: {
     id?: string
     passThreshold?: number
   }
   justify?: JustifyPrompt[]
+  environmentProfile?: EnvironmentProfileInput
 }
 
 interface NewtonRubricRow {
@@ -99,6 +108,8 @@ export interface NewtonGameSeed {
   playgroundHash?: string
   /** Raw learner-visible Django HTML for assignment-mode rendering. */
   promptHtml?: string
+  /** Optional row-authored environment profile override for Newton host launches. */
+  environmentProfile?: EnvironmentProfileInput
   /** Whether Newton saves should keep carrying the full package forward. */
   saveMode: NewtonSaveMode
 }
@@ -232,6 +243,7 @@ function readSeedTopology(seed: Record<string, unknown>): TopologyJSON | undefin
 function buildQuestionPackageFromRows(seed: Record<string, unknown>): {
   questionPackage: QuestionPackage
   promptHtml?: string
+  environmentProfile?: EnvironmentProfileInput
 } {
   const title = asNonEmptyString(seed.question_title) ?? 'Untitled Question'
   const promptHtml = asNonEmptyString(seed.question_text)
@@ -279,6 +291,9 @@ function buildQuestionPackageFromRows(seed: Record<string, unknown>): {
     },
     ...(structuralRules.length > 0 ? { structuralRules } : {}),
     ...(semanticCriteria.length > 0 ? { semanticCriteria } : {}),
+    ...(Array.isArray(config.domains) ? { domains: config.domains } : {}),
+    ...(Array.isArray(config.concepts) ? { concepts: config.concepts } : {}),
+    ...(Array.isArray(config.justify) ? { justify: config.justify } : {}),
     ...(config.workloadCategory ? { workloadCategory: config.workloadCategory } : {}),
     suite: config.suite ?? {
       name: `${questionId}-suite`,
@@ -298,7 +313,10 @@ function buildQuestionPackageFromRows(seed: Record<string, unknown>): {
 
   return {
     questionPackage,
-    ...(presentationMode !== 'structured' && promptHtml ? { promptHtml } : {})
+    ...(presentationMode !== 'structured' && promptHtml ? { promptHtml } : {}),
+    ...(config.environmentProfile !== undefined
+      ? { environmentProfile: config.environmentProfile }
+      : {})
   }
 }
 
@@ -347,7 +365,7 @@ export function parseNewtonSeed(raw: unknown): NewtonGameSeed {
       : undefined
 
   if (hasRowAuthoredQuestionMetadata(seed)) {
-    const { questionPackage, promptHtml } = buildQuestionPackageFromRows(seed)
+    const { questionPackage, promptHtml, environmentProfile } = buildQuestionPackageFromRows(seed)
     const priorAttempt =
       seed.attemptState === undefined
         ? undefined
@@ -360,6 +378,7 @@ export function parseNewtonSeed(raw: unknown): NewtonGameSeed {
       readOnly,
       ...(playgroundHash ? { playgroundHash } : {}),
       ...(promptHtml ? { promptHtml } : {}),
+      ...(environmentProfile !== undefined ? { environmentProfile } : {}),
       saveMode: 'mutable-only'
     }
   }

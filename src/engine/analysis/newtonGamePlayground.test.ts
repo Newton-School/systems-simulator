@@ -86,11 +86,30 @@ function rowAuthoredSeed(overrides: Record<string, unknown> = {}): Record<string
           questionId: pkg.id,
           questionVersion: pkg.version,
           questionType: pkg.type,
+          domains: ['compute', 'storage'],
+          concepts: ['read-cache', 'store-fit'],
           difficulty: pkg.difficulty,
           presentationMode: 'raw-html',
           scaffold: pkg.scaffold,
           constraints: pkg.constraints,
           suite: pkg.suite,
+          justify: [
+            {
+              id: 'why-store',
+              decision: 'Why this store?',
+              boundTo: { componentType: 'kv-store' },
+              requires: { choice: true, tradeoff: true }
+            }
+          ],
+          environmentProfile: {
+            mode: 'ASSIGNMENT',
+            capabilities: {
+              edgeModel: 'connector',
+              canEditEdges: false,
+              canEditResources: false,
+              canEditExecutionProfile: false
+            }
+          },
           rubric: {
             id: pkg.rubric.id,
             passThreshold: pkg.rubric.passThreshold
@@ -144,7 +163,19 @@ describe('parseNewtonSeed', () => {
     expect(seed.questionPackage.id).toBe(pkg.id)
     expect(seed.questionPackage.structuralRules?.[0]?.id).toBe('single-source')
     expect(seed.questionPackage.prompt.text).toContain('Design a write path')
+    expect(seed.questionPackage.domains).toEqual(['compute', 'storage'])
+    expect(seed.questionPackage.concepts).toEqual(['read-cache', 'store-fit'])
+    expect(seed.questionPackage.justify?.[0]?.id).toBe('why-store')
     expect(seed.promptHtml).toContain('<h3>Scale</h3>')
+    expect(seed.environmentProfile).toEqual({
+      mode: 'ASSIGNMENT',
+      capabilities: {
+        edgeModel: 'connector',
+        canEditEdges: false,
+        canEditResources: false,
+        canEditExecutionProfile: false
+      }
+    })
     expect(seed.readOnly).toBe(true)
     expect(seed.playgroundHash).toBe('abc123')
     expect(seed.saveMode).toBe('mutable-only')
