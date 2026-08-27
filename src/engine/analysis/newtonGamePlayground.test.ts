@@ -3,6 +3,7 @@ import type { TopologyJSON } from '../core/types'
 import type { GamePlaygroundResult } from './gamePlayground'
 import { createAttemptState, type QuestionPackage } from './question'
 import {
+  AUTO_PLACEHOLDER_RUBRIC_CHECK_ID,
   buildNewtonSaveBlob,
   explainNewtonSeedParseFailure,
   isNewtonSaveCommand,
@@ -238,9 +239,10 @@ describe('parseNewtonSeed', () => {
     expect(() => parseNewtonSeed('not json')).toThrow()
   })
 
-  it('previews the prompt (with a warning) when a row-authored seed is missing SIMULATOR_CONFIG', () => {
-    // The prompt must render even without a SIMULATOR_CONFIG row; the missing
-    // config becomes a non-blocking authoring warning instead of a hard failure.
+  it('builds a full question from grading rows even without a SIMULATOR_CONFIG row', () => {
+    // SIMULATOR_CONFIG is optional: a lone RUBRIC_CHECK (or STRUCTURAL_RULE) is
+    // enough — the config fields all default — so the authored check appears and
+    // there is no warning.
     const seed = parseNewtonSeed({
       question_title: 'Design a URL shortener',
       question_text: '<p>Prompt only</p>',
@@ -257,6 +259,16 @@ describe('parseNewtonSeed', () => {
           }
         }
       ]
+    })
+    expect(seed.promptHtml).toContain('Prompt only')
+    expect(seed.authoringWarning).toBeUndefined()
+    expect(seed.questionPackage.rubric.checks.map((c) => c.id)).toContain('p99')
+  })
+
+  it('previews the prompt (with a warning) when there are no grading rows at all', () => {
+    const seed = parseNewtonSeed({
+      question_title: 'Design a URL shortener',
+      question_text: '<p>Prompt only</p>'
     })
     expect(seed.promptHtml).toContain('Prompt only')
     expect(seed.authoringWarning).toContain('SIMULATOR_CONFIG')
@@ -421,7 +433,7 @@ describe('parseNewtonSeed', () => {
       })
     )
     expect(seed.questionPackage.rubric.checks).toHaveLength(1)
-    expect(seed.questionPackage.rubric.checks[0].id).toBe('no-invariants')
+    expect(seed.questionPackage.rubric.checks[0].id).toBe(AUTO_PLACEHOLDER_RUBRIC_CHECK_ID)
   })
 
   it('loads the prompt in preview mode when there is no SIMULATOR_CONFIG yet', () => {

@@ -249,15 +249,23 @@ function readSeedTopology(seed: Record<string, unknown>): TopologyJSON | undefin
 }
 
 /**
+ * Stable id of the auto-injected placeholder rubric check. The renderer filters
+ * rows with this id out of the authoring Tests list so authors never see a check
+ * they did not write; it is used only to satisfy the schema so a check-less draft
+ * still loads.
+ */
+export const AUTO_PLACEHOLDER_RUBRIC_CHECK_ID = '__auto_placeholder_no_checks__'
+
+/**
  * Injected when an author writes only structural/semantic rows and no
  * `RUBRIC_CHECK`. The package schema requires at least one rubric check; this is
  * a harmless always-passing one (a topology with no authored invariants reports
  * zero) so a structural-only question still loads instead of throwing
- * `rubric.checks: Invalid input`. Authors can override it by adding their own
- * `RUBRIC_CHECK` row.
+ * `rubric.checks: Invalid input`. It is HIDDEN from the authoring UI (filtered by
+ * its id); authors override it simply by adding their own `RUBRIC_CHECK` row.
  */
 const DEFAULT_NEWTON_RUBRIC_CHECK = {
-  id: 'no-invariants',
+  id: AUTO_PLACEHOLDER_RUBRIC_CHECK_ID,
   description: 'No invariant violations',
   kind: 'invariant',
   metric: 'invariantViolations.count',
@@ -478,12 +486,14 @@ function buildQuestionPackageFromRows(seed: Record<string, unknown>): {
     .map((row) => (isRecord(row.spec) ? row.spec : null))
     .filter((spec): spec is Record<string, unknown> => spec !== null)
 
-  const config = specs.find((spec) => spec.type === 'SIMULATOR_CONFIG') as
-    | (Record<string, unknown> & NewtonSimulatorConfig)
-    | undefined
-  if (!config) {
-    throw new Error('Newton seed is missing the SIMULATOR_CONFIG rubric row.')
-  }
+  // SIMULATOR_CONFIG is optional: when absent, every field below falls back to a
+  // sensible default, so an author can write only rules/checks and still get a
+  // working question.
+  const config = (specs.find((spec) => spec.type === 'SIMULATOR_CONFIG') ?? {}) as Record<
+    string,
+    unknown
+  > &
+    NewtonSimulatorConfig
 
   const questionId = asNonEmptyString(config.questionId) ?? deriveQuestionId(title)
   const questionVersion = asNonEmptyString(config.questionVersion) ?? QUESTION_PACKAGE_VERSION
@@ -562,13 +572,28 @@ function buildQuestionPackageFromRows(seed: Record<string, unknown>): {
   }
 }
 
+const AUTHORED_ROW_TYPES = new Set([
+  'SIMULATOR_CONFIG',
+  'STRUCTURAL_RULE',
+  'SEMANTIC_CRITERION',
+  'RUBRIC_CHECK'
+])
+
 function hasRowAuthoredQuestionMetadata(seed: Record<string, unknown>): boolean {
   if (!Array.isArray(seed.rubric)) {
     return false
   }
 
+  // Any recognized grading row is enough to author from the rows. A
+  // SIMULATOR_CONFIG is optional — its fields all default (see
+  // buildQuestionPackageFromRows) — so an author can write just a STRUCTURAL_RULE
+  // and still see it, instead of falling through to prompt-only preview.
   return seed.rubric.some(
-    (row) => isRubricRow(row) && isRecord(row.spec) && row.spec.type === 'SIMULATOR_CONFIG'
+    (row) =>
+      isRubricRow(row) &&
+      isRecord(row.spec) &&
+      typeof row.spec.type === 'string' &&
+      AUTHORED_ROW_TYPES.has(row.spec.type)
   )
 }
 

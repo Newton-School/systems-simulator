@@ -12,7 +12,10 @@ import {
   buildGamePlaygroundResult,
   buildGamePlaygroundSubmitPayload
 } from '../../../../engine/analysis/gamePlayground'
-import { buildNewtonSaveBlob } from '../../../../engine/analysis/newtonGamePlayground'
+import {
+  AUTO_PLACEHOLDER_RUBRIC_CHECK_ID,
+  buildNewtonSaveBlob
+} from '../../../../engine/analysis/newtonGamePlayground'
 import {
   buildJustificationContext,
   gradeJustification,
@@ -27,6 +30,8 @@ import {
 import {
   autosaveAttempt,
   buildQuestionTestRows,
+  caseRubricTestId,
+  topologyRubricTestId,
   createAttemptState,
   formatQuestionEntryFormat,
   isAttemptCurrentForTopology,
@@ -506,7 +511,21 @@ export const QuestionPanel = () => {
     resultsRevealed || shouldShowRubricResults(environmentProfile, { hasSubmittedGrade })
   const showSubmit = environmentProfile.graded
   const canTest = canTriggerTestRun(environmentProfile, { testRunCount }) && !isAttemptLocked
-  const visibleTestRows = showRubricResults ? testRows : buildQuestionTestRows(activeQuestion)
+  const rawTestRows = showRubricResults ? testRows : buildQuestionTestRows(activeQuestion)
+  // The auto-injected placeholder rubric check (present only when the author wrote
+  // no RUBRIC_CHECK rows) exists solely to satisfy the "≥1 check" schema rule; it is
+  // an always-passing no-op, so never surface it as an authored check.
+  const placeholderRowIds = new Set<string>()
+  const placeholderCheck = activeQuestion.rubric.checks.find(
+    (check) => check.id === AUTO_PLACEHOLDER_RUBRIC_CHECK_ID
+  )
+  if (placeholderCheck) {
+    placeholderRowIds.add(topologyRubricTestId(placeholderCheck.id))
+    for (const testCase of activeQuestion.suite.cases) {
+      placeholderRowIds.add(caseRubricTestId(testCase.id, 'invariant', placeholderCheck.id))
+    }
+  }
+  const visibleTestRows = rawTestRows.filter((row) => !placeholderRowIds.has(row.id))
   const passedTests = visibleTestRows.filter((row) => row.status === 'passed').length
   const failedTests = visibleTestRows.filter((row) => row.status === 'failed').length
   const pendingTests = visibleTestRows.filter((row) => row.status === 'pending').length
@@ -810,7 +829,7 @@ export const QuestionPanel = () => {
               </span>
             </div>
 
-            {!hasEvaluatedTests && (
+            {!hasEvaluatedTests && visibleTestRows.length > 0 && (
               <p className="rounded border border-nss-border bg-nss-surface px-3 py-2 text-[11px] leading-relaxed text-nss-muted">
                 {experience.kind === 'LAB'
                   ? 'Use Run Lab to evaluate the current configuration. Until you run it, the authored checks below stay pending.'
@@ -917,6 +936,13 @@ export const QuestionPanel = () => {
             {graderStatus === 'grading' && (
               <p className="text-[11px] leading-relaxed text-nss-warning">
                 Running grading now. The tests list will update when the batch finishes.
+              </p>
+            )}
+
+            {visibleTestRows.length === 0 && (
+              <p className="rounded border border-dashed border-nss-border bg-nss-surface px-3 py-3 text-[11px] leading-relaxed text-nss-muted">
+                No checks added yet. Add a test-case row (structural rule, semantic criterion, or
+                rubric check) to grade this question.
               </p>
             )}
 
