@@ -18,6 +18,7 @@ interface CanvasToolbarProps {
   activeTool: CanvasTool
   canRedo: boolean
   canUndo: boolean
+  editingDisabled?: boolean
   hasCanvasContent: boolean
   hasSelection: boolean
   onToolChange: (tool: CanvasTool) => void
@@ -72,6 +73,7 @@ const CanvasToolbarComponent = ({
   activeTool,
   canRedo,
   canUndo,
+  editingDisabled = false,
   hasCanvasContent,
   hasSelection,
   onToolChange,
@@ -118,6 +120,7 @@ const CanvasToolbarComponent = ({
             icon={icon}
             label={label}
             active={activeTool === tool}
+            disabled={editingDisabled && tool === 'text'}
             onClick={() => onToolChange(tool)}
           />
         ))}
@@ -143,14 +146,14 @@ const CanvasToolbarComponent = ({
         <CanvasToolButton
           icon={RotateCcw}
           label="Reset canvas"
-          disabled={!hasCanvasContent}
+          disabled={editingDisabled || !hasCanvasContent}
           onClick={onResetCanvas}
         />
 
         <CanvasToolButton
           icon={Trash2}
           label="Delete selection"
-          disabled={!hasSelection}
+          disabled={editingDisabled || !hasSelection}
           onClick={onDeleteSelection}
         />
 

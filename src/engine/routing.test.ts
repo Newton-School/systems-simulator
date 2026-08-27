@@ -269,6 +269,24 @@ describe('RoutingTable', () => {
     expect(['service-1', 'service-2']).toContain(syncTargets[0])
   })
 
+  it('broadcast fanout returns every eligible downstream route for broker-style nodes', () => {
+    const edges = [
+      makeEdge('e1', 'broker', 'email-worker'),
+      makeEdge('e2', 'broker', 'push-worker'),
+      makeEdge('e3', 'broker', 'analytics-worker')
+    ]
+    const nodes = [makeNode('broker', 'message-broker')]
+
+    const routing = new RoutingTable(edges, createRandom('broadcast-broker'), nodes)
+    const resolved = routing.resolveTarget('broker', makeRequest('publish'))
+
+    expect(resolved.map((route) => route.targetNodeId).sort()).toEqual([
+      'analytics-worker',
+      'email-worker',
+      'push-worker'
+    ])
+  })
+
   it('conditional-mode edge with no condition string is never eligible', () => {
     const edges = [
       makeEdge('e1', 'node-a', 'guarded', { mode: 'conditional' }),

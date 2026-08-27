@@ -37,21 +37,110 @@ import {
 } from '@renderer/utils/displaySettingsPersistence'
 
 /**
- * A node's edits/deletions are locked when either (a) the whole attempt is frozen
- * by a host `lock` command, or (b) it is a scaffold-provided node and the active
- * EnvironmentProfile disallows editing scaffold nodes. Enforced in the store so no
- * UI path can bypass it.
+ * A scaffold node's edit/removal permissions come from the intersection of the
+ * EnvironmentProfile and the authored question constraints. Enforced in the store
+ * so no UI path can bypass it.
  */
+function isScaffoldNode(nodeId: string, scaffoldNodeIds: readonly string[]): boolean {
+  return scaffoldNodeIds.includes(nodeId)
+}
+
+function isAuthoredLockedScaffoldNode(
+  nodeId: string,
+  activeQuestion: QuestionPackage | null
+): boolean {
+  return activeQuestion?.scaffold.lockedNodeIds?.includes(nodeId) ?? false
+}
+
 function isNodeEditLocked(
   nodeId: string,
   scaffoldNodeIds: readonly string[],
+  activeQuestion: QuestionPackage | null,
   profile: EnvironmentProfile,
   attemptStatus: AttemptState['status'] | undefined
 ): boolean {
   if (attemptStatus === 'LOCKED') {
     return true
   }
-  return !profile.capabilities.canEditScaffoldNodes && scaffoldNodeIds.includes(nodeId)
+  if (!isScaffoldNode(nodeId, scaffoldNodeIds)) {
+    return false
+  }
+  return (
+    !profile.capabilities.canEditScaffoldNodes ||
+    activeQuestion?.constraints?.canModifyScaffold === false ||
+    isAuthoredLockedScaffoldNode(nodeId, activeQuestion)
+  )
+}
+
+function isNodeRemovalLocked(
+  nodeId: string,
+  scaffoldNodeIds: readonly string[],
+  activeQuestion: QuestionPackage | null,
+  profile: EnvironmentProfile,
+  attemptStatus: AttemptState['status'] | undefined
+): boolean {
+  if (attemptStatus === 'LOCKED') {
+    return true
+  }
+  if (!isScaffoldNode(nodeId, scaffoldNodeIds)) {
+    return false
+  }
+  return (
+    !profile.capabilities.canEditScaffoldNodes ||
+    activeQuestion?.constraints?.canRemoveScaffoldNodes === false ||
+    isAuthoredLockedScaffoldNode(nodeId, activeQuestion)
+  )
+}
+
+function isScaffoldEdge(edgeId: string, scaffoldEdgeIds: readonly string[]): boolean {
+  return scaffoldEdgeIds.includes(edgeId)
+}
+
+function isAuthoredLockedScaffoldEdge(
+  edgeId: string,
+  activeQuestion: QuestionPackage | null
+): boolean {
+  return activeQuestion?.scaffold.lockedEdgeIds?.includes(edgeId) ?? false
+}
+
+function isEdgeEditLocked(
+  edgeId: string,
+  scaffoldEdgeIds: readonly string[],
+  activeQuestion: QuestionPackage | null,
+  profile: EnvironmentProfile,
+  attemptStatus: AttemptState['status'] | undefined
+): boolean {
+  if (attemptStatus === 'LOCKED') {
+    return true
+  }
+  if (!isScaffoldEdge(edgeId, scaffoldEdgeIds)) {
+    return false
+  }
+  return (
+    !profile.capabilities.canEditScaffoldNodes ||
+    activeQuestion?.constraints?.canModifyScaffold === false ||
+    isAuthoredLockedScaffoldEdge(edgeId, activeQuestion)
+  )
+}
+
+function isEdgeRemovalLocked(
+  edgeId: string,
+  scaffoldEdgeIds: readonly string[],
+  activeQuestion: QuestionPackage | null,
+  profile: EnvironmentProfile,
+  attemptStatus: AttemptState['status'] | undefined
+): boolean {
+  if (attemptStatus === 'LOCKED') {
+    return true
+  }
+  if (!isScaffoldEdge(edgeId, scaffoldEdgeIds)) {
+    return false
+  }
+  return (
+    !profile.capabilities.canEditScaffoldNodes ||
+    activeQuestion?.constraints?.canRemoveScaffoldNodes === false ||
+    isAuthoredLockedScaffoldEdge(edgeId, activeQuestion)
+  )
 }
 import type { RoutingStrategy } from '../../../engine/catalog/nodeSpecTypes'
 
@@ -409,12 +498,21 @@ type RFState = {
   setActiveQuestion: (question: QuestionPackage | null) => void
   /** Ids of canvas nodes that came from the active question's scaffold (provenance). */
   scaffoldNodeIds: string[]
+  /** Ids of canvas edges that came from the active question's scaffold (provenance). */
+  scaffoldEdgeIds: string[]
   /** Raw host-authored HTML prompt for Newton assignment mode, when present. */
   activeQuestionPromptHtml: string | null
   setActiveQuestionPromptHtml: (html: string | null) => void
   /** User-visible host launch/configuration error for embedded assignment mode. */
   hostLaunchErrorMessage: string | null
   setHostLaunchErrorMessage: (message: string | null) => void
+  /**
+   * Non-blocking authoring notice shown when a question loaded in preview mode
+   * (prompt visible) but its grading config is missing or invalid. Cleared once a
+   * fully-authored question loads.
+   */
+  authoringWarning: string | null
+  setAuthoringWarning: (message: string | null) => void
   attemptState: AttemptState | null
   setAttemptState: (attempt: AttemptState | null) => void
   /** Newton host save compatibility mode for the active question. */
@@ -501,8 +599,10 @@ const useStore = create<RFState>((set, get) => ({
   displaySettings: displaySettingsInitial,
   activeQuestion: null,
   scaffoldNodeIds: [],
+  scaffoldEdgeIds: [],
   activeQuestionPromptHtml: null,
   hostLaunchErrorMessage: null,
+  authoringWarning: null,
   attemptState: null,
   newtonSaveMode: null,
   justificationAnswers: {},
@@ -514,20 +614,32 @@ const useStore = create<RFState>((set, get) => ({
 
   onNodesChange: (changes: NodeChange[]) => {
     set((state) => {
-      // Drop deletions of locked nodes (scaffold-locked or a frozen attempt); all
-      // other changes pass through.
-      const permitted = changes.filter(
-        (change) =>
-          !(
-            change.type === 'remove' &&
-            isNodeEditLocked(
-              change.id,
-              state.scaffoldNodeIds,
-              state.environmentProfile,
-              state.attemptState?.status
-            )
+      // Locked scaffold nodes stay selectable, but movement/resize/removal changes
+      // are dropped here so React Flow cannot mutate them through onNodesChange.
+      const permitted = changes.filter((change) => {
+        if (!('id' in change)) {
+          return true
+        }
+        if (change.type === 'select') {
+          return true
+        }
+        if (change.type === 'remove') {
+          return !isNodeRemovalLocked(
+            change.id,
+            state.scaffoldNodeIds,
+            state.activeQuestion,
+            state.environmentProfile,
+            state.attemptState?.status
           )
-      )
+        }
+        return !isNodeEditLocked(
+          change.id,
+          state.scaffoldNodeIds,
+          state.activeQuestion,
+          state.environmentProfile,
+          state.attemptState?.status
+        )
+      })
       const nodes = applyNodeChanges(permitted, state.nodes)
       const hasMeaningfulChange = shouldRecordNodeChanges(permitted)
       const isDragging = hasActiveNodeDrag(permitted)
@@ -552,10 +664,35 @@ const useStore = create<RFState>((set, get) => ({
 
   onEdgesChange: (changes: EdgeChange[]) => {
     set((state) => {
-      const edges = applyEdgeChanges(changes, state.edges)
+      const permitted = changes.filter((change) => {
+        const edgeId = 'id' in change ? change.id : null
+        if (edgeId === null) {
+          return true
+        }
+        if (change.type === 'select') {
+          return true
+        }
+        if (change.type === 'remove') {
+          return !isEdgeRemovalLocked(
+            edgeId,
+            state.scaffoldEdgeIds,
+            state.activeQuestion,
+            state.environmentProfile,
+            state.attemptState?.status
+          )
+        }
+        return !isEdgeEditLocked(
+          edgeId,
+          state.scaffoldEdgeIds,
+          state.activeQuestion,
+          state.environmentProfile,
+          state.attemptState?.status
+        )
+      })
+      const edges = applyEdgeChanges(permitted, state.edges)
       return {
         edges,
-        graphHistory: shouldRecordEdgeChanges(changes)
+        graphHistory: shouldRecordEdgeChanges(permitted)
           ? resolveGraphHistory(state, { nodes: state.nodes, edges })
           : state.graphHistory
       }
@@ -704,8 +841,16 @@ const useStore = create<RFState>((set, get) => ({
   },
 
   updateNodeData: (nodeId: string, patch: CanvasNodeDataPatch) => {
-    const { scaffoldNodeIds, environmentProfile, attemptState } = get()
-    if (isNodeEditLocked(nodeId, scaffoldNodeIds, environmentProfile, attemptState?.status)) {
+    const { activeQuestion, scaffoldNodeIds, environmentProfile, attemptState } = get()
+    if (
+      isNodeEditLocked(
+        nodeId,
+        scaffoldNodeIds,
+        activeQuestion,
+        environmentProfile,
+        attemptState?.status
+      )
+    ) {
       return
     }
     set((state) => {
@@ -730,6 +875,18 @@ const useStore = create<RFState>((set, get) => ({
   },
 
   updateEdgeData: (edgeId, patch) => {
+    const { activeQuestion, scaffoldEdgeIds, environmentProfile, attemptState } = get()
+    if (
+      isEdgeEditLocked(
+        edgeId,
+        scaffoldEdgeIds,
+        activeQuestion,
+        environmentProfile,
+        attemptState?.status
+      )
+    ) {
+      return
+    }
     set((state) => {
       const edges = state.edges.map((edge) => {
         if (edge.id === edgeId) {
@@ -905,15 +1062,20 @@ const useStore = create<RFState>((set, get) => ({
   setActiveQuestion: (activeQuestion) =>
     set({
       activeQuestion,
-      // A node's scaffold provenance is canonical: its id is in the question's
-      // partial-scaffold topology. Independent of what a resumed attempt loaded.
+      // A node's scaffold provenance is canonical: its id is in the authored
+      // scaffold topology, independent of what a resumed attempt loaded.
       scaffoldNodeIds:
-        activeQuestion?.scaffold.type === 'partial'
+        activeQuestion && activeQuestion.scaffold.type !== 'empty'
           ? activeQuestion.scaffold.topology.nodes.map((node) => node.id)
+          : [],
+      scaffoldEdgeIds:
+        activeQuestion && activeQuestion.scaffold.type !== 'empty'
+          ? activeQuestion.scaffold.topology.edges.map((edge) => edge.id)
           : []
     }),
   setActiveQuestionPromptHtml: (activeQuestionPromptHtml) => set({ activeQuestionPromptHtml }),
   setHostLaunchErrorMessage: (hostLaunchErrorMessage) => set({ hostLaunchErrorMessage }),
+  setAuthoringWarning: (authoringWarning) => set({ authoringWarning }),
   setAttemptState: (attemptState) => set({ attemptState }),
   setNewtonSaveMode: (newtonSaveMode) => set({ newtonSaveMode }),
   setJustificationAnswer: (promptId, text) =>

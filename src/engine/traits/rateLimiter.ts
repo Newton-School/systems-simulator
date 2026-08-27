@@ -3,7 +3,9 @@ import type { NodeBehaviourTrait, NodeCapabilityModule } from './types'
 
 export const RATE_LIMITER_COMPONENT_TYPES = [
   'api-gateway',
-  'third-party-api-connector'
+  'third-party-api-connector',
+  'rate-limiter',
+  'throttler'
 ] as const satisfies readonly ComponentType[]
 
 interface TokenBucketState {

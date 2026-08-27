@@ -78,4 +78,45 @@ describe('SAMPLE_SCENARIOS composite examples', () => {
       true
     )
   })
+
+  it('includes the idempotency guard sample with repeated keys and guard config', () => {
+    const idempotencySample = SAMPLE_SCENARIOS.find(
+      (sample) => sample.id === 'payment-idempotency-dedup'
+    )
+
+    expect(idempotencySample).toBeDefined()
+
+    const sampleData = JSON.parse(idempotencySample!.raw) as {
+      nodes: Array<{
+        id: string
+        data?: {
+          source?: {
+            requestDistribution?: Array<{
+              metadata?: { idempotencyKey?: string }
+            }>
+          }
+          sim?: {
+            dedupKeyField?: string
+            dedupWindowMs?: number
+            storeLookupMs?: number
+          }
+        }
+      }>
+    }
+
+    const sourceNode = sampleData.nodes.find((node) => node.id === 'client')
+    const guardNode = sampleData.nodes.find((node) => node.id === 'idempotency')
+
+    expect(sourceNode?.data?.source?.requestDistribution).toHaveLength(3)
+    expect(
+      sourceNode?.data?.source?.requestDistribution?.every((entry) =>
+        entry.metadata?.idempotencyKey?.startsWith('pay-')
+      )
+    ).toBe(true)
+    expect(guardNode?.data?.sim).toMatchObject({
+      dedupKeyField: 'idempotencyKey',
+      dedupWindowMs: 300000,
+      storeLookupMs: 2
+    })
+  })
 })

@@ -1,7 +1,9 @@
 import { memo, useMemo, useState } from 'react'
 import {
+  Beaker,
   FileText,
   FlaskConical,
+  ClipboardList,
   Library as LibraryIcon,
   Search,
   type LucideIcon
@@ -10,11 +12,14 @@ import useStore from '../../store/useStore'
 import { CATALOG_CONFIG } from '../../config/catalogConfig'
 import { PALETTE_TEMPLATES } from '../../../../engine/catalog/paletteTemplates'
 import { SAMPLE_SCENARIOS } from '../../config/sampleScenarios'
+import { SAMPLE_BLUEPRINTS } from '../../config/sampleBlueprints'
+import { SAMPLE_LABS } from '../../config/sampleLabs'
 import { QuestionPanel } from '../question/QuestionPanel'
 import { LibraryItem } from './LibraryItem'
+import type { ExperienceEnvelope, ExperienceSidebarTab } from '@renderer/utils/experienceEnvelope'
 
 type Filter = 'all' | 'common'
-export type LibrarySidebarTab = 'question' | 'library' | 'scenarios'
+export type LibrarySidebarTab = ExperienceSidebarTab
 
 interface ActivityTab {
   id: LibrarySidebarTab
@@ -66,11 +71,13 @@ const V1_PALETTE_NODE_TYPES: ReadonlySet<string> | null = new Set([
 ])
 
 const FILTERS: Filter[] = ['common', 'all']
-const ACTIVITY_TABS: ActivityTab[] = [
-  { id: 'question', label: 'Question Text', icon: FileText },
-  { id: 'library', label: 'Component Library', icon: LibraryIcon },
-  { id: 'scenarios', label: 'Scenarios', icon: FlaskConical }
-]
+const TAB_META: Record<LibrarySidebarTab, Omit<ActivityTab, 'id'>> = {
+  question: { label: 'Question Text', icon: FileText },
+  blueprints: { label: 'Blueprints', icon: ClipboardList },
+  labs: { label: 'Labs', icon: Beaker },
+  library: { label: 'Component Library', icon: LibraryIcon },
+  scenarios: { label: 'Scenarios', icon: FlaskConical }
+}
 
 interface SidebarScenario {
   id: string
@@ -96,9 +103,8 @@ const ALL_SIDEBAR_SCENARIOS: SidebarScenario[] = SAMPLE_SCENARIOS.map((scenario)
 
 interface LibraryActivityRailProps {
   activeTab: LibrarySidebarTab
+  experience: ExperienceEnvelope
   onSelect: (tab: LibrarySidebarTab) => void
-  /** Sample scenarios are a free-play/authoring feature - hidden in question mode. */
-  showScenarios?: boolean
 }
 
 interface LibrarySidebarContentProps {
@@ -117,6 +123,105 @@ interface ScenarioPanelProps {
   selectedScenarioId: string
   onSelectScenario: (value: string) => void
   onLoadScenario: (scenarioId: string) => Promise<void>
+}
+
+function BlueprintPanel() {
+  const requestQuestionLoad = useStore((state) => state.requestQuestionLoad)
+
+  return (
+    <>
+      <div className="p-4 pb-3 border-b border-nss-border shrink-0 space-y-1">
+        <h2 className="text-xs font-bold text-nss-muted uppercase tracking-widest">Blueprints</h2>
+        <p className="text-[11px] leading-relaxed text-nss-muted">
+          Requirements-first design briefs. Load one to start with functional requirements,
+          non-functional targets, scale, and a scaffold instead of a blank canvas.
+        </p>
+      </div>
+
+      <div className="flex-1 min-h-0 overflow-y-auto p-3 space-y-2">
+        {SAMPLE_BLUEPRINTS.map((blueprint) => (
+          <div
+            key={blueprint.id}
+            className="rounded-lg border border-nss-border bg-nss-panel p-3 space-y-2"
+          >
+            <div className="space-y-1">
+              <h4 className="text-xs font-semibold text-nss-text">{blueprint.title}</h4>
+              <p className="text-[11px] leading-relaxed text-nss-muted">{blueprint.summary}</p>
+            </div>
+
+            <div className="rounded-md border border-nss-primary/20 bg-nss-primary/10 px-3 py-2">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-nss-primary">
+                Focus
+              </p>
+              <p className="mt-1 text-[11px] leading-relaxed text-nss-text">{blueprint.focus}</p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => requestQuestionLoad(blueprint.question)}
+              className="w-full rounded-md bg-nss-primary px-3 py-2 text-xs font-semibold text-white transition-colors hover:opacity-90"
+            >
+              Load Blueprint
+            </button>
+          </div>
+        ))}
+      </div>
+    </>
+  )
+}
+
+function LabPanel() {
+  const requestQuestionLoad = useStore((state) => state.requestQuestionLoad)
+
+  return (
+    <>
+      <div className="p-4 pb-3 border-b border-nss-border shrink-0 space-y-1">
+        <h2 className="text-xs font-bold text-nss-muted uppercase tracking-widest">Labs</h2>
+        <p className="text-[11px] leading-relaxed text-nss-muted">
+          Locked-down concept labs that reuse the same simulator canvas, worker, and results tray.
+          Open one to tune properties, not topology structure.
+        </p>
+      </div>
+
+      <div className="flex-1 min-h-0 overflow-y-auto p-3 space-y-2">
+        {SAMPLE_LABS.map((lab) => (
+          <div
+            key={lab.id}
+            className="rounded-lg border border-nss-border bg-nss-panel p-3 space-y-2"
+          >
+            <div className="space-y-1">
+              <h4 className="text-xs font-semibold text-nss-text">{lab.title}</h4>
+              <p className="text-[11px] leading-relaxed text-nss-muted">{lab.summary}</p>
+            </div>
+
+            <div className="rounded-md border border-nss-primary/20 bg-nss-primary/10 px-3 py-2">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-nss-primary">
+                Focus
+              </p>
+              <p className="mt-1 text-[11px] leading-relaxed text-nss-text">{lab.focus}</p>
+            </div>
+
+            <div className="rounded-md border border-nss-border bg-nss-surface px-3 py-2">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-nss-muted">
+                Lab Flow
+              </p>
+              <p className="mt-1 whitespace-pre-wrap text-[11px] leading-relaxed text-nss-text">
+                {lab.guide}
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => requestQuestionLoad(lab.question)}
+              className="w-full rounded-md bg-nss-primary px-3 py-2 text-xs font-semibold text-white transition-colors hover:opacity-90"
+            >
+              Open Lab
+            </button>
+          </div>
+        ))}
+      </div>
+    </>
+  )
 }
 
 const ActivityButton = memo(function ActivityButton({
@@ -154,10 +259,15 @@ const ActivityButton = memo(function ActivityButton({
 
 export const LibraryActivityRail = memo(function LibraryActivityRail({
   activeTab,
-  onSelect,
-  showScenarios = true
+  experience,
+  onSelect
 }: LibraryActivityRailProps) {
-  const tabs = showScenarios ? ACTIVITY_TABS : ACTIVITY_TABS.filter((tab) => tab.id !== 'scenarios')
+  const tabs = experience.allowedTabs.map((id) => ({
+    id,
+    label: id === 'question' ? experience.questionTabLabel : TAB_META[id].label,
+    icon: TAB_META[id].icon
+  }))
+
   return (
     <nav
       aria-label="Library views"
@@ -179,9 +289,24 @@ function ComponentLibraryPanel({
   // EnvironmentProfile palette allowlist: null = all node types allowed,
   // otherwise only types (or ids) in the list are offered in the library.
   const editPaletteList = useStore((s) => s.environmentProfile.capabilities.editPaletteList)
+  const activeQuestion = useStore((s) => s.activeQuestion)
   const allowedPalette = useMemo(
     () => (editPaletteList === null ? null : new Set(editPaletteList)),
     [editPaletteList]
+  )
+  const questionAllowedNodeTypes = useMemo(
+    () =>
+      activeQuestion?.constraints.allowedNodeTypes
+        ? new Set(activeQuestion.constraints.allowedNodeTypes)
+        : null,
+    [activeQuestion]
+  )
+  const questionForbiddenNodeTypes = useMemo(
+    () =>
+      activeQuestion?.constraints.forbiddenNodeTypes
+        ? new Set(activeQuestion.constraints.forbiddenNodeTypes)
+        : null,
+    [activeQuestion]
   )
 
   const filtered = useMemo(() => {
@@ -203,11 +328,25 @@ function ComponentLibraryPanel({
         const matchesV1 =
           V1_PALETTE_NODE_TYPES === null ||
           (componentType !== undefined && V1_PALETTE_NODE_TYPES.has(componentType))
+        const matchesQuestionAllowlist =
+          questionAllowedNodeTypes === null ||
+          (componentType !== undefined && questionAllowedNodeTypes.has(componentType))
+        const matchesQuestionDenylist =
+          questionForbiddenNodeTypes === null ||
+          componentType === undefined ||
+          !questionForbiddenNodeTypes.has(componentType)
 
-        return matchesFilter && matchesSearch && matchesPalette && matchesV1
+        return (
+          matchesFilter &&
+          matchesSearch &&
+          matchesPalette &&
+          matchesV1 &&
+          matchesQuestionAllowlist &&
+          matchesQuestionDenylist
+        )
       })
     })).filter((category) => category.items.length > 0)
-  }, [allowedPalette, filter, query])
+  }, [allowedPalette, filter, query, questionAllowedNodeTypes, questionForbiddenNodeTypes])
 
   return (
     <>
@@ -271,7 +410,9 @@ function ComponentLibraryPanel({
           ))
         ) : (
           <p className="px-2 pt-4 text-xs text-nss-muted text-center">
-            No components match &quot;{query}&quot;
+            {activeQuestion?.constraints.allowedNodeTypes?.length === 0
+              ? 'This experience locks the topology, so the component palette is hidden.'
+              : `No components match "${query}"`}
           </p>
         )}
       </div>
@@ -384,6 +525,14 @@ export function LibrarySidebarContent({ activeTab, onLoadScenario }: LibrarySide
     <aside className="h-full w-full min-w-0 bg-nss-panel border-r border-nss-border flex flex-col transition-colors duration-200">
       <div className={activeTab === 'question' ? 'flex h-full min-h-0 flex-col' : 'hidden'}>
         <QuestionPanel />
+      </div>
+
+      <div className={activeTab === 'blueprints' ? 'flex h-full min-h-0 flex-col' : 'hidden'}>
+        <BlueprintPanel />
+      </div>
+
+      <div className={activeTab === 'labs' ? 'flex h-full min-h-0 flex-col' : 'hidden'}>
+        <LabPanel />
       </div>
 
       <div className={activeTab === 'scenarios' ? 'flex h-full min-h-0 flex-col' : 'hidden'}>

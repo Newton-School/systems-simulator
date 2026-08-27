@@ -2,13 +2,17 @@ import { describe, expect, it } from 'vitest'
 import type { TopologyJSON } from '../core/types'
 import type { SimulationOutput } from './output'
 import {
+  baselineComparisonTestId,
   buildQuestionTestRows,
   caseRubricTestId,
+  constraintTestId,
   createAttemptState,
+  formatQuestionEntryFormat,
   gradeAttempt,
   gradeAttemptWithArtifacts,
   isAttemptCurrentForTopology,
   lockAttempt,
+  resolveQuestionEntryFormat,
   resolveVisibleAttemptGrade,
   resolveVisibleAttemptStatus,
   semanticTestId,
@@ -19,6 +23,7 @@ import {
 import type { ComponentType } from '../core/types'
 import { EXECUTION_CHECK_ID, type GradedEvaluationBatch } from './rubric'
 import type { StructuralEvaluation } from './structural'
+import { projectToVerdict } from './verdict'
 
 function fakeOutput(errorRate: number): SimulationOutput {
   return {
@@ -50,6 +55,32 @@ function fakeOutput(errorRate: number): SimulationOutput {
   } as unknown as SimulationOutput
 }
 
+function fakeOutputWithSummary({
+  errorRate = 0.01,
+  throughput = 100,
+  p50 = 1,
+  p99 = 4
+}: {
+  errorRate?: number
+  throughput?: number
+  p50?: number
+  p99?: number
+}): SimulationOutput {
+  return {
+    ...fakeOutput(errorRate),
+    summary: {
+      ...fakeOutput(errorRate).summary,
+      throughput,
+      errorRate,
+      latency: {
+        ...fakeOutput(errorRate).summary.latency,
+        p50,
+        p99
+      }
+    }
+  } as unknown as SimulationOutput
+}
+
 function studentTopology(): TopologyJSON {
   return {
     id: 't',
@@ -59,6 +90,18 @@ function studentTopology(): TopologyJSON {
     nodes: [],
     edges: []
   } as unknown as TopologyJSON
+}
+
+function studentTopologyWithWorkload(): TopologyJSON {
+  return {
+    ...studentTopology(),
+    workload: {
+      sourceNodeId: 'client',
+      pattern: 'constant',
+      baseRps: 100,
+      requestDistribution: [{ type: 'GET', weight: 1, sizeBytes: 512 }]
+    }
+  } as TopologyJSON
 }
 
 const pkg: QuestionPackage = {
@@ -154,6 +197,46 @@ describe('gradeAttempt', () => {
     const result = gradeAttempt(pkg, studentTopology(), () => fakeOutput(0.01))
     expect(result.contract.allPassed).toBe(true)
     expect(result.contract).toMatchObject({ totalTests: 4, passedTests: 4 })
+  })
+
+  it('derives baseRps and a typed read/write mix from prompt.scale when a case omits them', () => {
+    const seenWorkloads: TopologyJSON['workload'][] = []
+    gradeAttempt(
+      {
+        ...pkg,
+        prompt: {
+          ...pkg.prompt,
+          scale: {
+            peakRps: 2400,
+            readWriteRatio: 90
+          }
+        },
+        suite: {
+          ...pkg.suite,
+          cases: [{ id: 'derived-load' }]
+        }
+      },
+      studentTopologyWithWorkload(),
+      (topology) => {
+        seenWorkloads.push(topology.workload)
+        return fakeOutput(0.01)
+      }
+    )
+
+    expect(seenWorkloads).toHaveLength(1)
+    expect(seenWorkloads[0]).toMatchObject({
+      sourceNodeId: 'client',
+      pattern: 'constant',
+      baseRps: 2400
+    })
+    expect(seenWorkloads[0]?.requestDistribution?.[0]).toEqual({
+      type: 'read',
+      weight: 0.9,
+      sizeBytes: 512
+    })
+    expect(seenWorkloads[0]?.requestDistribution?.[1]?.type).toBe('write')
+    expect(seenWorkloads[0]?.requestDistribution?.[1]?.sizeBytes).toBe(512)
+    expect(seenWorkloads[0]?.requestDistribution?.[1]?.weight ?? 0).toBeCloseTo(0.1)
   })
 
   it('a case that could not run emits a failed execution row and skipped authored checks', () => {
@@ -341,6 +424,58 @@ describe('buildQuestionTestRows', () => {
         detail: 'actual 0.5 does not satisfy summary.errorRate < 0.1'
       }
     ])
+  })
+})
+
+describe('question entry formats', () => {
+  it('infers stable legacy formats from type, scaffold shape, and lab locks', () => {
+    expect(resolveQuestionEntryFormat(pkg)).toBe('blank-canvas')
+
+    expect(
+      resolveQuestionEntryFormat({
+        ...pkg,
+        type: 'fix',
+        scaffold: { type: 'partial', topology: studentTopology() }
+      })
+    ).toBe('broken-scaffold')
+
+    expect(
+      resolveQuestionEntryFormat({
+        ...pkg,
+        type: 'optimize',
+        scaffold: { type: 'partial', topology: studentTopology() }
+      })
+    ).toBe('baseline-optimize')
+
+    expect(
+      resolveQuestionEntryFormat({
+        ...pkg,
+        scaffold: { type: 'partial', topology: studentTopology() }
+      })
+    ).toBe('partial-scaffold')
+
+    expect(
+      resolveQuestionEntryFormat({
+        ...pkg,
+        scaffold: { type: 'complete', topology: studentTopology() },
+        constraints: {
+          allowedNodeTypes: [],
+          canModifyScaffold: false,
+          canRemoveScaffoldNodes: false
+        },
+        tags: ['lab']
+      })
+    ).toBe('locked-lab')
+  })
+
+  it('uses explicitly authored formats and exposes readable labels', () => {
+    expect(
+      resolveQuestionEntryFormat({
+        ...pkg,
+        entryFormat: 'requirements-first'
+      })
+    ).toBe('requirements-first')
+    expect(formatQuestionEntryFormat('requirements-first')).toBe('Requirements-First')
   })
 })
 
@@ -646,5 +781,151 @@ describe('gradeAttempt — budget', () => {
     )
     expect(grade.budget?.withinBudget).toBe(true)
     expect(grade.contract.tests.find((t) => t.id === 'topology.budget')?.passed).toBe(true)
+  })
+})
+
+describe('gradeAttempt — question constraints', () => {
+  function constrainedTopology(): TopologyJSON {
+    return {
+      id: 't',
+      name: 't',
+      version: '2.0.0',
+      global: { seed: 'base', simulationDuration: 1000, warmupDuration: 0 },
+      nodes: [
+        {
+          id: 'svc',
+          type: 'microservice',
+          category: 'compute',
+          label: 'svc',
+          position: { x: 0, y: 0 },
+          queue: { workers: 1, capacity: 10, discipline: 'fifo' },
+          processing: {
+            distribution: { type: 'constant', value: 5 },
+            timeout: 1000
+          },
+          resources: {
+            instanceType: 'c5.large',
+            instanceCount: 1,
+            workloadKind: 'cpu-bound'
+          }
+        },
+        {
+          id: 'lb',
+          type: 'load-balancer',
+          category: 'network-and-edge',
+          label: 'lb',
+          position: { x: 120, y: 0 }
+        }
+      ],
+      edges: []
+    } as unknown as TopologyJSON
+  }
+
+  it('grades authored constraints alongside the rubric and fails the contract when they are violated', () => {
+    const constrainedPkg: QuestionPackage = {
+      ...pkg,
+      constraints: {
+        allowedNodeTypes: ['microservice'],
+        forbiddenNodeTypes: ['load-balancer'],
+        maxNodeCount: 1,
+        maxBudget: 0.05,
+        maxTotalWorkers: 1,
+        canModifyScaffold: true,
+        canRemoveScaffoldNodes: true
+      }
+    }
+
+    const grade = gradeAttempt(constrainedPkg, constrainedTopology(), () => fakeOutput(0.02))
+    expect(grade.constraints?.passed).toBe(false)
+    expect(grade.constraints?.checks.map((check) => check.id)).toEqual([
+      'allowed-node-types',
+      'forbidden-node-types',
+      'max-node-count',
+      'max-budget',
+      'max-total-workers'
+    ])
+    expect(
+      grade.contract.tests.find((test) => test.id === constraintTestId('max-budget'))?.passed
+    ).toBe(false)
+    expect(
+      grade.contract.tests.find((test) => test.id === constraintTestId('max-total-workers'))?.passed
+    ).toBe(false)
+    expect(grade.contract.allPassed).toBe(false)
+  })
+})
+
+describe('gradeAttempt — baseline comparison', () => {
+  const optimizePkg: QuestionPackage = {
+    ...pkg,
+    type: 'optimize',
+    prompt: {
+      ...pkg.prompt,
+      nonFunctionalRequirements: [
+        {
+          metric: 'latency_p99',
+          operator: '<',
+          value: 10,
+          unit: 'ms',
+          description: 'Keep p99 below 10ms'
+        }
+      ]
+    },
+    scaffold: {
+      type: 'partial',
+      topology: studentTopology(),
+      baselineVerdict: projectToVerdict(
+        fakeOutputWithSummary({ errorRate: 0.05, throughput: 100, p99: 10 })
+      )
+    }
+  }
+
+  it('passes baseline-optimize when the primary metric strictly improves without regression', () => {
+    const grade = gradeAttempt(optimizePkg, studentTopology(), () =>
+      fakeOutputWithSummary({ errorRate: 0.05, throughput: 100, p99: 8 })
+    )
+
+    expect(grade.baselineComparison?.passed).toBe(true)
+    expect(grade.baselineComparison?.metrics[0]).toMatchObject({
+      metric: 'latency_p99',
+      improved: true,
+      nonRegressed: true
+    })
+    expect(
+      grade.contract.tests.find((test) => test.id === baselineComparisonTestId())?.passed
+    ).toBe(true)
+  })
+
+  it('fails baseline-optimize when the current design regresses the comparison metric', () => {
+    const grade = gradeAttempt(optimizePkg, studentTopology(), () =>
+      fakeOutputWithSummary({ errorRate: 0.05, throughput: 100, p99: 12 })
+    )
+
+    expect(grade.baselineComparison?.passed).toBe(false)
+    expect(
+      grade.contract.tests.find((test) => test.id === baselineComparisonTestId())?.passed
+    ).toBe(false)
+    expect(grade.contract.allPassed).toBe(false)
+  })
+
+  it('adds a pending baseline-comparison row before grading and overlays the result afterwards', () => {
+    const pendingRows = buildQuestionTestRows(optimizePkg)
+    expect(pendingRows.find((row) => row.id === baselineComparisonTestId())).toEqual({
+      id: baselineComparisonTestId(),
+      name: 'Beat the baseline on primary metrics',
+      scope: 'comparison',
+      status: 'pending'
+    })
+
+    const grade = gradeAttempt(optimizePkg, studentTopology(), () =>
+      fakeOutputWithSummary({ errorRate: 0.05, throughput: 100, p99: 8 })
+    )
+    expect(buildQuestionTestRows(optimizePkg, grade)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: baselineComparisonTestId(),
+          status: 'passed'
+        })
+      ])
+    )
   })
 })

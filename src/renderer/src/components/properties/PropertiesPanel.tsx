@@ -1374,7 +1374,10 @@ export const PropertiesPanel = ({ results = null }: { results?: SimulationOutput
   const setRunInspectorPinned = useStore((state) => state.setRunInspectorPinned)
   const setRunInspectorDrilldownActive = useStore((state) => state.setRunInspectorDrilldownActive)
 
+  const activeQuestion = useStore((state) => state.activeQuestion)
   const scaffoldNodeIds = useStore((state) => state.scaffoldNodeIds)
+  const scaffoldEdgeIds = useStore((state) => state.scaffoldEdgeIds)
+  const attemptStatus = useStore((state) => state.attemptState?.status)
   const canEditScaffoldNodes = useStore(
     (state) => state.environmentProfile.capabilities.canEditScaffoldNodes
   )
@@ -1398,9 +1401,22 @@ export const PropertiesPanel = ({ results = null }: { results?: SimulationOutput
   const selectedEdge = edges.find((edge) => edge.selected)
   const selectedNodeId = selectedNode?.id
   const selectedNodeLocked = Boolean(
-    selectedNodeId && !canEditScaffoldNodes && scaffoldNodeIds.includes(selectedNodeId)
+    selectedNodeId &&
+    scaffoldNodeIds.includes(selectedNodeId) &&
+    (attemptStatus === 'LOCKED' ||
+      !canEditScaffoldNodes ||
+      activeQuestion?.constraints.canModifyScaffold === false ||
+      activeQuestion?.scaffold.lockedNodeIds?.includes(selectedNodeId))
   )
   const selectedEdgeId = selectedEdge?.id
+  const selectedEdgeLocked = Boolean(
+    selectedEdgeId &&
+    scaffoldEdgeIds.includes(selectedEdgeId) &&
+    (attemptStatus === 'LOCKED' ||
+      !canEditScaffoldNodes ||
+      activeQuestion?.constraints.canModifyScaffold === false ||
+      activeQuestion?.scaffold.lockedEdgeIds?.includes(selectedEdgeId))
+  )
   const selectedEdgeFlow = selectedEdge ? edgeFlowById[selectedEdge.id] : undefined
   const selectedEdgeHasRuntime = Boolean(selectedEdgeFlow && selectedEdgeFlow.totalAttempted > 0)
   const hasRunData =
@@ -1584,7 +1600,7 @@ export const PropertiesPanel = ({ results = null }: { results?: SimulationOutput
     )?.pathType
 
     const handleEdgeChange = (patch: Partial<EdgePropertiesPanelValue>) => {
-      if (!canEditEdges) return // locked in assignment mode; results stay inspectable
+      if (!canEditEdges || selectedEdgeLocked) return
       const { label, ...dataPatch } = patch
       const hasDataPatch = Object.keys(dataPatch).length > 0
 
@@ -1621,6 +1637,15 @@ export const PropertiesPanel = ({ results = null }: { results?: SimulationOutput
         connectorOnly={edgeIsConnectorOnly}
         tabs={selectedEdgeHasRuntime ? <InspectorTabs active={tab} onChange={setTab} /> : undefined}
       >
+        {selectedEdgeLocked && (
+          <div className="mb-4 flex items-start gap-2 rounded-md border border-nss-warning/30 bg-nss-warning/10 px-3 py-2 text-[11px] leading-relaxed text-nss-warning">
+            <Lock size={13} className="mt-0.5 shrink-0" />
+            <span>
+              This edge is provided by the question and locked in this environment. Its
+              configuration can&apos;t be changed and it can&apos;t be removed.
+            </span>
+          </div>
+        )}
         {selectedEdgeHasRuntime && tab === 'metrics' ? (
           selectedEdgeFlow ? (
             <EdgeMetricsDetail flow={selectedEdgeFlow} />

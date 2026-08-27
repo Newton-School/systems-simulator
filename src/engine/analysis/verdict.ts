@@ -52,8 +52,50 @@ export interface SimulationVerdict {
       avgQueueLength: number
       avgServiceTime: number
       peakQueueLength: number
+      /**
+       * Count-style metrics any capability trait reported for this node via
+       * `payload.metricCounters` (e.g. `reservationOversells`). Addressable in a
+       * rubric as `perNode.<nodeId>.traitCounters.<counter>`.
+       */
+      traitCounters: Record<string, number>
     }
   >
+  /**
+   * Run-wide reservation/inventory tallies, summed across every reservation
+   * authority in the graph. `oversells` is the count of times a key was
+   * committed by a second, independent authority — the double-booking signal.
+   * Zero for a correct single-authority design; positive when writes for one key
+   * reach more than one uncoordinated reservation node. Grade with a rubric
+   * simulation check `reservations.oversells == 0`.
+   */
+  reservations: {
+    commits: number
+    conflicts: number
+    oversells: number
+  }
+  /**
+   * Run-wide distributed-lock tallies, summed across every `distributed-lock`
+   * node. `contentions` is how many acquire attempts were rejected because
+   * another request still held the lease — the mutual-exclusion pressure signal.
+   * Grade with e.g. `locks.contentions < N`, or `locks.acquires > 0` to prove the
+   * lock is on the path. `keyless` counts requests that reached the lock without a
+   * lock key (usually an authoring/wiring mistake).
+   */
+  locks: {
+    acquires: number
+    contentions: number
+    keyless: number
+  }
+  /**
+   * Run-wide retry tallies, summed across every caller node with a retry policy.
+   * `attempts` is total retry re-entries; `budgetExhausted` is how many requests
+   * gave up after burning their retry budget. Grade retry-amplification lessons
+   * with e.g. `retries.attempts < N` or `retries.budgetExhausted == 0`.
+   */
+  retries: {
+    attempts: number
+    budgetExhausted: number
+  }
   sloTargetCount: number
   sloBreaches: Array<{
     nodeId: string
@@ -91,6 +133,46 @@ export interface SimulationVerdict {
     lambda: number
     wSeconds: number
   }>
+}
+
+/**
+ * Sums one trait counter across every node, so a rubric can grade a run-wide
+ * total without knowing which node id reported it. Capability traits report
+ * these via `payload.metricCounters` (and the engine for retry counters); they
+ * land in each node's `traitCounters`.
+ */
+function sumTraitCounter(output: SimulationOutput, counter: string): number {
+  let total = 0
+  for (const metrics of Object.values(output.perNode)) {
+    total += metrics.traitCounters?.[counter] ?? 0
+  }
+  return total
+}
+
+/** Run-wide reservation tallies (see the reservation-store capability). */
+function sumReservationCounters(output: SimulationOutput): SimulationVerdict['reservations'] {
+  return {
+    commits: sumTraitCounter(output, 'reservationCommits'),
+    conflicts: sumTraitCounter(output, 'reservationConflicts'),
+    oversells: sumTraitCounter(output, 'reservationOversells')
+  }
+}
+
+/** Run-wide distributed-lock tallies (see the lock-lease capability). */
+function sumLockCounters(output: SimulationOutput): SimulationVerdict['locks'] {
+  return {
+    acquires: sumTraitCounter(output, 'lockAcquires'),
+    contentions: sumTraitCounter(output, 'lockContentions'),
+    keyless: sumTraitCounter(output, 'lockKeyless')
+  }
+}
+
+/** Run-wide retry tallies (see the retry-backoff capability). */
+function sumRetryCounters(output: SimulationOutput): SimulationVerdict['retries'] {
+  return {
+    attempts: sumTraitCounter(output, 'retryAttempts'),
+    budgetExhausted: sumTraitCounter(output, 'retryBudgetExhausted')
+  }
 }
 
 export function projectToVerdict(output: SimulationOutput): SimulationVerdict {
@@ -144,10 +226,14 @@ export function projectToVerdict(output: SimulationOutput): SimulationVerdict {
           latencyP99: metrics.latencyP99,
           avgQueueLength: metrics.avgQueueLength,
           avgServiceTime: metrics.avgServiceTime,
-          peakQueueLength: metrics.peakQueueLength
+          peakQueueLength: metrics.peakQueueLength,
+          traitCounters: { ...metrics.traitCounters }
         }
       ])
     ),
+    reservations: sumReservationCounters(output),
+    locks: sumLockCounters(output),
+    retries: sumRetryCounters(output),
     sloTargetCount: output.sloTargetCount,
     sloBreaches: output.sloBreaches.map((breach) => ({ ...breach })),
     invariantViolations: output.invariantViolations.map((violation) => ({

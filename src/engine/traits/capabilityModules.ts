@@ -2,6 +2,7 @@ import type { CanvasNodeDataV2, RoutingStrategy } from '../catalog/nodeSpecTypes
 import { hasWorkloadSourceConfig, isSourceComponentData } from '../catalog/sourceNodeSemantics'
 import type { ComponentType } from '../core/types'
 import { ackAndReleaseCapabilityModule } from './ackAndRelease'
+import { broadcastFanoutCapabilityModule } from './broadcastFanout'
 import { cacheCapabilityModule } from './cache'
 import { circuitBreakerCapabilityModule } from './circuitBreaker'
 import { coldStartCapabilityModule } from './coldStart'
@@ -9,10 +10,16 @@ import { CONTENT_ROUTING_COMPONENT_TYPES, contentRoutingCapabilityModule } from 
 import { consumerLagCapabilityModule } from './consumerLag'
 import { dnsRoutingPolicyCapabilityModule } from './dnsRoutingPolicy'
 import { healthAwareRoutingCapabilityModule } from './healthAwareRouting'
+import { idempotencyDedupCapabilityModule } from './idempotencyDedup'
+import { lockLeaseCapabilityModule } from './lockLease'
+import { reservationStoreCapabilityModule } from './reservationStore'
 import { keyBasedRoutingCapabilityModule } from './keyBasedRouting'
+import { memoryPressureCapabilityModule } from './memoryPressure'
 import { rateLimiterCapabilityModule } from './rateLimiter'
 import { readOnlyCapabilityModule } from './readOnly'
 import { readWriteSplitCapabilityModule } from './readWriteSplit'
+import { retryBackoffCapabilityModule } from './retryBackoff'
+import { storageProfileCapabilityModule } from './storageProfile'
 import type { ConfigField, NodeCapabilityModule } from './types'
 import type { ComponentNode } from '../core/types'
 import { INSTANCE_CATALOG, INSTANCE_TYPES, PRICING_MODELS } from '../catalog/instanceCatalog'
@@ -847,6 +854,7 @@ export const TRAIT_CAPABILITY_MODULES: readonly NodeCapabilityModule[] = [
   rateLimiterCapabilityModule,
   contentRoutingCapabilityModule,
   healthAwareRoutingCapabilityModule,
+  broadcastFanoutCapabilityModule,
   cacheCapabilityModule,
   coldStartCapabilityModule,
   keyBasedRoutingCapabilityModule,
@@ -855,6 +863,12 @@ export const TRAIT_CAPABILITY_MODULES: readonly NodeCapabilityModule[] = [
   circuitBreakerCapabilityModule,
   readOnlyCapabilityModule,
   readWriteSplitCapabilityModule,
+  storageProfileCapabilityModule,
+  retryBackoffCapabilityModule,
+  idempotencyDedupCapabilityModule,
+  lockLeaseCapabilityModule,
+  reservationStoreCapabilityModule,
+  memoryPressureCapabilityModule,
   ackAndReleaseCapabilityModule
 ]
 

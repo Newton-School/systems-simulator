@@ -64,6 +64,13 @@ export interface NodeSimulationConfig {
   routingRules?: ContentRoutingRule[]
   maxTokens?: number
   refillRatePerSecond?: number
+  retry?: {
+    maxAttempts?: number
+    baseDelay?: number
+    maxDelay?: number
+    multiplier?: number
+    jitter?: boolean
+  }
   coldStartLatency?: DistributionConfig
   coldStartLatencyMs?: number
   idleTimeoutMs?: number
@@ -88,6 +95,26 @@ export interface NodeSimulationConfig {
    */
   readLatencyMs?: number
   writeLatencyMs?: number
+  storageReadMs?: number
+  storageWriteMs?: number
+  storageQueryMs?: number
+  storageScanMs?: number
+  storageIngestMs?: number
+  dedupWindowMs?: number
+  storeLookupMs?: number
+  dedupKeyField?: string
+  lockKeyField?: string
+  acquireMs?: number
+  leaseMs?: number
+  fencing?: boolean
+  deliverySemantics?: 'at-most-once' | 'at-least-once' | 'exactly-once'
+  visibilityTimeoutMs?: number
+  maxReceiveCount?: number
+  dlqNodeId?: string
+  workingSetRatio?: number
+  workingSetPenaltyMs?: number
+  gcPressureStartRatio?: number
+  gcPauseMs?: number
   slo?: SLOConfig
 }
 

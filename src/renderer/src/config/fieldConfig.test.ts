@@ -208,6 +208,79 @@ describe('getNodeConfigSections', () => {
     expect(requestTemplatesField?.inputType).toBe('text')
   })
 
+  it('surfaces first-class control-plane sections for rate limiters, breakers, and locks', () => {
+    const rateLimiter = makeRuntimeNode({
+      templateId: 'rate-limiter',
+      componentType: 'rate-limiter',
+      profile: 'control-plane',
+      label: 'Rate Limiter'
+    })
+    const circuitBreaker = makeRuntimeNode({
+      templateId: 'circuit-breaker-controller',
+      componentType: 'circuit-breaker-controller',
+      profile: 'control-plane',
+      label: 'Circuit Breaker'
+    })
+    const distributedLock = makeRuntimeNode({
+      templateId: 'distributed-lock',
+      componentType: 'distributed-lock',
+      profile: 'control-plane',
+      label: 'Distributed Lock'
+    })
+
+    expect(
+      getNodeConfigSections(rateLimiter)
+        .find((section) => section.id === 'rate-limiting')
+        ?.fields.map((field) => field.path)
+    ).toEqual(['sim.maxTokens', 'sim.refillRatePerSecond'])
+
+    expect(
+      getNodeConfigSections(circuitBreaker)
+        .find((section) => section.id === 'circuit-breaker')
+        ?.fields.map((field) => field.path)
+    ).toEqual([
+      'sim.circuitBreaker.failureThreshold',
+      'sim.circuitBreaker.failureCount',
+      'sim.circuitBreaker.recoveryTimeout',
+      'sim.circuitBreaker.halfOpenRequests'
+    ])
+
+    expect(
+      getNodeConfigSections(distributedLock)
+        .find((section) => section.id === 'lock-lease')
+        ?.fields.map((field) => field.path)
+    ).toEqual(['sim.lockKeyField', 'sim.acquireMs', 'sim.leaseMs', 'sim.fencing'])
+  })
+
+  it('exposes memory-pressure controls on memory-sensitive runtime nodes', () => {
+    const cache = makeRuntimeNode({
+      templateId: 'in-memory-cache',
+      componentType: 'in-memory-cache',
+      structuralRole: 'storage',
+      profile: 'datastore',
+      label: 'Cache',
+      sim: {
+        queue: { workers: 8, capacity: 10, discipline: 'fifo' },
+        processing: {
+          distribution: { type: 'exponential', lambda: 0.125 },
+          timeout: 100
+        },
+        workingSetRatio: 1.4
+      }
+    })
+
+    const memorySection = getNodeConfigSections(cache).find(
+      (section) => section.id === 'memory-pressure'
+    )
+
+    expect(memorySection?.fields.map((field) => field.path)).toEqual([
+      'sim.workingSetRatio',
+      'sim.workingSetPenaltyMs',
+      'sim.gcPressureStartRatio',
+      'sim.gcPauseMs'
+    ])
+  })
+
   it('shows workload config sections for workload-overlay entrypoints', () => {
     const gateway = makeRuntimeNode({
       templateId: 'api-gateway',

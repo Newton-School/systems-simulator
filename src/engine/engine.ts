@@ -70,6 +70,16 @@ import {
   recordCircuitBreakerOutcome
 } from './traits/circuitBreaker'
 import {
+  readQueueDeliveryConfig,
+  readQueueDeliveryOriginNodeId,
+  writeQueueDeliveryOriginNodeId
+} from './traits/ackAndRelease'
+import {
+  clearLockLeaseAttachments,
+  readLockLeaseAttachments,
+  releaseLockLeaseAttachment
+} from './traits/lockLease'
+import {
   createInitialProbeState,
   evaluateProbe,
   parseHealthCheckManagerConfig,
@@ -77,6 +87,11 @@ import {
   type ProbeState
 } from './traits/healthProber'
 import { resolveTraits } from './traits/resolveTraits'
+import { computeRetryDelayMs, readRetryBackoffConfig } from './traits/retryBackoff'
+import {
+  SERVICE_TIME_DISTRIBUTION_OVERRIDE_KEY,
+  SERVICE_TIME_LATENCY_PENALTY_MS_KEY
+} from './traits/serviceTimeOverride'
 import type {
   BeforeArrivalDecision,
   BeforeRoutingDecision,
@@ -138,6 +153,8 @@ export class SimulationEngine {
   private readonly probedNodeIds = new Set<string>()
   private readonly probeStateByNodeId = new Map<string, ProbeState>()
   private readonly traitStateByNodeId = new Map<string, Map<string, unknown>>()
+  /** Run-scoped state shared across all nodes (see TraitContext.sharedState). */
+  private readonly sharedTraitState = new Map<string, unknown>()
   private readonly activeTransfersByEdgeId = new Map<string, number>()
   private readonly workload?: WorkloadGenerator
 
@@ -617,11 +634,32 @@ export class SimulationEngine {
     if (!node || !request) {
       return
     }
+
+    const internalQueueConsumer = event.data.internalQueueConsumer === true
+    const branchOfRequestId =
+      typeof event.data.branchOfRequestId === 'string' ? event.data.branchOfRequestId : undefined
+    if (internalQueueConsumer && branchOfRequestId) {
+      this.tracer.setRequestCreatedAt(request.id, request.createdAt)
+      this.recordCanonicalEvent({
+        timestampUs: request.createdAt,
+        type: 'request-generated',
+        priority: EventPriority.ARRIVAL,
+        requestId: request.id,
+        nodeId: event.nodeId,
+        payload: { request, branchOfRequestId, internalQueueConsumer: true }
+      })
+    }
+
     this.releaseEdgeTransfer(event.data.edgeId)
     this.appendNodeToPath(request, event.nodeId)
     this.recordSimulationEvent(event, this.createNodeSnapshot(event.nodeId))
     this.metrics.recordNodeArrival(event.nodeId, this.clock)
     this.recordNodePhaseArrival(request, event.nodeId, this.clock)
+
+    if (internalQueueConsumer) {
+      this.admitToNodeQueue(node, event.nodeId, request)
+      return
+    }
 
     if (this.applySecurityPolicy(event.nodeId, request)) {
       return
@@ -711,22 +749,11 @@ export class SimulationEngine {
    * queue directly, bypassing beforeArrival traits so the ack doesn't
    * re-trigger itself in an infinite fork loop.
    */
-  private forkConsumerRequest(node: GGcKNode, nodeId: string, producerRequest: Request): void {
-    const consumerRequest = this.cloneRequestForBranch(producerRequest)
-    this.requestById.set(consumerRequest.id, consumerRequest)
-    this.tracer.setRequestCreatedAt(consumerRequest.id, consumerRequest.createdAt)
-    this.recordCanonicalEvent({
-      timestampUs: this.clock,
-      type: 'request-generated',
-      priority: EventPriority.ARRIVAL,
-      requestId: consumerRequest.id,
-      nodeId,
-      payload: { request: consumerRequest, branchOfRequestId: producerRequest.id }
+  private forkConsumerRequest(_node: GGcKNode, nodeId: string, producerRequest: Request): void {
+    this.scheduleQueueDeliveryAttempt(producerRequest, nodeId, this.clock, {
+      branchOfRequestId: producerRequest.id,
+      retryCount: producerRequest.retryCount ?? 0
     })
-    this.appendNodeToPath(consumerRequest, nodeId)
-    this.metrics.recordNodeArrival(nodeId, this.clock)
-    this.recordNodePhaseArrival(consumerRequest, nodeId, this.clock)
-    this.admitToNodeQueue(node, nodeId, consumerRequest)
   }
 
   private admitToNodeQueue(node: GGcKNode, nodeId: string, request: Request): void {
@@ -968,6 +995,7 @@ export class SimulationEngine {
     }
     this.tracer.setPhaseRecord(request.id, request.phaseRecord)
     this.tracer.markStatus(request.id, 'success')
+    this.releaseRequestLockLeases(request)
     this.markRequestTerminal(request, 'success')
   }
 
@@ -1014,6 +1042,12 @@ export class SimulationEngine {
     if (observationPoint === 'node') {
       this.maybeRecordCircuitBreakerOutcome(request, event.nodeId, false)
     }
+    this.maybeScheduleQueueDeliveryFollowUp(request)
+    const timeoutReason =
+      typeof event.data.reason === 'string' ? event.data.reason : 'deadline_exceeded'
+    if (this.maybeScheduleRetryAttempt(request, event, timeoutReason, observationPoint)) {
+      return
+    }
 
     const timeoutLocus = this.resolveTerminalLocus(event, observationPoint === 'edge')
     this.markRequestPhaseTerminal(
@@ -1029,6 +1063,7 @@ export class SimulationEngine {
     }
     this.tracer.setPhaseRecord(request.id, request.phaseRecord)
     this.tracer.markStatus(request.id, 'timeout')
+    this.releaseRequestLockLeases(request)
     this.markRequestTerminal(request, 'timeout')
 
     const nodeArrivalTime =
@@ -1083,6 +1118,10 @@ export class SimulationEngine {
     if (observationPoint === 'node') {
       this.maybeRecordCircuitBreakerOutcome(request, event.nodeId, false)
     }
+    this.maybeScheduleQueueDeliveryFollowUp(request)
+    if (this.maybeScheduleRetryAttempt(request, event, reason, observationPoint)) {
+      return
+    }
 
     const nodeArrivalTime =
       typeof event.data.nodeArrivalTime === 'bigint' ? event.data.nodeArrivalTime : undefined
@@ -1115,6 +1154,7 @@ export class SimulationEngine {
     }
     this.tracer.setPhaseRecord(request.id, request.phaseRecord)
     this.tracer.markStatus(request.id, 'rejected')
+    this.releaseRequestLockLeases(request)
     this.markRequestTerminal(request, 'rejected', reason)
   }
 
@@ -1216,6 +1256,17 @@ export class SimulationEngine {
       nodeSnapshot: this.createNodeSnapshot(nodeId)
     })
 
+    this.maybeScheduleQueueDeliveryFollowUp(request)
+    if (
+      this.maybeScheduleRetryAttempt(
+        request,
+        createEvent('request-rejected', nodeId, request.id, {}, this.clock),
+        'connection_reset',
+        'node'
+      )
+    ) {
+      return
+    }
     this.markRequestPhaseTerminal(request, 'connection_reset', nodeId, 'node', this.clock)
     this.metrics.recordConnectionReset(request.id, nodeId, {
       requestCreatedAt: request.createdAt,
@@ -1232,6 +1283,7 @@ export class SimulationEngine {
     }
     this.tracer.setPhaseRecord(request.id, request.phaseRecord)
     this.tracer.markStatus(request.id, 'connection_reset')
+    this.releaseRequestLockLeases(request)
     this.markRequestTerminal(request, 'connection_reset', 'connection_reset')
   }
 
@@ -1359,6 +1411,233 @@ export class SimulationEngine {
       phaseRecord: cloneRequestPhaseRecord(request.phaseRecord),
       metadata: { ...request.metadata }
     }
+  }
+
+  private queueAttemptWindowUs(request: Request): bigint {
+    const window = request.deadline - request.createdAt
+    return window > 0n ? window : 1n
+  }
+
+  private createQueueDeliveryAttempt(
+    parentRequest: Request,
+    queueNodeId: string,
+    createdAtUs: bigint,
+    retryCount: number
+  ): Request {
+    const attempt = this.cloneRequestForBranch(parentRequest)
+    attempt.createdAt = createdAtUs
+    attempt.deadline = createdAtUs + this.queueAttemptWindowUs(parentRequest)
+    attempt.path = []
+    attempt.spans = []
+    attempt.hops = []
+    attempt.phaseRecord = undefined
+    attempt.retryCount = retryCount
+    this.clearPerAttemptRequestMetadata(attempt)
+    clearLockLeaseAttachments(attempt)
+    delete attempt.metadata.__terminal
+    writeQueueDeliveryOriginNodeId(attempt, queueNodeId)
+    return attempt
+  }
+
+  private scheduleQueueDeliveryAttempt(
+    parentRequest: Request,
+    queueNodeId: string,
+    scheduledAtUs: bigint,
+    options: {
+      branchOfRequestId: string
+      retryCount: number
+    }
+  ): Request | null {
+    if (!this.nodes.has(queueNodeId)) {
+      return null
+    }
+
+    const attempt = this.createQueueDeliveryAttempt(
+      parentRequest,
+      queueNodeId,
+      scheduledAtUs,
+      options.retryCount
+    )
+
+    this.eventQueue.insert(
+      createEvent(
+        'request-arrival',
+        queueNodeId,
+        attempt.id,
+        {
+          request: attempt,
+          internalQueueConsumer: true,
+          branchOfRequestId: options.branchOfRequestId
+        },
+        scheduledAtUs
+      )
+    )
+
+    return attempt
+  }
+
+  private maybeScheduleQueueDeliveryFollowUp(request: Request): void {
+    const queueNodeId = readQueueDeliveryOriginNodeId(request)
+    if (!queueNodeId) {
+      return
+    }
+
+    const node = this.nodeDefinitionsById.get(queueNodeId)
+    if (!node) {
+      return
+    }
+
+    const delivery = readQueueDeliveryConfig(node)
+    if (delivery.deliverySemantics === 'at-most-once') {
+      return
+    }
+
+    const attemptsSoFar = (request.retryCount ?? 0) + 1
+    if (attemptsSoFar >= delivery.maxReceiveCount) {
+      if (
+        delivery.dlqNodeId &&
+        delivery.dlqNodeId !== queueNodeId &&
+        this.scheduleQueueDeliveryAttempt(request, delivery.dlqNodeId, this.clock, {
+          branchOfRequestId: request.id,
+          retryCount: request.retryCount ?? 0
+        })
+      ) {
+        this.metrics.recordNodeTraitCounters(queueNodeId, { queueDlqMoves: 1 })
+      }
+      return
+    }
+
+    if (
+      this.scheduleQueueDeliveryAttempt(
+        request,
+        queueNodeId,
+        this.clock + delivery.visibilityTimeoutUs,
+        {
+          branchOfRequestId: request.id,
+          retryCount: (request.retryCount ?? 0) + 1
+        }
+      )
+    ) {
+      this.metrics.recordNodeTraitCounters(queueNodeId, { queueRedeliveries: 1 })
+    }
+  }
+
+  private releaseRequestLockLeases(request: Request): void {
+    const attachments = readLockLeaseAttachments(request)
+    if (attachments.length === 0) {
+      return
+    }
+
+    for (const attachment of attachments) {
+      releaseLockLeaseAttachment(this.getTraitStateStore(attachment.nodeId), request.id, attachment)
+    }
+
+    clearLockLeaseAttachments(request)
+  }
+
+  private clearPerAttemptRequestMetadata(request: Request): void {
+    clearCircuitBreakerTracking(request)
+    delete request.metadata[SERVICE_TIME_DISTRIBUTION_OVERRIDE_KEY]
+    delete request.metadata[SERVICE_TIME_LATENCY_PENALTY_MS_KEY]
+  }
+
+  private resolveRetryOwnerNodeId(
+    request: Request,
+    event: SimulationEvent,
+    observationPoint: 'node' | 'edge'
+  ): string | null {
+    if (readQueueDeliveryOriginNodeId(request)) {
+      return null
+    }
+
+    if (observationPoint === 'edge') {
+      if (typeof event.data.sourceNodeId === 'string') {
+        return event.data.sourceNodeId
+      }
+      return request.path.length > 0 ? request.path[request.path.length - 1] : null
+    }
+
+    const currentIndex = request.path.lastIndexOf(event.nodeId)
+    if (currentIndex > 0) {
+      return request.path[currentIndex - 1]
+    }
+
+    return request.path.length > 1 ? request.path[request.path.length - 2] : null
+  }
+
+  private isRetryableFailure(reason: string, observationPoint: 'node' | 'edge'): boolean {
+    if (observationPoint === 'edge') {
+      return true
+    }
+
+    switch (reason) {
+      case 'node_failed':
+      case 'node_error_rate':
+      case 'circuit_breaker_open':
+      case 'lock_contended':
+      case 'connection_reset':
+        return true
+      default:
+        return classifyRejectionCause(reason) === 'network_error'
+    }
+  }
+
+  private maybeScheduleRetryAttempt(
+    request: Request,
+    event: SimulationEvent,
+    reason: string,
+    observationPoint: 'node' | 'edge'
+  ): boolean {
+    if (!this.isRetryableFailure(reason, observationPoint)) {
+      return false
+    }
+
+    const retryOwnerNodeId = this.resolveRetryOwnerNodeId(request, event, observationPoint)
+    if (!retryOwnerNodeId) {
+      return false
+    }
+
+    const retryOwnerNode = this.nodeDefinitionsById.get(retryOwnerNodeId)
+    const retryConfig = retryOwnerNode ? readRetryBackoffConfig(retryOwnerNode) : null
+    if (!retryOwnerNode || !retryConfig) {
+      return false
+    }
+
+    const attemptsSoFar = (request.retryCount ?? 0) + 1
+    if (attemptsSoFar >= retryConfig.maxAttempts) {
+      this.metrics.recordNodeTraitCounters(retryOwnerNodeId, { retryBudgetExhausted: 1 })
+      return false
+    }
+
+    const retryDelayMs = computeRetryDelayMs(request.retryCount ?? 0, retryConfig, () =>
+      this.distributions.random()
+    )
+    const retryAtUs = this.clock + msToMicro(retryDelayMs)
+    if (retryAtUs >= request.deadline) {
+      this.metrics.recordNodeTraitCounters(retryOwnerNodeId, { retryBudgetExhausted: 1 })
+      return false
+    }
+
+    this.releaseRequestLockLeases(request)
+    this.clearPerAttemptRequestMetadata(request)
+    request.retryCount = (request.retryCount ?? 0) + 1
+
+    this.metrics.recordNodeTraitCounters(retryOwnerNodeId, { retryAttempts: 1 })
+    this.eventQueue.insert(
+      createEvent(
+        'request-arrival',
+        retryOwnerNodeId,
+        request.id,
+        {
+          request,
+          retryReason: reason,
+          retryOwnerNodeId,
+          retriedFromNodeId: event.nodeId
+        },
+        retryAtUs
+      )
+    )
+    return true
   }
 
   private ensurePhaseRecord(request: Request) {
@@ -1791,6 +2070,16 @@ export class SimulationEngine {
       get: <T>(key: string) => store!.get(key) as T | undefined,
       set: <T>(key: string, value: T) => {
         store!.set(key, value)
+      }
+    }
+  }
+
+  private getSharedTraitStateStore(): TraitStateStore {
+    const store = this.sharedTraitState
+    return {
+      get: <T>(key: string) => store.get(key) as T | undefined,
+      set: <T>(key: string, value: T) => {
+        store.set(key, value)
       }
     }
   }
@@ -2268,6 +2557,7 @@ export class SimulationEngine {
         clock: this.clock,
         random: () => this.distributions.random(),
         state: this.getTraitStateStore(nodeId),
+        sharedState: this.getSharedTraitStateStore(),
         nodeState: this.nodes.get(nodeId)?.getState()
       })
       this.recordTraitPayloadMetrics(nodeId, decision.payload)
@@ -2303,6 +2593,7 @@ export class SimulationEngine {
         clock: this.clock,
         random: () => this.distributions.random(),
         state: this.getTraitStateStore(nodeId),
+        sharedState: this.getSharedTraitStateStore(),
         nodeState: this.nodes.get(nodeId)?.getState()
       })
       this.recordTraitPayloadMetrics(nodeId, decision.payload)

@@ -72,6 +72,25 @@ function makeCacheNode(
   }
 }
 
+function makeQueueNode(
+  id: string,
+  config: Record<string, unknown> | undefined = undefined,
+  overrides: Partial<ComponentNode> = {}
+): ComponentNode {
+  return {
+    id,
+    type: 'queue',
+    category: 'messaging-and-streaming',
+    role: 'processor',
+    label: id,
+    position: { x: 0, y: 0 },
+    queue: { workers: 1, capacity: 100, discipline: 'fifo' },
+    processing: { distribution: { type: 'constant', value: 5 }, timeout: 1_000 },
+    config,
+    ...overrides
+  }
+}
+
 function makeEdge(
   id: string,
   source: string,
@@ -152,12 +171,13 @@ describe('SimulationEngine', () => {
       'request-generated',
       'request-forwarded',
       'request-arrived',
+      'trait-evaluated',
       'processing-started',
       'processing-completed',
       'request-completed'
     ])
-    expect(eventStream.map((event) => event.sequence)).toEqual([0, 1, 2, 3, 4, 5])
-    expect(eventStream[3].nodeSnapshot).toMatchObject({
+    expect(eventStream.map((event) => event.sequence)).toEqual([0, 1, 2, 3, 4, 5, 6])
+    expect(eventStream[4].nodeSnapshot).toMatchObject({
       nodeId: 'worker',
       activeWorkers: 1,
       queueLength: 0
@@ -656,6 +676,78 @@ describe('SimulationEngine', () => {
     expect(capacityExceeded).toBe(0)
   })
 
+  it('caller-owned retry backoff re-enters the caller after a downstream failure and succeeds after recovery', () => {
+    const topology = makeTopology({
+      global: {
+        simulationDuration: 30,
+        defaultTimeout: 100,
+        traceSampleRate: 1,
+        seed: 'retry-backoff-seed'
+      },
+      nodes: [
+        makeNode('source'),
+        {
+          ...makeNode('caller'),
+          resilience: {
+            retry: {
+              maxAttempts: 2,
+              baseDelay: 10,
+              maxDelay: 10,
+              multiplier: 2,
+              jitter: false
+            }
+          }
+        },
+        makeNode('backend')
+      ],
+      edges: [
+        makeEdge('source-caller', 'source', 'caller'),
+        makeEdge('caller-backend', 'caller', 'backend')
+      ],
+      workload: {
+        sourceNodeId: 'source',
+        pattern: 'constant',
+        baseRps: 1,
+        requestDistribution: [{ type: 'GET', weight: 1, sizeBytes: 100 }]
+      }
+    })
+
+    const engine = new SimulationEngine(topology)
+    const internal = engine as unknown as {
+      eventQueue: { insert: (event: ReturnType<typeof createEvent>) => void }
+    }
+    internal.eventQueue.insert(createEvent('node-failure', 'backend', '', {}, 0n))
+    internal.eventQueue.insert(createEvent('node-recovery', 'backend', '', {}, msToMicro(5)))
+
+    const output = engine.run()
+    const callerArrivals = output.eventStream.filter(
+      (event) =>
+        event.type === 'request-arrived' &&
+        event.nodeId === 'caller' &&
+        !event.requestId.includes('::branch-')
+    )
+    const backendFailures = output.eventStream.filter(
+      (event) =>
+        event.type === 'request-rejected' &&
+        event.nodeId === 'backend' &&
+        event.reasonCode === 'node_failed'
+    )
+    const finalOutcome = output.requestOutcomes.find(
+      (outcome) => outcome.requestId === 'req-000001'
+    )
+
+    expect(callerArrivals).toHaveLength(2)
+    expect(backendFailures).toHaveLength(1)
+    expect(output.perNode.caller.traitCounters.retryAttempts).toBe(1)
+    expect(output.summary.successfulRequests).toBe(1)
+    expect(output.summary.rejectedRequests).toBe(0)
+    expect(finalOutcome).toMatchObject({
+      status: 'success',
+      attempts: 2,
+      nodeId: 'backend'
+    })
+  })
+
   it('a Primary DB samples per-request-type latency: reads and writes see distinct, bimodal service times', () => {
     const readLatency = { type: 'constant' as const, value: 4 }
     const writeLatency = { type: 'constant' as const, value: 10 }
@@ -690,8 +782,8 @@ describe('SimulationEngine', () => {
     const readOutput = new SimulationEngine(makeDbTopology('read')).run()
     const writeOutput = new SimulationEngine(makeDbTopology('write')).run()
 
-    expect(readOutput.perNode.db.avgServiceTime).toBeCloseTo(4, 6)
-    expect(writeOutput.perNode.db.avgServiceTime).toBeCloseTo(10, 6)
+    expect(readOutput.perNode.db.avgServiceTime).toBeCloseTo(8, 6)
+    expect(writeOutput.perNode.db.avgServiceTime).toBeCloseTo(16, 6)
     expect(writeOutput.perNode.db.avgServiceTime).toBeGreaterThan(
       readOutput.perNode.db.avgServiceTime
     )
@@ -805,6 +897,96 @@ describe('SimulationEngine', () => {
     // queue) so backlog visibly grows instead of every message completing
     // immediately.
     expect(output.perNode.queue.peakQueueLength).toBeGreaterThan(5)
+  })
+
+  it('queue at-least-once delivery redelivers timed-out consumer attempts after the visibility timeout', () => {
+    const topology = makeTopology({
+      global: {
+        simulationDuration: 60,
+        defaultTimeout: 10,
+        traceSampleRate: 1,
+        seed: 'queue-redelivery'
+      },
+      nodes: [
+        makeNode('source'),
+        makeQueueNode(
+          'queue',
+          {
+            deliverySemantics: 'at-least-once',
+            visibilityTimeoutMs: 10,
+            maxReceiveCount: 2
+          },
+          {
+            queue: { workers: 1, capacity: 100, discipline: 'fifo' },
+            processing: { distribution: { type: 'constant', value: 50 }, timeout: 10 }
+          }
+        )
+      ],
+      edges: [makeEdge('source-queue', 'source', 'queue')],
+      workload: {
+        sourceNodeId: 'source',
+        pattern: 'constant',
+        baseRps: 1,
+        requestDistribution: [{ type: 'GET', weight: 1, sizeBytes: 100 }]
+      }
+    })
+
+    const output = new SimulationEngine(topology).run()
+    const attemptOutcomes = output.requestOutcomes
+      .filter((outcome) => outcome.requestId.includes('::branch-'))
+      .map((outcome) => outcome.attempts)
+      .sort((a, b) => a - b)
+
+    expect(output.perNode.queue.traitCounters.queueRedeliveries).toBe(1)
+    expect(output.summary.timedOutRequests).toBe(2)
+    expect(attemptOutcomes).toEqual([1, 2])
+  })
+
+  it('queue moves exhausted consumer attempts to the configured DLQ', () => {
+    const topology = makeTopology({
+      global: {
+        simulationDuration: 60,
+        defaultTimeout: 10,
+        traceSampleRate: 1,
+        seed: 'queue-dlq'
+      },
+      nodes: [
+        makeNode('source'),
+        makeQueueNode(
+          'queue',
+          {
+            deliverySemantics: 'at-least-once',
+            visibilityTimeoutMs: 5,
+            maxReceiveCount: 2,
+            dlqNodeId: 'dlq'
+          },
+          {
+            queue: { workers: 1, capacity: 100, discipline: 'fifo' },
+            processing: { distribution: { type: 'constant', value: 50 }, timeout: 10 }
+          }
+        ),
+        makeQueueNode('dlq', undefined, {
+          processing: { distribution: { type: 'constant', value: 1 }, timeout: 100 }
+        })
+      ],
+      edges: [makeEdge('source-queue', 'source', 'queue')],
+      workload: {
+        sourceNodeId: 'source',
+        pattern: 'constant',
+        baseRps: 1,
+        requestDistribution: [{ type: 'GET', weight: 1, sizeBytes: 100 }]
+      }
+    })
+
+    const output = new SimulationEngine(topology).run()
+
+    expect(output.perNode.queue.traitCounters.queueDlqMoves).toBe(1)
+    expect(output.perNode.dlq.totalArrived).toBe(1)
+    expect(
+      output.requestOutcomes.some(
+        (outcome) => outcome.status === 'success' && outcome.nodeId === 'dlq'
+      )
+    ).toBe(true)
   })
 
   it("deleting an observability branch does not change the real downstream node's traffic or latency", () => {
@@ -1040,6 +1222,7 @@ describe('SimulationEngine', () => {
       'request-generated',
       'request-forwarded',
       'request-arrived',
+      'trait-evaluated',
       'processing-started',
       'processing-completed',
       'request-completed'
@@ -1073,14 +1256,15 @@ describe('SimulationEngine', () => {
       'request-generated',
       'request-forwarded',
       'request-arrived',
+      'trait-evaluated',
       'processing-started',
       'processing-completed',
       'request-completed'
     ])
-    expect(output.eventLog?.map((event) => event.sequence)).toEqual([0, 1, 2, 3, 4, 5])
+    expect(output.eventLog?.map((event) => event.sequence)).toEqual([0, 1, 2, 3, 4, 5, 6])
     expect(output.eventLog?.[0].requestId).toBe('req-000001')
     expect(output.eventLog?.[1].edgeId).toBe('source-to-worker')
-    expect(output.eventLog?.[3].nodeSnapshot?.activeWorkers).toBe(1)
+    expect(output.eventLog?.[4].nodeSnapshot?.activeWorkers).toBe(1)
     expect(output.debuggedLifecycle).toBeNull()
   })
 
@@ -1110,6 +1294,7 @@ describe('SimulationEngine', () => {
       'request-generated',
       'request-forwarded',
       'request-arrived',
+      'trait-evaluated',
       'processing-started',
       'processing-completed',
       'request-completed'

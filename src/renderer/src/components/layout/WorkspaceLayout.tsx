@@ -1,4 +1,4 @@
-import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Panel, PanelGroup, ImperativePanelHandle } from 'react-resizable-panels'
 
 // Store
@@ -42,6 +42,8 @@ import { buildGamePlaygroundResult } from '../../../../engine/analysis/gamePlayg
 import {
   createAttemptState,
   lockAttempt,
+  resolveVisibleAttemptGrade,
+  topologySnapshotSignature,
   type AttemptState,
   type QuestionPackage
 } from '../../../../engine/analysis/question'
@@ -54,6 +56,7 @@ import {
   hasWorkloadSourceConfig,
   isSourceComponentData
 } from '../../../../engine/catalog/sourceNodeSemantics'
+import { resolveExperienceEnvelope } from '@renderer/utils/experienceEnvelope'
 
 // Organisms
 import {
@@ -65,6 +68,7 @@ import { FlowCanvas } from '../canvas/FlowCanvas'
 import { Header } from './Header'
 import { SampleScenarioPicker } from '../samples/SampleScenarioPicker'
 import { SAMPLE_SCENARIOS, type SampleScenario } from '@renderer/config/sampleScenarios'
+import { QuestionExperienceStrip } from '../question/questionEntryFormatPresentation'
 
 // Atoms
 import { ResizeHandle } from '../ui/ResizeHandle'
@@ -352,6 +356,7 @@ export const WorkspaceLayout = () => {
   const newtonSaveMode = useStore((s) => s.newtonSaveMode)
   const setNewtonSaveMode = useStore((s) => s.setNewtonSaveMode)
   const setHostLaunchErrorMessage = useStore((s) => s.setHostLaunchErrorMessage)
+  const setAuthoringWarning = useStore((s) => s.setAuthoringWarning)
   const setEnvironmentProfile = useStore((s) => s.setEnvironmentProfile)
   const setResultsRevealed = useStore((s) => s.setResultsRevealed)
   const requestViewportFit = useStore((s) => s.requestViewportFit)
@@ -359,6 +364,10 @@ export const WorkspaceLayout = () => {
   const setRunInspectorPinned = useStore((s) => s.setRunInspectorPinned)
   const routingVisualization = useStore((s) => s.routingStrategyVisualization)
   const setRoutingVisualization = useStore((s) => s.setRoutingStrategyVisualization)
+  const experienceEnvelope = useMemo(
+    () => resolveExperienceEnvelope(environmentProfile, activeQuestion),
+    [activeQuestion, environmentProfile]
+  )
   const isNewtonAssignmentHost = isNewtonHostMode()
   const canUseTopologyFiles =
     !isNewtonAssignmentHost && (!activeQuestion || environmentProfile.mode === 'AUTHOR')
@@ -378,6 +387,14 @@ export const WorkspaceLayout = () => {
     canSave: canUseTopologyFiles,
     canOpen: canUseTopologyFiles
   })
+
+  useEffect(() => {
+    if (experienceEnvelope.allowedTabs.includes(leftSidebarTab)) {
+      return
+    }
+
+    setLeftSidebarTab(experienceEnvelope.allowedTabs[0] ?? 'question')
+  }, [experienceEnvelope.allowedTabs, leftSidebarTab])
 
   const clearQuestionSession = useCallback(() => {
     setActiveQuestion(null)
@@ -483,6 +500,41 @@ export const WorkspaceLayout = () => {
   // Simulation
   const sim = useSimulation()
   const { serialize } = useTopologySerializer()
+  const currentQuestionTopology = useMemo(() => {
+    if (!activeQuestion) {
+      return null
+    }
+    try {
+      return serialize().topology
+    } catch {
+      return null
+    }
+  }, [activeQuestion, serialize])
+  const latestVisibleQuestionGrade = useMemo(
+    () => resolveVisibleAttemptGrade(attemptState, currentQuestionTopology),
+    [attemptState, currentQuestionTopology]
+  )
+  const questionTopologyHasEdits = useMemo(() => {
+    if (!activeQuestion) {
+      return false
+    }
+    if (!currentQuestionTopology) {
+      if (activeQuestion.scaffold.type === 'empty' || !activeQuestion.scaffold.topology) {
+        return nodes.length > 0 || edges.length > 0
+      }
+      return (
+        nodes.length !== activeQuestion.scaffold.topology.nodes.length ||
+        edges.length !== activeQuestion.scaffold.topology.edges.length
+      )
+    }
+    if (activeQuestion.scaffold.type === 'empty' || !activeQuestion.scaffold.topology) {
+      return currentQuestionTopology.nodes.length > 0 || currentQuestionTopology.edges.length > 0
+    }
+    return (
+      topologySnapshotSignature(currentQuestionTopology) !==
+      topologySnapshotSignature(activeQuestion.scaffold.topology)
+    )
+  }, [activeQuestion, currentQuestionTopology, edges.length, nodes.length])
 
   useEffect(() => {
     if (!isNewtonAssignmentHost) {
@@ -606,11 +658,15 @@ export const WorkspaceLayout = () => {
           if (errorMessage) {
             setHostLaunchErrorMessage(errorMessage)
           }
+          setAuthoringWarning(null)
           return
         }
         rememberTrustedHostOrigin(event.origin)
         setEnvironmentProfile(resolveEnvironmentProfile(seed.environmentProfile ?? 'ASSIGNMENT'))
         setResultsRevealed(false)
+        // Prompt preview (grading config missing/invalid) surfaces as a non-blocking
+        // notice; a fully-authored question clears it.
+        setAuthoringWarning(seed.authoringWarning ?? null)
         void loadQuestionIntoWorkspace(seed.questionPackage, seed.priorAttempt, {
           readOnly: seed.readOnly,
           seedTopology: seed.seedTopology,
@@ -638,7 +694,7 @@ export const WorkspaceLayout = () => {
         }
         // reset: reload the scaffold and start a fresh, unlocked attempt.
         const scaffoldTopology =
-          question.scaffold.type === 'partial' ? question.scaffold.topology : undefined
+          question.scaffold.type !== 'empty' ? question.scaffold.topology : undefined
         const launchData =
           scaffoldTopology ??
           ({ version: '2.0.0', nodes: [], edges: [], scenario: DEFAULT_SCENARIO_STATE } as const)
@@ -688,6 +744,7 @@ export const WorkspaceLayout = () => {
     loadQuestionIntoWorkspace,
     setEnvironmentProfile,
     setHostLaunchErrorMessage,
+    setAuthoringWarning,
     setResultsRevealed
   ])
 
@@ -1034,6 +1091,19 @@ export const WorkspaceLayout = () => {
         canSave={canUseTopologyFiles}
       />
 
+      {activeQuestion && (
+        <QuestionExperienceStrip
+          question={activeQuestion}
+          experience={experienceEnvelope}
+          runtime={{
+            hasTopologyEdits: questionTopologyHasEdits,
+            hasCurrentEvaluation: latestVisibleQuestionGrade !== null,
+            evaluationPassed: latestVisibleQuestionGrade?.contract.allPassed ?? false,
+            testRunCount: attemptState?.testRunCount ?? 0
+          }}
+        />
+      )}
+
       {runIssues.messages.length > 0 && (
         <RunToast
           messages={runIssues.messages}
@@ -1053,8 +1123,8 @@ export const WorkspaceLayout = () => {
       <div className="flex-1 overflow-hidden relative h-full flex">
         <LibraryActivityRail
           activeTab={leftSidebarTab}
+          experience={experienceEnvelope}
           onSelect={handleLeftSidebarTabSelect}
-          showScenarios={!activeQuestion}
         />
 
         <PanelGroup
@@ -1084,6 +1154,7 @@ export const WorkspaceLayout = () => {
                 <div className="relative h-full">
                   <FlowCanvas
                     showMetricLens={environmentProfile.visibility.liveMetrics}
+                    interactionLocked={experienceEnvelope.canvasLocked}
                     onNodeDoubleClick={(_, node) => {
                       selectGraphElements({ nodeId: node.id })
                       setIsRightOpen(true)
@@ -1096,7 +1167,7 @@ export const WorkspaceLayout = () => {
                       onClick={() => setShowResults(true)}
                       className="absolute bottom-4 left-1/2 z-20 -translate-x-1/2 rounded-full border border-nss-border bg-nss-panel/95 px-4 py-2 text-sm font-semibold text-nss-text shadow-lg backdrop-blur transition-colors hover:border-nss-primary/50 hover:text-nss-primary"
                     >
-                      Show Results
+                      {experienceEnvelope.resultsButtonLabel}
                     </button>
                   )}
                 </div>

@@ -86,6 +86,7 @@ function rowAuthoredSeed(overrides: Record<string, unknown> = {}): Record<string
           questionId: pkg.id,
           questionVersion: pkg.version,
           questionType: pkg.type,
+          entryFormat: 'requirements-first',
           domains: ['compute', 'storage'],
           concepts: ['read-cache', 'store-fit'],
           difficulty: pkg.difficulty,
@@ -165,6 +166,7 @@ describe('parseNewtonSeed', () => {
     expect(seed.questionPackage.prompt.text).toContain('Design a write path')
     expect(seed.questionPackage.domains).toEqual(['compute', 'storage'])
     expect(seed.questionPackage.concepts).toEqual(['read-cache', 'store-fit'])
+    expect(seed.questionPackage.entryFormat).toBe('requirements-first')
     expect(seed.questionPackage.justify?.[0]?.id).toBe('why-store')
     expect(seed.promptHtml).toContain('<h3>Scale</h3>')
     expect(seed.environmentProfile).toEqual({
@@ -236,26 +238,250 @@ describe('parseNewtonSeed', () => {
     expect(() => parseNewtonSeed('not json')).toThrow()
   })
 
-  it('explains when a row-authored Django seed is missing SIMULATOR_CONFIG', () => {
-    expect(
-      explainNewtonSeedParseFailure({
-        question_title: 'Design a URL shortener',
-        question_text: '<p>Prompt only</p>',
+  it('previews the prompt (with a warning) when a row-authored seed is missing SIMULATOR_CONFIG', () => {
+    // The prompt must render even without a SIMULATOR_CONFIG row; the missing
+    // config becomes a non-blocking authoring warning instead of a hard failure.
+    const seed = parseNewtonSeed({
+      question_title: 'Design a URL shortener',
+      question_text: '<p>Prompt only</p>',
+      rubric: [
+        {
+          title: 'RUBRIC_CHECK: p99',
+          spec: {
+            type: 'RUBRIC_CHECK',
+            id: 'p99',
+            description: 'p99 under 100ms',
+            metric: 'summary.latency.p99',
+            op: '<',
+            value: 100
+          }
+        }
+      ]
+    })
+    expect(seed.promptHtml).toContain('Prompt only')
+    expect(seed.authoringWarning).toContain('SIMULATOR_CONFIG')
+  })
+
+  it('fills the required constraint booleans when the author only sets some', () => {
+    // The author supplied constraints without canRemoveScaffoldNodes — a common
+    // partial config that used to fail validation with a cryptic message.
+    const seed = parseNewtonSeed(
+      rowAuthoredSeed({
         rubric: [
           {
-            title: 'RUBRIC_CHECK: p99',
+            title: 'SIMULATOR_CONFIG',
+            spec: {
+              type: 'SIMULATOR_CONFIG',
+              questionId: 'simple-web-service',
+              questionType: 'open-build',
+              difficulty: 'beginner',
+              scaffold: { type: 'empty' },
+              constraints: { canModifyScaffold: true, maxNodeCount: 12 },
+              suite: pkg.suite,
+              rubric: { id: 'r', passThreshold: 1 }
+            }
+          },
+          {
+            title: 'RUBRIC_CHECK',
             spec: {
               type: 'RUBRIC_CHECK',
-              id: 'p99',
-              description: 'p99 under 100ms',
-              metric: 'summary.latency.p99',
-              op: '<',
-              value: 100
+              id: 'no-invariants',
+              kind: 'invariant',
+              description: 'No invariant violations',
+              metric: 'invariantViolations.count',
+              op: '==',
+              value: 0,
+              points: 1
             }
           }
         ]
       })
-    ).toContain('SIMULATOR_CONFIG')
+    )
+    expect(seed.questionPackage.constraints.canRemoveScaffoldNodes).toBe(true)
+    expect(seed.questionPackage.constraints.canModifyScaffold).toBe(true)
+  })
+
+  it('fills id/description/points/workload defaults so rows can be written atomically', () => {
+    const seed = parseNewtonSeed({
+      question_title: 'Design a simple web service',
+      question_text: '<p>Design it.</p>',
+      rubric: [
+        {
+          spec: {
+            type: 'SIMULATOR_CONFIG',
+            suite: {
+              cases: [{ workload: { baseRps: 100, requestDistribution: [{ type: 'read' }] } }]
+            }
+          }
+        },
+        { spec: { type: 'STRUCTURAL_RULE', kind: 'requires_single_source' } },
+        {
+          spec: {
+            type: 'STRUCTURAL_RULE',
+            kind: 'requires_component',
+            componentType: 'microservice'
+          }
+        },
+        {
+          spec: {
+            type: 'SEMANTIC_CRITERION',
+            kind: 'storageFit',
+            accessPattern: 'point-lookup',
+            accept: ['kv-store'],
+            antiPattern: ['relational-db']
+          }
+        },
+        { spec: { type: 'RUBRIC_CHECK', metric: 'summary.latency.p99', op: '<', value: 100 } }
+      ]
+    })
+    const q = seed.questionPackage
+    expect(seed.authoringWarning).toBeUndefined()
+    // Derived, unique ids + human descriptions.
+    expect(q.structuralRules?.map((r) => r.id)).toEqual([
+      'requires-single-source',
+      'requires-component-microservice'
+    ])
+    expect(q.structuralRules?.[0].description).toBe('Exactly one traffic source')
+    // Semantic points default to 1; rubric id derived from the metric.
+    expect(q.semanticCriteria?.[0].points).toBe(1)
+    expect(q.rubric.checks[0].id).toBe('p99')
+    // Suite name/visibility/case-id + workload weight/sizeBytes all filled.
+    expect(q.suite.name).toBe('design-a-simple-web-service-suite')
+    expect(q.suite.visibleToStudent).toBe(false)
+    expect(q.suite.cases[0].id).toBe('peak')
+    expect(q.suite.cases[0].workload?.requestDistribution?.[0]).toMatchObject({
+      type: 'read',
+      weight: 1,
+      sizeBytes: 256
+    })
+  })
+
+  it('keeps author-provided ids and does not collide derived ones with them', () => {
+    const seed = parseNewtonSeed({
+      question_title: 'Q',
+      question_text: '<p>x</p>',
+      rubric: [
+        { spec: { type: 'SIMULATOR_CONFIG', suite: { cases: [{ id: 'c' }] } } },
+        // Two same-kind rules: second must get a unique derived id.
+        {
+          spec: {
+            type: 'STRUCTURAL_RULE',
+            kind: 'requires_component',
+            componentType: 'microservice'
+          }
+        },
+        {
+          spec: {
+            type: 'STRUCTURAL_RULE',
+            kind: 'requires_component',
+            componentType: 'relational-db'
+          }
+        },
+        {
+          spec: {
+            type: 'RUBRIC_CHECK',
+            id: 'my-check',
+            metric: 'summary.errorRate',
+            op: '<',
+            value: 0.1
+          }
+        }
+      ]
+    })
+    const ids = seed.questionPackage.structuralRules?.map((r) => r.id) ?? []
+    expect(new Set(ids).size).toBe(ids.length) // unique
+    expect(seed.questionPackage.rubric.checks[0].id).toBe('my-check') // explicit id preserved
+  })
+
+  it('injects a default rubric check when the author writes only structural rows', () => {
+    const seed = parseNewtonSeed(
+      rowAuthoredSeed({
+        rubric: [
+          {
+            title: 'SIMULATOR_CONFIG',
+            spec: {
+              type: 'SIMULATOR_CONFIG',
+              questionId: 'structural-only',
+              questionType: 'open-build',
+              difficulty: 'beginner',
+              scaffold: { type: 'empty' },
+              suite: pkg.suite
+            }
+          },
+          {
+            title: 'STRUCTURAL_RULE',
+            spec: {
+              type: 'STRUCTURAL_RULE',
+              id: 'single-source',
+              kind: 'requires_single_source',
+              description: 'Exactly one client'
+            }
+          }
+        ]
+      })
+    )
+    expect(seed.questionPackage.rubric.checks).toHaveLength(1)
+    expect(seed.questionPackage.rubric.checks[0].id).toBe('no-invariants')
+  })
+
+  it('loads the prompt in preview mode when there is no SIMULATOR_CONFIG yet', () => {
+    const seed = parseNewtonSeed({
+      question_title: 'Design a simple web service',
+      question_text: '<p>Place the single client.</p>'
+    })
+    expect(seed.promptHtml).toContain('Place the single client')
+    expect(seed.questionPackage.title).toBe('Design a simple web service')
+    expect(seed.authoringWarning).toContain('SIMULATOR_CONFIG')
+  })
+
+  it('still loads the prompt when the SIMULATOR_CONFIG is invalid, with an actionable warning', () => {
+    const seed = parseNewtonSeed(
+      rowAuthoredSeed({
+        rubric: [
+          {
+            title: 'SIMULATOR_CONFIG',
+            spec: {
+              type: 'SIMULATOR_CONFIG',
+              questionId: 'bad',
+              questionType: 'open-build',
+              difficulty: 'beginner',
+              scaffold: { type: 'empty' },
+              suite: pkg.suite,
+              rubric: { id: 'r', passThreshold: 7 } // invalid: must be 0..1
+            }
+          }
+        ]
+      })
+    )
+    expect(seed.promptHtml).toBeTruthy()
+    expect(seed.authoringWarning).toContain('passThreshold')
+  })
+
+  it('still throws when there is neither a prompt nor a config', () => {
+    expect(() => parseNewtonSeed({ playgroundHash: 'x' })).toThrow()
+  })
+
+  it('gives an author-actionable message when a broken config has no prompt to preview', () => {
+    // No question_title/question_text → nothing to preview, so this is a hard
+    // failure and the message is surfaced via explainNewtonSeedParseFailure.
+    const message = explainNewtonSeedParseFailure({
+      rubric: [
+        {
+          title: 'SIMULATOR_CONFIG',
+          spec: {
+            type: 'SIMULATOR_CONFIG',
+            questionId: 'bad-threshold',
+            questionType: 'open-build',
+            difficulty: 'beginner',
+            scaffold: { type: 'empty' },
+            suite: pkg.suite,
+            rubric: { id: 'r', passThreshold: 7 } // must be 0..1
+          }
+        }
+      ]
+    })
+    expect(message).toContain('passThreshold')
+    expect(message).toContain('fraction')
   })
 })
 

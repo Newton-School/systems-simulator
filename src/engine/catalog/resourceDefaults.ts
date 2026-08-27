@@ -387,6 +387,27 @@ export const RESOURCE_DEFAULTS: Partial<Record<ComponentType, ResourceTypeDefaul
     queueSlots: 4096,
     perRequestMemMb: 8
   },
+  'rate-limiter': {
+    instanceType: 'm5.large',
+    workloadKind: 'io-bound',
+    workersPerInstance: 64,
+    queueSlots: 512,
+    perRequestMemMb: 4
+  },
+  'circuit-breaker-controller': {
+    instanceType: 't3.medium',
+    workloadKind: 'cpu-bound',
+    workersPerInstance: 8,
+    queueSlots: 128,
+    perRequestMemMb: 8
+  },
+  'distributed-lock': {
+    instanceType: 'm5.large',
+    workloadKind: 'io-bound',
+    workersPerInstance: 16,
+    queueSlots: 512,
+    perRequestMemMb: 8
+  },
   'event-sourcing-store': {
     instanceType: 'r5.large',
     workloadKind: 'io-bound',

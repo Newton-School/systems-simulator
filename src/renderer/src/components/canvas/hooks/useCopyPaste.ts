@@ -109,7 +109,7 @@ export function materializeClipboardSelection(
   return { nodes, edges }
 }
 
-export const useCopyPaste = () => {
+export const useCopyPaste = ({ disabled = false }: { disabled?: boolean } = {}) => {
   const { nodes, edges, setGraph } = useFlowStore()
   const storeRef = useRef({ nodes, edges })
   useEffect(() => {
@@ -130,13 +130,15 @@ export const useCopyPaste = () => {
   const clipboardRef = useRef<ClipboardSelection>({ nodes: [], edges: [] })
 
   const copy = useCallback(() => {
+    if (disabled) return
     const { nodes: currentNodes, edges: currentEdges } = storeRef.current
     const selection = buildClipboardSelection(currentNodes, currentEdges)
     if (selection.nodes.length === 0) return
     clipboardRef.current = selection
-  }, [])
+  }, [disabled])
 
   const paste = useCallback(() => {
+    if (disabled) return
     const { nodes: clipboardNodes, edges: clipboardEdges } = clipboardRef.current
     if (clipboardNodes.length === 0) return
 
@@ -158,10 +160,14 @@ export const useCopyPaste = () => {
     ]
 
     setGraph(nextNodes, nextEdges)
-  }, [setGraph, screenToFlowPosition])
+  }, [disabled, setGraph, screenToFlowPosition])
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
+      if (disabled) {
+        return
+      }
+
       const target = event.target as HTMLElement
       if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
         return
@@ -201,5 +207,5 @@ export const useCopyPaste = () => {
     return () => {
       document.removeEventListener('keydown', handleKeyDown)
     }
-  }, [copy, paste])
+  }, [copy, disabled, paste])
 }

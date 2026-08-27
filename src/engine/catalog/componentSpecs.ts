@@ -13,7 +13,13 @@ import {
   CONTENT_ROUTING_MATCH_FIELDS,
   L4_CONTENT_ROUTING_FORBIDDEN_MESSAGE
 } from '../traits/contentRouting'
+import { DEFAULT_BREAKER_CONFIG } from '../traits/circuitBreaker'
 import { HEALTH_AWARE_COMPONENT_TYPES } from '../traits/healthAwareRouting'
+import {
+  DEFAULT_RETRY_BASE_DELAY_MS,
+  DEFAULT_RETRY_MAX_DELAY_MS,
+  DEFAULT_RETRY_MULTIPLIER
+} from '../traits/retryBackoff'
 import { asDistributionConfig } from '../traits/serviceTimeOverride'
 import {
   nonNegativeNumber,
@@ -78,7 +84,10 @@ const TYPE_MEAN_SERVICE_MS: Partial<Record<ComponentType, number>> = {
   'centralized-logging': 1,
   'metrics-store': 0.5,
   'distributed-tracing': 1,
-  'alerting-hook': 5
+  'alerting-hook': 5,
+  'rate-limiter': 0.2,
+  'circuit-breaker-controller': 0.2,
+  'distributed-lock': 2
 }
 
 const HEALTH_AWARE_COMPONENT_TYPE_SET = new Set<ComponentType>(HEALTH_AWARE_COMPONENT_TYPES)
@@ -276,6 +285,27 @@ export function buildSeededSimulationConfig(
     sim.securityPolicy = { blockRate, droppedPackets }
   }
 
+  if (componentType === 'rate-limiter') {
+    sim.maxTokens = 100
+    sim.refillRatePerSecond = 50
+  }
+
+  if (componentType === 'circuit-breaker-controller') {
+    sim.circuitBreaker = {
+      failureThreshold: DEFAULT_BREAKER_CONFIG.failureThreshold,
+      failureCount: DEFAULT_BREAKER_CONFIG.failureCount,
+      recoveryTimeout: DEFAULT_BREAKER_CONFIG.recoveryTimeoutMs,
+      halfOpenRequests: DEFAULT_BREAKER_CONFIG.halfOpenRequests
+    }
+  }
+
+  if (componentType === 'distributed-lock') {
+    sim.lockKeyField = 'seatId'
+    sim.acquireMs = 2
+    sim.leaseMs = 5_000
+    sim.fencing = true
+  }
+
   return sim
 }
 
@@ -354,6 +384,31 @@ function buildRuntimeNode(
     config.refillRatePerSecond = data.sim.refillRatePerSecond
   }
 
+  if (data.sim?.retry) {
+    const maxAttempts =
+      typeof data.sim.retry.maxAttempts === 'number' && data.sim.retry.maxAttempts > 0
+        ? Math.round(data.sim.retry.maxAttempts)
+        : null
+    if (maxAttempts !== null) {
+      resilience.retry = {
+        maxAttempts,
+        baseDelay:
+          typeof data.sim.retry.baseDelay === 'number' && data.sim.retry.baseDelay > 0
+            ? data.sim.retry.baseDelay
+            : DEFAULT_RETRY_BASE_DELAY_MS,
+        maxDelay:
+          typeof data.sim.retry.maxDelay === 'number' && data.sim.retry.maxDelay > 0
+            ? data.sim.retry.maxDelay
+            : DEFAULT_RETRY_MAX_DELAY_MS,
+        multiplier:
+          typeof data.sim.retry.multiplier === 'number' && data.sim.retry.multiplier > 0
+            ? data.sim.retry.multiplier
+            : DEFAULT_RETRY_MULTIPLIER,
+        jitter: data.sim.retry.jitter === true
+      }
+    }
+  }
+
   if (data.sim?.coldStartLatency) {
     config.coldStartLatency = data.sim.coldStartLatency
   } else if (typeof data.sim?.coldStartLatencyMs === 'number' && data.sim.coldStartLatencyMs > 0) {
@@ -409,6 +464,61 @@ function buildRuntimeNode(
     config.writeLatency = data.sim.writeLatency
   } else if (typeof data.sim?.writeLatencyMs === 'number' && data.sim.writeLatencyMs > 0) {
     config.writeLatency = { type: 'exponential', lambda: 1 / data.sim.writeLatencyMs }
+  }
+
+  for (const field of [
+    'storageReadMs',
+    'storageWriteMs',
+    'storageQueryMs',
+    'storageScanMs',
+    'storageIngestMs'
+  ] as const) {
+    const value = data.sim?.[field]
+    if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+      config[field] = value
+    }
+  }
+
+  for (const field of ['dedupWindowMs', 'storeLookupMs'] as const) {
+    const value = data.sim?.[field]
+    if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+      config[field] = value
+    }
+  }
+
+  for (const field of ['acquireMs', 'leaseMs'] as const) {
+    const value = data.sim?.[field]
+    if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+      config[field] = value
+    }
+  }
+
+  for (const field of [
+    'workingSetRatio',
+    'workingSetPenaltyMs',
+    'gcPressureStartRatio',
+    'gcPauseMs'
+  ] as const) {
+    const value = data.sim?.[field]
+    if (
+      typeof value === 'number' &&
+      Number.isFinite(value) &&
+      (field === 'gcPressureStartRatio' ? value >= 0 && value <= 1 : value > 0)
+    ) {
+      config[field] = value
+    }
+  }
+
+  if (typeof data.sim?.dedupKeyField === 'string' && data.sim.dedupKeyField.trim().length > 0) {
+    config.dedupKeyField = data.sim.dedupKeyField.trim()
+  }
+
+  if (typeof data.sim?.lockKeyField === 'string' && data.sim.lockKeyField.trim().length > 0) {
+    config.lockKeyField = data.sim.lockKeyField.trim()
+  }
+
+  if (typeof data.sim?.fencing === 'boolean') {
+    config.fencing = data.sim.fencing
   }
 
   const queue = data.sim?.queue
@@ -528,6 +638,77 @@ function validateSimulationNode(data: CanvasNodeDataV2): string[] {
     errors.push(positiveNumber('Write latency', 'ms'))
   }
 
+  for (const [field, label] of [
+    ['storageReadMs', 'Read latency'],
+    ['storageWriteMs', 'Write latency'],
+    ['storageQueryMs', 'Query latency'],
+    ['storageScanMs', 'Scan latency'],
+    ['storageIngestMs', 'Ingest latency']
+  ] as const) {
+    const value = data.sim?.[field]
+    if (value !== undefined && (!Number.isFinite(value) || value <= 0)) {
+      errors.push(positiveNumber(label, 'ms'))
+    }
+  }
+
+  for (const [field, label] of [
+    ['dedupWindowMs', 'Dedup window'],
+    ['storeLookupMs', 'Lookup latency']
+  ] as const) {
+    const value = data.sim?.[field]
+    if (value !== undefined && (!Number.isFinite(value) || value <= 0)) {
+      errors.push(positiveNumber(label, 'ms'))
+    }
+  }
+
+  for (const [field, label] of [
+    ['workingSetRatio', 'Working-set ratio'],
+    ['workingSetPenaltyMs', 'Working-set miss penalty'],
+    ['gcPauseMs', 'Max GC pause']
+  ] as const) {
+    const value = data.sim?.[field]
+    if (value !== undefined && (!Number.isFinite(value) || value <= 0)) {
+      errors.push(positiveNumber(label, field === 'workingSetRatio' ? undefined : 'ms'))
+    }
+  }
+
+  if (
+    data.sim?.gcPressureStartRatio !== undefined &&
+    (!Number.isFinite(data.sim.gcPressureStartRatio) ||
+      data.sim.gcPressureStartRatio < 0 ||
+      data.sim.gcPressureStartRatio > 1)
+  ) {
+    errors.push(probability('GC pressure threshold'))
+  }
+
+  if (
+    data.sim?.dedupKeyField !== undefined &&
+    (typeof data.sim.dedupKeyField !== 'string' || data.sim.dedupKeyField.trim().length === 0)
+  ) {
+    errors.push('Metadata key must be a non-empty string.')
+  }
+
+  if (
+    data.sim?.lockKeyField !== undefined &&
+    (typeof data.sim.lockKeyField !== 'string' || data.sim.lockKeyField.trim().length === 0)
+  ) {
+    errors.push('Lock key field must be a non-empty string.')
+  }
+
+  if (
+    data.sim?.acquireMs !== undefined &&
+    (!Number.isFinite(data.sim.acquireMs) || data.sim.acquireMs <= 0)
+  ) {
+    errors.push(positiveNumber('Acquire latency', 'ms'))
+  }
+
+  if (
+    data.sim?.leaseMs !== undefined &&
+    (!Number.isFinite(data.sim.leaseMs) || data.sim.leaseMs <= 0)
+  ) {
+    errors.push(positiveNumber('Lease TTL', 'ms'))
+  }
+
   if (
     data.sim?.replicationRole !== undefined &&
     data.sim.replicationRole !== 'primary' &&
@@ -548,6 +729,48 @@ function validateSimulationNode(data: CanvasNodeDataV2): string[] {
     (!Number.isFinite(data.sim.refillRatePerSecond) || data.sim.refillRatePerSecond < 0)
   ) {
     errors.push(nonNegativeNumber('Refill rate', 'tokens/s'))
+  }
+
+  const retry = data.sim?.retry
+  if (retry) {
+    const retryFieldsProvided = [
+      retry.maxAttempts,
+      retry.baseDelay,
+      retry.maxDelay,
+      retry.multiplier,
+      retry.jitter
+    ].some((value) => value !== undefined)
+
+    if (
+      retryFieldsProvided &&
+      (!Number.isFinite(retry.maxAttempts) || (retry.maxAttempts ?? 0) <= 0)
+    ) {
+      errors.push(positiveNumber('Max attempts'))
+    }
+    if (
+      retry.baseDelay !== undefined &&
+      (!Number.isFinite(retry.baseDelay) || retry.baseDelay <= 0)
+    ) {
+      errors.push(positiveNumber('Base delay', 'ms'))
+    }
+    if (retry.maxDelay !== undefined && (!Number.isFinite(retry.maxDelay) || retry.maxDelay <= 0)) {
+      errors.push(positiveNumber('Max delay', 'ms'))
+    }
+    if (
+      retry.multiplier !== undefined &&
+      (!Number.isFinite(retry.multiplier) || retry.multiplier <= 0)
+    ) {
+      errors.push(positiveNumber('Multiplier'))
+    }
+    if (
+      retry.baseDelay !== undefined &&
+      retry.maxDelay !== undefined &&
+      Number.isFinite(retry.baseDelay) &&
+      Number.isFinite(retry.maxDelay) &&
+      retry.maxDelay < retry.baseDelay
+    ) {
+      errors.push('Max delay must be at least as large as Base delay.')
+    }
   }
 
   if (
@@ -804,6 +1027,41 @@ register('llm-gateway', {
   category: 'external-and-integration',
   structuralRole: 'processor',
   profile: 'compute-service',
+  defaultRenderer: 'serviceNode'
+})
+
+register('rate-limiter', {
+  category: 'auxiliary',
+  structuralRole: 'processor',
+  profile: 'control-plane',
+  defaultRenderer: 'serviceNode'
+})
+
+register('circuit-breaker-controller', {
+  category: 'auxiliary',
+  structuralRole: 'processor',
+  profile: 'control-plane',
+  defaultRenderer: 'serviceNode'
+})
+
+register('idempotency-manager', {
+  category: 'auxiliary',
+  structuralRole: 'processor',
+  profile: 'control-plane',
+  defaultRenderer: 'serviceNode'
+})
+
+register('reservation-store', {
+  category: 'auxiliary',
+  structuralRole: 'processor',
+  profile: 'control-plane',
+  defaultRenderer: 'serviceNode'
+})
+
+register('distributed-lock', {
+  category: 'consensus-and-coordination',
+  structuralRole: 'processor',
+  profile: 'control-plane',
   defaultRenderer: 'serviceNode'
 })
 

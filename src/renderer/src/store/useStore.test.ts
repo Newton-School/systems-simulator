@@ -176,22 +176,40 @@ describe('useStore scaffold-node lock', () => {
     return { id, type: 'service', position: { x: 0, y: 0 }, data: { label: id } }
   }
 
+  function edge(id: string, source: string, target: string) {
+    return { id, source, target, data: { latencyValue: 1 } }
+  }
+
   beforeEach(() => {
     useStore.getState().setActiveQuestion({
       id: 'q1',
-      scaffold: { type: 'partial', topology: { nodes: [{ id: 'scaffold-1' }] } }
+      scaffold: {
+        type: 'partial',
+        topology: {
+          nodes: [{ id: 'scaffold-1' }, { id: 'scaffold-2' }],
+          edges: [{ id: 'scaffold-edge', source: 'scaffold-1', target: 'scaffold-2' }]
+        }
+      }
     } as any)
-    useStore.getState().setNodes([node('scaffold-1'), node('student-1')] as any)
+    useStore.getState().setNodes([node('scaffold-1'), node('scaffold-2'), node('student-1')] as any)
+    useStore
+      .getState()
+      .setEdges([
+        edge('scaffold-edge', 'scaffold-1', 'scaffold-2'),
+        edge('student-edge', 'scaffold-2', 'student-1')
+      ] as any)
   })
 
   afterEach(() => {
     useStore.getState().setActiveQuestion(null)
     useStore.getState().setEnvironmentProfile(resolveEnvironmentProfile())
     useStore.getState().setNodes([])
+    useStore.getState().setEdges([])
   })
 
-  it('derives scaffold node ids from the active question scaffold', () => {
-    expect(useStore.getState().scaffoldNodeIds).toEqual(['scaffold-1'])
+  it('derives scaffold node and edge ids from the active question scaffold', () => {
+    expect(useStore.getState().scaffoldNodeIds).toEqual(['scaffold-1', 'scaffold-2'])
+    expect(useStore.getState().scaffoldEdgeIds).toEqual(['scaffold-edge'])
   })
 
   it('blocks deleting and editing locked scaffold nodes but not student nodes', () => {
@@ -209,6 +227,36 @@ describe('useStore scaffold-node lock', () => {
     expect((scaffoldNode?.data as { label: string }).label).toBe('scaffold-1')
   })
 
+  it('blocks scaffold-node movement in locked profiles while still letting student nodes move', () => {
+    useStore.getState().setEnvironmentProfile(resolveEnvironmentProfile('ASSIGNMENT'))
+
+    useStore
+      .getState()
+      .onNodesChange([
+        { type: 'position', id: 'scaffold-1', position: { x: 50, y: 25 }, dragging: false } as any
+      ])
+    useStore
+      .getState()
+      .onNodesChange([
+        { type: 'position', id: 'student-1', position: { x: 80, y: 40 }, dragging: false } as any
+      ])
+
+    const scaffoldNode = useStore.getState().nodes.find((n) => n.id === 'scaffold-1')
+    const studentNode = useStore.getState().nodes.find((n) => n.id === 'student-1')
+    expect(scaffoldNode?.position).toEqual({ x: 0, y: 0 })
+    expect(studentNode?.position).toEqual({ x: 80, y: 40 })
+  })
+
+  it('blocks deleting scaffold edges in locked profiles but still lets student edges go away', () => {
+    useStore.getState().setEnvironmentProfile(resolveEnvironmentProfile('ASSIGNMENT'))
+
+    useStore.getState().onEdgesChange([{ type: 'remove', id: 'scaffold-edge' }])
+    useStore.getState().onEdgesChange([{ type: 'remove', id: 'student-edge' }])
+
+    expect(useStore.getState().edges.map((edge) => edge.id)).toContain('scaffold-edge')
+    expect(useStore.getState().edges.map((edge) => edge.id)).not.toContain('student-edge')
+  })
+
   it('allows editing scaffold nodes when the profile permits (AUTHOR)', () => {
     useStore.getState().setEnvironmentProfile(resolveEnvironmentProfile('AUTHOR'))
     useStore.getState().updateNodeData('scaffold-1', { label: 'edited' } as any)
@@ -217,6 +265,69 @@ describe('useStore scaffold-node lock', () => {
 
     useStore.getState().onNodesChange([{ type: 'remove', id: 'scaffold-1' }])
     expect(useStore.getState().nodes.map((n) => n.id)).not.toContain('scaffold-1')
+  })
+
+  it('keeps explicitly locked scaffold nodes and edges immutable even when AUTHOR can edit other scaffold parts', () => {
+    useStore.getState().setEnvironmentProfile(resolveEnvironmentProfile('AUTHOR'))
+    useStore.getState().setActiveQuestion({
+      id: 'q1',
+      scaffold: {
+        type: 'partial',
+        topology: {
+          nodes: [{ id: 'scaffold-1' }, { id: 'scaffold-2' }],
+          edges: [{ id: 'scaffold-edge', source: 'scaffold-1', target: 'scaffold-2' }]
+        },
+        lockedNodeIds: ['scaffold-1'],
+        lockedEdgeIds: ['scaffold-edge']
+      },
+      constraints: {
+        canModifyScaffold: true,
+        canRemoveScaffoldNodes: true
+      }
+    } as any)
+
+    useStore.getState().updateNodeData('scaffold-1', { label: 'edited' } as any)
+    useStore.getState().onNodesChange([{ type: 'remove', id: 'scaffold-1' }])
+    useStore.getState().onEdgesChange([{ type: 'remove', id: 'scaffold-edge' }])
+    useStore.getState().updateEdgeData('scaffold-edge', { label: 'blocked' })
+
+    const lockedNode = useStore.getState().nodes.find((node) => node.id === 'scaffold-1')
+    const lockedEdge = useStore.getState().edges.find((edge) => edge.id === 'scaffold-edge')
+    expect((lockedNode?.data as { label: string }).label).toBe('scaffold-1')
+    expect(useStore.getState().nodes.map((node) => node.id)).toContain('scaffold-1')
+    expect(lockedEdge?.label).toBeUndefined()
+    expect(useStore.getState().edges.map((edge) => edge.id)).toContain('scaffold-edge')
+  })
+
+  it('lets authored scaffold constraints stay authoritative even in AUTHOR mode', () => {
+    useStore.getState().setEnvironmentProfile(resolveEnvironmentProfile('AUTHOR'))
+    useStore.getState().setActiveQuestion({
+      id: 'q1',
+      scaffold: {
+        type: 'partial',
+        topology: {
+          nodes: [{ id: 'scaffold-1' }],
+          edges: []
+        }
+      },
+      constraints: {
+        canModifyScaffold: false,
+        canRemoveScaffoldNodes: false
+      }
+    } as any)
+
+    useStore.getState().updateNodeData('scaffold-1', { label: 'edited' } as any)
+    useStore
+      .getState()
+      .onNodesChange([
+        { type: 'position', id: 'scaffold-1', position: { x: 20, y: 20 }, dragging: false } as any
+      ])
+    useStore.getState().onNodesChange([{ type: 'remove', id: 'scaffold-1' }])
+
+    const scaffoldNode = useStore.getState().nodes.find((n) => n.id === 'scaffold-1')
+    expect((scaffoldNode?.data as { label: string }).label).toBe('scaffold-1')
+    expect(scaffoldNode?.position).toEqual({ x: 0, y: 0 })
+    expect(useStore.getState().nodes.map((n) => n.id)).toContain('scaffold-1')
   })
 })
 

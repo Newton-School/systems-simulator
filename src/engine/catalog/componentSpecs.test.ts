@@ -52,10 +52,18 @@ const RAW_VALIDATION_COPY_FRAGMENTS = [
   'coldStartLatency',
   'idleTimeoutMs',
   'maxConcurrency',
+  'workingSetRatio',
+  'workingSetPenaltyMs',
+  'gcPressureStartRatio',
+  'gcPauseMs',
+  'lockKeyField',
+  'acquireMs',
+  'leaseMs',
   'routingKeyField',
   'dnsRoutingPolicy',
   'dnsCacheTtlSeconds',
   'circuitBreaker.',
+  'retry.',
   'routingRules[',
   'matchField',
   'matchValue',
@@ -97,6 +105,10 @@ describe('component spec validation copy', () => {
         coldStartLatencyMs: 0,
         idleTimeoutMs: 0,
         maxConcurrency: 0,
+        workingSetRatio: 0,
+        workingSetPenaltyMs: 0,
+        gcPressureStartRatio: 2,
+        gcPauseMs: 0,
         routingKeyField: '',
         dnsRoutingPolicy: 'invalid' as unknown as NonNullable<
           CanvasNodeDataV2['sim']
@@ -128,6 +140,10 @@ describe('component spec validation copy', () => {
         'Cold start latency must be greater than 0 ms.',
         'Idle timeout must be greater than 0 ms.',
         'Max concurrency must be greater than 0.',
+        'Working-set ratio must be greater than 0.',
+        'Working-set miss penalty must be greater than 0 ms.',
+        'GC pressure threshold must be between 0 and 1 (0-100%).',
+        'Max GC pause must be greater than 0 ms.',
         'Routing key field cannot be empty.',
         'DNS routing policy must be Simple, Weighted, Failover, Latency-based, or Geolocation.',
         'Cache TTL must be 0 seconds or greater.',
@@ -238,6 +254,53 @@ describe('component spec validation copy', () => {
 
     expectHumanReadableValidationCopy(allErrors)
   })
+
+  it('uses human copy for retry-policy and lock-lease validation', () => {
+    const retryErrors = getComponentSpec('microservice')!.validateCanvas(
+      makeNodeData('microservice', {
+        queue: { workers: 1, capacity: 1, discipline: 'fifo' },
+        processing: { distribution: { type: 'constant', value: 1 }, timeout: 1_000 },
+        retry: {
+          maxAttempts: 0,
+          baseDelay: 0,
+          maxDelay: 0,
+          multiplier: 0
+        }
+      })
+    )
+
+    const lockErrors = getComponentSpec('distributed-lock')!.validateCanvas(
+      makeNodeData(
+        'distributed-lock',
+        {
+          queue: { workers: 1, capacity: 1, discipline: 'fifo' },
+          processing: { distribution: { type: 'constant', value: 1 }, timeout: 1_000 },
+          lockKeyField: '',
+          acquireMs: 0,
+          leaseMs: 0
+        },
+        {
+          profile: 'control-plane',
+          label: 'Distributed Lock'
+        }
+      )
+    )
+
+    const allErrors = [...retryErrors, ...lockErrors]
+
+    expect(allErrors).toEqual(
+      expect.arrayContaining([
+        'Max attempts must be greater than 0.',
+        'Base delay must be greater than 0 ms.',
+        'Max delay must be greater than 0 ms.',
+        'Multiplier must be greater than 0.',
+        'Lock key field must be a non-empty string.',
+        'Acquire latency must be greater than 0 ms.',
+        'Lease TTL must be greater than 0 ms.'
+      ])
+    )
+    expectHumanReadableValidationCopy(allErrors)
+  })
 })
 
 describe('default simulation config resources', () => {
@@ -250,6 +313,31 @@ describe('default simulation config resources', () => {
       instanceCount: 1,
       workloadKind: 'cpu-bound',
       perRequestMemMb: 16
+    })
+  })
+
+  it('seeds first-class defaults for rate limiting, breakers, and locks', () => {
+    expect(getComponentSpec('rate-limiter')!.createDefaultSimulationConfig()).toMatchObject({
+      maxTokens: 100,
+      refillRatePerSecond: 50
+    })
+
+    expect(
+      getComponentSpec('circuit-breaker-controller')!.createDefaultSimulationConfig()
+    ).toMatchObject({
+      circuitBreaker: {
+        failureThreshold: 0.5,
+        failureCount: 10,
+        recoveryTimeout: 15_000,
+        halfOpenRequests: 1
+      }
+    })
+
+    expect(getComponentSpec('distributed-lock')!.createDefaultSimulationConfig()).toMatchObject({
+      lockKeyField: 'seatId',
+      acquireMs: 2,
+      leaseMs: 5_000,
+      fencing: true
     })
   })
 })
@@ -315,6 +403,36 @@ describe('relational-db serializeCanvas readLatencyMs/writeLatencyMs', () => {
     expect(node?.slo).toEqual({ latencyP99: 99 })
   })
 
+  it('serializes memory-pressure config fields onto node.config', () => {
+    const spec = getComponentSpec('in-memory-cache')!
+    const node = spec.serializeCanvas(
+      makeNodeData(
+        'in-memory-cache',
+        {
+          queue: { workers: 8, capacity: 100, discipline: 'fifo' },
+          processing: { distribution: { type: 'constant', value: 1 }, timeout: 1_000 },
+          workingSetRatio: 1.6,
+          workingSetPenaltyMs: 12,
+          gcPressureStartRatio: 0.75,
+          gcPauseMs: 30
+        },
+        {
+          structuralRole: 'storage',
+          profile: 'datastore',
+          label: 'Cache'
+        }
+      ),
+      { nodeId: 'cache', position: { x: 0, y: 0 } }
+    )
+
+    expect(node?.config).toMatchObject({
+      workingSetRatio: 1.6,
+      workingSetPenaltyMs: 12,
+      gcPressureStartRatio: 0.75,
+      gcPauseMs: 30
+    })
+  })
+
   it('derives error budget from availability target when only availability is configured', () => {
     const spec = getComponentSpec('relational-db')!
     const node = spec.serializeCanvas(
@@ -328,5 +446,60 @@ describe('relational-db serializeCanvas readLatencyMs/writeLatencyMs', () => {
 
     expect(node?.slo?.availabilityTarget).toBe(0.999)
     expect(node?.slo?.errorBudget).toBeCloseTo(0.001, 9)
+  })
+
+  it('serializes retry policy onto resilience.retry for caller-owned backoff', () => {
+    const spec = getComponentSpec('microservice')!
+    const node = spec.serializeCanvas(
+      makeNodeData('microservice', {
+        queue: { workers: 8, capacity: 100, discipline: 'fifo' },
+        processing: { distribution: { type: 'constant', value: 8 }, timeout: 1_000 },
+        retry: {
+          maxAttempts: 3,
+          baseDelay: 100,
+          maxDelay: 500,
+          multiplier: 2,
+          jitter: true
+        }
+      }),
+      { nodeId: 'svc', position: { x: 0, y: 0 } }
+    )
+
+    expect(node?.resilience?.retry).toEqual({
+      maxAttempts: 3,
+      baseDelay: 100,
+      maxDelay: 500,
+      multiplier: 2,
+      jitter: true
+    })
+  })
+
+  it('serializes distributed-lock fields onto node.config', () => {
+    const spec = getComponentSpec('distributed-lock')!
+    const node = spec.serializeCanvas(
+      makeNodeData(
+        'distributed-lock',
+        {
+          queue: { workers: 8, capacity: 100, discipline: 'fifo' },
+          processing: { distribution: { type: 'constant', value: 8 }, timeout: 1_000 },
+          lockKeyField: 'inventoryKey',
+          acquireMs: 4,
+          leaseMs: 2_000,
+          fencing: false
+        },
+        {
+          profile: 'control-plane',
+          label: 'Distributed Lock'
+        }
+      ),
+      { nodeId: 'lock', position: { x: 0, y: 0 } }
+    )
+
+    expect(node?.config).toMatchObject({
+      lockKeyField: 'inventoryKey',
+      acquireMs: 4,
+      leaseMs: 2_000,
+      fencing: false
+    })
   })
 })

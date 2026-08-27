@@ -173,11 +173,31 @@ export class WorkloadGenerator {
       retryCount: 0,
       completionSeq: 0,
       timeoutSeq: 0,
-      metadata:
-        requestType.metadata && typeof requestType.metadata === 'object'
-          ? { ...requestType.metadata }
-          : {}
+      metadata: this.buildRequestMetadata(requestType)
     }
+  }
+
+  /**
+   * Copies the request type's static metadata and, when a `keyspace` is declared,
+   * stamps a per-request key drawn uniformly from `size` distinct keys. A small
+   * keyspace under high RPS produces the key contention that reservation designs
+   * must survive.
+   */
+  private buildRequestMetadata(
+    requestType: WorkloadProfile['requestDistribution'][number]
+  ): Record<string, unknown> {
+    const metadata: Record<string, unknown> =
+      requestType.metadata && typeof requestType.metadata === 'object'
+        ? { ...requestType.metadata }
+        : {}
+
+    const keyspace = requestType.keyspace
+    if (keyspace && keyspace.size > 0 && keyspace.field) {
+      const index = this.rng.integer(0, Math.floor(keyspace.size) - 1)
+      metadata[keyspace.field] = `${keyspace.field}-${index}`
+    }
+
+    return metadata
   }
 
   private pickRequestDistributionEntry(): WorkloadProfile['requestDistribution'][number] {

@@ -42,6 +42,12 @@ function fmtRatioPercent(value?: number): string {
   return `${((value ?? 0) * 100).toFixed(1)}%`
 }
 
+const TRAIT_COUNTER_LABELS: Record<string, string> = {
+  memoryPressureEvents: 'Requests under memory pressure',
+  workingSetPressureEvents: 'Requests with working-set spill',
+  gcPressureEvents: 'Requests with GC pressure'
+}
+
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="space-y-3">
@@ -253,7 +259,7 @@ export const NodeMetricsDetail = ({
           <div className="space-y-1.5">
             {traitCounterEntries.map(([key, value]) => (
               <div key={key} className="flex items-center justify-between text-xs">
-                <span className="text-nss-muted">{key}</span>
+                <span className="text-nss-muted">{TRAIT_COUNTER_LABELS[key] ?? key}</span>
                 <span className="font-semibold text-nss-text tabular-nums">{value}</span>
               </div>
             ))}
