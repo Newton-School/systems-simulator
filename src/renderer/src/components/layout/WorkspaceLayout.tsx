@@ -68,7 +68,10 @@ import { FlowCanvas } from '../canvas/FlowCanvas'
 import { Header } from './Header'
 import { SampleScenarioPicker } from '../samples/SampleScenarioPicker'
 import { SAMPLE_SCENARIOS, type SampleScenario } from '@renderer/config/sampleScenarios'
-import { QuestionExperienceStrip } from '../question/questionEntryFormatPresentation'
+import {
+  QuestionExperienceStrip,
+  SHOW_ENTRY_FORMAT_WORKFLOW
+} from '../question/questionEntryFormatPresentation'
 
 // Atoms
 import { ResizeHandle } from '../ui/ResizeHandle'
@@ -1091,7 +1094,7 @@ export const WorkspaceLayout = () => {
         canSave={canUseTopologyFiles}
       />
 
-      {activeQuestion && (
+      {activeQuestion && SHOW_ENTRY_FORMAT_WORKFLOW && (
         <QuestionExperienceStrip
           question={activeQuestion}
           experience={experienceEnvelope}

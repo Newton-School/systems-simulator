@@ -6,6 +6,13 @@ import {
   type QuestionExperienceRuntimeState
 } from './questionEntryFormatPresentationModel'
 
+/**
+ * Kill-switch for the entry-format workflow scaffolding (the top experience
+ * strip and the brief's guide card). Synthesized for every question today, it is
+ * reserved for a future redesign and force-hidden. Flip to `true` to bring back.
+ */
+export const SHOW_ENTRY_FORMAT_WORKFLOW = false
+
 const ENTRY_TONE: Record<QuestionEntryFormat, string> = {
   'blank-canvas': 'border-nss-border bg-nss-panel',
   'requirements-first': 'border-nss-primary/25 bg-nss-primary/10',
