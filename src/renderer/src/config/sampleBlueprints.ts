@@ -112,7 +112,8 @@ export const SAMPLE_BLUEPRINTS: SampleBlueprint[] = [
     title: 'Store-Fit Routing',
     summary:
       'Use requirements to separate hot point reads from heavy export scans instead of pretending one datastore is equally good at both.',
-    focus: 'State semantics: access-pattern-aware storage, routing by request type, and visible store-fit tradeoffs.',
+    focus:
+      'State semantics: access-pattern-aware storage, routing by request type, and visible store-fit tradeoffs.',
     question: {
       version: '1.0',
       id: 'blueprint-store-fit-routing',

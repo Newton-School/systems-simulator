@@ -109,7 +109,6 @@ interface LibraryActivityRailProps {
 
 interface LibrarySidebarContentProps {
   activeTab: LibrarySidebarTab
-  experience: ExperienceEnvelope
   onLoadScenario: (scenarioId: string) => Promise<void>
 }
 
@@ -186,7 +185,10 @@ function LabPanel() {
 
       <div className="flex-1 min-h-0 overflow-y-auto p-3 space-y-2">
         {SAMPLE_LABS.map((lab) => (
-          <div key={lab.id} className="rounded-lg border border-nss-border bg-nss-panel p-3 space-y-2">
+          <div
+            key={lab.id}
+            className="rounded-lg border border-nss-border bg-nss-panel p-3 space-y-2"
+          >
             <div className="space-y-1">
               <h4 className="text-xs font-semibold text-nss-text">{lab.title}</h4>
               <p className="text-[11px] leading-relaxed text-nss-muted">{lab.summary}</p>
@@ -258,7 +260,7 @@ const ActivityButton = memo(function ActivityButton({
 export const LibraryActivityRail = memo(function LibraryActivityRail({
   activeTab,
   experience,
-  onSelect,
+  onSelect
 }: LibraryActivityRailProps) {
   const tabs = experience.allowedTabs.map((id) => ({
     id,
@@ -514,11 +516,7 @@ function ScenarioPanel({
   )
 }
 
-export function LibrarySidebarContent({
-  activeTab,
-  experience,
-  onLoadScenario
-}: LibrarySidebarContentProps) {
+export function LibrarySidebarContent({ activeTab, onLoadScenario }: LibrarySidebarContentProps) {
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<Filter>('all')
   const [selectedScenarioId, setSelectedScenarioId] = useState('')

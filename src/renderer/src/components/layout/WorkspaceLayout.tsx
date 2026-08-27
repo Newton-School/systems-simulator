@@ -508,7 +508,7 @@ export const WorkspaceLayout = () => {
     } catch {
       return null
     }
-  }, [activeQuestion, edges, nodes, scenario, serialize])
+  }, [activeQuestion, serialize])
   const latestVisibleQuestionGrade = useMemo(
     () => resolveVisibleAttemptGrade(attemptState, currentQuestionTopology),
     [attemptState, currentQuestionTopology]
@@ -1136,11 +1136,7 @@ export const WorkspaceLayout = () => {
             order={1}
             id="left-panel"
           >
-            <LibrarySidebarContent
-              activeTab={leftSidebarTab}
-              experience={experienceEnvelope}
-              onLoadScenario={handleLoadScenario}
-            />
+            <LibrarySidebarContent activeTab={leftSidebarTab} onLoadScenario={handleLoadScenario} />
           </Panel>
           <ResizeHandle vertical id="resize-left-catalog" />
 

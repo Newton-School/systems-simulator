@@ -4,7 +4,7 @@ import type { SimulationVerdict } from '../../../../engine/analysis/verdict'
 import {
   buildQuestionEntryFormatPresentation,
   buildQuestionWorkflowTracker
-} from './questionEntryFormatPresentation'
+} from './questionEntryFormatPresentationModel'
 
 function baselineVerdict(): SimulationVerdict {
   return {

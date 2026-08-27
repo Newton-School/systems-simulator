@@ -1,11 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Request } from '../core/events'
 import { SERVICE_TIME_DISTRIBUTION_OVERRIDE_KEY } from './serviceTimeOverride'
-import {
-  lockLeaseTrait,
-  readLockLeaseAttachments,
-  releaseLockLeaseAttachment
-} from './lockLease'
+import { lockLeaseTrait, readLockLeaseAttachments, releaseLockLeaseAttachment } from './lockLease'
 import type { TraitStateStore } from './types'
 
 function makeState(): TraitStateStore {

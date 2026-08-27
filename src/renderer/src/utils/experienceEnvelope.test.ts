@@ -22,7 +22,10 @@ describe('resolveExperienceEnvelope', () => {
   })
 
   it('uses Assignment when a graded question is active', () => {
-    const envelope = resolveExperienceEnvelope(resolveEnvironmentProfile('ASSIGNMENT'), BASE_QUESTION)
+    const envelope = resolveExperienceEnvelope(
+      resolveEnvironmentProfile('ASSIGNMENT'),
+      BASE_QUESTION
+    )
 
     expect(envelope.kind).toBe('ASSIGNMENT')
     expect(envelope.questionTabLabel).toBe('Assignment Brief')

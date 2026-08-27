@@ -93,8 +93,12 @@ function asPositiveNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null
 }
 
-function defaultStorageLatencyMs(componentType: ComponentType, operation: StorageOperation): number {
-  const profile = DEFAULT_STORAGE_PROFILE_MS[componentType as keyof typeof DEFAULT_STORAGE_PROFILE_MS]
+function defaultStorageLatencyMs(
+  componentType: ComponentType,
+  operation: StorageOperation
+): number {
+  const profile =
+    DEFAULT_STORAGE_PROFILE_MS[componentType as keyof typeof DEFAULT_STORAGE_PROFILE_MS]
   return profile?.[operation] ?? DEFAULT_STORAGE_PROFILE_MS['relational-db'][operation]
 }
 
@@ -159,7 +163,10 @@ function classifyRequestOperation(request: Request): StorageOperation {
   return 'read'
 }
 
-function fieldVisible(operation: StorageOperation, componentType: ComponentType | undefined): boolean {
+function fieldVisible(
+  operation: StorageOperation,
+  componentType: ComponentType | undefined
+): boolean {
   if (componentType === undefined) {
     return operation === 'read' || operation === 'write'
   }
@@ -179,7 +186,9 @@ function fieldVisible(operation: StorageOperation, componentType: ComponentType 
 
 function placeholder(operation: StorageOperation, data: CanvasNodeDataV2): string {
   const field = STORAGE_OPERATION_FIELDS[operation]
-  const configured = asPositiveNumber(data.sim?.[field as keyof NonNullable<CanvasNodeDataV2['sim']>])
+  const configured = asPositiveNumber(
+    data.sim?.[field as keyof NonNullable<CanvasNodeDataV2['sim']>]
+  )
   const fallback = defaultStorageLatencyMs(data.componentType, operation)
   const value = configured ?? fallback
   return `Default ${operation}: ${value.toFixed(1)}ms`

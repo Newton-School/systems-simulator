@@ -122,7 +122,9 @@ export const memoryPressureTrait: NodeBehaviourTrait = {
     const config = readMemoryPressureConfig(node)
     const workingSetPressure = computeWorkingSetPressure(config)
     const occupancyRatio = config.gcPressureActive
-      ? clamp01((nodeState?.totalInSystem ?? 0) / Math.max(1, deriveNodeConcurrency(node).effectiveK))
+      ? clamp01(
+          (nodeState?.totalInSystem ?? 0) / Math.max(1, deriveNodeConcurrency(node).effectiveK)
+        )
       : 0
     const gcPressure = config.gcPressureActive
       ? computeGcPressure(node, nodeState?.totalInSystem ?? 0, config.gcPressureStartRatio)

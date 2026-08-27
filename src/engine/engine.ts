@@ -87,10 +87,7 @@ import {
   type ProbeState
 } from './traits/healthProber'
 import { resolveTraits } from './traits/resolveTraits'
-import {
-  computeRetryDelayMs,
-  readRetryBackoffConfig
-} from './traits/retryBackoff'
+import { computeRetryDelayMs, readRetryBackoffConfig } from './traits/retryBackoff'
 import {
   SERVICE_TIME_DISTRIBUTION_OVERRIDE_KEY,
   SERVICE_TIME_LATENCY_PENALTY_MS_KEY
@@ -1511,10 +1508,15 @@ export class SimulationEngine {
     }
 
     if (
-      this.scheduleQueueDeliveryAttempt(request, queueNodeId, this.clock + delivery.visibilityTimeoutUs, {
-        branchOfRequestId: request.id,
-        retryCount: (request.retryCount ?? 0) + 1
-      })
+      this.scheduleQueueDeliveryAttempt(
+        request,
+        queueNodeId,
+        this.clock + delivery.visibilityTimeoutUs,
+        {
+          branchOfRequestId: request.id,
+          retryCount: (request.retryCount ?? 0) + 1
+        }
+      )
     ) {
       this.metrics.recordNodeTraitCounters(queueNodeId, { queueRedeliveries: 1 })
     }
@@ -1527,11 +1529,7 @@ export class SimulationEngine {
     }
 
     for (const attachment of attachments) {
-      releaseLockLeaseAttachment(
-        this.getTraitStateStore(attachment.nodeId),
-        request.id,
-        attachment
-      )
+      releaseLockLeaseAttachment(this.getTraitStateStore(attachment.nodeId), request.id, attachment)
     }
 
     clearLockLeaseAttachments(request)

@@ -191,12 +191,13 @@ describe('useStore scaffold-node lock', () => {
         }
       }
     } as any)
+    useStore.getState().setNodes([node('scaffold-1'), node('scaffold-2'), node('student-1')] as any)
     useStore
       .getState()
-      .setNodes([node('scaffold-1'), node('scaffold-2'), node('student-1')] as any)
-    useStore
-      .getState()
-      .setEdges([edge('scaffold-edge', 'scaffold-1', 'scaffold-2'), edge('student-edge', 'scaffold-2', 'student-1')] as any)
+      .setEdges([
+        edge('scaffold-edge', 'scaffold-1', 'scaffold-2'),
+        edge('student-edge', 'scaffold-2', 'student-1')
+      ] as any)
   })
 
   afterEach(() => {
@@ -229,12 +230,16 @@ describe('useStore scaffold-node lock', () => {
   it('blocks scaffold-node movement in locked profiles while still letting student nodes move', () => {
     useStore.getState().setEnvironmentProfile(resolveEnvironmentProfile('ASSIGNMENT'))
 
-    useStore.getState().onNodesChange([
-      { type: 'position', id: 'scaffold-1', position: { x: 50, y: 25 }, dragging: false } as any
-    ])
-    useStore.getState().onNodesChange([
-      { type: 'position', id: 'student-1', position: { x: 80, y: 40 }, dragging: false } as any
-    ])
+    useStore
+      .getState()
+      .onNodesChange([
+        { type: 'position', id: 'scaffold-1', position: { x: 50, y: 25 }, dragging: false } as any
+      ])
+    useStore
+      .getState()
+      .onNodesChange([
+        { type: 'position', id: 'student-1', position: { x: 80, y: 40 }, dragging: false } as any
+      ])
 
     const scaffoldNode = useStore.getState().nodes.find((n) => n.id === 'scaffold-1')
     const studentNode = useStore.getState().nodes.find((n) => n.id === 'student-1')
@@ -312,9 +317,11 @@ describe('useStore scaffold-node lock', () => {
     } as any)
 
     useStore.getState().updateNodeData('scaffold-1', { label: 'edited' } as any)
-    useStore.getState().onNodesChange([
-      { type: 'position', id: 'scaffold-1', position: { x: 20, y: 20 }, dragging: false } as any
-    ])
+    useStore
+      .getState()
+      .onNodesChange([
+        { type: 'position', id: 'scaffold-1', position: { x: 20, y: 20 }, dragging: false } as any
+      ])
     useStore.getState().onNodesChange([{ type: 'remove', id: 'scaffold-1' }])
 
     const scaffoldNode = useStore.getState().nodes.find((n) => n.id === 'scaffold-1')

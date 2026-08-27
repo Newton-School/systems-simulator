@@ -112,7 +112,11 @@ function formatComparisonValue(metric: string, value: number): string {
   }
 }
 
-function formatComparisonDelta(deltaPct: number | null, improved: boolean, nonRegressed: boolean): string {
+function formatComparisonDelta(
+  deltaPct: number | null,
+  improved: boolean,
+  nonRegressed: boolean
+): string {
   if (deltaPct === null) {
     return improved ? 'Improved' : nonRegressed ? 'Held' : 'Regressed'
   }
@@ -482,7 +486,8 @@ export const QuestionPanel = () => {
   const contract = latestGrade?.contract
   const testRunCount = attemptState?.testRunCount ?? 0
   const testRows = buildQuestionTestRows(activeQuestion, latestGrade)
-  const isBaselineOptimizeQuestion = resolveQuestionEntryFormat(activeQuestion) === 'baseline-optimize'
+  const isBaselineOptimizeQuestion =
+    resolveQuestionEntryFormat(activeQuestion) === 'baseline-optimize'
   const baselineComparison = latestGrade?.baselineComparison
   // --- EnvironmentProfile + host-command gates ---
   const isAttemptLocked = attemptState?.status === 'LOCKED'
@@ -816,84 +821,86 @@ export const QuestionPanel = () => {
               </div>
             )}
 
-            {showRubricResults && isBaselineOptimizeQuestion && activeQuestion.scaffold.baselineVerdict && (
-              <section className="space-y-2">
-                <div className="flex items-center justify-between gap-3">
-                  <h3 className={SECTION_TITLE}>Baseline Comparison</h3>
-                  {baselineComparison && (
-                    <span
-                      className={`rounded px-2 py-0.5 text-[10px] font-bold uppercase ${
-                        baselineComparison.passed
-                          ? 'bg-nss-success/15 text-nss-success'
-                          : 'bg-nss-danger/15 text-nss-danger'
-                      }`}
-                    >
-                      {baselineComparison.passed ? 'Baseline Beaten' : 'Baseline Not Beaten'}
-                    </span>
-                  )}
-                </div>
-
-                {baselineComparison ? (
-                  <>
-                    <p className="rounded border border-nss-border bg-nss-surface px-3 py-2 text-[11px] leading-relaxed text-nss-muted">
-                      {baselineComparison.detail}
-                    </p>
-                    {baselineComparison.metrics.length > 0 && (
-                      <div className="grid gap-2">
-                        {baselineComparison.metrics.map((metric) => (
-                          <div
-                            key={metric.metric}
-                            className="rounded border border-nss-border/70 bg-nss-surface/40 px-3 py-2"
-                          >
-                            <div className="flex items-center justify-between gap-3 text-xs">
-                              <span className="font-semibold text-nss-text">{metric.label}</span>
-                              <span
-                                className={
-                                  metric.improved
-                                    ? 'text-nss-success'
-                                    : metric.nonRegressed
-                                      ? 'text-nss-warning'
-                                      : 'text-nss-danger'
-                                }
-                              >
-                                {formatComparisonDelta(
-                                  metric.deltaPct,
-                                  metric.improved,
-                                  metric.nonRegressed
-                                )}
-                              </span>
-                            </div>
-                            <div className="mt-2 grid grid-cols-2 gap-2 text-[10px] text-nss-muted">
-                              <div>
-                                <div>Baseline</div>
-                                <div className="font-semibold text-nss-text">
-                                  {formatComparisonValue(metric.metric, metric.baseline)}
-                                </div>
-                              </div>
-                              <div>
-                                <div>Current</div>
-                                <div className="font-semibold text-nss-text">
-                                  {formatComparisonValue(metric.metric, metric.current)}
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
+            {showRubricResults &&
+              isBaselineOptimizeQuestion &&
+              activeQuestion.scaffold.baselineVerdict && (
+                <section className="space-y-2">
+                  <div className="flex items-center justify-between gap-3">
+                    <h3 className={SECTION_TITLE}>Baseline Comparison</h3>
+                    {baselineComparison && (
+                      <span
+                        className={`rounded px-2 py-0.5 text-[10px] font-bold uppercase ${
+                          baselineComparison.passed
+                            ? 'bg-nss-success/15 text-nss-success'
+                            : 'bg-nss-danger/15 text-nss-danger'
+                        }`}
+                      >
+                        {baselineComparison.passed ? 'Baseline Beaten' : 'Baseline Not Beaten'}
+                      </span>
                     )}
-                  </>
-                ) : hasEvaluatedTests ? (
-                  <p className="rounded border border-nss-border bg-nss-surface px-3 py-2 text-[11px] leading-relaxed text-nss-muted">
-                    Baseline comparison is unavailable because the primary comparison case did not
-                    produce a verdict.
-                  </p>
-                ) : (
-                  <p className="rounded border border-nss-border bg-nss-surface px-3 py-2 text-[11px] leading-relaxed text-nss-muted">
-                    Run &amp; Compare to measure the current design against the authored baseline.
-                  </p>
-                )}
-              </section>
-            )}
+                  </div>
+
+                  {baselineComparison ? (
+                    <>
+                      <p className="rounded border border-nss-border bg-nss-surface px-3 py-2 text-[11px] leading-relaxed text-nss-muted">
+                        {baselineComparison.detail}
+                      </p>
+                      {baselineComparison.metrics.length > 0 && (
+                        <div className="grid gap-2">
+                          {baselineComparison.metrics.map((metric) => (
+                            <div
+                              key={metric.metric}
+                              className="rounded border border-nss-border/70 bg-nss-surface/40 px-3 py-2"
+                            >
+                              <div className="flex items-center justify-between gap-3 text-xs">
+                                <span className="font-semibold text-nss-text">{metric.label}</span>
+                                <span
+                                  className={
+                                    metric.improved
+                                      ? 'text-nss-success'
+                                      : metric.nonRegressed
+                                        ? 'text-nss-warning'
+                                        : 'text-nss-danger'
+                                  }
+                                >
+                                  {formatComparisonDelta(
+                                    metric.deltaPct,
+                                    metric.improved,
+                                    metric.nonRegressed
+                                  )}
+                                </span>
+                              </div>
+                              <div className="mt-2 grid grid-cols-2 gap-2 text-[10px] text-nss-muted">
+                                <div>
+                                  <div>Baseline</div>
+                                  <div className="font-semibold text-nss-text">
+                                    {formatComparisonValue(metric.metric, metric.baseline)}
+                                  </div>
+                                </div>
+                                <div>
+                                  <div>Current</div>
+                                  <div className="font-semibold text-nss-text">
+                                    {formatComparisonValue(metric.metric, metric.current)}
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  ) : hasEvaluatedTests ? (
+                    <p className="rounded border border-nss-border bg-nss-surface px-3 py-2 text-[11px] leading-relaxed text-nss-muted">
+                      Baseline comparison is unavailable because the primary comparison case did not
+                      produce a verdict.
+                    </p>
+                  ) : (
+                    <p className="rounded border border-nss-border bg-nss-surface px-3 py-2 text-[11px] leading-relaxed text-nss-muted">
+                      Run &amp; Compare to measure the current design against the authored baseline.
+                    </p>
+                  )}
+                </section>
+              )}
 
             {graderStatus === 'grading' && (
               <p className="text-[11px] leading-relaxed text-nss-warning">

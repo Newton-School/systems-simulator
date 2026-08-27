@@ -1,4 +1,3 @@
-import type { CanvasNodeDataV2 } from '../catalog/nodeSpecTypes'
 import { msToMicro } from '../core/time'
 import type { ComponentType } from '../core/types'
 import { SERVICE_TIME_DISTRIBUTION_OVERRIDE_KEY } from './serviceTimeOverride'

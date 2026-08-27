@@ -493,14 +493,12 @@ function buildRuntimeNode(
     }
   }
 
-  for (
-    const field of [
-      'workingSetRatio',
-      'workingSetPenaltyMs',
-      'gcPressureStartRatio',
-      'gcPauseMs'
-    ] as const
-  ) {
+  for (const field of [
+    'workingSetRatio',
+    'workingSetPenaltyMs',
+    'gcPressureStartRatio',
+    'gcPauseMs'
+  ] as const) {
     const value = data.sim?.[field]
     if (
       typeof value === 'number' &&
@@ -755,10 +753,7 @@ function validateSimulationNode(data: CanvasNodeDataV2): string[] {
     ) {
       errors.push(positiveNumber('Base delay', 'ms'))
     }
-    if (
-      retry.maxDelay !== undefined &&
-      (!Number.isFinite(retry.maxDelay) || retry.maxDelay <= 0)
-    ) {
+    if (retry.maxDelay !== undefined && (!Number.isFinite(retry.maxDelay) || retry.maxDelay <= 0)) {
       errors.push(positiveNumber('Max delay', 'ms'))
     }
     if (

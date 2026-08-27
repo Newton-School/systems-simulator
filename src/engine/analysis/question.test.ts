@@ -844,12 +844,12 @@ describe('gradeAttempt — question constraints', () => {
       'max-budget',
       'max-total-workers'
     ])
-    expect(grade.contract.tests.find((test) => test.id === constraintTestId('max-budget'))?.passed).toBe(
-      false
-    )
-    expect(grade.contract.tests.find((test) => test.id === constraintTestId('max-total-workers'))?.passed).toBe(
-      false
-    )
+    expect(
+      grade.contract.tests.find((test) => test.id === constraintTestId('max-budget'))?.passed
+    ).toBe(false)
+    expect(
+      grade.contract.tests.find((test) => test.id === constraintTestId('max-total-workers'))?.passed
+    ).toBe(false)
     expect(grade.contract.allPassed).toBe(false)
   })
 })
@@ -890,9 +890,9 @@ describe('gradeAttempt — baseline comparison', () => {
       improved: true,
       nonRegressed: true
     })
-    expect(grade.contract.tests.find((test) => test.id === baselineComparisonTestId())?.passed).toBe(
-      true
-    )
+    expect(
+      grade.contract.tests.find((test) => test.id === baselineComparisonTestId())?.passed
+    ).toBe(true)
   })
 
   it('fails baseline-optimize when the current design regresses the comparison metric', () => {
@@ -901,9 +901,9 @@ describe('gradeAttempt — baseline comparison', () => {
     )
 
     expect(grade.baselineComparison?.passed).toBe(false)
-    expect(grade.contract.tests.find((test) => test.id === baselineComparisonTestId())?.passed).toBe(
-      false
-    )
+    expect(
+      grade.contract.tests.find((test) => test.id === baselineComparisonTestId())?.passed
+    ).toBe(false)
     expect(grade.contract.allPassed).toBe(false)
   })
 

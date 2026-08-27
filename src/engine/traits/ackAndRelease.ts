@@ -31,9 +31,7 @@ function asNonNegativeNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null
 }
 
-export function readQueueDeliveryConfig(
-  node: Pick<ComponentNode, 'config'>
-): QueueDeliveryConfig {
+export function readQueueDeliveryConfig(node: Pick<ComponentNode, 'config'>): QueueDeliveryConfig {
   const semantics =
     node.config?.['deliverySemantics'] === 'at-least-once' ||
     node.config?.['deliverySemantics'] === 'exactly-once' ||
@@ -136,7 +134,8 @@ export const ackAndReleaseCapabilityModule: NodeCapabilityModule = {
     {
       path: 'sim.deliverySemantics',
       value: DEFAULT_QUEUE_DELIVERY_SEMANTICS,
-      rationale: 'Keep existing queue behavior unchanged until the author explicitly turns on retries.'
+      rationale:
+        'Keep existing queue behavior unchanged until the author explicitly turns on retries.'
     }
   ],
   metrics: {

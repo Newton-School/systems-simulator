@@ -204,7 +204,9 @@ const FlowCanvasInternal = ({
     onError: setValidationError
   })
 
-  const handleConnect = useCallback<NonNullable<React.ComponentProps<typeof ReactFlow>['onConnect']>>(
+  const handleConnect = useCallback<
+    NonNullable<React.ComponentProps<typeof ReactFlow>['onConnect']>
+  >(
     (connection) => {
       if (interactionLocked) {
         return
@@ -404,11 +406,9 @@ const FlowCanvasInternal = ({
       edges.filter(
         (edge) =>
           lockedSelectedEdgeIds.has(edge.id) ||
-          (
-          !selectedEdgeIds.has(edge.id) &&
-          !selectedNodeIds.has(edge.source) &&
-          !selectedNodeIds.has(edge.target)
-          )
+          (!selectedEdgeIds.has(edge.id) &&
+            !selectedNodeIds.has(edge.source) &&
+            !selectedNodeIds.has(edge.target))
       )
     )
     selectGraphElements({})

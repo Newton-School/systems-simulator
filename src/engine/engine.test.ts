@@ -732,7 +732,9 @@ describe('SimulationEngine', () => {
         event.nodeId === 'backend' &&
         event.reasonCode === 'node_failed'
     )
-    const finalOutcome = output.requestOutcomes.find((outcome) => outcome.requestId === 'req-000001')
+    const finalOutcome = output.requestOutcomes.find(
+      (outcome) => outcome.requestId === 'req-000001'
+    )
 
     expect(callerArrivals).toHaveLength(2)
     expect(backendFailures).toHaveLength(1)
@@ -981,7 +983,9 @@ describe('SimulationEngine', () => {
     expect(output.perNode.queue.traitCounters.queueDlqMoves).toBe(1)
     expect(output.perNode.dlq.totalArrived).toBe(1)
     expect(
-      output.requestOutcomes.some((outcome) => outcome.status === 'success' && outcome.nodeId === 'dlq')
+      output.requestOutcomes.some(
+        (outcome) => outcome.status === 'success' && outcome.nodeId === 'dlq'
+      )
     ).toBe(true)
   })
 

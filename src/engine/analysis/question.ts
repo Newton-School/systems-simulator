@@ -497,9 +497,7 @@ type RequestDistributionEntry = WorkloadProfile['requestDistribution'][number]
 function classifyRequestKind(type: string): 'read' | 'write' | null {
   const normalized = type.trim().toLowerCase()
   if (
-    /^(read|get|head|fetch|lookup|query|scan|list|search|cache-read|export-read)$/.test(
-      normalized
-    )
+    /^(read|get|head|fetch|lookup|query|scan|list|search|cache-read|export-read)$/.test(normalized)
   ) {
     return 'read'
   }
@@ -640,10 +638,7 @@ function baselineMetricDirection(metric: BaselineMetricId): 'lower' | 'higher' {
   }
 }
 
-function baselineMetricValue(
-  verdict: SimulationVerdict,
-  metric: BaselineMetricId
-): number | null {
+function baselineMetricValue(verdict: SimulationVerdict, metric: BaselineMetricId): number | null {
   switch (metric) {
     case 'latency_p99':
       return verdict.summary.latency.p99
@@ -736,11 +731,7 @@ function evaluateBaselineComparison(
   const passed = improved.length > 0 && regressed.length === 0
   const comparisons = metrics
     .map((metric) => {
-      const trend = metric.improved
-        ? 'improved'
-        : metric.nonRegressed
-          ? 'held'
-          : 'regressed'
+      const trend = metric.improved ? 'improved' : metric.nonRegressed ? 'held' : 'regressed'
       return `${baselineMetricLabel(metric.metric)} ${trend} (${formatBaselineMetric(
         metric.metric,
         metric.baseline
@@ -2190,7 +2181,7 @@ export function gradeAttemptWithArtifacts(
     primaryCaseId === undefined
       ? undefined
       : batch.results.find(
-          (result): result is Extract<typeof batch.results[number], { ok: true }> =>
+          (result): result is Extract<(typeof batch.results)[number], { ok: true }> =>
             result.id === primaryCaseId && result.ok
         )?.verdict
   const baselineComparison =

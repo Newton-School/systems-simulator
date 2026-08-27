@@ -8,12 +8,7 @@ import {
 
 export type ExperienceKind = 'SANDBOX' | 'ASSIGNMENT' | 'INTERVIEW' | 'LAB'
 
-export type ExperienceSidebarTab =
-  | 'question'
-  | 'library'
-  | 'scenarios'
-  | 'blueprints'
-  | 'labs'
+export type ExperienceSidebarTab = 'question' | 'library' | 'scenarios' | 'blueprints' | 'labs'
 
 export interface ExperienceEnvelope {
   kind: ExperienceKind
@@ -162,9 +157,7 @@ export function resolveExperienceEnvelope(
     allowedTabs: INTERVIEW_TABS,
     canvasLocked: false,
     resultsButtonLabel:
-      entryFormat === 'baseline-optimize'
-        ? 'Open Comparison & Results'
-        : 'Open Timeline & Results',
+      entryFormat === 'baseline-optimize' ? 'Open Comparison & Results' : 'Open Timeline & Results',
     testActionLabel:
       entryFormat === 'requirements-first'
         ? 'Run Against Requirements'

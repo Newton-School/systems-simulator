@@ -1402,20 +1402,20 @@ export const PropertiesPanel = ({ results = null }: { results?: SimulationOutput
   const selectedNodeId = selectedNode?.id
   const selectedNodeLocked = Boolean(
     selectedNodeId &&
-      scaffoldNodeIds.includes(selectedNodeId) &&
-      (attemptStatus === 'LOCKED' ||
-        !canEditScaffoldNodes ||
-        activeQuestion?.constraints.canModifyScaffold === false ||
-        activeQuestion?.scaffold.lockedNodeIds?.includes(selectedNodeId))
+    scaffoldNodeIds.includes(selectedNodeId) &&
+    (attemptStatus === 'LOCKED' ||
+      !canEditScaffoldNodes ||
+      activeQuestion?.constraints.canModifyScaffold === false ||
+      activeQuestion?.scaffold.lockedNodeIds?.includes(selectedNodeId))
   )
   const selectedEdgeId = selectedEdge?.id
   const selectedEdgeLocked = Boolean(
     selectedEdgeId &&
-      scaffoldEdgeIds.includes(selectedEdgeId) &&
-      (attemptStatus === 'LOCKED' ||
-        !canEditScaffoldNodes ||
-        activeQuestion?.constraints.canModifyScaffold === false ||
-        activeQuestion?.scaffold.lockedEdgeIds?.includes(selectedEdgeId))
+    scaffoldEdgeIds.includes(selectedEdgeId) &&
+    (attemptStatus === 'LOCKED' ||
+      !canEditScaffoldNodes ||
+      activeQuestion?.constraints.canModifyScaffold === false ||
+      activeQuestion?.scaffold.lockedEdgeIds?.includes(selectedEdgeId))
   )
   const selectedEdgeFlow = selectedEdge ? edgeFlowById[selectedEdge.id] : undefined
   const selectedEdgeHasRuntime = Boolean(selectedEdgeFlow && selectedEdgeFlow.totalAttempted > 0)

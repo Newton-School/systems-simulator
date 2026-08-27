@@ -608,24 +608,15 @@ const useStore = create<RFState>((set, get) => ({
     set((state) => {
       // Locked scaffold nodes stay selectable, but movement/resize/removal changes
       // are dropped here so React Flow cannot mutate them through onNodesChange.
-      const permitted = changes.filter(
-        (change) => {
-          if (!('id' in change)) {
-            return true
-          }
-          if (change.type === 'select') {
-            return true
-          }
-          if (change.type === 'remove') {
-            return !isNodeRemovalLocked(
-              change.id,
-              state.scaffoldNodeIds,
-              state.activeQuestion,
-              state.environmentProfile,
-              state.attemptState?.status
-            )
-          }
-          return !isNodeEditLocked(
+      const permitted = changes.filter((change) => {
+        if (!('id' in change)) {
+          return true
+        }
+        if (change.type === 'select') {
+          return true
+        }
+        if (change.type === 'remove') {
+          return !isNodeRemovalLocked(
             change.id,
             state.scaffoldNodeIds,
             state.activeQuestion,
@@ -633,7 +624,14 @@ const useStore = create<RFState>((set, get) => ({
             state.attemptState?.status
           )
         }
-      )
+        return !isNodeEditLocked(
+          change.id,
+          state.scaffoldNodeIds,
+          state.activeQuestion,
+          state.environmentProfile,
+          state.attemptState?.status
+        )
+      })
       const nodes = applyNodeChanges(permitted, state.nodes)
       const hasMeaningfulChange = shouldRecordNodeChanges(permitted)
       const isDragging = hasActiveNodeDrag(permitted)
