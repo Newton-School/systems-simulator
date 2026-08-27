@@ -530,6 +530,12 @@ export const QuestionPanel = () => {
   const failedTests = visibleTestRows.filter((row) => row.status === 'failed').length
   const pendingTests = visibleTestRows.filter((row) => row.status === 'pending').length
   const hasEvaluatedTests = showRubricResults && latestGrade !== null
+  // The overall-result badge is built from the grade contract, which counts the
+  // hidden placeholder (an always-passing rubric check, one per suite case). Strip
+  // it so the badge total matches the visible check list ("1/1", not "2/2").
+  const placeholderContractCount = placeholderCheck ? activeQuestion.suite.cases.length : 0
+  const contractPassedTests = Math.max(0, (contract?.passedTests ?? 0) - placeholderContractCount)
+  const contractTotalTests = Math.max(0, (contract?.totalTests ?? 0) - placeholderContractCount)
   const effectivePanelView: QuestionPanelView = showPrompt ? panelView : 'tests'
   const guideTitle = experience.kind === 'LAB' ? 'Lab Guide' : 'Additional Context'
   const testButtonLabel =
@@ -837,7 +843,7 @@ export const QuestionPanel = () => {
               </p>
             )}
 
-            {hasEvaluatedTests && contract && (
+            {hasEvaluatedTests && contract && contractTotalTests > 0 && (
               <div className="rounded border border-nss-border bg-nss-surface px-3 py-2 text-[11px] text-nss-muted">
                 <span
                   className={`rounded px-2 py-0.5 text-[10px] font-bold uppercase ${
@@ -846,8 +852,8 @@ export const QuestionPanel = () => {
                       : 'bg-nss-danger/15 text-nss-danger'
                   }`}
                 >
-                  {contract.allPassed ? 'Passed' : 'Failed'} · {contract.passedTests}/
-                  {contract.totalTests}
+                  {contract.allPassed ? 'Passed' : 'Failed'} · {contractPassedTests}/
+                  {contractTotalTests}
                 </span>
               </div>
             )}
