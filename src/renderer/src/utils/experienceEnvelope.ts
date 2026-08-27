@@ -29,16 +29,35 @@ type ExperienceQuestion =
   | undefined
 type ExperienceProfile = Pick<EnvironmentProfile, 'mode' | 'graded'>
 
-const SANDBOX_TABS: readonly ExperienceSidebarTab[] = [
+/**
+ * Kill-switch for the Blueprints and Labs sidebar tabs (and their panels). That
+ * content is reserved for a future release, so both tabs are filtered out of
+ * every experience for now. Flip to `true` to bring them back.
+ */
+const SHOW_BLUEPRINTS_AND_LABS = false
+const HIDDEN_TABS: readonly ExperienceSidebarTab[] = ['blueprints', 'labs']
+
+function withVisibleTabs(
+  tabs: readonly ExperienceSidebarTab[]
+): readonly ExperienceSidebarTab[] {
+  if (SHOW_BLUEPRINTS_AND_LABS) {
+    return tabs
+  }
+  const visible = tabs.filter((tab) => !HIDDEN_TABS.includes(tab))
+  // Never leave a profile with no tabs at all.
+  return visible.length > 0 ? visible : ['question']
+}
+
+const SANDBOX_TABS = withVisibleTabs([
   'question',
   'blueprints',
   'labs',
   'library',
   'scenarios'
-]
-const ASSIGNMENT_TABS: readonly ExperienceSidebarTab[] = ['question', 'library']
-const INTERVIEW_TABS: readonly ExperienceSidebarTab[] = ['question', 'blueprints', 'library']
-const LAB_TABS: readonly ExperienceSidebarTab[] = ['question', 'labs']
+])
+const ASSIGNMENT_TABS = withVisibleTabs(['question', 'library'])
+const INTERVIEW_TABS = withVisibleTabs(['question', 'blueprints', 'library'])
+const LAB_TABS = withVisibleTabs(['question', 'labs'])
 
 function hasTag(question: ExperienceQuestion, tag: string): boolean {
   return question?.tags?.some((value) => value.toLowerCase() === tag.toLowerCase()) ?? false
