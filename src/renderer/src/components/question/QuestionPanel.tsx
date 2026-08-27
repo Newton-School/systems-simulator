@@ -146,6 +146,7 @@ export const QuestionPanel = () => {
   const activeQuestionPromptHtml = useStore((s) => s.activeQuestionPromptHtml)
   const setActiveQuestionPromptHtml = useStore((s) => s.setActiveQuestionPromptHtml)
   const hostLaunchErrorMessage = useStore((s) => s.hostLaunchErrorMessage)
+  const authoringWarning = useStore((s) => s.authoringWarning)
   const attemptState = useStore((s) => s.attemptState)
   const setAttemptState = useStore((s) => s.setAttemptState)
   const newtonSaveMode = useStore((s) => s.newtonSaveMode)
@@ -594,6 +595,12 @@ export const QuestionPanel = () => {
       </header>
 
       <div className="flex-1 space-y-5 overflow-y-auto custom-scrollbar p-4">
+        {authoringWarning && (
+          <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-[11px] leading-relaxed text-amber-700 dark:text-amber-300">
+            <p className="font-semibold">Preview — grading not configured yet</p>
+            <p className="mt-1 whitespace-pre-line">{authoringWarning}</p>
+          </div>
+        )}
         {serializeError && <p className="text-xs text-nss-danger">{serializeError}</p>}
         {graderError && <p className="text-xs text-nss-danger">Grading error: {graderError}</p>}
         {hasStaleAttempt && (

@@ -356,6 +356,7 @@ export const WorkspaceLayout = () => {
   const newtonSaveMode = useStore((s) => s.newtonSaveMode)
   const setNewtonSaveMode = useStore((s) => s.setNewtonSaveMode)
   const setHostLaunchErrorMessage = useStore((s) => s.setHostLaunchErrorMessage)
+  const setAuthoringWarning = useStore((s) => s.setAuthoringWarning)
   const setEnvironmentProfile = useStore((s) => s.setEnvironmentProfile)
   const setResultsRevealed = useStore((s) => s.setResultsRevealed)
   const requestViewportFit = useStore((s) => s.requestViewportFit)
@@ -657,11 +658,15 @@ export const WorkspaceLayout = () => {
           if (errorMessage) {
             setHostLaunchErrorMessage(errorMessage)
           }
+          setAuthoringWarning(null)
           return
         }
         rememberTrustedHostOrigin(event.origin)
         setEnvironmentProfile(resolveEnvironmentProfile(seed.environmentProfile ?? 'ASSIGNMENT'))
         setResultsRevealed(false)
+        // Prompt preview (grading config missing/invalid) surfaces as a non-blocking
+        // notice; a fully-authored question clears it.
+        setAuthoringWarning(seed.authoringWarning ?? null)
         void loadQuestionIntoWorkspace(seed.questionPackage, seed.priorAttempt, {
           readOnly: seed.readOnly,
           seedTopology: seed.seedTopology,
@@ -739,6 +744,7 @@ export const WorkspaceLayout = () => {
     loadQuestionIntoWorkspace,
     setEnvironmentProfile,
     setHostLaunchErrorMessage,
+    setAuthoringWarning,
     setResultsRevealed
   ])
 

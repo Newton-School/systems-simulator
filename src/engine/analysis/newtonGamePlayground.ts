@@ -113,6 +113,13 @@ export interface NewtonGameSeed {
   environmentProfile?: EnvironmentProfileInput
   /** Whether Newton saves should keep carrying the full package forward. */
   saveMode: NewtonSaveMode
+  /**
+   * Set when the seed had a renderable prompt but its grading config could not be
+   * built (missing/invalid SIMULATOR_CONFIG or rows). The prompt still loads so an
+   * author can see the question while iterating; this message says what is still
+   * needed to make it gradeable. Absent on a fully-authored question.
+   */
+  authoringWarning?: string
 }
 
 /**
@@ -259,6 +266,161 @@ const DEFAULT_NEWTON_RUBRIC_CHECK = {
   points: 1
 } as const
 
+// ── Atomic-row normalization ────────────────────────────────────────────────
+// Authors should write only the essence of a test case; these fill the required
+// but derivable fields (id, description, points, workload weight/sizeBytes,
+// suite name/visibility/case id) so a row like
+//   { "type": "STRUCTURAL_RULE", "kind": "requires_single_source" }
+// or { "type": "RUBRIC_CHECK", "metric": "summary.latency.p99", "op": "<", "value": 100 }
+// is enough.
+
+function slugify(value: string): string {
+  return (
+    value
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/(^-|-$)/g, '') || 'rule'
+  )
+}
+
+function reserveUniqueId(base: string, used: Set<string>): string {
+  let id = base
+  let n = 2
+  while (used.has(id)) {
+    id = `${base}-${n++}`
+  }
+  used.add(id)
+  return id
+}
+
+function str(spec: Record<string, unknown>, key: string): string | undefined {
+  return asNonEmptyString(spec[key])
+}
+
+function describeStructuralRule(spec: Record<string, unknown>): string {
+  const kind = String(spec.kind ?? '')
+  const ct = str(spec, 'componentType')
+  switch (kind) {
+    case 'requires_single_source':
+      return 'Exactly one traffic source'
+    case 'requires_connected_graph':
+      return 'The graph must be fully connected'
+    case 'requires_component':
+      return `Requires a ${ct ?? 'component'}`
+    case 'forbids_component':
+      return `Must not use ${ct ?? 'component'}`
+    case 'requires_category':
+      return `Requires a ${str(spec, 'category') ?? 'category'} component`
+    case 'requires_redundancy':
+      return `Requires redundant ${ct ?? 'component'} instances`
+    case 'requires_path':
+      return `${str(spec, 'fromType') ?? 'source'} must reach ${str(spec, 'toType') ?? 'target'}`
+    case 'requires_edge':
+      return `Requires an edge from ${str(spec, 'fromType') ?? '?'} to ${str(spec, 'toType') ?? '?'}`
+    case 'max_component_count':
+      return `At most ${String(spec.maxCount ?? spec.count ?? 'N')} ${ct ?? 'component'}`
+    default:
+      return `Structural rule: ${kind}`
+  }
+}
+
+function describeSemanticCriterion(spec: Record<string, unknown>): string {
+  const kind = String(spec.kind ?? '')
+  switch (kind) {
+    case 'guardedPath':
+      return `Traffic from ${str(spec, 'from') ?? '?'} must pass through ${str(spec, 'guard') ?? 'the guard'}${str(spec, 'to') ? ` to reach ${str(spec, 'to')}` : ''}`
+    case 'storageFit':
+      return `Store must fit a ${str(spec, 'accessPattern') ?? ''} workload`
+        .replace(/\s+/g, ' ')
+        .trim()
+    case 'placement':
+      return `Correct placement of ${str(spec, 'componentType') ?? 'the component'}`
+    case 'fanout':
+      return 'Broker must fan out to independent consumers'
+    default:
+      return `Semantic criterion: ${kind}`
+  }
+}
+
+function idBase(spec: Record<string, unknown>): string {
+  const kind = String(spec.kind ?? 'rule')
+  if (spec.type === 'RUBRIC_CHECK') {
+    const metric = String(spec.metric ?? 'check')
+    return slugify(metric.split('.').pop() ?? metric)
+  }
+  const disc =
+    str(spec, 'componentType') ??
+    str(spec, 'category') ??
+    (str(spec, 'fromType') && str(spec, 'toType')
+      ? `${str(spec, 'fromType')}-${str(spec, 'toType')}`
+      : undefined)
+  return slugify(disc ? `${kind}-${disc}` : kind)
+}
+
+/** Fills id/description/points on a grading-row spec so authors can omit them. */
+function normalizeRowSpec(
+  spec: Record<string, unknown>,
+  used: Set<string>
+): Record<string, unknown> {
+  const id = str(spec, 'id') ?? reserveUniqueId(idBase(spec), used)
+  const out: Record<string, unknown> = { ...spec, id }
+  if (spec.type === 'STRUCTURAL_RULE' && str(spec, 'description') === undefined) {
+    out.description = describeStructuralRule(spec)
+  }
+  if (spec.type === 'SEMANTIC_CRITERION') {
+    if (str(spec, 'description') === undefined) out.description = describeSemanticCriterion(spec)
+    if (typeof spec.points !== 'number') out.points = 1
+  }
+  if (spec.type === 'RUBRIC_CHECK' && str(spec, 'description') === undefined) {
+    out.description =
+      `${String(spec.metric ?? '')} ${String(spec.op ?? '')} ${String(spec.value ?? '')}`.trim()
+  }
+  return out
+}
+
+/** Fills suite name/visibility/case ids and per-class workload weight/sizeBytes. */
+function normalizeSuite(rawSuite: unknown, questionId: string): Record<string, unknown> {
+  const suite = isRecord(rawSuite) ? rawSuite : {}
+  const cases =
+    Array.isArray(suite.cases) && suite.cases.length > 0 ? suite.cases : [{ id: 'baseline' }]
+  return {
+    ...suite,
+    name: asNonEmptyString(suite.name) ?? `${questionId}-suite`,
+    visibleToStudent: typeof suite.visibleToStudent === 'boolean' ? suite.visibleToStudent : false,
+    cases: cases.map((rawCase, index) => normalizeCase(rawCase, index))
+  }
+}
+
+function normalizeCase(rawCase: unknown, index: number): Record<string, unknown> {
+  const testCase = isRecord(rawCase) ? rawCase : {}
+  const out: Record<string, unknown> = {
+    ...testCase,
+    id: asNonEmptyString(testCase.id) ?? (index === 0 ? 'peak' : `case-${index + 1}`)
+  }
+  if (isRecord(testCase.workload)) {
+    out.workload = normalizeWorkload(testCase.workload)
+  }
+  return out
+}
+
+function normalizeWorkload(workload: Record<string, unknown>): Record<string, unknown> {
+  if (!Array.isArray(workload.requestDistribution)) {
+    return workload
+  }
+  const entries = workload.requestDistribution
+  return {
+    ...workload,
+    requestDistribution: entries.map((entry) => {
+      const rec = isRecord(entry) ? entry : {}
+      return {
+        ...rec,
+        weight: typeof rec.weight === 'number' ? rec.weight : 1 / entries.length,
+        sizeBytes: typeof rec.sizeBytes === 'number' ? rec.sizeBytes : 256
+      }
+    })
+  }
+}
+
 /**
  * Translates a raw package-validation error (zod path + message) into an
  * author-actionable sentence. Authors edit Django rows without the codebase, so a
@@ -331,15 +493,22 @@ function buildQuestionPackageFromRows(seed: Record<string, unknown>): {
       ? promptFromPresentation(title, config.presentation, promptHtml)
       : defaultPrompt(title, promptHtml)
 
+  // Pre-seed with explicit ids so derived ids never collide with them.
+  const usedIds = new Set<string>(
+    specs.map((spec) => str(spec, 'id')).filter((id): id is string => id !== undefined)
+  )
+  const normalize = (spec: Record<string, unknown>) =>
+    stripSpecType(normalizeRowSpec(spec, usedIds))
+
   const structuralRules = specs
     .filter((spec) => spec.type === 'STRUCTURAL_RULE')
-    .map((spec) => stripSpecType(spec) as unknown as StructuralRule)
+    .map((spec) => normalize(spec) as unknown as StructuralRule)
   const semanticCriteria = specs
     .filter((spec) => spec.type === 'SEMANTIC_CRITERION')
-    .map((spec) => stripSpecType(spec) as unknown as SemanticCriterion)
+    .map((spec) => normalize(spec) as unknown as SemanticCriterion)
   const rubricChecks = specs
     .filter((spec) => spec.type === 'RUBRIC_CHECK')
-    .map((spec) => stripSpecType(spec))
+    .map((spec) => normalize(spec))
 
   const packageInput = {
     version: questionVersion,
@@ -363,11 +532,7 @@ function buildQuestionPackageFromRows(seed: Record<string, unknown>): {
     ...(Array.isArray(config.concepts) ? { concepts: config.concepts } : {}),
     ...(Array.isArray(config.justify) ? { justify: config.justify } : {}),
     ...(config.workloadCategory ? { workloadCategory: config.workloadCategory } : {}),
-    suite: config.suite ?? {
-      name: `${questionId}-suite`,
-      visibleToStudent: false,
-      cases: [{ id: 'baseline' }]
-    },
+    suite: normalizeSuite(config.suite, questionId),
     rubric: {
       ...(isRecord(config.rubric) && asNonEmptyString(config.rubric.id)
         ? { id: asNonEmptyString(config.rubric.id) }
@@ -429,6 +594,51 @@ function toSeedObject(raw: unknown): Record<string, unknown> | null {
  *   2. legacy reopen/first-open (`questionPackage` nested, or seed itself parses
  *      as a full QuestionPackage)
  */
+/**
+ * Builds a minimal, always-valid package that carries the Django-authored prompt
+ * (`question_title` / `question_text`) with defaults everywhere else. Used so the
+ * question text renders even when the grading config is missing or invalid — an
+ * author writing test cases should always be able to see the brief. Returns null
+ * only when there is no prompt or title to show.
+ */
+function buildPromptPreviewPackage(
+  seed: Record<string, unknown>
+): { questionPackage: QuestionPackage; promptHtml?: string } | null {
+  const title = asNonEmptyString(seed.question_title)
+  const promptHtml = asNonEmptyString(seed.question_text)
+  if (title === undefined && promptHtml === undefined) {
+    return null
+  }
+  const resolvedTitle = title ?? 'Untitled Question'
+  const id = deriveQuestionId(resolvedTitle)
+  try {
+    const questionPackage = parseQuestionPackage({
+      version: QUESTION_PACKAGE_VERSION,
+      id,
+      title: resolvedTitle,
+      difficulty: 'intermediate',
+      type: 'open-build',
+      prompt: defaultPrompt(resolvedTitle, promptHtml),
+      scaffold: { type: 'empty' },
+      constraints: { canModifyScaffold: true, canRemoveScaffoldNodes: true },
+      suite: { name: `${id}-suite`, visibleToStudent: false, cases: [{ id: 'baseline' }] },
+      rubric: { checks: [DEFAULT_NEWTON_RUBRIC_CHECK] }
+    })
+    return { questionPackage, ...(promptHtml ? { promptHtml } : {}) }
+  } catch {
+    return null
+  }
+}
+
+/** Best-effort seed topology read that never throws (preview / degraded loads). */
+function tryReadSeedTopology(seed: Record<string, unknown>): TopologyJSON | undefined {
+  try {
+    return readSeedTopology(seed)
+  } catch {
+    return undefined
+  }
+}
+
 export function parseNewtonSeed(raw: unknown): NewtonGameSeed {
   const seed = toSeedObject(raw)
   if (!seed) {
@@ -442,21 +652,40 @@ export function parseNewtonSeed(raw: unknown): NewtonGameSeed {
       : undefined
 
   if (hasRowAuthoredQuestionMetadata(seed)) {
-    const { questionPackage, promptHtml, environmentProfile } = buildQuestionPackageFromRows(seed)
-    const priorAttempt =
-      seed.attemptState === undefined
-        ? undefined
-        : parseAttemptState(seed.attemptState, questionPackage.id)
-    const seedTopology = priorAttempt ? undefined : readSeedTopology(seed)
-    return {
-      questionPackage,
-      ...(priorAttempt ? { priorAttempt } : {}),
-      ...(seedTopology ? { seedTopology } : {}),
-      readOnly,
-      ...(playgroundHash ? { playgroundHash } : {}),
-      ...(promptHtml ? { promptHtml } : {}),
-      ...(environmentProfile !== undefined ? { environmentProfile } : {}),
-      saveMode: 'mutable-only'
+    try {
+      const { questionPackage, promptHtml, environmentProfile } = buildQuestionPackageFromRows(seed)
+      const priorAttempt =
+        seed.attemptState === undefined
+          ? undefined
+          : parseAttemptState(seed.attemptState, questionPackage.id)
+      const seedTopology = priorAttempt ? undefined : readSeedTopology(seed)
+      return {
+        questionPackage,
+        ...(priorAttempt ? { priorAttempt } : {}),
+        ...(seedTopology ? { seedTopology } : {}),
+        readOnly,
+        ...(playgroundHash ? { playgroundHash } : {}),
+        ...(promptHtml ? { promptHtml } : {}),
+        ...(environmentProfile !== undefined ? { environmentProfile } : {}),
+        saveMode: 'mutable-only'
+      }
+    } catch (error) {
+      // The grading config is broken — but never hide the prompt. Load it in
+      // preview mode with an actionable warning about what still needs fixing.
+      const preview = buildPromptPreviewPackage(seed)
+      if (preview) {
+        const seedTopology = tryReadSeedTopology(seed)
+        return {
+          questionPackage: preview.questionPackage,
+          ...(seedTopology ? { seedTopology } : {}),
+          readOnly,
+          ...(playgroundHash ? { playgroundHash } : {}),
+          ...(preview.promptHtml ? { promptHtml: preview.promptHtml } : {}),
+          saveMode: 'mutable-only',
+          authoringWarning: error instanceof Error ? error.message : String(error)
+        }
+      }
+      throw error
     }
   }
 
@@ -474,6 +703,23 @@ export function parseNewtonSeed(raw: unknown): NewtonGameSeed {
       readOnly,
       ...(playgroundHash ? { playgroundHash } : {}),
       saveMode: 'legacy-package'
+    }
+  }
+
+  // No SIMULATOR_CONFIG and no legacy package — but if a prompt was authored in
+  // Django, show it anyway so the author can see the brief while adding rows.
+  const preview = buildPromptPreviewPackage(seed)
+  if (preview) {
+    const seedTopology = tryReadSeedTopology(seed)
+    return {
+      questionPackage: preview.questionPackage,
+      ...(seedTopology ? { seedTopology } : {}),
+      readOnly,
+      ...(playgroundHash ? { playgroundHash } : {}),
+      ...(preview.promptHtml ? { promptHtml: preview.promptHtml } : {}),
+      saveMode: 'mutable-only',
+      authoringWarning:
+        'Question text shown. Add a SIMULATOR_CONFIG test-case row (and grading rows) to configure grading.'
     }
   }
 

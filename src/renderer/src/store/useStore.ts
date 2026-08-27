@@ -506,6 +506,13 @@ type RFState = {
   /** User-visible host launch/configuration error for embedded assignment mode. */
   hostLaunchErrorMessage: string | null
   setHostLaunchErrorMessage: (message: string | null) => void
+  /**
+   * Non-blocking authoring notice shown when a question loaded in preview mode
+   * (prompt visible) but its grading config is missing or invalid. Cleared once a
+   * fully-authored question loads.
+   */
+  authoringWarning: string | null
+  setAuthoringWarning: (message: string | null) => void
   attemptState: AttemptState | null
   setAttemptState: (attempt: AttemptState | null) => void
   /** Newton host save compatibility mode for the active question. */
@@ -595,6 +602,7 @@ const useStore = create<RFState>((set, get) => ({
   scaffoldEdgeIds: [],
   activeQuestionPromptHtml: null,
   hostLaunchErrorMessage: null,
+  authoringWarning: null,
   attemptState: null,
   newtonSaveMode: null,
   justificationAnswers: {},
@@ -1067,6 +1075,7 @@ const useStore = create<RFState>((set, get) => ({
     }),
   setActiveQuestionPromptHtml: (activeQuestionPromptHtml) => set({ activeQuestionPromptHtml }),
   setHostLaunchErrorMessage: (hostLaunchErrorMessage) => set({ hostLaunchErrorMessage }),
+  setAuthoringWarning: (authoringWarning) => set({ authoringWarning }),
   setAttemptState: (attemptState) => set({ attemptState }),
   setNewtonSaveMode: (newtonSaveMode) => set({ newtonSaveMode }),
   setJustificationAnswer: (promptId, text) =>
