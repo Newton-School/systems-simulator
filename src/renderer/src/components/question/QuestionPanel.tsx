@@ -492,7 +492,6 @@ export const QuestionPanel = () => {
       : resolveVisibleAttemptStatus(attemptState, currentTopology)
   const latestGrade: AttemptGrade | null =
     graderGrade ?? resolveVisibleAttemptGrade(attemptState, currentTopology)
-  const contract = latestGrade?.contract
   const testRunCount = attemptState?.testRunCount ?? 0
   const testRows = buildQuestionTestRows(activeQuestion, latestGrade)
   const isBaselineOptimizeQuestion =
@@ -530,6 +529,13 @@ export const QuestionPanel = () => {
   const failedTests = visibleTestRows.filter((row) => row.status === 'failed').length
   const pendingTests = visibleTestRows.filter((row) => row.status === 'pending').length
   const hasEvaluatedTests = showRubricResults && latestGrade !== null
+  // The overall-result badge is derived from the SAME visible rows as the list, so it
+  // can never diverge from it. The grade contract also counts the hidden placeholder
+  // check and a synthetic per-case execution check — those are excluded here because
+  // `visibleTestRows` only contains authored, student-facing checks.
+  const badgeTotalTests = visibleTestRows.length
+  const badgePassedTests = passedTests
+  const badgeAllPassed = badgeTotalTests > 0 && failedTests === 0 && pendingTests === 0
   const effectivePanelView: QuestionPanelView = showPrompt ? panelView : 'tests'
   const guideTitle = experience.kind === 'LAB' ? 'Lab Guide' : 'Additional Context'
   const testButtonLabel =
@@ -837,17 +843,16 @@ export const QuestionPanel = () => {
               </p>
             )}
 
-            {hasEvaluatedTests && contract && (
+            {hasEvaluatedTests && badgeTotalTests > 0 && (
               <div className="rounded border border-nss-border bg-nss-surface px-3 py-2 text-[11px] text-nss-muted">
                 <span
                   className={`rounded px-2 py-0.5 text-[10px] font-bold uppercase ${
-                    contract.allPassed
+                    badgeAllPassed
                       ? 'bg-nss-success/15 text-nss-success'
                       : 'bg-nss-danger/15 text-nss-danger'
                   }`}
                 >
-                  {contract.allPassed ? 'Passed' : 'Failed'} · {contract.passedTests}/
-                  {contract.totalTests}
+                  {badgeAllPassed ? 'Passed' : 'Failed'} · {badgePassedTests}/{badgeTotalTests}
                 </span>
               </div>
             )}

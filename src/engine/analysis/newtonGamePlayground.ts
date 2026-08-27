@@ -44,6 +44,7 @@ import {
   type ScaleParameters
 } from './question'
 import type {
+  Budget,
   JustifyPrompt,
   QuestionDomain,
   SemanticCriterion,
@@ -85,6 +86,7 @@ interface NewtonSimulatorConfig {
     id?: string
     passThreshold?: number
   }
+  budget?: Budget
   justify?: JustifyPrompt[]
   environmentProfile?: EnvironmentProfileInput
 }
@@ -541,6 +543,7 @@ function buildQuestionPackageFromRows(seed: Record<string, unknown>): {
     ...(Array.isArray(config.domains) ? { domains: config.domains } : {}),
     ...(Array.isArray(config.concepts) ? { concepts: config.concepts } : {}),
     ...(Array.isArray(config.justify) ? { justify: config.justify } : {}),
+    ...(isRecord(config.budget) ? { budget: config.budget } : {}),
     ...(config.workloadCategory ? { workloadCategory: config.workloadCategory } : {}),
     suite: normalizeSuite(config.suite, questionId),
     rubric: {
