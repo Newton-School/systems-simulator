@@ -241,6 +241,69 @@ function readSeedTopology(seed: Record<string, unknown>): TopologyJSON | undefin
   return TopologyJSONSchema.parse(seed.topology)
 }
 
+/**
+ * Injected when an author writes only structural/semantic rows and no
+ * `RUBRIC_CHECK`. The package schema requires at least one rubric check; this is
+ * a harmless always-passing one (a topology with no authored invariants reports
+ * zero) so a structural-only question still loads instead of throwing
+ * `rubric.checks: Invalid input`. Authors can override it by adding their own
+ * `RUBRIC_CHECK` row.
+ */
+const DEFAULT_NEWTON_RUBRIC_CHECK = {
+  id: 'no-invariants',
+  description: 'No invariant violations',
+  kind: 'invariant',
+  metric: 'invariantViolations.count',
+  op: '==',
+  value: 0,
+  points: 1
+} as const
+
+/**
+ * Translates a raw package-validation error (zod path + message) into an
+ * author-actionable sentence. Authors edit Django rows without the codebase, so a
+ * message like `constraints.canRemoveScaffoldNodes: Invalid input` is a dead end;
+ * this names the row to edit and the field to add.
+ */
+function friendlyAuthoringError(rawMessage: string): string {
+  const hints: Array<[RegExp, string]> = [
+    [
+      /constraints\.canRemoveScaffoldNodes|constraints\.canModifyScaffold/,
+      'In the SIMULATOR_CONFIG row, "constraints" must include both booleans: { "canModifyScaffold": true, "canRemoveScaffoldNodes": true }.'
+    ],
+    [
+      /rubric\.checks/,
+      'Add at least one RUBRIC_CHECK test-case row (each needs id, description, metric, op, value). A safe minimal one: metric "invariantViolations.count", op "==", value 0.'
+    ],
+    [
+      /rubric\.passThreshold|passThreshold/,
+      'In the SIMULATOR_CONFIG row, "rubric.passThreshold" must be a fraction between 0 and 1 (e.g. 0.71 = 71%), not a point total.'
+    ],
+    [
+      /suite/,
+      'The SIMULATOR_CONFIG row needs a "suite" with at least one case, and each case needs a "workload" ({ baseRps, requestDistribution:[{ type, weight, sizeBytes }] }).'
+    ],
+    [
+      /accessPattern/,
+      'A storageFit SEMANTIC_CRITERION "accessPattern" must be one of: point-lookup, time-series, append-only-ledger, transactional-relational, search-index, blob.'
+    ],
+    [
+      /prompt/,
+      'The question is missing prompt text — set the Django question_text (HTML), or add a "presentation" block to the SIMULATOR_CONFIG row.'
+    ],
+    [
+      /\.metric\b/,
+      'A RUBRIC_CHECK "metric" is not a recognized verdict key. Use exact keys like summary.latency.p99, summary.errorRate, reservations.oversells (see the metric list in the authoring manual).'
+    ]
+  ]
+
+  const matched = hints.find(([pattern]) => pattern.test(rawMessage))
+  if (matched) {
+    return `Question could not be loaded. ${matched[1]}\n\n(Validator detail: ${rawMessage})`
+  }
+  return `Question could not be loaded — a test-case row has an invalid field.\n\n(Validator detail: ${rawMessage})`
+}
+
 function buildQuestionPackageFromRows(seed: Record<string, unknown>): {
   questionPackage: QuestionPackage
   promptHtml?: string
@@ -278,7 +341,7 @@ function buildQuestionPackageFromRows(seed: Record<string, unknown>): {
     .filter((spec) => spec.type === 'RUBRIC_CHECK')
     .map((spec) => stripSpecType(spec))
 
-  const questionPackage = parseQuestionPackage({
+  const packageInput = {
     version: questionVersion,
     id: questionId,
     title,
@@ -287,9 +350,12 @@ function buildQuestionPackageFromRows(seed: Record<string, unknown>): {
     ...(config.entryFormat ? { entryFormat: config.entryFormat } : {}),
     prompt,
     scaffold: config.scaffold ?? { type: 'empty' },
-    constraints: config.constraints ?? {
+    // Authors only need to opt out; the required booleans are filled so a partial
+    // `constraints` (e.g. just canModifyScaffold + maxNodeCount) still validates.
+    constraints: {
       canModifyScaffold: true,
-      canRemoveScaffoldNodes: true
+      canRemoveScaffoldNodes: true,
+      ...(isRecord(config.constraints) ? config.constraints : {})
     },
     ...(structuralRules.length > 0 ? { structuralRules } : {}),
     ...(semanticCriteria.length > 0 ? { semanticCriteria } : {}),
@@ -309,9 +375,18 @@ function buildQuestionPackageFromRows(seed: Record<string, unknown>): {
       ...(isRecord(config.rubric) && typeof config.rubric.passThreshold === 'number'
         ? { passThreshold: config.rubric.passThreshold }
         : {}),
-      checks: rubricChecks
+      // A question with only structural/semantic rows still needs ≥1 rubric check
+      // to satisfy the schema; inject a harmless always-passing one.
+      checks: rubricChecks.length > 0 ? rubricChecks : [DEFAULT_NEWTON_RUBRIC_CHECK]
     }
-  })
+  }
+
+  let questionPackage: QuestionPackage
+  try {
+    questionPackage = parseQuestionPackage(packageInput)
+  } catch (error) {
+    throw new Error(friendlyAuthoringError(error instanceof Error ? error.message : String(error)))
+  }
 
   return {
     questionPackage,

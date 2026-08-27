@@ -259,6 +259,110 @@ describe('parseNewtonSeed', () => {
       })
     ).toContain('SIMULATOR_CONFIG')
   })
+
+  it('fills the required constraint booleans when the author only sets some', () => {
+    // The author supplied constraints without canRemoveScaffoldNodes — a common
+    // partial config that used to fail validation with a cryptic message.
+    const seed = parseNewtonSeed(
+      rowAuthoredSeed({
+        rubric: [
+          {
+            title: 'SIMULATOR_CONFIG',
+            spec: {
+              type: 'SIMULATOR_CONFIG',
+              questionId: 'simple-web-service',
+              questionType: 'open-build',
+              difficulty: 'beginner',
+              scaffold: { type: 'empty' },
+              constraints: { canModifyScaffold: true, maxNodeCount: 12 },
+              suite: pkg.suite,
+              rubric: { id: 'r', passThreshold: 1 }
+            }
+          },
+          {
+            title: 'RUBRIC_CHECK',
+            spec: {
+              type: 'RUBRIC_CHECK',
+              id: 'no-invariants',
+              kind: 'invariant',
+              description: 'No invariant violations',
+              metric: 'invariantViolations.count',
+              op: '==',
+              value: 0,
+              points: 1
+            }
+          }
+        ]
+      })
+    )
+    expect(seed.questionPackage.constraints.canRemoveScaffoldNodes).toBe(true)
+    expect(seed.questionPackage.constraints.canModifyScaffold).toBe(true)
+  })
+
+  it('injects a default rubric check when the author writes only structural rows', () => {
+    const seed = parseNewtonSeed(
+      rowAuthoredSeed({
+        rubric: [
+          {
+            title: 'SIMULATOR_CONFIG',
+            spec: {
+              type: 'SIMULATOR_CONFIG',
+              questionId: 'structural-only',
+              questionType: 'open-build',
+              difficulty: 'beginner',
+              scaffold: { type: 'empty' },
+              suite: pkg.suite
+            }
+          },
+          {
+            title: 'STRUCTURAL_RULE',
+            spec: {
+              type: 'STRUCTURAL_RULE',
+              id: 'single-source',
+              kind: 'requires_single_source',
+              description: 'Exactly one client'
+            }
+          }
+        ]
+      })
+    )
+    expect(seed.questionPackage.rubric.checks).toHaveLength(1)
+    expect(seed.questionPackage.rubric.checks[0].id).toBe('no-invariants')
+  })
+
+  it('turns a package-validation failure into an author-actionable message', () => {
+    const message = explainNewtonSeedParseFailure(
+      rowAuthoredSeed({
+        rubric: [
+          {
+            title: 'SIMULATOR_CONFIG',
+            spec: {
+              type: 'SIMULATOR_CONFIG',
+              questionId: 'bad-threshold',
+              questionType: 'open-build',
+              difficulty: 'beginner',
+              scaffold: { type: 'empty' },
+              suite: pkg.suite,
+              rubric: { id: 'r', passThreshold: 7 } // must be 0..1
+            }
+          },
+          {
+            title: 'RUBRIC_CHECK',
+            spec: {
+              type: 'RUBRIC_CHECK',
+              id: 'p99',
+              description: 'p99',
+              metric: 'summary.latency.p99',
+              op: '<',
+              value: 100
+            }
+          }
+        ]
+      })
+    )
+    expect(message).toContain('passThreshold')
+    expect(message).toContain('fraction')
+  })
 })
 
 describe('mapResultToNewtonScores', () => {
