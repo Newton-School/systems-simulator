@@ -1,0 +1,200 @@
+{
+  "version": "2.0.0",
+  "nodes": [
+    {
+      "id": "client",
+      "type": "serviceNode",
+      "position": { "x": 80, "y": 320 },
+      "data": {
+        "schemaVersion": 2,
+        "templateId": "client-user",
+        "componentType": "api-endpoint",
+        "structuralRole": "source",
+        "profile": "source",
+        "rendererType": "serviceNode",
+        "label": "Checkout Client",
+        "subLabel": "Retried Writes",
+        "iconKey": "monitor",
+        "source": {
+          "requestDistribution": [
+            {
+              "type": "create-payment",
+              "weight": 0.45,
+              "sizeBytes": 1024,
+              "metadata": {
+                "method": "POST",
+                "host": "pay.internal",
+                "path": "/payments",
+                "idempotencyKey": "pay-001"
+              }
+            },
+            {
+              "type": "create-payment",
+              "weight": 0.35,
+              "sizeBytes": 1024,
+              "metadata": {
+                "method": "POST",
+                "host": "pay.internal",
+                "path": "/payments",
+                "idempotencyKey": "pay-002"
+              }
+            },
+            {
+              "type": "create-payment",
+              "weight": 0.2,
+              "sizeBytes": 1024,
+              "metadata": {
+                "method": "POST",
+                "host": "pay.internal",
+                "path": "/payments",
+                "idempotencyKey": "pay-003"
+              }
+            }
+          ],
+          "defaultWorkload": {
+            "pattern": "poisson",
+            "baseRps": 120,
+            "bursty": {
+              "burstRps": 260,
+              "burstDuration": 1200,
+              "normalDuration": 7800
+            },
+            "spike": {
+              "spikeTime": 18000,
+              "spikeRps": 320,
+              "spikeDuration": 3500
+            },
+            "sawtooth": {
+              "peakRps": 180,
+              "rampDuration": 10000
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "payments",
+      "type": "serviceNode",
+      "position": { "x": 540, "y": 320 },
+      "data": {
+        "schemaVersion": 2,
+        "templateId": "generic-service",
+        "componentType": "microservice",
+        "structuralRole": "processor",
+        "profile": "compute-service",
+        "rendererType": "serviceNode",
+        "label": "Payment Service",
+        "subLabel": "Write Handler",
+        "iconKey": "generic-service",
+        "sim": {
+          "queue": { "workers": 8, "capacity": 80, "discipline": "fifo" },
+          "processing": { "distribution": { "type": "constant", "value": 6 }, "timeout": 500 }
+        }
+      }
+    },
+    {
+      "id": "idempotency",
+      "type": "serviceNode",
+      "position": { "x": 1000, "y": 320 },
+      "data": {
+        "schemaVersion": 2,
+        "templateId": "idempotency-manager",
+        "componentType": "idempotency-manager",
+        "structuralRole": "processor",
+        "profile": "control-plane",
+        "rendererType": "serviceNode",
+        "label": "Idempotency Guard",
+        "subLabel": "Key Store",
+        "iconKey": "idempotency-manager",
+        "sim": {
+          "queue": { "workers": 12, "capacity": 120, "discipline": "fifo" },
+          "processing": { "distribution": { "type": "constant", "value": 2 }, "timeout": 120 },
+          "dedupKeyField": "idempotencyKey",
+          "storeLookupMs": 2,
+          "dedupWindowMs": 300000
+        }
+      }
+    },
+    {
+      "id": "ledger",
+      "type": "serviceNode",
+      "position": { "x": 1460, "y": 320 },
+      "data": {
+        "schemaVersion": 2,
+        "templateId": "primary-db",
+        "componentType": "relational-db",
+        "structuralRole": "storage",
+        "profile": "datastore",
+        "rendererType": "serviceNode",
+        "label": "Ledger DB",
+        "subLabel": "Write Sink",
+        "iconKey": "database",
+        "sim": {
+          "queue": { "workers": 6, "capacity": 60, "discipline": "fifo" },
+          "processing": { "distribution": { "type": "constant", "value": 14 }, "timeout": 900 }
+        }
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "client-to-payments",
+      "source": "client",
+      "target": "payments",
+      "data": {
+        "protocol": "https",
+        "mode": "synchronous",
+        "latencyMu": 1.6,
+        "latencySigma": 0.25,
+        "pathType": "same-dc",
+        "bandwidth": 1000,
+        "maxConcurrentRequests": 250,
+        "packetLossRate": 0,
+        "errorRate": 0
+      }
+    },
+    {
+      "id": "payments-to-idempotency",
+      "source": "payments",
+      "target": "idempotency",
+      "data": {
+        "protocol": "tcp",
+        "mode": "synchronous",
+        "latencyMu": 0.4,
+        "latencySigma": 0.15,
+        "pathType": "same-dc",
+        "bandwidth": 1000,
+        "maxConcurrentRequests": 250,
+        "packetLossRate": 0,
+        "errorRate": 0
+      }
+    },
+    {
+      "id": "idempotency-to-ledger",
+      "source": "idempotency",
+      "target": "ledger",
+      "data": {
+        "protocol": "tcp",
+        "mode": "synchronous",
+        "latencyMu": 0.6,
+        "latencySigma": 0.2,
+        "pathType": "same-dc",
+        "bandwidth": 1000,
+        "maxConcurrentRequests": 250,
+        "packetLossRate": 0,
+        "errorRate": 0
+      }
+    }
+  ],
+  "scenario": {
+    "global": {
+      "simulationDuration": 30000,
+      "warmupDuration": 3000,
+      "seed": "payment-idempotency-dedup",
+      "defaultTimeout": 1800,
+      "traceSampleRate": 0.01
+    },
+    "selectedSourceNodeId": "client",
+    "workloadOverride": {}
+  }
+}

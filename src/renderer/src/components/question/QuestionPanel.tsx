@@ -7,6 +7,7 @@ import { postQuestionHostMessage } from '@renderer/utils/questionHostMessaging'
 import { isNewtonHostMode, postNewtonSave } from '@renderer/utils/newtonHostMessaging'
 import { sanitizeQuestionPromptHtml } from '@renderer/utils/questionPromptHtml'
 import { archiveSubmission, listArchivedSubmissionIds } from '@renderer/utils/submissionArchive'
+import { resolveExperienceEnvelope } from '@renderer/utils/experienceEnvelope'
 import {
   buildGamePlaygroundResult,
   buildGamePlaygroundSubmitPayload
@@ -27,11 +28,13 @@ import {
   autosaveAttempt,
   buildQuestionTestRows,
   createAttemptState,
+  formatQuestionEntryFormat,
   isAttemptCurrentForTopology,
   markAttemptGrading,
   parseQuestionPackage,
   recordDryRunGrade,
   recordSubmittedGrade,
+  resolveQuestionEntryFormat,
   resolveVisibleAttemptGrade,
   resolveVisibleAttemptStatus,
   recoverAttemptAfterGradingError
@@ -43,6 +46,7 @@ import type {
 } from '../../../../engine/analysis/question'
 import type { TopologyJSON } from '../../../../engine/core/types'
 import { BudgetMeter } from './BudgetMeter'
+import { QuestionEntryFormatGuideCard } from './questionEntryFormatPresentation'
 
 const SECTION_TITLE = 'text-[10px] font-bold uppercase tracking-widest text-nss-muted'
 
@@ -93,6 +97,36 @@ function attemptStatusClasses(status: AttemptStatus | 'DRAFT'): string {
   }
 }
 
+function formatComparisonValue(metric: string, value: number): string {
+  switch (metric) {
+    case 'latency_p99':
+    case 'latency_p50':
+      return `${Math.round(value * 10) / 10} ms`
+    case 'throughput':
+      return `${Math.round(value * 10) / 10} req/s`
+    case 'error_rate':
+    case 'availability':
+      return `${Math.round(value * 1000) / 10}%`
+    default:
+      return `${Math.round(value * 100) / 100}`
+  }
+}
+
+function formatComparisonDelta(deltaPct: number | null, improved: boolean, nonRegressed: boolean): string {
+  if (deltaPct === null) {
+    return improved ? 'Improved' : nonRegressed ? 'Held' : 'Regressed'
+  }
+
+  const rounded = Math.round(Math.abs(deltaPct) * 10) / 10
+  if (improved) {
+    return `Improved ${rounded}%`
+  }
+  if (nonRegressed) {
+    return 'Held flat'
+  }
+  return `Regressed ${rounded}%`
+}
+
 /**
  * Question-mode loop. When a question is active it shows the brief (FR/NFR/scale),
  * Test/Submit controls, and the rubric checklist + overall result. What is shown
@@ -135,6 +169,10 @@ export const QuestionPanel = () => {
   const [panelView, setPanelView] = useState<QuestionPanelView>('brief')
   const [archivedCount, setArchivedCount] = useState(0)
   const activeQuestionId = activeQuestion?.id
+  const experience = useMemo(
+    () => resolveExperienceEnvelope(environmentProfile, activeQuestion),
+    [activeQuestion, environmentProfile]
+  )
   const sanitizedPromptHtml = useMemo(
     () =>
       activeQuestionPromptHtml ? sanitizeQuestionPromptHtml(activeQuestionPromptHtml) : undefined,
@@ -442,9 +480,10 @@ export const QuestionPanel = () => {
   const latestGrade: AttemptGrade | null =
     graderGrade ?? resolveVisibleAttemptGrade(attemptState, currentTopology)
   const contract = latestGrade?.contract
-  const hasDryRunCase = Boolean(activeQuestion.suite.dryRunCase)
   const testRunCount = attemptState?.testRunCount ?? 0
   const testRows = buildQuestionTestRows(activeQuestion, latestGrade)
+  const isBaselineOptimizeQuestion = resolveQuestionEntryFormat(activeQuestion) === 'baseline-optimize'
+  const baselineComparison = latestGrade?.baselineComparison
   // --- EnvironmentProfile + host-command gates ---
   const isAttemptLocked = attemptState?.status === 'LOCKED'
   const showPrompt = environmentProfile.visibility.prompt
@@ -464,6 +503,13 @@ export const QuestionPanel = () => {
   const pendingTests = visibleTestRows.filter((row) => row.status === 'pending').length
   const hasEvaluatedTests = showRubricResults && latestGrade !== null
   const effectivePanelView: QuestionPanelView = showPrompt ? panelView : 'tests'
+  const guideTitle = experience.kind === 'LAB' ? 'Lab Guide' : 'Additional Context'
+  const testButtonLabel =
+    graderStatus === 'grading'
+      ? 'Grading…'
+      : experience.kind === 'LAB'
+        ? 'Run Lab'
+        : experience.testActionLabel
 
   return (
     <section className="flex h-full min-h-0 flex-col text-nss-text">
@@ -471,10 +517,12 @@ export const QuestionPanel = () => {
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <h2 className="text-xs font-bold uppercase tracking-widest text-nss-muted">
-              Question Text
+              {experience.questionTabLabel}
             </h2>
             <p className="mt-1 text-[10px] uppercase tracking-wide text-nss-primary">
-              {activeQuestion.type} · {activeQuestion.difficulty}
+              {activeQuestion.type} · {activeQuestion.difficulty} ·{' '}
+              {formatQuestionEntryFormat(resolveQuestionEntryFormat(activeQuestion))} ·{' '}
+              {experience.label}
             </p>
             <h3 className="truncate text-sm font-semibold">{activeQuestion.title}</h3>
           </div>
@@ -552,6 +600,8 @@ export const QuestionPanel = () => {
 
         {effectivePanelView === 'brief' ? (
           <>
+            <QuestionEntryFormatGuideCard question={activeQuestion} />
+
             {sanitizedPromptHtml ? (
               <div
                 className="text-xs leading-relaxed text-nss-text/90 [&_a]:text-nss-primary [&_a]:underline [&_blockquote]:border-l-2 [&_blockquote]:border-nss-border [&_blockquote]:pl-3 [&_code]:rounded [&_code]:bg-nss-surface [&_code]:px-1 [&_h1]:mb-2 [&_h1]:text-sm [&_h1]:font-semibold [&_h2]:mb-2 [&_h2]:text-sm [&_h2]:font-semibold [&_h3]:mb-2 [&_h3]:text-[11px] [&_h3]:font-semibold [&_li]:mb-1 [&_ol]:mb-3 [&_ol]:list-decimal [&_ol]:pl-4 [&_p]:mb-3 [&_pre]:overflow-x-auto [&_pre]:rounded [&_pre]:bg-nss-surface [&_pre]:p-2 [&_table]:mb-3 [&_table]:w-full [&_table]:border-collapse [&_td]:border [&_td]:border-nss-border [&_td]:px-2 [&_td]:py-1 [&_th]:border [&_th]:border-nss-border [&_th]:px-2 [&_th]:py-1 [&_th]:text-left [&_ul]:mb-3 [&_ul]:list-disc [&_ul]:pl-4"
@@ -559,6 +609,15 @@ export const QuestionPanel = () => {
               />
             ) : (
               <>
+                {activeQuestion.description && (
+                  <section className="space-y-2">
+                    <h3 className={SECTION_TITLE}>Scenario</h3>
+                    <p className="text-xs leading-relaxed text-nss-text/90">
+                      {activeQuestion.description}
+                    </p>
+                  </section>
+                )}
+
                 <p className="text-xs leading-relaxed text-nss-text/90">
                   {activeQuestion.prompt.text}
                 </p>
@@ -616,6 +675,17 @@ export const QuestionPanel = () => {
                     )}
                   </div>
                 </section>
+
+                {activeQuestion.prompt.additionalContext && (
+                  <section className="space-y-2">
+                    <h3 className={SECTION_TITLE}>{guideTitle}</h3>
+                    <div className="rounded-md border border-nss-border bg-nss-surface px-3 py-2">
+                      <p className="whitespace-pre-wrap text-[11px] leading-relaxed text-nss-text">
+                        {activeQuestion.prompt.additionalContext}
+                      </p>
+                    </div>
+                  </section>
+                )}
               </>
             )}
 
@@ -725,8 +795,9 @@ export const QuestionPanel = () => {
 
             {!hasEvaluatedTests && (
               <p className="rounded border border-nss-border bg-nss-surface px-3 py-2 text-[11px] leading-relaxed text-nss-muted">
-                Use Test to evaluate the current topology. Until you run it, the authored checks
-                below stay pending. Submit records the graded attempt.
+                {experience.kind === 'LAB'
+                  ? 'Use Run Lab to evaluate the current configuration. Until you run it, the authored checks below stay pending.'
+                  : 'Use Run & Evaluate to evaluate the current topology. Until you run it, the authored checks below stay pending. Submit records the graded attempt.'}
               </p>
             )}
 
@@ -743,6 +814,85 @@ export const QuestionPanel = () => {
                   {contract.totalTests}
                 </span>
               </div>
+            )}
+
+            {showRubricResults && isBaselineOptimizeQuestion && activeQuestion.scaffold.baselineVerdict && (
+              <section className="space-y-2">
+                <div className="flex items-center justify-between gap-3">
+                  <h3 className={SECTION_TITLE}>Baseline Comparison</h3>
+                  {baselineComparison && (
+                    <span
+                      className={`rounded px-2 py-0.5 text-[10px] font-bold uppercase ${
+                        baselineComparison.passed
+                          ? 'bg-nss-success/15 text-nss-success'
+                          : 'bg-nss-danger/15 text-nss-danger'
+                      }`}
+                    >
+                      {baselineComparison.passed ? 'Baseline Beaten' : 'Baseline Not Beaten'}
+                    </span>
+                  )}
+                </div>
+
+                {baselineComparison ? (
+                  <>
+                    <p className="rounded border border-nss-border bg-nss-surface px-3 py-2 text-[11px] leading-relaxed text-nss-muted">
+                      {baselineComparison.detail}
+                    </p>
+                    {baselineComparison.metrics.length > 0 && (
+                      <div className="grid gap-2">
+                        {baselineComparison.metrics.map((metric) => (
+                          <div
+                            key={metric.metric}
+                            className="rounded border border-nss-border/70 bg-nss-surface/40 px-3 py-2"
+                          >
+                            <div className="flex items-center justify-between gap-3 text-xs">
+                              <span className="font-semibold text-nss-text">{metric.label}</span>
+                              <span
+                                className={
+                                  metric.improved
+                                    ? 'text-nss-success'
+                                    : metric.nonRegressed
+                                      ? 'text-nss-warning'
+                                      : 'text-nss-danger'
+                                }
+                              >
+                                {formatComparisonDelta(
+                                  metric.deltaPct,
+                                  metric.improved,
+                                  metric.nonRegressed
+                                )}
+                              </span>
+                            </div>
+                            <div className="mt-2 grid grid-cols-2 gap-2 text-[10px] text-nss-muted">
+                              <div>
+                                <div>Baseline</div>
+                                <div className="font-semibold text-nss-text">
+                                  {formatComparisonValue(metric.metric, metric.baseline)}
+                                </div>
+                              </div>
+                              <div>
+                                <div>Current</div>
+                                <div className="font-semibold text-nss-text">
+                                  {formatComparisonValue(metric.metric, metric.current)}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                ) : hasEvaluatedTests ? (
+                  <p className="rounded border border-nss-border bg-nss-surface px-3 py-2 text-[11px] leading-relaxed text-nss-muted">
+                    Baseline comparison is unavailable because the primary comparison case did not
+                    produce a verdict.
+                  </p>
+                ) : (
+                  <p className="rounded border border-nss-border bg-nss-surface px-3 py-2 text-[11px] leading-relaxed text-nss-muted">
+                    Run &amp; Compare to measure the current design against the authored baseline.
+                  </p>
+                )}
+              </section>
             )}
 
             {graderStatus === 'grading' && (
@@ -793,7 +943,7 @@ export const QuestionPanel = () => {
           disabled={graderStatus === 'grading' || !canTest}
           className="flex-1 rounded-md border border-nss-border bg-nss-surface px-3 py-2 text-xs font-semibold text-nss-text hover:bg-nss-bg disabled:opacity-50"
         >
-          {graderStatus === 'grading' ? 'Grading…' : hasDryRunCase ? 'Test (dry run)' : 'Test'}
+          {testButtonLabel}
         </button>
         {showSubmit && (
           <button

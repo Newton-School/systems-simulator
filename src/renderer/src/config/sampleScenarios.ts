@@ -14,6 +14,9 @@ import keyBasedShardingRaw from '../../../engine/__samples__/key-based-sharding.
 import streamConsumerLagRaw from '../../../engine/__samples__/stream-consumer-lag.json?raw'
 import dnsWeightedRoutingRaw from '../../../engine/__samples__/dns-weighted-routing.json?raw'
 import circuitBreakerRaw from '../../../engine/__samples__/circuit-breaker-fail-fast.json?raw'
+import messageBrokerFanoutRaw from '../../../engine/__samples__/message-broker-fanout.json?raw'
+import paymentIdempotencyDedupRaw from '../../../engine/__samples__/payment-idempotency-dedup.json?raw'
+import storageProfileReadVsScanRaw from '../../../engine/__samples__/storage-profile-read-vs-scan.json?raw'
 
 export type SampleDifficulty = 'starter' | 'intro' | 'intermediate' | 'advanced'
 
@@ -187,6 +190,42 @@ export const SAMPLE_SCENARIOS: SampleScenario[] = [
       'Switch to Throughput, select the stream, and inspect its lag summary. Final lag should stay above zero while producer RPS exceeds consumer capacity.',
     difficulty: 'intermediate',
     raw: streamConsumerLagRaw
+  },
+  {
+    id: 'message-broker-fanout',
+    name: 'Broker Fanout Delivery',
+    subtitle: 'One Publish, Many Consumers',
+    diagram: 'Producer -> Event Broker -> Email / Push / Analytics',
+    primaryUseCase:
+      'Shows broker-style delivery where one event should fan out to every downstream subscriber.',
+    simulatorValue:
+      'Run it, then inspect the workers. Broadcast fanout should deliver the same published event stream to email, push, and analytics instead of silently choosing one consumer.',
+    difficulty: 'intermediate',
+    raw: messageBrokerFanoutRaw
+  },
+  {
+    id: 'payment-idempotency-dedup',
+    name: 'Payment Idempotency Guard',
+    subtitle: 'Retried Write Dedup',
+    diagram: 'Client -> Payment Service -> Idempotency Guard -> Ledger',
+    primaryUseCase:
+      'Shows how retried writes can be short-circuited by an idempotency guard before they reach the downstream write sink.',
+    simulatorValue:
+      'Run it, then inspect the idempotency guard. The first request for a key should continue to the ledger, while later retries for the same key should terminate at the guard instead of double-writing downstream.',
+    difficulty: 'intermediate',
+    raw: paymentIdempotencyDedupRaw
+  },
+  {
+    id: 'storage-profile-read-vs-scan',
+    name: 'Store-Fit Routing',
+    subtitle: 'Point Reads vs Heavy Scans',
+    diagram: 'Client -> Query Router -> KV Store / Data Warehouse',
+    primaryUseCase:
+      'Shows why different access patterns belong on different stores instead of treating every datastore as a generic queue.',
+    simulatorValue:
+      'Run it, then compare the two storage nodes. Point reads should stay cheap on the KV path while export scans pay the warehouse profile instead of hammering the hot store.',
+    difficulty: 'intermediate',
+    raw: storageProfileReadVsScanRaw
   },
   {
     id: 'dns-weighted-routing',

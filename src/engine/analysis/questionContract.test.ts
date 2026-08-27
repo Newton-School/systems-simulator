@@ -9,6 +9,7 @@ import {
   parseQuestionPackage,
   recordDryRunGrade,
   recordSubmittedGrade,
+  resolveQuestionEntryFormat,
   recoverAttemptAfterGradingError,
   resumePersistedAttempt
 } from './question'
@@ -165,6 +166,7 @@ describe('question contract parsing', () => {
     }
 
     expect(parseQuestionPackage(raw).version).toBe('1.0')
+    expect(resolveQuestionEntryFormat(parseQuestionPackage(raw))).toBe('blank-canvas')
 
     expect(() =>
       parseQuestionPackage({
@@ -175,6 +177,43 @@ describe('question contract parsing', () => {
         }
       })
     ).toThrow(/Question suite case ids must be unique/)
+  })
+
+  it('accepts an additive entryFormat field and preserves it when authored explicitly', () => {
+    const parsed = parseQuestionPackage({
+      id: 'q2',
+      title: 'blueprint demo',
+      difficulty: 'intermediate',
+      type: 'tradeoff',
+      entryFormat: 'requirements-first',
+      prompt: {
+        text: 'start from the requirements',
+        functionalRequirements: ['A'],
+        nonFunctionalRequirements: [],
+        scale: {}
+      },
+      scaffold: { type: 'partial', topology: topology() },
+      constraints: { canModifyScaffold: true, canRemoveScaffoldNodes: true },
+      suite: {
+        name: 'suite',
+        visibleToStudent: false,
+        cases: [{ id: 'baseline' }]
+      },
+      rubric: {
+        checks: [
+          {
+            id: 'err',
+            description: 'error rate < 10%',
+            metric: 'summary.errorRate',
+            op: '<',
+            value: 0.1
+          }
+        ]
+      }
+    })
+
+    expect(parsed.entryFormat).toBe('requirements-first')
+    expect(resolveQuestionEntryFormat(parsed)).toBe('requirements-first')
   })
 
   it('defaults attempt version and enforces graded attempt invariants', () => {

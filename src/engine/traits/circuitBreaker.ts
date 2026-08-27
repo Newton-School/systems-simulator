@@ -10,7 +10,8 @@ import type {
 
 export const CIRCUIT_BREAKER_COMPONENT_TYPES = [
   'service-mesh',
-  'sidecar'
+  'sidecar',
+  'circuit-breaker-controller'
 ] as const satisfies readonly ComponentType[]
 
 const CIRCUIT_BREAKER_STATE_KEY = 'circuit-breaker:state'
@@ -46,7 +47,7 @@ function asRatio(value: unknown): number | null {
     : null
 }
 
-const DEFAULT_BREAKER_CONFIG: CircuitBreakerConfig = {
+export const DEFAULT_BREAKER_CONFIG: CircuitBreakerConfig = {
   failureThreshold: 0.5,
   failureCount: 10,
   recoveryTimeoutMs: 15_000,

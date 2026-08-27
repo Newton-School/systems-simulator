@@ -351,6 +351,31 @@ const INFO_BY_ID: Record<string, LibraryItemInfo> = {
     realWorld: 'LaunchDarkly, Unleash, ConfigCat.',
     config: ['evaluation latency', 'flag count', 'availability']
   },
+  'rate-limiter': {
+    represents: 'Gates requests with a token bucket so bursts above the configured budget are rejected.',
+    realWorld: 'Envoy rate limit service, Kong rate limiter, custom Redis-backed limiter.',
+    config: ['bucket size', 'refill rate', 'retry budget']
+  },
+  'circuit-breaker-controller': {
+    represents: 'Trips open after enough downstream failures so callers fail fast instead of hammering a bad dependency.',
+    realWorld: 'Envoy circuit breaker, Hystrix/Resilience4j policy, service-mesh traffic policy.',
+    config: ['failure threshold', 'window size', 'recovery timeout']
+  },
+  'distributed-lock': {
+    represents: 'Serializes a contended operation by granting a per-key lease before the critical section continues.',
+    realWorld: 'Redis lock, etcd lease, ZooKeeper ephemeral lock.',
+    config: ['lock key field', 'acquire latency', 'lease TTL']
+  },
+  'idempotency-manager': {
+    represents: 'Guards write paths by recording idempotency keys and short-circuiting duplicates.',
+    realWorld: 'Idempotency-key store, dedup table, retry guard service.',
+    config: ['metadata key', 'lookup latency', 'dedup window']
+  },
+  'reservation-store': {
+    represents: 'Atomically reserves a contended resource by key so it is committed once; later requests for the same key get "sold out".',
+    realWorld: 'Ticket/seat reservation service, inventory row with conditional write (SELECT … FOR UPDATE), reservation ledger.',
+    config: ['resource key field', 'reserve latency']
+  },
   'metrics-collector-agent': {
     represents: 'Collects numeric signals like latency, throughput, errors, and resource usage.',
     realWorld: 'Prometheus agent, Datadog agent, OpenTelemetry collector.',

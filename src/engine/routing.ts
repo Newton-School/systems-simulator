@@ -194,7 +194,11 @@ export class RoutingTable {
     if (syncRoutes.length === 1) {
       results.push(syncRoutes[0])
     } else if (syncRoutes.length > 1) {
-      results.push(this.pickSyncRoute(sourceNodeId, syncRoutes, options.getInFlight))
+      if (this.strategyBySourceId.get(sourceNodeId) === 'broadcast') {
+        results.push(...syncRoutes)
+      } else {
+        results.push(this.pickSyncRoute(sourceNodeId, syncRoutes, options.getInFlight))
+      }
     }
 
     results.push(...asyncRoutes)

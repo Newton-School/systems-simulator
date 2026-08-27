@@ -223,10 +223,138 @@ function validateDomains(pkg: QuestionPackage, out: AuthoringDiagnostic[]): void
   }
 }
 
+function validateEntryFormat(pkg: QuestionPackage, out: AuthoringDiagnostic[]): void {
+  if (!pkg.entryFormat) {
+    return
+  }
+
+  switch (pkg.entryFormat) {
+    case 'blank-canvas':
+      if (pkg.scaffold.type !== 'empty') {
+        out.push(
+          err(
+            'entryFormat.blankCanvasMismatch',
+            'entryFormat "blank-canvas" requires scaffold.type "empty".',
+            'scaffold.type'
+          )
+        )
+      }
+      break
+    case 'requirements-first':
+      if (pkg.scaffold.type === 'empty') {
+        out.push(
+          warn(
+            'entryFormat.requirementsFirstScaffold',
+            'entryFormat "requirements-first" is usually stronger with a starter scaffold, scaffolded worksheet, or baseline topology anchor instead of a purely empty canvas.',
+            'scaffold.type'
+          )
+        )
+      }
+      if (
+        pkg.prompt.functionalRequirements.length === 0 &&
+        pkg.prompt.nonFunctionalRequirements.length === 0
+      ) {
+        out.push(
+          warn(
+            'entryFormat.requirementsFirstPrompt',
+            'entryFormat "requirements-first" should expose explicit functional or non-functional requirement bullets so the learner starts from requirements, not just free-form prose.',
+            'prompt'
+          )
+        )
+      }
+      break
+    case 'partial-scaffold':
+      if (pkg.scaffold.type !== 'partial') {
+        out.push(
+          err(
+            'entryFormat.partialScaffoldMismatch',
+            'entryFormat "partial-scaffold" requires scaffold.type "partial".',
+            'scaffold.type'
+          )
+        )
+      }
+      break
+    case 'broken-scaffold':
+      if (pkg.type !== 'fix') {
+        out.push(
+          err(
+            'entryFormat.brokenScaffoldTypeMismatch',
+            'entryFormat "broken-scaffold" should pair with question type "fix".',
+            'type'
+          )
+        )
+      }
+      if (pkg.scaffold.type === 'empty') {
+        out.push(
+          err(
+            'entryFormat.brokenScaffoldShape',
+            'entryFormat "broken-scaffold" needs a non-empty scaffold for the learner to repair.',
+            'scaffold.type'
+          )
+        )
+      }
+      break
+    case 'baseline-optimize':
+      if (pkg.type !== 'optimize') {
+        out.push(
+          err(
+            'entryFormat.baselineOptimizeTypeMismatch',
+            'entryFormat "baseline-optimize" should pair with question type "optimize".',
+            'type'
+          )
+        )
+      }
+      if (pkg.scaffold.type === 'empty') {
+        out.push(
+          err(
+            'entryFormat.baselineOptimizeShape',
+            'entryFormat "baseline-optimize" needs a starter scaffold or baseline topology.',
+            'scaffold.type'
+          )
+        )
+      }
+      if (!pkg.scaffold.baselineVerdict) {
+        out.push(
+          warn(
+            'entryFormat.baselineVerdictMissing',
+            'entryFormat "baseline-optimize" should usually include scaffold.baselineVerdict so the learner can see what they are trying to beat.',
+            'scaffold.baselineVerdict'
+          )
+        )
+      }
+      break
+    case 'locked-lab':
+      if (pkg.scaffold.type !== 'complete') {
+        out.push(
+          err(
+            'entryFormat.lockedLabShape',
+            'entryFormat "locked-lab" requires scaffold.type "complete".',
+            'scaffold.type'
+          )
+        )
+      }
+      if (
+        pkg.constraints.canModifyScaffold !== false ||
+        pkg.constraints.canRemoveScaffoldNodes !== false ||
+        (pkg.constraints.allowedNodeTypes?.length ?? 0) > 0
+      ) {
+        out.push(
+          err(
+            'entryFormat.lockedLabUnlocked',
+            'entryFormat "locked-lab" requires a locked scaffold: canModifyScaffold=false, canRemoveScaffoldNodes=false, and no editable palette allowlist.',
+            'constraints'
+          )
+        )
+      }
+      break
+  }
+}
+
 export function validateAuthoredQuestion(pkg: QuestionPackage): AuthoringDiagnostic[] {
   const out: AuthoringDiagnostic[] = []
 
   validateDomains(pkg, out)
+  validateEntryFormat(pkg, out)
 
   // ── suite / rubric presence ────────────────────────────────────────────────
   if (!pkg.suite || pkg.suite.cases.length === 0) {
@@ -249,39 +377,14 @@ export function validateAuthoredQuestion(pkg: QuestionPackage): AuthoringDiagnos
     validateMetric(check.metric, inferRubricCheckKind(check), `rubric.checks[${i}].metric`, out)
   })
 
-  // ── scale numbers must be injected, not just displayed ─────────────────────
+  // ── explicit workload overrides remain optional ────────────────────────────
   const scale = pkg.prompt.scale ?? {}
   const cases = pkg.suite?.cases ?? []
-  const anyBaseRps = cases.some((c) => typeof c.workload?.baseRps === 'number')
-  const typedDist = cases.find(
-    (c) =>
-      Array.isArray(c.workload?.requestDistribution) && c.workload!.requestDistribution!.length >= 1
-  )?.workload?.requestDistribution
-
-  if (typeof scale.peakRps === 'number' && !anyBaseRps) {
-    out.push(
-      warn(
-        'scale.rpsNotInjected',
-        'prompt.scale.peakRps is set but no suite case injects workload.baseRps — the load is display-only.',
-        'suite.cases'
-      )
-    )
-  }
-  if (typeof scale.readWriteRatio === 'number') {
-    const hasReadWrite =
-      Array.isArray(typedDist) &&
-      typedDist.some((d) => /read/i.test(d.type)) &&
-      typedDist.some((d) => /write/i.test(d.type))
-    if (!hasReadWrite) {
-      out.push(
-        warn(
-          'scale.mixNotInjected',
-          'prompt.scale.readWriteRatio is set but no suite case injects a typed read/write requestDistribution — the ratio is display-only and does not stress the design (alignment §3/§9).',
-          'suite.cases'
-        )
-      )
-    }
-  }
+  // `gradeAttempt` now derives baseRps/requestDistribution from prompt.scale when
+  // a suite case omits them. Keep explicit case workload overrides for scenario-
+  // specific spikes or alternate traffic mixes, but do not warn when the package
+  // relies on the shared prompt-scale defaults.
+  void scale
 
   // ── requestDistribution entries need sizeBytes (bank finding #1) ────────────
   cases.forEach((c, ci) => {

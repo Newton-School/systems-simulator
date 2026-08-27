@@ -1,0 +1,202 @@
+{
+  "version": "2.0.0",
+  "nodes": [
+    {
+      "id": "producer",
+      "type": "serviceNode",
+      "position": { "x": 80, "y": 280 },
+      "data": {
+        "schemaVersion": 2,
+        "templateId": "client-user",
+        "componentType": "api-endpoint",
+        "structuralRole": "source",
+        "profile": "source",
+        "rendererType": "serviceNode",
+        "label": "Event Producer",
+        "subLabel": "Publish Notifications",
+        "iconKey": "monitor",
+        "source": {
+          "requestDistribution": [
+            { "type": "publish-event", "weight": 1, "sizeBytes": 2048 }
+          ],
+          "defaultWorkload": {
+            "pattern": "poisson",
+            "baseRps": 220,
+            "bursty": {
+              "burstRps": 520,
+              "burstDuration": 1500,
+              "normalDuration": 8500
+            },
+            "spike": {
+              "spikeTime": 30000,
+              "spikeRps": 900,
+              "spikeDuration": 4000
+            },
+            "sawtooth": {
+              "peakRps": 320,
+              "rampDuration": 12000
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "broker",
+      "type": "serviceNode",
+      "position": { "x": 620, "y": 280 },
+      "data": {
+        "schemaVersion": 2,
+        "templateId": "message-broker",
+        "componentType": "message-broker",
+        "structuralRole": "router",
+        "profile": "broker",
+        "rendererType": "serviceNode",
+        "label": "Event Broker",
+        "subLabel": "Broadcast Delivery",
+        "iconKey": "broker",
+        "routingStrategy": "broadcast",
+        "sim": {
+          "queue": { "workers": 8, "capacity": 256, "discipline": "fifo" },
+          "processing": { "distribution": { "type": "constant", "value": 3 }, "timeout": 400 }
+        }
+      }
+    },
+    {
+      "id": "email-worker",
+      "type": "computeNode",
+      "position": { "x": 1160, "y": 60 },
+      "data": {
+        "schemaVersion": 2,
+        "templateId": "async-worker",
+        "componentType": "batch-worker",
+        "structuralRole": "processor",
+        "profile": "worker",
+        "rendererType": "computeNode",
+        "label": "Email Worker",
+        "subLabel": "Transactional Email",
+        "iconKey": "WORKER",
+        "sim": {
+          "queue": { "workers": 4, "capacity": 96, "discipline": "fifo" },
+          "processing": { "distribution": { "type": "constant", "value": 12 }, "timeout": 600 }
+        }
+      }
+    },
+    {
+      "id": "push-worker",
+      "type": "computeNode",
+      "position": { "x": 1160, "y": 280 },
+      "data": {
+        "schemaVersion": 2,
+        "templateId": "async-worker",
+        "componentType": "batch-worker",
+        "structuralRole": "processor",
+        "profile": "worker",
+        "rendererType": "computeNode",
+        "label": "Push Worker",
+        "subLabel": "Mobile Push",
+        "iconKey": "WORKER",
+        "sim": {
+          "queue": { "workers": 6, "capacity": 128, "discipline": "fifo" },
+          "processing": { "distribution": { "type": "constant", "value": 8 }, "timeout": 500 }
+        }
+      }
+    },
+    {
+      "id": "analytics-worker",
+      "type": "computeNode",
+      "position": { "x": 1160, "y": 500 },
+      "data": {
+        "schemaVersion": 2,
+        "templateId": "async-worker",
+        "componentType": "batch-worker",
+        "structuralRole": "processor",
+        "profile": "worker",
+        "rendererType": "computeNode",
+        "label": "Analytics Worker",
+        "subLabel": "Downstream Consumers",
+        "iconKey": "WORKER",
+        "sim": {
+          "queue": { "workers": 3, "capacity": 80, "discipline": "fifo" },
+          "processing": { "distribution": { "type": "constant", "value": 18 }, "timeout": 700 }
+        }
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "producer-to-broker",
+      "source": "producer",
+      "target": "broker",
+      "data": {
+        "protocol": "kafka",
+        "mode": "asynchronous",
+        "latencyMu": 0.2,
+        "latencySigma": 0.3,
+        "pathType": "same-dc",
+        "bandwidth": 1000,
+        "maxConcurrentRequests": 400,
+        "packetLossRate": 0,
+        "errorRate": 0
+      }
+    },
+    {
+      "id": "broker-to-email",
+      "source": "broker",
+      "target": "email-worker",
+      "data": {
+        "protocol": "amqp",
+        "mode": "synchronous",
+        "latencyMu": 0.3,
+        "latencySigma": 0.25,
+        "pathType": "same-dc",
+        "bandwidth": 1000,
+        "maxConcurrentRequests": 400,
+        "packetLossRate": 0,
+        "errorRate": 0
+      }
+    },
+    {
+      "id": "broker-to-push",
+      "source": "broker",
+      "target": "push-worker",
+      "data": {
+        "protocol": "amqp",
+        "mode": "synchronous",
+        "latencyMu": 0.25,
+        "latencySigma": 0.25,
+        "pathType": "same-dc",
+        "bandwidth": 1000,
+        "maxConcurrentRequests": 400,
+        "packetLossRate": 0,
+        "errorRate": 0
+      }
+    },
+    {
+      "id": "broker-to-analytics",
+      "source": "broker",
+      "target": "analytics-worker",
+      "data": {
+        "protocol": "amqp",
+        "mode": "synchronous",
+        "latencyMu": 0.35,
+        "latencySigma": 0.3,
+        "pathType": "same-dc",
+        "bandwidth": 1000,
+        "maxConcurrentRequests": 400,
+        "packetLossRate": 0,
+        "errorRate": 0
+      }
+    }
+  ],
+  "scenario": {
+    "global": {
+      "simulationDuration": 45000,
+      "warmupDuration": 5000,
+      "seed": "message-broker-fanout",
+      "defaultTimeout": 3000,
+      "traceSampleRate": 0.01
+    },
+    "selectedSourceNodeId": "producer",
+    "workloadOverride": {}
+  }
+}

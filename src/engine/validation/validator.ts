@@ -172,6 +172,7 @@ const COMPONENT_TYPES = [
   'rate-limiter',
   'circuit-breaker-controller',
   'idempotency-manager',
+  'reservation-store',
   'request-tracking',
   'backpressure-controller',
   'throttler'
@@ -493,7 +494,13 @@ export const WorkloadProfileSchema = z.object({
         type: z.string(),
         weight: z.number().nonnegative(),
         sizeBytes: z.number().positive(),
-        metadata: z.record(z.string(), z.unknown()).optional()
+        metadata: z.record(z.string(), z.unknown()).optional(),
+        keyspace: z
+          .object({
+            field: z.string().min(1),
+            size: z.number().int().positive()
+          })
+          .optional()
       })
     )
     .min(1)
@@ -855,6 +862,87 @@ export const validateTopology = (
       })
     }
 
+    const deliverySemantics = node.config?.['deliverySemantics']
+    if (
+      deliverySemantics !== undefined &&
+      deliverySemantics !== 'at-most-once' &&
+      deliverySemantics !== 'at-least-once' &&
+      deliverySemantics !== 'exactly-once'
+    ) {
+      errors.push({
+        path: `nodes[${index}].config.deliverySemantics`,
+        message: oneOf('Delivery mode', ['at-most-once', 'at-least-once', 'exactly-once'])
+      })
+    }
+
+    const visibilityTimeoutMs = node.config?.['visibilityTimeoutMs']
+    if (
+      visibilityTimeoutMs !== undefined &&
+      (typeof visibilityTimeoutMs !== 'number' ||
+        !Number.isFinite(visibilityTimeoutMs) ||
+        visibilityTimeoutMs < 0)
+    ) {
+      errors.push({
+        path: `nodes[${index}].config.visibilityTimeoutMs`,
+        message: nonNegativeNumber('Visibility timeout', 'ms')
+      })
+    }
+
+    const maxReceiveCount = node.config?.['maxReceiveCount']
+    if (
+      maxReceiveCount !== undefined &&
+      (typeof maxReceiveCount !== 'number' ||
+        !Number.isFinite(maxReceiveCount) ||
+        !Number.isInteger(maxReceiveCount) ||
+        maxReceiveCount <= 0)
+    ) {
+      errors.push({
+        path: `nodes[${index}].config.maxReceiveCount`,
+        message: positiveNumber('Max receives')
+      })
+    }
+
+    const dlqNodeId = node.config?.['dlqNodeId']
+    if (dlqNodeId !== undefined) {
+      if (typeof dlqNodeId !== 'string' || dlqNodeId.trim().length === 0) {
+        errors.push({
+          path: `nodes[${index}].config.dlqNodeId`,
+          message: 'DLQ node ID must be a non-empty string.'
+        })
+      } else if (dlqNodeId === node.id) {
+        errors.push({
+          path: `nodes[${index}].config.dlqNodeId`,
+          message: 'DLQ node ID must point at a different queue node.'
+        })
+      } else {
+        const dlqNode = topology.nodes.find((candidate) => candidate.id === dlqNodeId)
+        if (!dlqNode) {
+          errors.push({
+            path: `nodes[${index}].config.dlqNodeId`,
+            message: `DLQ node '${dlqNodeId}' does not exist.`
+          })
+        } else if (dlqNode.type !== 'queue') {
+          errors.push({
+            path: `nodes[${index}].config.dlqNodeId`,
+            message: 'DLQ node must reference a Queue node.'
+          })
+        }
+      }
+    }
+
+    if (
+      node.type !== 'queue' &&
+      (deliverySemantics !== undefined ||
+        visibilityTimeoutMs !== undefined ||
+        maxReceiveCount !== undefined ||
+        dlqNodeId !== undefined)
+    ) {
+      errors.push({
+        path: `nodes[${index}].config.deliverySemantics`,
+        message: 'Queue delivery settings only apply to Queue nodes.'
+      })
+    }
+
     for (const field of ['readLatency', 'writeLatency'] as const) {
       const value = node.config?.[field]
       if (value !== undefined && !asDistributionConfig(value)) {
@@ -917,6 +1005,83 @@ export const validateTopology = (
           message
         })
       }
+    }
+
+    for (const [field, label] of [
+      ['storageReadMs', 'Read latency'],
+      ['storageWriteMs', 'Write latency'],
+      ['storageQueryMs', 'Query latency'],
+      ['storageScanMs', 'Scan latency'],
+      ['storageIngestMs', 'Ingest latency']
+    ] as const) {
+      const value = node.config?.[field]
+      if (
+        value !== undefined &&
+        (typeof value !== 'number' || !Number.isFinite(value) || value <= 0)
+      ) {
+        errors.push({
+          path: `nodes[${index}].config.${field}`,
+          message: positiveNumber(label, 'ms')
+        })
+      }
+    }
+
+    for (const [field, label] of [
+      ['dedupWindowMs', 'Dedup window'],
+      ['storeLookupMs', 'Lookup latency']
+    ] as const) {
+      const value = node.config?.[field]
+      if (
+        value !== undefined &&
+        (typeof value !== 'number' || !Number.isFinite(value) || value <= 0)
+      ) {
+        errors.push({
+          path: `nodes[${index}].config.${field}`,
+          message: positiveNumber(label, 'ms')
+        })
+      }
+    }
+
+    for (const [field, label] of [
+      ['workingSetRatio', 'Working-set ratio'],
+      ['workingSetPenaltyMs', 'Working-set miss penalty'],
+      ['gcPauseMs', 'Max GC pause']
+    ] as const) {
+      const value = node.config?.[field]
+      if (
+        value !== undefined &&
+        (typeof value !== 'number' || !Number.isFinite(value) || value <= 0)
+      ) {
+        errors.push({
+          path: `nodes[${index}].config.${field}`,
+          message: positiveNumber(label, field === 'workingSetRatio' ? undefined : 'ms')
+        })
+      }
+    }
+
+    const gcPressureStartRatio = node.config?.['gcPressureStartRatio']
+    if (
+      gcPressureStartRatio !== undefined &&
+      (typeof gcPressureStartRatio !== 'number' ||
+        !Number.isFinite(gcPressureStartRatio) ||
+        gcPressureStartRatio < 0 ||
+        gcPressureStartRatio > 1)
+    ) {
+      errors.push({
+        path: `nodes[${index}].config.gcPressureStartRatio`,
+        message: probability('GC pressure threshold')
+      })
+    }
+
+    const dedupKeyField = node.config?.['dedupKeyField']
+    if (
+      dedupKeyField !== undefined &&
+      (typeof dedupKeyField !== 'string' || dedupKeyField.trim().length === 0)
+    ) {
+      errors.push({
+        path: `nodes[${index}].config.dedupKeyField`,
+        message: 'Metadata key must be a non-empty string.'
+      })
     }
 
     const routingKeyField = node.config?.['routingKeyField']

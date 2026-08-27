@@ -275,6 +275,29 @@ function overlaySimulationConfig(
     sim.writeLatency = structuredClone(writeLatency)
   }
 
+  for (const field of [
+    'storageReadMs',
+    'storageWriteMs',
+    'storageQueryMs',
+    'storageScanMs',
+    'storageIngestMs',
+    'dedupWindowMs',
+    'storeLookupMs',
+    'workingSetRatio',
+    'workingSetPenaltyMs',
+    'gcPressureStartRatio',
+    'gcPauseMs'
+  ] as const) {
+    const value = asNumber(config[field])
+    if (value !== undefined) {
+      sim[field] = value
+    }
+  }
+
+  if (typeof config['dedupKeyField'] === 'string' && config['dedupKeyField'].trim().length > 0) {
+    sim.dedupKeyField = config['dedupKeyField'].trim()
+  }
+
   return Object.keys(sim).length > 0 ? sim : undefined
 }
 

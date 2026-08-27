@@ -169,6 +169,7 @@ export type AuxiliaryType =
   | 'rate-limiter'
   | 'circuit-breaker-controller'
   | 'idempotency-manager'
+  | 'reservation-store'
   | 'request-tracking'
   | 'backpressure-controller'
   | 'throttler'
@@ -465,6 +466,19 @@ export interface WorkloadProfile {
     weight: number
     sizeBytes: number
     metadata?: Record<string, unknown>
+    /**
+     * Optional contended keyspace. When set, each generated request of this type
+     * is stamped with `metadata[field]` = a key drawn uniformly from `size`
+     * distinct keys. A small `size` under high RPS forces many requests onto the
+     * same key — the contention needed to exercise reservation / no-double-book
+     * designs. Omitted → requests share the static `metadata` (no contention).
+     */
+    keyspace?: {
+      /** Metadata field to populate, e.g. "seatId". */
+      field: string
+      /** Number of distinct keys (e.g. seats) to spread traffic across. */
+      size: number
+    }
   }>
 }
 

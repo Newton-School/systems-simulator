@@ -164,6 +164,31 @@ export const THEME_CONFIG: Record<string, ColorTheme> = {
     border: 'border-slate-500',
     text: 'text-slate-600'
   },
+  'rate-limiter': {
+    bg: 'bg-amber-500',
+    border: 'border-amber-600',
+    text: 'text-amber-600'
+  },
+  'circuit-breaker-controller': {
+    bg: 'bg-rose-500',
+    border: 'border-rose-600',
+    text: 'text-rose-600'
+  },
+  'distributed-lock': {
+    bg: 'bg-teal-500',
+    border: 'border-teal-600',
+    text: 'text-teal-600'
+  },
+  'idempotency-manager': {
+    bg: 'bg-cyan-500',
+    border: 'border-cyan-600',
+    text: 'text-cyan-600'
+  },
+  'reservation-store': {
+    bg: 'bg-cyan-500',
+    border: 'border-cyan-600',
+    text: 'text-cyan-600'
+  },
 
   // Observability
   'metrics-collector': { bg: 'bg-pink-500', border: 'border-pink-600', text: 'text-pink-600' },

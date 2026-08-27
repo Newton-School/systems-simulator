@@ -74,6 +74,13 @@ describe('validateAuthoredQuestion', () => {
     expect(codes(pkg)).toContain('domains.mismatch')
   })
 
+  it('keeps legacy questions clean when entryFormat is omitted', () => {
+    const pkg = base()
+    delete pkg.entryFormat
+    expect(codes(pkg)).not.toContain('entryFormat.blankCanvasMismatch')
+    expect(codes(pkg)).not.toContain('entryFormat.requirementsFirstScaffold')
+  })
+
   it('accepts a multi-domain question when each domain matches its grading', () => {
     const pkg = base()
     pkg.domains = ['compute', 'storage']
@@ -98,6 +105,64 @@ describe('validateAuthoredQuestion', () => {
     expect(codes(pkg)).toContain('domains.v2')
   })
 
+  it('errors when explicit blank-canvas entryFormat does not match scaffold shape', () => {
+    const pkg = base()
+    pkg.entryFormat = 'blank-canvas'
+    pkg.scaffold = { type: 'partial' }
+    expect(codes(pkg)).toContain('entryFormat.blankCanvasMismatch')
+  })
+
+  it('warns when requirements-first has no explicit requirements and no scaffold anchor', () => {
+    const pkg = base()
+    pkg.entryFormat = 'requirements-first'
+    pkg.prompt.nonFunctionalRequirements = []
+    expect(codes(pkg)).toContain('entryFormat.requirementsFirstScaffold')
+    expect(codes(pkg)).toContain('entryFormat.requirementsFirstPrompt')
+  })
+
+  it('errors when broken-scaffold is authored without a fix question and starter scaffold', () => {
+    const pkg = base()
+    pkg.entryFormat = 'broken-scaffold'
+    expect(codes(pkg)).toContain('entryFormat.brokenScaffoldTypeMismatch')
+    expect(codes(pkg)).toContain('entryFormat.brokenScaffoldShape')
+  })
+
+  it('warns when baseline-optimize is missing a baseline verdict', () => {
+    const pkg = base()
+    pkg.type = 'optimize'
+    pkg.entryFormat = 'baseline-optimize'
+    pkg.scaffold = {
+      type: 'partial',
+      topology: {
+        id: 'baseline',
+        name: 'baseline',
+        version: '2.0.0',
+        global: {
+          seed: 'seed',
+          simulationDuration: 1000,
+          warmupDuration: 0,
+          timeResolution: 'millisecond',
+          defaultTimeout: 5000
+        },
+        nodes: [],
+        edges: []
+      } as unknown as QuestionPackage['scaffold']['topology']
+    }
+    expect(codes(pkg)).toContain('entryFormat.baselineVerdictMissing')
+  })
+
+  it('errors when locked-lab is authored with an unlocked scaffold', () => {
+    const pkg = base()
+    pkg.entryFormat = 'locked-lab'
+    pkg.scaffold = { type: 'complete' }
+    pkg.constraints = {
+      canModifyScaffold: true,
+      canRemoveScaffoldNodes: false,
+      allowedNodeTypes: ['microservice']
+    }
+    expect(codes(pkg)).toContain('entryFormat.lockedLabUnlocked')
+  })
+
   it('errors on the classic bad latency metric key', () => {
     const pkg = base()
     pkg.rubric.checks[0].metric = 'summary.latencyP99Ms'
@@ -106,13 +171,13 @@ describe('validateAuthoredQuestion', () => {
     expect(isAuthoredValid(d)).toBe(false)
   })
 
-  it('warns when readWriteRatio is set but not injected as typed traffic', () => {
+  it('accepts prompt.scale read/write mix when cases rely on runtime derivation', () => {
     const pkg = base()
     pkg.suite.cases[0].workload = { baseRps: 2000 } // no requestDistribution
-    expect(codes(pkg)).toContain('scale.mixNotInjected')
+    expect(codes(pkg)).not.toContain('scale.mixNotInjected')
   })
 
-  it('warns when peakRps is set but no case injects baseRps', () => {
+  it('accepts prompt.scale peakRps when cases rely on runtime derivation', () => {
     const pkg = base()
     pkg.suite.cases[0].workload = {
       requestDistribution: [
@@ -120,7 +185,7 @@ describe('validateAuthoredQuestion', () => {
         { type: 'write', weight: 0.01, sizeBytes: 1 }
       ]
     }
-    expect(codes(pkg)).toContain('scale.rpsNotInjected')
+    expect(codes(pkg)).not.toContain('scale.rpsNotInjected')
   })
 
   it('warns on a requestDistribution entry missing sizeBytes', () => {

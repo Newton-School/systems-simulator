@@ -209,6 +209,82 @@ describe('validateTopology workload fields', () => {
   })
 })
 
+describe('validateTopology queue delivery settings', () => {
+  it('accepts queue delivery settings when the DLQ points at another queue', () => {
+    const topology = makeTopology({
+      nodes: [
+        makeSourceNode('source'),
+        {
+          ...makeProcessorNode('queue'),
+          type: 'queue',
+          category: 'messaging-and-streaming',
+          config: {
+            deliverySemantics: 'at-least-once',
+            visibilityTimeoutMs: 25,
+            maxReceiveCount: 4,
+            dlqNodeId: 'queue-dlq'
+          }
+        },
+        {
+          ...makeProcessorNode('queue-dlq'),
+          type: 'queue',
+          category: 'messaging-and-streaming'
+        }
+      ],
+      edges: [makeEdge('source-queue', 'source', 'queue')],
+      sourceNodeId: 'source'
+    })
+
+    const result = validateTopology(topology)
+
+    expect(result.valid).toBe(true)
+    expect(result.data?.nodes.find((node) => node.id === 'queue')?.config).toMatchObject({
+      deliverySemantics: 'at-least-once',
+      visibilityTimeoutMs: 25,
+      maxReceiveCount: 4,
+      dlqNodeId: 'queue-dlq'
+    })
+  })
+
+  it('rejects malformed queue delivery settings', () => {
+    const topology = makeTopology({
+      nodes: [
+        makeSourceNode('source'),
+        {
+          ...makeProcessorNode('svc'),
+          config: { deliverySemantics: 'at-least-once' }
+        },
+        {
+          ...makeProcessorNode('queue'),
+          type: 'queue',
+          category: 'messaging-and-streaming',
+          config: {
+            deliverySemantics: 'sometimes',
+            visibilityTimeoutMs: -1,
+            maxReceiveCount: 0,
+            dlqNodeId: 'svc'
+          }
+        }
+      ],
+      edges: [makeEdge('source-queue', 'source', 'queue')],
+      sourceNodeId: 'source'
+    })
+
+    const result = validateTopology(topology)
+
+    expect(result.valid).toBe(false)
+    expect(result.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: 'nodes[1].config.deliverySemantics' }),
+        expect.objectContaining({ path: 'nodes[2].config.deliverySemantics' }),
+        expect.objectContaining({ path: 'nodes[2].config.visibilityTimeoutMs' }),
+        expect.objectContaining({ path: 'nodes[2].config.maxReceiveCount' }),
+        expect.objectContaining({ path: 'nodes[2].config.dlqNodeId' })
+      ])
+    )
+  })
+})
+
 describe('validateTopology active-source validation', () => {
   it('fails a source-only topology', () => {
     const source = makeSourceNode('client', 'Client App')
@@ -671,6 +747,39 @@ describe('validateTopology advanced trait validation', () => {
       makeTopology({
         nodes: [source, lambda],
         edges: [makeEdge('client-lambda', source.id, lambda.id)],
+        sourceNodeId: source.id
+      })
+    )
+
+    expect(result.valid).toBe(true)
+  })
+
+  it('accepts memory-pressure config fields on memory-sensitive nodes', () => {
+    const source = makeSourceNode('client', 'Client')
+    const cache: ComponentNode = {
+      id: 'cache',
+      type: 'in-memory-cache',
+      category: 'storage-and-data',
+      role: 'storage',
+      label: 'Cache',
+      position: { x: 0, y: 0 },
+      queue: { workers: 4, capacity: 32, discipline: 'fifo' },
+      processing: {
+        distribution: { type: 'constant', value: 1 },
+        timeout: 1_000
+      },
+      config: {
+        workingSetRatio: 1.8,
+        workingSetPenaltyMs: 12,
+        gcPressureStartRatio: 0.75,
+        gcPauseMs: 30
+      }
+    }
+
+    const result = validateTopology(
+      makeTopology({
+        nodes: [source, cache],
+        edges: [makeEdge('client-cache', source.id, cache.id)],
         sourceNodeId: source.id
       })
     )

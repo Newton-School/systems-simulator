@@ -13,6 +13,7 @@ import {
   gradeQuestionBatch,
   inferRubricCheckKind,
   isInvariantMetric,
+  resolveTopologyMetric,
   RUBRIC_VERSION,
   type CaseExecutionStatus,
   type CheckResult,
@@ -57,6 +58,7 @@ import {
 } from './gradingCriteria'
 import { buildReplayDigest, type ReplayDigest } from './replay'
 import { hostSafeToken, stableSerialize } from './stableHash'
+import { topologyCost } from './cost'
 import {
   ComponentNodeSchema,
   EdgeDefinitionSchema,
@@ -92,6 +94,19 @@ export type QuestionType =
   | 'scaling'
   | 'ha-chaos'
   | 'tradeoff'
+
+/**
+ * How the learner enters the problem. This is intentionally orthogonal to
+ * `QuestionType`: `type` describes the grading archetype, while `entryFormat`
+ * describes the starting surface and authoring presentation.
+ */
+export type QuestionEntryFormat =
+  | 'blank-canvas'
+  | 'requirements-first'
+  | 'partial-scaffold'
+  | 'broken-scaffold'
+  | 'baseline-optimize'
+  | 'locked-lab'
 
 export interface NFRTarget {
   metric: 'latency_p99' | 'latency_p50' | 'availability' | 'error_rate' | 'throughput'
@@ -170,6 +185,11 @@ export interface QuestionPackage {
   tags?: string[]
   estimatedTimeMinutes?: number
   type: QuestionType
+  /**
+   * Optional product-facing presentation style. Omit for legacy questions; the
+   * platform can infer a stable default from `type`, scaffold shape, and tags.
+   */
+  entryFormat?: QuestionEntryFormat
   prompt: QuestionPrompt
   scaffold: QuestionScaffold
   constraints: QuestionConstraints
@@ -239,15 +259,59 @@ export interface HostContract {
   allPassed: boolean
 }
 
+export type ConstraintCheckId =
+  | 'allowed-node-types'
+  | 'forbidden-node-types'
+  | 'max-node-count'
+  | 'max-budget'
+  | 'max-total-workers'
+
+export interface ConstraintCheck {
+  id: ConstraintCheckId
+  description: string
+  passed: boolean
+  detail?: string
+}
+
+export interface ConstraintEvaluation {
+  checks: ConstraintCheck[]
+  passed: boolean
+}
+
+export type BaselineMetricId = NFRTarget['metric']
+
+export interface BaselineMetricComparison {
+  metric: BaselineMetricId
+  label: string
+  direction: 'lower' | 'higher'
+  baseline: number
+  current: number
+  delta: number
+  deltaPct: number | null
+  improved: boolean
+  nonRegressed: boolean
+}
+
+export interface BaselineComparisonEvaluation {
+  caseId: string
+  metrics: BaselineMetricComparison[]
+  passed: boolean
+  detail: string
+}
+
 export interface AttemptGrade {
   /** Structural rules that can short-circuit grading before simulation. */
   structural: StructuralEvaluation
+  /** Question-level constraint evaluation (absent when none authored). */
+  constraints?: ConstraintEvaluation
   /** Semantic criteria — the topology-meaning axis (absent when none authored). */
   semantic?: SemanticEvaluation
   /** Graph-consistent justification results (absent when no justify prompts). */
   justification?: JustificationResult[]
   /** Budget/cost evaluation — the anti-kitchen-sink axis (absent when no budget authored). */
   budget?: BudgetEvaluation
+  /** Optimize-style compare against an authored baseline verdict (absent when none authored). */
+  baselineComparison?: BaselineComparisonEvaluation
   /** The full graded batch (rich data — stays inside the simulator). */
   graded: GradedEvaluationBatch
   /** The collapsed boolean contract sent across the iframe seam to the host. */
@@ -296,6 +360,14 @@ export function budgetTestId(): string {
   return 'topology.budget'
 }
 
+export function constraintTestId(constraintId: ConstraintCheckId): string {
+  return `topology.constraint.${hostSafeToken(constraintId)}`
+}
+
+export function baselineComparisonTestId(): string {
+  return 'topology.baseline-comparison'
+}
+
 /** Scale + NFR numbers a question defines, for justification number-citation. */
 function collectScaleNumbers(pkg: QuestionPackage): number[] {
   const numbers: number[] = []
@@ -308,6 +380,380 @@ function collectScaleNumbers(pkg: QuestionPackage): number[] {
     numbers.push(nfr.value)
   }
   return numbers
+}
+
+function formatPercent(value: number): string {
+  return `${(value * 100).toFixed(1)}%`
+}
+
+function formatUsdPerHour(value: number): string {
+  return `$${value.toFixed(4)}/hr`
+}
+
+function hasConstraintChecks(constraints: QuestionConstraints): boolean {
+  return (
+    (constraints.allowedNodeTypes?.length ?? 0) > 0 ||
+    (constraints.forbiddenNodeTypes?.length ?? 0) > 0 ||
+    constraints.maxNodeCount !== undefined ||
+    constraints.maxBudget !== undefined ||
+    constraints.maxTotalWorkers !== undefined
+  )
+}
+
+function evaluateQuestionConstraints(
+  constraints: QuestionConstraints,
+  topology: TopologyJSON
+): ConstraintEvaluation | undefined {
+  if (!hasConstraintChecks(constraints)) {
+    return undefined
+  }
+
+  const checks: ConstraintCheck[] = []
+
+  if ((constraints.allowedNodeTypes?.length ?? 0) > 0) {
+    const allowed = new Set(constraints.allowedNodeTypes)
+    const found = Array.from(
+      new Set(topology.nodes.map((node) => node.type).filter((type) => !allowed.has(type)))
+    ).sort()
+    checks.push({
+      id: 'allowed-node-types',
+      description: `Use only allowed component types (${constraints.allowedNodeTypes!.join(', ')})`,
+      passed: found.length === 0,
+      ...(found.length > 0
+        ? { detail: `Found disallowed component types: ${found.join(', ')}.` }
+        : {})
+    })
+  }
+
+  if ((constraints.forbiddenNodeTypes?.length ?? 0) > 0) {
+    const forbidden = new Set(constraints.forbiddenNodeTypes)
+    const found = Array.from(
+      new Set(topology.nodes.map((node) => node.type).filter((type) => forbidden.has(type)))
+    ).sort()
+    checks.push({
+      id: 'forbidden-node-types',
+      description: `Avoid forbidden component types (${constraints.forbiddenNodeTypes!.join(', ')})`,
+      passed: found.length === 0,
+      ...(found.length > 0
+        ? { detail: `Found forbidden component types: ${found.join(', ')}.` }
+        : {})
+    })
+  }
+
+  if (constraints.maxNodeCount !== undefined) {
+    const actual = topology.nodes.length
+    checks.push({
+      id: 'max-node-count',
+      description: `Keep node count within ${constraints.maxNodeCount}`,
+      passed: actual <= constraints.maxNodeCount,
+      ...(actual > constraints.maxNodeCount
+        ? { detail: `Node count ${actual} exceeds cap ${constraints.maxNodeCount}.` }
+        : {})
+    })
+  }
+
+  if (constraints.maxBudget !== undefined) {
+    const cost = topologyCost(topology)
+    checks.push({
+      id: 'max-budget',
+      description: `Keep provisioned spend within ${formatUsdPerHour(constraints.maxBudget)}`,
+      passed: cost.totalPerHour <= constraints.maxBudget,
+      ...(!Number.isFinite(cost.totalPerHour) || cost.totalPerHour > constraints.maxBudget
+        ? {
+            detail: `Current spend ${formatUsdPerHour(cost.totalPerHour)} exceeds cap ${formatUsdPerHour(
+              constraints.maxBudget
+            )}.${cost.hasUnpricedNodes ? ' Some nodes remain unpriced in the current cost model.' : ''}`
+          }
+        : cost.hasUnpricedNodes
+          ? {
+              detail: `Current spend ${formatUsdPerHour(
+                cost.totalPerHour
+              )}. Some nodes remain unpriced in the current cost model.`
+            }
+          : {})
+    })
+  }
+
+  if (constraints.maxTotalWorkers !== undefined) {
+    const actual = resolveTopologyMetric(topology, 'topology.totalWorkers') ?? 0
+    checks.push({
+      id: 'max-total-workers',
+      description: `Keep derived total workers within ${constraints.maxTotalWorkers}`,
+      passed: actual <= constraints.maxTotalWorkers,
+      ...(actual > constraints.maxTotalWorkers
+        ? { detail: `Derived total workers ${actual} exceeds cap ${constraints.maxTotalWorkers}.` }
+        : {})
+    })
+  }
+
+  return {
+    checks,
+    passed: checks.every((check) => check.passed)
+  }
+}
+
+type RequestDistributionEntry = WorkloadProfile['requestDistribution'][number]
+
+function classifyRequestKind(type: string): 'read' | 'write' | null {
+  const normalized = type.trim().toLowerCase()
+  if (
+    /^(read|get|head|fetch|lookup|query|scan|list|search|cache-read|export-read)$/.test(
+      normalized
+    )
+  ) {
+    return 'read'
+  }
+  if (
+    /^(write|post|put|patch|delete|set|create|update|insert|upsert|append|publish)$/.test(
+      normalized
+    )
+  ) {
+    return 'write'
+  }
+  return null
+}
+
+function cloneRequestDistributionEntry(
+  entry: RequestDistributionEntry,
+  type: string,
+  weight: number
+): RequestDistributionEntry {
+  return {
+    ...entry,
+    type,
+    weight,
+    ...(entry.metadata ? { metadata: structuredClone(entry.metadata) } : {})
+  }
+}
+
+function deriveReadWriteDistribution(
+  baseDistribution: readonly RequestDistributionEntry[] | undefined,
+  readWriteRatio: number
+): RequestDistributionEntry[] {
+  const fallback: RequestDistributionEntry = { type: 'default', weight: 1, sizeBytes: 1024 }
+  const entries = baseDistribution && baseDistribution.length > 0 ? baseDistribution : [fallback]
+  const readEntry =
+    entries.find((entry) => classifyRequestKind(entry.type) === 'read') ??
+    entries.find((entry) => /^get$/i.test(entry.type)) ??
+    entries[0] ??
+    fallback
+  const writeEntry =
+    entries.find((entry) => classifyRequestKind(entry.type) === 'write') ??
+    entries.find((entry) => /^(post|put|patch|delete)$/i.test(entry.type)) ??
+    entries[1] ??
+    entries[0] ??
+    fallback
+  const normalizedReadWeight = Math.max(0, Math.min(1, readWriteRatio / 100))
+
+  return [
+    cloneRequestDistributionEntry(readEntry, 'read', normalizedReadWeight),
+    cloneRequestDistributionEntry(writeEntry, 'write', 1 - normalizedReadWeight)
+  ]
+}
+
+function deriveQuestionScaleWorkload(
+  pkg: QuestionPackage,
+  studentTopology: TopologyJSON,
+  caseWorkload: Partial<WorkloadProfile> | undefined
+): Partial<WorkloadProfile> | undefined {
+  const derived: Partial<WorkloadProfile> = {}
+  const promptScale = pkg.prompt.scale
+
+  if (typeof promptScale.peakRps === 'number' && caseWorkload?.baseRps === undefined) {
+    derived.baseRps = promptScale.peakRps
+  }
+
+  if (
+    typeof promptScale.readWriteRatio === 'number' &&
+    caseWorkload?.requestDistribution === undefined
+  ) {
+    derived.requestDistribution = deriveReadWriteDistribution(
+      studentTopology.workload?.requestDistribution,
+      promptScale.readWriteRatio
+    )
+  }
+
+  if (Object.keys(derived).length === 0) {
+    return caseWorkload
+  }
+
+  return {
+    ...derived,
+    ...(caseWorkload ?? {})
+  }
+}
+
+const BASELINE_METRIC_FALLBACKS: readonly BaselineMetricId[] = [
+  'latency_p99',
+  'throughput',
+  'error_rate'
+]
+
+function baselineMetricIdsForPackage(pkg: QuestionPackage): BaselineMetricId[] {
+  const fromPrompt = Array.from(
+    new Set(pkg.prompt.nonFunctionalRequirements.map((nfr) => nfr.metric))
+  )
+  if (fromPrompt.length > 0) {
+    return fromPrompt
+  }
+
+  const fromRubric = new Set<BaselineMetricId>()
+  for (const check of pkg.rubric.checks) {
+    if (check.metric === 'summary.latency.p99') {
+      fromRubric.add('latency_p99')
+    } else if (check.metric === 'summary.latency.p50') {
+      fromRubric.add('latency_p50')
+    } else if (check.metric === 'summary.throughput') {
+      fromRubric.add('throughput')
+    } else if (check.metric === 'summary.errorRate') {
+      fromRubric.add('error_rate')
+    }
+  }
+
+  return fromRubric.size > 0 ? Array.from(fromRubric) : [...BASELINE_METRIC_FALLBACKS]
+}
+
+function baselineMetricLabel(metric: BaselineMetricId): string {
+  switch (metric) {
+    case 'latency_p99':
+      return 'p99 latency'
+    case 'latency_p50':
+      return 'p50 latency'
+    case 'throughput':
+      return 'throughput'
+    case 'error_rate':
+      return 'error rate'
+    case 'availability':
+      return 'availability'
+  }
+}
+
+function baselineMetricDirection(metric: BaselineMetricId): 'lower' | 'higher' {
+  switch (metric) {
+    case 'latency_p99':
+    case 'latency_p50':
+    case 'error_rate':
+      return 'lower'
+    case 'throughput':
+    case 'availability':
+      return 'higher'
+  }
+}
+
+function baselineMetricValue(
+  verdict: SimulationVerdict,
+  metric: BaselineMetricId
+): number | null {
+  switch (metric) {
+    case 'latency_p99':
+      return verdict.summary.latency.p99
+    case 'latency_p50':
+      return verdict.summary.latency.p50
+    case 'throughput':
+      return verdict.summary.throughput
+    case 'error_rate':
+      return verdict.summary.errorRate
+    case 'availability':
+      return 1 - verdict.summary.errorRate
+  }
+}
+
+function formatBaselineMetric(metric: BaselineMetricId, value: number): string {
+  switch (metric) {
+    case 'latency_p99':
+    case 'latency_p50':
+      return `${Math.round(value * 10) / 10} ms`
+    case 'throughput':
+      return `${Math.round(value * 10) / 10} req/s`
+    case 'error_rate':
+    case 'availability':
+      return formatPercent(value)
+  }
+}
+
+function evaluateBaselineComparison(
+  pkg: QuestionPackage,
+  verdict: SimulationVerdict,
+  caseId: string
+): BaselineComparisonEvaluation | undefined {
+  const baseline = pkg.scaffold.baselineVerdict
+  if (!baseline) {
+    return undefined
+  }
+
+  const epsilon = 1e-9
+  const metrics = baselineMetricIdsForPackage(pkg)
+    .map((metric): BaselineMetricComparison | null => {
+      const baselineValue = baselineMetricValue(baseline, metric)
+      const currentValue = baselineMetricValue(verdict, metric)
+      if (baselineValue === null || currentValue === null) {
+        return null
+      }
+
+      const direction = baselineMetricDirection(metric)
+      const delta = currentValue - baselineValue
+      const improved =
+        direction === 'lower'
+          ? currentValue < baselineValue - epsilon
+          : currentValue > baselineValue + epsilon
+      const nonRegressed =
+        direction === 'lower'
+          ? currentValue <= baselineValue + epsilon
+          : currentValue >= baselineValue - epsilon
+      const denominator = Math.abs(baselineValue) > epsilon ? Math.abs(baselineValue) : null
+      const rawDeltaPct =
+        denominator === null
+          ? null
+          : direction === 'lower'
+            ? ((baselineValue - currentValue) / denominator) * 100
+            : ((currentValue - baselineValue) / denominator) * 100
+
+      return {
+        metric,
+        label: baselineMetricLabel(metric),
+        direction,
+        baseline: baselineValue,
+        current: currentValue,
+        delta,
+        deltaPct: rawDeltaPct,
+        improved,
+        nonRegressed
+      }
+    })
+    .filter((entry): entry is BaselineMetricComparison => entry !== null)
+
+  if (metrics.length === 0) {
+    return {
+      caseId,
+      metrics: [],
+      passed: false,
+      detail: `No comparable primary metrics were available for case ${caseId}.`
+    }
+  }
+
+  const improved = metrics.filter((metric) => metric.improved)
+  const regressed = metrics.filter((metric) => !metric.nonRegressed)
+  const passed = improved.length > 0 && regressed.length === 0
+  const comparisons = metrics
+    .map((metric) => {
+      const trend = metric.improved
+        ? 'improved'
+        : metric.nonRegressed
+          ? 'held'
+          : 'regressed'
+      return `${baselineMetricLabel(metric.metric)} ${trend} (${formatBaselineMetric(
+        metric.metric,
+        metric.baseline
+      )} → ${formatBaselineMetric(metric.metric, metric.current)})`
+    })
+    .join('; ')
+
+  return {
+    caseId,
+    metrics,
+    passed,
+    detail: `Compared against the authored baseline on case ${caseId}: ${comparisons}.`
+  }
 }
 
 export function caseRubricTestId(caseId: string, kind: CheckResultKind, checkId: string): string {
@@ -330,6 +776,15 @@ const QuestionTypeSchema = z.enum([
   'scaling',
   'ha-chaos',
   'tradeoff'
+])
+
+const QuestionEntryFormatSchema = z.enum([
+  'blank-canvas',
+  'requirements-first',
+  'partial-scaffold',
+  'broken-scaffold',
+  'baseline-optimize',
+  'locked-lab'
 ])
 
 const NFRTargetSchema = z.object({
@@ -834,6 +1289,7 @@ export const QuestionPackageSchema: z.ZodType<QuestionPackage> = z
     tags: z.array(z.string().min(1)).optional(),
     estimatedTimeMinutes: z.number().int().positive().optional(),
     type: QuestionTypeSchema,
+    entryFormat: QuestionEntryFormatSchema.optional(),
     prompt: QuestionPromptSchema,
     scaffold: QuestionScaffoldSchema,
     constraints: QuestionConstraintsSchema,
@@ -915,6 +1371,65 @@ export function parseQuestionPackage(input: unknown): QuestionPackage {
   }
 
   return parsed.data
+}
+
+function hasQuestionTag(question: Pick<QuestionPackage, 'tags'>, tag: string): boolean {
+  return question.tags?.some((value) => value.toLowerCase() === tag.toLowerCase()) ?? false
+}
+
+/**
+ * Resolve the learner-facing entry style for both new and legacy questions.
+ * This lets us add explicit `entryFormat` metadata without breaking the existing
+ * authored bank, where the effective format was previously encoded implicitly in
+ * scaffold shape, tags, and a few question archetypes.
+ */
+export function resolveQuestionEntryFormat(
+  question: Pick<QuestionPackage, 'entryFormat' | 'tags' | 'type' | 'scaffold' | 'constraints'>
+): QuestionEntryFormat {
+  if (question.entryFormat) {
+    return question.entryFormat
+  }
+
+  if (
+    hasQuestionTag(question, 'lab') ||
+    (question.scaffold.type === 'complete' &&
+      question.constraints.canModifyScaffold === false &&
+      question.constraints.canRemoveScaffoldNodes === false &&
+      (question.constraints.allowedNodeTypes?.length ?? 0) === 0)
+  ) {
+    return 'locked-lab'
+  }
+
+  if (question.type === 'fix') {
+    return 'broken-scaffold'
+  }
+
+  if (question.type === 'optimize') {
+    return 'baseline-optimize'
+  }
+
+  if (question.scaffold.type === 'empty') {
+    return 'blank-canvas'
+  }
+
+  return 'partial-scaffold'
+}
+
+export function formatQuestionEntryFormat(entryFormat: QuestionEntryFormat): string {
+  switch (entryFormat) {
+    case 'blank-canvas':
+      return 'Blank Canvas'
+    case 'requirements-first':
+      return 'Requirements-First'
+    case 'partial-scaffold':
+      return 'Partial Scaffold'
+    case 'broken-scaffold':
+      return 'Broken Scaffold'
+    case 'baseline-optimize':
+      return 'Baseline Optimize'
+    case 'locked-lab':
+      return 'Locked Lab'
+  }
 }
 
 export function parseAttemptState(input: unknown, expectedQuestionId?: string): AttemptState {
@@ -1173,6 +1688,24 @@ function flattenStructuralRows(structural: StructuralEvaluation): AttemptCheckRo
   }))
 }
 
+function flattenConstraintRows(constraints: ConstraintEvaluation | undefined): AttemptCheckRow[] {
+  if (!constraints) {
+    return []
+  }
+
+  return constraints.checks.map((check) => ({
+    id: constraintTestId(check.id),
+    name: check.description,
+    scope: 'constraints',
+    kind: 'topology',
+    status: check.passed ? 'passed' : 'failed',
+    passed: check.passed,
+    pointsEarned: 0,
+    pointsPossible: 0,
+    ...(check.detail ? { detail: check.detail } : {})
+  }))
+}
+
 function flattenQuestionRubricRows(result: RubricResult | undefined): AttemptCheckRow[] {
   if (!result) {
     return []
@@ -1263,12 +1796,36 @@ function flattenBudgetRows(budget: BudgetEvaluation | undefined): AttemptCheckRo
   ]
 }
 
+function flattenBaselineComparisonRows(
+  comparison: BaselineComparisonEvaluation | undefined
+): AttemptCheckRow[] {
+  if (!comparison) {
+    return []
+  }
+
+  return [
+    {
+      id: baselineComparisonTestId(),
+      name: 'Beat the baseline on primary metrics',
+      scope: 'comparison',
+      kind: 'topology',
+      status: comparison.passed ? 'passed' : 'failed',
+      passed: comparison.passed,
+      pointsEarned: 0,
+      pointsPossible: 0,
+      detail: comparison.detail
+    }
+  ]
+}
+
 export function flattenAttemptCheckRows(grade: AttemptGrade): AttemptCheckRow[] {
   return [
     ...flattenStructuralRows(grade.structural),
+    ...flattenConstraintRows(grade.constraints),
     ...flattenSemanticRows(grade.semantic),
     ...flattenJustificationRows(grade.justification),
     ...flattenBudgetRows(grade.budget),
+    ...flattenBaselineComparisonRows(grade.baselineComparison),
     ...flattenQuestionRubricRows(grade.graded.question),
     ...grade.graded.cases.flatMap((entry) => flattenCaseRubricRows(entry))
   ]
@@ -1282,15 +1839,19 @@ export function flattenAttemptCheckRows(grade: AttemptGrade): AttemptCheckRow[] 
 export function toHostContract(
   structural: StructuralEvaluation,
   graded: GradedEvaluationBatch,
+  constraints?: ConstraintEvaluation,
   semantic?: SemanticEvaluation,
   justification?: JustificationResult[],
-  budget?: BudgetEvaluation
+  budget?: BudgetEvaluation,
+  baselineComparison?: BaselineComparisonEvaluation
 ): HostContract {
   const tests: HostTest[] = flattenAttemptCheckRows({
     structural,
+    ...(constraints ? { constraints } : {}),
     semantic,
     ...(justification ? { justification } : {}),
     ...(budget ? { budget } : {}),
+    ...(baselineComparison ? { baselineComparison } : {}),
     graded,
     contract: { tests: [], totalTests: 0, passedTests: 0, allPassed: false }
   }).map((row) => ({
@@ -1325,6 +1886,56 @@ export function buildQuestionTestRows(
       scope: 'topology',
       status: 'pending' as const
     })),
+    ...((pkg.constraints.allowedNodeTypes?.length ?? 0) > 0
+      ? [
+          {
+            id: constraintTestId('allowed-node-types'),
+            name: `Use only allowed component types (${pkg.constraints.allowedNodeTypes!.join(', ')})`,
+            scope: 'constraints',
+            status: 'pending' as const
+          }
+        ]
+      : []),
+    ...((pkg.constraints.forbiddenNodeTypes?.length ?? 0) > 0
+      ? [
+          {
+            id: constraintTestId('forbidden-node-types'),
+            name: `Avoid forbidden component types (${pkg.constraints.forbiddenNodeTypes!.join(', ')})`,
+            scope: 'constraints',
+            status: 'pending' as const
+          }
+        ]
+      : []),
+    ...(pkg.constraints.maxNodeCount !== undefined
+      ? [
+          {
+            id: constraintTestId('max-node-count'),
+            name: `Keep node count within ${pkg.constraints.maxNodeCount}`,
+            scope: 'constraints',
+            status: 'pending' as const
+          }
+        ]
+      : []),
+    ...(pkg.constraints.maxBudget !== undefined
+      ? [
+          {
+            id: constraintTestId('max-budget'),
+            name: `Keep provisioned spend within ${formatUsdPerHour(pkg.constraints.maxBudget)}`,
+            scope: 'constraints',
+            status: 'pending' as const
+          }
+        ]
+      : []),
+    ...(pkg.constraints.maxTotalWorkers !== undefined
+      ? [
+          {
+            id: constraintTestId('max-total-workers'),
+            name: `Keep derived total workers within ${pkg.constraints.maxTotalWorkers}`,
+            scope: 'constraints',
+            status: 'pending' as const
+          }
+        ]
+      : []),
     ...(pkg.semanticCriteria ?? []).map((criterion) => ({
       id: semanticTestId(criterion.id),
       name: criterion.description ?? criterion.id,
@@ -1343,6 +1954,16 @@ export function buildQuestionTestRows(
             id: budgetTestId(),
             name: `Budget: within ${pkg.budget.cap} ${pkg.budget.unit}`,
             scope: 'budget',
+            status: 'pending' as const
+          }
+        ]
+      : []),
+    ...(pkg.scaffold.baselineVerdict
+      ? [
+          {
+            id: baselineComparisonTestId(),
+            name: 'Beat the baseline on primary metrics',
+            scope: 'comparison',
             status: 'pending' as const
           }
         ]
@@ -1535,7 +2156,7 @@ export function gradeAttemptWithArtifacts(
     id: testCase.id,
     topology: mergeTopologyWithOverrides(studentTopology, {
       global: testCase.global,
-      workload: testCase.workload,
+      workload: deriveQuestionScaleWorkload(pkg, studentTopology, testCase.workload),
       faults: testCase.faults
     })
   }))
@@ -1552,6 +2173,7 @@ export function gradeAttemptWithArtifacts(
 
   const batch = evaluateSuite(preparedCases, capturingRun, pkg.suite.name)
   const graded = gradeQuestionBatch(pkg.rubric, studentTopology, batch)
+  const constraints = evaluateQuestionConstraints(pkg.constraints, studentTopology)
   // Grade justifications first; a passed justification defends a `forbidUnjustified`
   // component via the injected SemanticContext (the anti-cargo-cult unblock).
   const justification = gradeJustificationsForPackage(pkg, studentTopology, justificationAnswers)
@@ -1563,13 +2185,35 @@ export function gradeAttemptWithArtifacts(
     : {}
   const semantic = evaluateSemanticCriteriaForPackage(pkg, studentTopology, semanticCtx)
   const budget = pkg.budget ? evaluateBudget(studentTopology, pkg.budget) : undefined
+  const primaryCaseId = pkg.suite.cases[0]?.id
+  const primaryVerdict =
+    primaryCaseId === undefined
+      ? undefined
+      : batch.results.find(
+          (result): result is Extract<typeof batch.results[number], { ok: true }> =>
+            result.id === primaryCaseId && result.ok
+        )?.verdict
+  const baselineComparison =
+    primaryCaseId && primaryVerdict
+      ? evaluateBaselineComparison(pkg, primaryVerdict, primaryCaseId)
+      : undefined
   const grade: AttemptGrade = {
     structural,
+    ...(constraints ? { constraints } : {}),
     ...(semantic ? { semantic } : {}),
     ...(justification ? { justification } : {}),
     ...(budget ? { budget } : {}),
+    ...(baselineComparison ? { baselineComparison } : {}),
     graded,
-    contract: toHostContract(structural, graded, semantic, justification, budget)
+    contract: toHostContract(
+      structural,
+      graded,
+      constraints,
+      semantic,
+      justification,
+      budget,
+      baselineComparison
+    )
   }
 
   const verdictByCaseId = new Map<string, SimulationVerdict>()

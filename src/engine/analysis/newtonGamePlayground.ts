@@ -70,6 +70,7 @@ interface NewtonSimulatorConfig {
   questionId?: string
   questionVersion?: string
   questionType?: QuestionPackage['type']
+  entryFormat?: QuestionPackage['entryFormat']
   difficulty?: QuestionPackage['difficulty']
   workloadCategory?: WorkloadCategory
   presentationMode?: 'raw-html' | 'structured'
@@ -283,6 +284,7 @@ function buildQuestionPackageFromRows(seed: Record<string, unknown>): {
     title,
     difficulty: config.difficulty ?? 'intermediate',
     type: config.questionType ?? 'open-build',
+    ...(config.entryFormat ? { entryFormat: config.entryFormat } : {}),
     prompt,
     scaffold: config.scaffold ?? { type: 'empty' },
     constraints: config.constraints ?? {

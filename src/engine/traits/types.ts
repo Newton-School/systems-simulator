@@ -5,7 +5,7 @@ import type { ResolveRoute } from '../routing'
 
 export type TraitHookName = 'beforeArrival' | 'beforeRouting' | 'filterRoutes'
 
-export type TraitRoutingStrategyHint = 'round-robin'
+export type TraitRoutingStrategyHint = 'round-robin' | 'broadcast'
 export type FieldPath = string
 export type AccuracyClass = 'invariant' | 'default-override' | 'user-parameter' | 'not-simulated'
 export type ConfigAltitude = 'primary' | 'advanced'
@@ -127,6 +127,14 @@ export interface TraitContext {
   clock: bigint
   random?: () => number
   state?: TraitStateStore
+  /**
+   * Run-scoped state shared by every node in a single engine run (as opposed to
+   * `state`, which is private to one node). Traits that must coordinate across
+   * nodes — e.g. detecting that two independent reservation authorities both
+   * committed the same key — read/write through this. Same lifetime as `state`:
+   * created per run, never leaks between engine instances.
+   */
+  sharedState?: TraitStateStore
   nodeState?: NodeState
 }
 

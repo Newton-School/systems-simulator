@@ -137,7 +137,16 @@ export const CATALOG_CONFIG: CatalogCategory[] = [
   {
     id: 'control-plane',
     title: 'Control Plane',
-    items: getItems(['config-store', 'secrets-manager', 'feature-flag-service'])
+    items: getItems([
+      'config-store',
+      'secrets-manager',
+      'feature-flag-service',
+      'rate-limiter',
+      'circuit-breaker-controller',
+      'distributed-lock',
+      'idempotency-manager',
+      'reservation-store'
+    ])
   },
   {
     id: 'scaling',

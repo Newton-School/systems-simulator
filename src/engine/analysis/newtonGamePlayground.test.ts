@@ -86,6 +86,7 @@ function rowAuthoredSeed(overrides: Record<string, unknown> = {}): Record<string
           questionId: pkg.id,
           questionVersion: pkg.version,
           questionType: pkg.type,
+          entryFormat: 'requirements-first',
           domains: ['compute', 'storage'],
           concepts: ['read-cache', 'store-fit'],
           difficulty: pkg.difficulty,
@@ -165,6 +166,7 @@ describe('parseNewtonSeed', () => {
     expect(seed.questionPackage.prompt.text).toContain('Design a write path')
     expect(seed.questionPackage.domains).toEqual(['compute', 'storage'])
     expect(seed.questionPackage.concepts).toEqual(['read-cache', 'store-fit'])
+    expect(seed.questionPackage.entryFormat).toBe('requirements-first')
     expect(seed.questionPackage.justify?.[0]?.id).toBe('why-store')
     expect(seed.promptHtml).toContain('<h3>Scale</h3>')
     expect(seed.environmentProfile).toEqual({
