@@ -37,9 +37,7 @@ type ExperienceProfile = Pick<EnvironmentProfile, 'mode' | 'graded'>
 const SHOW_BLUEPRINTS_AND_LABS = false
 const HIDDEN_TABS: readonly ExperienceSidebarTab[] = ['blueprints', 'labs']
 
-function withVisibleTabs(
-  tabs: readonly ExperienceSidebarTab[]
-): readonly ExperienceSidebarTab[] {
+function withVisibleTabs(tabs: readonly ExperienceSidebarTab[]): readonly ExperienceSidebarTab[] {
   if (SHOW_BLUEPRINTS_AND_LABS) {
     return tabs
   }
@@ -48,13 +46,7 @@ function withVisibleTabs(
   return visible.length > 0 ? visible : ['question']
 }
 
-const SANDBOX_TABS = withVisibleTabs([
-  'question',
-  'blueprints',
-  'labs',
-  'library',
-  'scenarios'
-])
+const SANDBOX_TABS = withVisibleTabs(['question', 'blueprints', 'labs', 'library', 'scenarios'])
 const ASSIGNMENT_TABS = withVisibleTabs(['question', 'library'])
 const INTERVIEW_TABS = withVisibleTabs(['question', 'blueprints', 'library'])
 const LAB_TABS = withVisibleTabs(['question', 'labs'])
