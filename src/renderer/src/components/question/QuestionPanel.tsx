@@ -46,7 +46,10 @@ import type {
 } from '../../../../engine/analysis/question'
 import type { TopologyJSON } from '../../../../engine/core/types'
 import { BudgetMeter } from './BudgetMeter'
-import { QuestionEntryFormatGuideCard } from './questionEntryFormatPresentation'
+import {
+  QuestionEntryFormatGuideCard,
+  SHOW_ENTRY_FORMAT_WORKFLOW
+} from './questionEntryFormatPresentation'
 
 const SECTION_TITLE = 'text-[10px] font-bold uppercase tracking-widest text-nss-muted'
 
@@ -612,7 +615,9 @@ export const QuestionPanel = () => {
 
         {effectivePanelView === 'brief' ? (
           <>
-            <QuestionEntryFormatGuideCard question={activeQuestion} />
+            {SHOW_ENTRY_FORMAT_WORKFLOW && (
+              <QuestionEntryFormatGuideCard question={activeQuestion} />
+            )}
 
             {sanitizedPromptHtml ? (
               <div

@@ -872,15 +872,23 @@ export const TRAIT_CAPABILITY_MODULES: readonly NodeCapabilityModule[] = [
   ackAndReleaseCapabilityModule
 ]
 
+// Panel section order = this array order (see renderer `getNodeConfigSections`).
+// Ordered most-useful-first: the node's identity/placement, then the primary
+// sizing knobs (resources → performance → queue → routing), then situational
+// capability traits, then rarely-touched testing/observability at the bottom.
 export const NODE_CONFIG_MODULES: readonly NodeCapabilityModule[] = [
-  SOURCE_WORKLOAD_MODULE,
-  ROUTING_STRATEGY_MODULE,
-  COMPOSITE_LOCATION_MODULE,
+  // Node-type-specific "what this node IS" config (each gated to its type).
+  SOURCE_WORKLOAD_MODULE, // sources only — the whole point of a source
+  COMPOSITE_LOCATION_MODULE, // composite nodes only — placement/containment
+  // Primary sizing knobs for every runtime node.
+  RESOURCES_MODULE, // hardware SKU / instances — the main allocation knob
+  PROCESSING_MODULE, // performance — service time + timeout
+  BASE_QUEUE_MODULE, // queueing
+  ROUTING_STRATEGY_MODULE, // routing (multi-target nodes)
+  // Situational capabilities layered on top (retry, memory pressure, cache, …).
   ...TRAIT_CAPABILITY_MODULES,
-  RESOURCES_MODULE,
-  BASE_QUEUE_MODULE,
-  PROCESSING_MODULE,
   SECURITY_POLICY_MODULE,
+  // Rarely-touched testing / targets — bottom.
   CHAOS_MODULE,
   SLO_MODULE,
   SERVICE_REGISTRY_HONESTY_MODULE,

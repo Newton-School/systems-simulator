@@ -529,7 +529,14 @@ export class GGcKNode {
       serviceTimeMs *= degradation.serviceTimeMultiplier
     }
 
-    const serviceTimeMicro = BigInt(Math.round(serviceTimeMs * 1000))
+    // Hard floor at 1µs. Service time is quantized to whole microseconds; a value
+    // that rounds to 0 would schedule the completion at the CURRENT clock tick, so
+    // the worker is freed in the same instant it was taken — never actually held.
+    // That silently bypasses worker-pool and admission limits (a 2-worker node
+    // "processes" unbounded RPS with utilization 0). Flooring to ≥1µs guarantees
+    // every task occupies its worker for real time on the clock, so queueing and
+    // Little's Law hold.
+    const serviceTimeMicro = BigInt(Math.max(1, Math.round(serviceTimeMs * 1000)))
 
     this.scheduler.schedule(
       createEvent(
