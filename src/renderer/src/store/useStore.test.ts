@@ -171,6 +171,69 @@ describe('useStore edge flow batching', () => {
   })
 })
 
+describe('useStore graph history', () => {
+  function node(id: string, x = 0, y = 0) {
+    return { id, type: 'service', position: { x, y }, data: { label: id } }
+  }
+
+  beforeEach(() => {
+    useStore.getState().setGraph([node('n1') as any], [], { history: 'skip', resetHistory: true })
+    useStore.getState().setAttemptState(null)
+  })
+
+  afterEach(() => {
+    useStore.getState().setGraph([], [], { history: 'skip', resetHistory: true })
+    useStore.getState().setAttemptState(null)
+  })
+
+  it('records a single history entry when a drag session is committed', () => {
+    const startRevision = useStore.getState().graphRevision
+
+    useStore
+      .getState()
+      .onNodesChange([
+        { type: 'position', id: 'n1', position: { x: 10, y: 12 }, dragging: true } as any
+      ])
+
+    expect(useStore.getState().graphHistory.past).toHaveLength(0)
+    expect(useStore.getState().nodes[0]?.position).toEqual({ x: 10, y: 12 })
+
+    useStore
+      .getState()
+      .onNodesChange([
+        { type: 'position', id: 'n1', position: { x: 24, y: 32 }, dragging: false } as any
+      ])
+
+    expect(useStore.getState().graphHistory.past).toHaveLength(0)
+
+    const finalizedNodes = useStore
+      .getState()
+      .nodes.map((current) =>
+        current.id === 'n1' ? { ...current, position: { x: 24, y: 32 } } : current
+      )
+
+    useStore.getState().setNodes(finalizedNodes as any, { history: 'drag-commit' })
+
+    expect(useStore.getState().graphHistory.past).toHaveLength(1)
+    expect(useStore.getState().graphRevision).toBe(startRevision + 1)
+
+    useStore.getState().undoGraph()
+    expect(useStore.getState().nodes[0]?.position).toEqual({ x: 0, y: 0 })
+
+    useStore.getState().redoGraph()
+    expect(useStore.getState().nodes[0]?.position).toEqual({ x: 24, y: 32 })
+  })
+
+  it('does not record history for a no-op node data patch', () => {
+    const startRevision = useStore.getState().graphRevision
+
+    useStore.getState().updateNodeData('n1', { label: 'n1' } as any)
+
+    expect(useStore.getState().graphHistory.past).toHaveLength(0)
+    expect(useStore.getState().graphRevision).toBe(startRevision)
+  })
+})
+
 describe('useStore scaffold-node lock', () => {
   function node(id: string) {
     return { id, type: 'service', position: { x: 0, y: 0 }, data: { label: id } }

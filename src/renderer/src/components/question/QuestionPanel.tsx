@@ -44,6 +44,11 @@ import {
   resolveVisibleAttemptStatus,
   recoverAttemptAfterGradingError
 } from '../../../../engine/analysis/question'
+import {
+  getConceptSupport,
+  getDomainSupport,
+  type SupportTier
+} from '../../../../engine/analysis/supportLedger'
 import type {
   AttemptGrade,
   AttemptStatus,
@@ -72,6 +77,34 @@ type PendingRun = {
 }
 
 type QuestionPanelView = 'brief' | 'tests'
+
+function formatSupportTier(tier: SupportTier): string {
+  switch (tier) {
+    case 'first-class':
+      return 'First-class'
+    case 'structural-only':
+      return 'Structural only'
+    case 'presentational-only':
+      return 'Presentational only'
+    default:
+      return tier[0].toUpperCase() + tier.slice(1)
+  }
+}
+
+function supportTierClasses(tier: SupportTier): string {
+  switch (tier) {
+    case 'first-class':
+      return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
+    case 'guided':
+      return 'border-sky-500/30 bg-sky-500/10 text-sky-300'
+    case 'structural-only':
+      return 'border-amber-500/30 bg-amber-500/10 text-amber-300'
+    case 'presentational-only':
+      return 'border-slate-500/30 bg-slate-500/10 text-slate-300'
+    case 'deferred':
+      return 'border-rose-500/30 bg-rose-500/10 text-rose-300'
+  }
+}
 
 function formatAttemptStatus(status: AttemptStatus | 'DRAFT'): string {
   switch (status) {
@@ -366,6 +399,27 @@ export const QuestionPanel = () => {
     return out
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeQuestion, justificationAnswers, nodes, edges])
+  const supportReality = useMemo(() => {
+    if (!activeQuestion) {
+      return { domains: [], concepts: [] }
+    }
+
+    return {
+      domains: (activeQuestion.domains ?? []).map((domain) => ({
+        label: domain,
+        support: getDomainSupport(domain)
+      })),
+      concepts: (activeQuestion.concepts ?? [])
+        .map((concept) => {
+          const support = getConceptSupport(concept)
+          return support ? { label: concept, support } : null
+        })
+        .filter(
+          (item): item is { label: string; support: ReturnType<typeof getDomainSupport> } =>
+            item !== null
+        )
+    }
+  }, [activeQuestion])
 
   if (!activeQuestion) {
     return (
@@ -729,6 +783,61 @@ export const QuestionPanel = () => {
                   </section>
                 )}
               </>
+            )}
+
+            {(supportReality.domains.length > 0 || supportReality.concepts.length > 0) && (
+              <section className="space-y-2">
+                <h3 className={SECTION_TITLE}>Support Reality</h3>
+                <div className="space-y-2">
+                  {supportReality.domains.map(({ label, support }) => (
+                    <div
+                      key={`domain-${label}`}
+                      className="rounded-md border border-nss-border bg-nss-surface px-3 py-2"
+                    >
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-[10px] font-bold uppercase tracking-widest text-nss-muted">
+                          Domain
+                        </span>
+                        <span className="text-xs font-semibold text-nss-text">{label}</span>
+                        <span
+                          className={`rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase ${supportTierClasses(
+                            support.tier
+                          )}`}
+                        >
+                          {formatSupportTier(support.tier)}
+                        </span>
+                      </div>
+                      <p className="mt-2 text-[11px] leading-relaxed text-nss-text/80">
+                        {support.summary}
+                      </p>
+                    </div>
+                  ))}
+
+                  {supportReality.concepts.map(({ label, support }) => (
+                    <div
+                      key={`concept-${label}`}
+                      className="rounded-md border border-nss-border bg-nss-surface px-3 py-2"
+                    >
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-[10px] font-bold uppercase tracking-widest text-nss-muted">
+                          Concept
+                        </span>
+                        <span className="text-xs font-semibold text-nss-text">{label}</span>
+                        <span
+                          className={`rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase ${supportTierClasses(
+                            support.tier
+                          )}`}
+                        >
+                          {formatSupportTier(support.tier)}
+                        </span>
+                      </div>
+                      <p className="mt-2 text-[11px] leading-relaxed text-nss-text/80">
+                        {support.summary}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </section>
             )}
 
             {budget && liveTopology && <BudgetMeter budget={budget} topology={liveTopology} />}

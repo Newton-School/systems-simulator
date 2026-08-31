@@ -12,7 +12,7 @@ import { validatePlacement } from '../../../config/hierarchyRules'
 interface UseFlowDnDProps {
   nodes: Node[]
   addNode: (node: Node) => void
-  setNodes: (nodes: Node[], options?: { history?: 'record' | 'skip' }) => void
+  setNodes: (nodes: Node[], options?: { history?: 'record' | 'skip' | 'drag-commit' }) => void
   instance: ReactFlowInstance | null
   onError?: (message: string | null) => void
 }
@@ -79,9 +79,7 @@ export const useFlowDnD = ({ nodes, addNode, setNodes, instance, onError }: UseF
           : candidate
       )
       const recomputed = recomputeContainment(withDraggedPosition)
-      if (recomputed !== withDraggedPosition) {
-        setNodes(recomputed, { history: 'skip' })
-      }
+      setNodes(recomputed, { history: 'drag-commit' })
     },
     [nodes, setNodes]
   )
