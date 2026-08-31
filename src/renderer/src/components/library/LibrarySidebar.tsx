@@ -1,24 +1,15 @@
-import { memo, useMemo, useState } from 'react'
+import { lazy, memo, Suspense, useState } from 'react'
 import {
   Beaker,
   FileText,
   FlaskConical,
   ClipboardList,
   Library as LibraryIcon,
-  Search,
   type LucideIcon
 } from 'lucide-react'
-import useStore from '../../store/useStore'
-import { CATALOG_CONFIG } from '../../config/catalogConfig'
-import { PALETTE_TEMPLATES } from '../../../../engine/catalog/paletteTemplates'
-import { SAMPLE_SCENARIOS } from '../../config/sampleScenarios'
-import { SAMPLE_BLUEPRINTS } from '../../config/sampleBlueprints'
-import { SAMPLE_LABS } from '../../config/sampleLabs'
-import { QuestionPanel } from '../question/QuestionPanel'
-import { LibraryItem } from './LibraryItem'
 import type { ExperienceEnvelope, ExperienceSidebarTab } from '@renderer/utils/experienceEnvelope'
+import type { ComponentLibraryFilter } from './ComponentLibrarySidebarPanel'
 
-type Filter = 'all' | 'common'
 export type LibrarySidebarTab = ExperienceSidebarTab
 
 interface ActivityTab {
@@ -27,50 +18,6 @@ interface ActivityTab {
   icon: LucideIcon
 }
 
-const COMMON_IDS = new Set([
-  'client-user',
-  'api-gateway',
-  'load-balancer-l7',
-  'cdn',
-  'backend-server',
-  'auth-service',
-  'primary-db',
-  'redis-cache',
-  'message-queue',
-  'read-replica'
-])
-
-/**
- * V1 palette allowlist. We ship only the node types the V1 question bank actually
- * exercises - ones with real, simulatable behavior whose config nuances are
- * covered. Every other catalog node is HIDDEN from the library (not deleted) until
- * its behavior is fleshed out in a later version. Set to `null` to reveal the full
- * catalog again.
- *
- * NOTE: these are engine `componentType` values, resolved per catalog item via
- * `PALETTE_TEMPLATES[item.id].componentType`. Do NOT match against `item.type` -
- * that is the renderer node type (serviceNode/computeNode/...), not the component
- * type, and matching it here empties the whole library.
- * This only hides nodes from the drag-in library; loading a topology JSON that
- * references any node type still works.
- */
-const V1_PALETTE_NODE_TYPES: ReadonlySet<string> | null = new Set([
-  'api-endpoint', // Client App (the only valid traffic source)
-  'load-balancer',
-  'cdn',
-  'microservice',
-  'batch-worker',
-  'queue',
-  'message-broker',
-  'in-memory-cache',
-  'kv-store',
-  'nosql-db',
-  'relational-db',
-  'time-series-db',
-  'object-storage'
-])
-
-const FILTERS: Filter[] = ['common', 'all']
 const TAB_META: Record<LibrarySidebarTab, Omit<ActivityTab, 'id'>> = {
   question: { label: 'Question Text', icon: FileText },
   blueprints: { label: 'Blueprints', icon: ClipboardList },
@@ -78,28 +25,6 @@ const TAB_META: Record<LibrarySidebarTab, Omit<ActivityTab, 'id'>> = {
   library: { label: 'Component Library', icon: LibraryIcon },
   scenarios: { label: 'Scenarios', icon: FlaskConical }
 }
-
-interface SidebarScenario {
-  id: string
-  title: string
-  description: string
-  badge: string
-  subtitle: string
-  diagram: string
-  focusLabel: string
-  focusText: string
-}
-
-const ALL_SIDEBAR_SCENARIOS: SidebarScenario[] = SAMPLE_SCENARIOS.map((scenario) => ({
-  id: `sample:${scenario.id}`,
-  title: scenario.name,
-  description: scenario.primaryUseCase,
-  badge: scenario.difficulty,
-  subtitle: scenario.subtitle,
-  diagram: scenario.diagram,
-  focusLabel: 'Why Run It',
-  focusText: scenario.simulatorValue
-}))
 
 interface LibraryActivityRailProps {
   activeTab: LibrarySidebarTab
@@ -112,115 +37,36 @@ interface LibrarySidebarContentProps {
   onLoadScenario: (scenarioId: string) => Promise<void>
 }
 
-interface ComponentLibraryPanelProps {
-  query: string
-  filter: Filter
-  onQueryChange: (value: string) => void
-  onFilterChange: (value: Filter) => void
-}
+const QuestionPanel = lazy(async () => {
+  const module = await import('../question/QuestionPanel')
+  return { default: module.QuestionPanel }
+})
 
-interface ScenarioPanelProps {
-  selectedScenarioId: string
-  onSelectScenario: (value: string) => void
-  onLoadScenario: (scenarioId: string) => Promise<void>
-}
+const ComponentLibrarySidebarPanel = lazy(async () => {
+  const module = await import('./ComponentLibrarySidebarPanel')
+  return { default: module.ComponentLibrarySidebarPanel }
+})
 
-function BlueprintPanel() {
-  const requestQuestionLoad = useStore((state) => state.requestQuestionLoad)
+const BlueprintSidebarPanel = lazy(async () => {
+  const module = await import('./BlueprintSidebarPanel')
+  return { default: module.BlueprintSidebarPanel }
+})
 
+const LabSidebarPanel = lazy(async () => {
+  const module = await import('./LabSidebarPanel')
+  return { default: module.LabSidebarPanel }
+})
+
+const ScenarioSidebarPanel = lazy(async () => {
+  const module = await import('./ScenarioSidebarPanel')
+  return { default: module.ScenarioSidebarPanel }
+})
+
+function SidebarPanelFallback(): React.JSX.Element {
   return (
-    <>
-      <div className="p-4 pb-3 border-b border-nss-border shrink-0 space-y-1">
-        <h2 className="text-xs font-bold text-nss-muted uppercase tracking-widest">Blueprints</h2>
-        <p className="text-[11px] leading-relaxed text-nss-muted">
-          Requirements-first design briefs. Load one to start with functional requirements,
-          non-functional targets, scale, and a scaffold instead of a blank canvas.
-        </p>
-      </div>
-
-      <div className="flex-1 min-h-0 overflow-y-auto p-3 space-y-2">
-        {SAMPLE_BLUEPRINTS.map((blueprint) => (
-          <div
-            key={blueprint.id}
-            className="rounded-lg border border-nss-border bg-nss-panel p-3 space-y-2"
-          >
-            <div className="space-y-1">
-              <h4 className="text-xs font-semibold text-nss-text">{blueprint.title}</h4>
-              <p className="text-[11px] leading-relaxed text-nss-muted">{blueprint.summary}</p>
-            </div>
-
-            <div className="rounded-md border border-nss-primary/20 bg-nss-primary/10 px-3 py-2">
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-nss-primary">
-                Focus
-              </p>
-              <p className="mt-1 text-[11px] leading-relaxed text-nss-text">{blueprint.focus}</p>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => requestQuestionLoad(blueprint.question)}
-              className="w-full rounded-md bg-nss-primary px-3 py-2 text-xs font-semibold text-white transition-colors hover:opacity-90"
-            >
-              Load Blueprint
-            </button>
-          </div>
-        ))}
-      </div>
-    </>
-  )
-}
-
-function LabPanel() {
-  const requestQuestionLoad = useStore((state) => state.requestQuestionLoad)
-
-  return (
-    <>
-      <div className="p-4 pb-3 border-b border-nss-border shrink-0 space-y-1">
-        <h2 className="text-xs font-bold text-nss-muted uppercase tracking-widest">Labs</h2>
-        <p className="text-[11px] leading-relaxed text-nss-muted">
-          Locked-down concept labs that reuse the same simulator canvas, worker, and results tray.
-          Open one to tune properties, not topology structure.
-        </p>
-      </div>
-
-      <div className="flex-1 min-h-0 overflow-y-auto p-3 space-y-2">
-        {SAMPLE_LABS.map((lab) => (
-          <div
-            key={lab.id}
-            className="rounded-lg border border-nss-border bg-nss-panel p-3 space-y-2"
-          >
-            <div className="space-y-1">
-              <h4 className="text-xs font-semibold text-nss-text">{lab.title}</h4>
-              <p className="text-[11px] leading-relaxed text-nss-muted">{lab.summary}</p>
-            </div>
-
-            <div className="rounded-md border border-nss-primary/20 bg-nss-primary/10 px-3 py-2">
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-nss-primary">
-                Focus
-              </p>
-              <p className="mt-1 text-[11px] leading-relaxed text-nss-text">{lab.focus}</p>
-            </div>
-
-            <div className="rounded-md border border-nss-border bg-nss-surface px-3 py-2">
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-nss-muted">
-                Lab Flow
-              </p>
-              <p className="mt-1 whitespace-pre-wrap text-[11px] leading-relaxed text-nss-text">
-                {lab.guide}
-              </p>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => requestQuestionLoad(lab.question)}
-              className="w-full rounded-md bg-nss-primary px-3 py-2 text-xs font-semibold text-white transition-colors hover:opacity-90"
-            >
-              Open Lab
-            </button>
-          </div>
-        ))}
-      </div>
-    </>
+    <div className="flex h-full items-center justify-center px-4 text-xs text-nss-muted">
+      Loading panel…
+    </div>
   )
 }
 
@@ -280,277 +126,56 @@ export const LibraryActivityRail = memo(function LibraryActivityRail({
   )
 })
 
-function ComponentLibraryPanel({
-  query,
-  filter,
-  onQueryChange,
-  onFilterChange
-}: ComponentLibraryPanelProps) {
-  // EnvironmentProfile palette allowlist: null = all node types allowed,
-  // otherwise only types (or ids) in the list are offered in the library.
-  const editPaletteList = useStore((s) => s.environmentProfile.capabilities.editPaletteList)
-  const activeQuestion = useStore((s) => s.activeQuestion)
-  const allowedPalette = useMemo(
-    () => (editPaletteList === null ? null : new Set(editPaletteList)),
-    [editPaletteList]
-  )
-  const questionAllowedNodeTypes = useMemo(
-    () =>
-      activeQuestion?.constraints.allowedNodeTypes
-        ? new Set(activeQuestion.constraints.allowedNodeTypes)
-        : null,
-    [activeQuestion]
-  )
-  const questionForbiddenNodeTypes = useMemo(
-    () =>
-      activeQuestion?.constraints.forbiddenNodeTypes
-        ? new Set(activeQuestion.constraints.forbiddenNodeTypes)
-        : null,
-    [activeQuestion]
-  )
-
-  const filtered = useMemo(() => {
-    const trimmed = query.trim().toLowerCase()
-
-    return CATALOG_CONFIG.map((category) => ({
-      ...category,
-      items: category.items.filter((item) => {
-        const matchesFilter = filter === 'all' || COMMON_IDS.has(item.id)
-        const matchesSearch =
-          !trimmed ||
-          item.label.toLowerCase().includes(trimmed) ||
-          item.subLabel.toLowerCase().includes(trimmed)
-        const matchesPalette =
-          allowedPalette === null || allowedPalette.has(item.type) || allowedPalette.has(item.id)
-        // V1: hide catalog nodes we are not shipping yet. Resolve the real engine
-        // componentType from the template (item.type is the renderer node type).
-        const componentType = PALETTE_TEMPLATES[item.id]?.componentType
-        const matchesV1 =
-          V1_PALETTE_NODE_TYPES === null ||
-          (componentType !== undefined && V1_PALETTE_NODE_TYPES.has(componentType))
-        const matchesQuestionAllowlist =
-          questionAllowedNodeTypes === null ||
-          (componentType !== undefined && questionAllowedNodeTypes.has(componentType))
-        const matchesQuestionDenylist =
-          questionForbiddenNodeTypes === null ||
-          componentType === undefined ||
-          !questionForbiddenNodeTypes.has(componentType)
-
-        return (
-          matchesFilter &&
-          matchesSearch &&
-          matchesPalette &&
-          matchesV1 &&
-          matchesQuestionAllowlist &&
-          matchesQuestionDenylist
-        )
-      })
-    })).filter((category) => category.items.length > 0)
-  }, [allowedPalette, filter, query, questionAllowedNodeTypes, questionForbiddenNodeTypes])
-
-  return (
-    <>
-      <div className="p-4 pb-3 border-b border-nss-border shrink-0 space-y-3">
-        <h2 className="text-xs font-bold text-nss-muted uppercase tracking-widest">
-          Component Library
-        </h2>
-
-        <div className="relative">
-          <Search
-            size={12}
-            className="absolute left-2.5 top-1/2 -translate-y-1/2 text-nss-muted pointer-events-none"
-          />
-          <input
-            type="text"
-            value={query}
-            onChange={(event) => onQueryChange(event.target.value)}
-            placeholder="Search components…"
-            className="
-              w-full h-7 pl-7 pr-3 rounded-md text-xs font-sans
-              bg-nss-input-bg border border-nss-border text-nss-text
-              placeholder:text-nss-muted outline-none
-              focus:border-nss-primary transition-colors
-            "
-          />
-        </div>
-
-        <div className="flex gap-1 bg-nss-bg rounded-md p-0.5">
-          {FILTERS.map((currentFilter) => (
-            <button
-              key={currentFilter}
-              onClick={() => onFilterChange(currentFilter)}
-              className={`
-                flex-1 h-6 rounded text-[11px] font-semibold capitalize transition-colors
-                ${
-                  filter === currentFilter
-                    ? 'bg-nss-surface text-nss-text shadow-sm'
-                    : 'text-nss-muted hover:text-nss-text'
-                }
-              `}
-            >
-              {currentFilter === 'common' ? 'Common' : 'All'}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className="flex-1 overflow-y-auto p-2 space-y-4">
-        {filtered.length > 0 ? (
-          filtered.map((category) => (
-            <div key={category.id}>
-              <h3 className="px-2 mb-2 text-[10px] font-bold text-nss-muted uppercase opacity-80">
-                {category.title}
-              </h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-1">
-                {category.items.map((item) => (
-                  <LibraryItem key={item.id} item={item} />
-                ))}
-              </div>
-            </div>
-          ))
-        ) : (
-          <p className="px-2 pt-4 text-xs text-nss-muted text-center">
-            {activeQuestion?.constraints.allowedNodeTypes?.length === 0
-              ? 'This experience locks the topology, so the component palette is hidden.'
-              : `No components match "${query}"`}
-          </p>
-        )}
-      </div>
-    </>
-  )
-}
-
-function ScenarioCard({
-  scenario,
-  isExpanded,
-  onToggle,
-  onLoadScenario
-}: {
-  scenario: SidebarScenario
-  isExpanded: boolean
-  onToggle: () => void
-  onLoadScenario: (scenarioId: string) => Promise<void>
-}) {
-  return (
-    <div
-      className={[
-        'rounded-lg border transition-colors',
-        isExpanded
-          ? 'border-nss-primary bg-nss-surface'
-          : 'border-nss-border bg-nss-panel hover:border-nss-primary/50'
-      ].join(' ')}
-    >
-      <button
-        type="button"
-        onClick={onToggle}
-        aria-expanded={isExpanded}
-        className="w-full p-3 text-left"
-      >
-        <div className="flex items-center justify-between gap-2">
-          <h4 className="text-xs font-semibold text-nss-text">{scenario.title}</h4>
-          <span className="shrink-0 rounded border border-nss-border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-nss-muted">
-            {scenario.badge}
-          </span>
-        </div>
-        <p className="mt-1 text-[11px] leading-relaxed text-nss-muted">{scenario.description}</p>
-      </button>
-
-      {isExpanded && (
-        <div className="px-3 pb-3 space-y-2">
-          <div className="rounded-md border border-nss-border bg-nss-panel px-3 py-2">
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-nss-muted">
-              {scenario.subtitle}
-            </p>
-            <p className="mt-1 whitespace-pre-wrap text-[11px] leading-relaxed text-nss-text">
-              {scenario.diagram}
-            </p>
-          </div>
-
-          <div className="rounded-md border border-nss-primary/20 bg-nss-primary/10 px-3 py-2">
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-nss-primary">
-              {scenario.focusLabel}
-            </p>
-            <p className="mt-1 text-[11px] leading-relaxed text-nss-text">{scenario.focusText}</p>
-          </div>
-
-          <button
-            type="button"
-            onClick={() => void onLoadScenario(scenario.id)}
-            className="w-full rounded-md bg-nss-primary px-3 py-2 text-xs font-semibold text-white transition-colors hover:opacity-90"
-          >
-            Load Scenario
-          </button>
-        </div>
-      )}
-    </div>
-  )
-}
-
-function ScenarioPanel({
-  selectedScenarioId,
-  onSelectScenario,
-  onLoadScenario
-}: ScenarioPanelProps) {
-  return (
-    <>
-      <div className="p-4 pb-3 border-b border-nss-border shrink-0 space-y-1">
-        <h2 className="text-xs font-bold text-nss-muted uppercase tracking-widest">Scenarios</h2>
-        <p className="text-[11px] leading-relaxed text-nss-muted">
-          Pre-built systems you can load onto the canvas. Click one to see what it demonstrates,
-          then load it and press play.
-        </p>
-      </div>
-
-      <div className="flex-1 min-h-0 overflow-y-auto p-3 space-y-2">
-        {ALL_SIDEBAR_SCENARIOS.map((scenario) => (
-          <ScenarioCard
-            key={scenario.id}
-            scenario={scenario}
-            isExpanded={selectedScenarioId === scenario.id}
-            onToggle={() => onSelectScenario(selectedScenarioId === scenario.id ? '' : scenario.id)}
-            onLoadScenario={onLoadScenario}
-          />
-        ))}
-      </div>
-    </>
-  )
-}
-
 export function LibrarySidebarContent({ activeTab, onLoadScenario }: LibrarySidebarContentProps) {
   const [query, setQuery] = useState('')
-  const [filter, setFilter] = useState<Filter>('all')
-  const [selectedScenarioId, setSelectedScenarioId] = useState('')
+  const [filter, setFilter] = useState<ComponentLibraryFilter>('all')
 
   return (
     <aside className="h-full w-full min-w-0 bg-nss-panel border-r border-nss-border flex flex-col transition-colors duration-200">
-      <div className={activeTab === 'question' ? 'flex h-full min-h-0 flex-col' : 'hidden'}>
-        <QuestionPanel />
-      </div>
+      {activeTab === 'question' ? (
+        <Suspense fallback={<SidebarPanelFallback />}>
+          <div className="flex h-full min-h-0 flex-col">
+            <QuestionPanel />
+          </div>
+        </Suspense>
+      ) : null}
 
-      <div className={activeTab === 'blueprints' ? 'flex h-full min-h-0 flex-col' : 'hidden'}>
-        <BlueprintPanel />
-      </div>
+      {activeTab === 'blueprints' ? (
+        <Suspense fallback={<SidebarPanelFallback />}>
+          <div className="flex h-full min-h-0 flex-col">
+            <BlueprintSidebarPanel />
+          </div>
+        </Suspense>
+      ) : null}
 
-      <div className={activeTab === 'labs' ? 'flex h-full min-h-0 flex-col' : 'hidden'}>
-        <LabPanel />
-      </div>
+      {activeTab === 'labs' ? (
+        <Suspense fallback={<SidebarPanelFallback />}>
+          <div className="flex h-full min-h-0 flex-col">
+            <LabSidebarPanel />
+          </div>
+        </Suspense>
+      ) : null}
 
-      <div className={activeTab === 'scenarios' ? 'flex h-full min-h-0 flex-col' : 'hidden'}>
-        <ScenarioPanel
-          selectedScenarioId={selectedScenarioId}
-          onSelectScenario={setSelectedScenarioId}
-          onLoadScenario={onLoadScenario}
-        />
-      </div>
+      {activeTab === 'scenarios' ? (
+        <Suspense fallback={<SidebarPanelFallback />}>
+          <div className="flex h-full min-h-0 flex-col">
+            <ScenarioSidebarPanel onLoadScenario={onLoadScenario} />
+          </div>
+        </Suspense>
+      ) : null}
 
-      <div className={activeTab === 'library' ? 'flex h-full min-h-0 flex-col' : 'hidden'}>
-        <ComponentLibraryPanel
-          query={query}
-          filter={filter}
-          onQueryChange={setQuery}
-          onFilterChange={setFilter}
-        />
-      </div>
+      {activeTab === 'library' ? (
+        <Suspense fallback={<SidebarPanelFallback />}>
+          <div className="flex h-full min-h-0 flex-col">
+            <ComponentLibrarySidebarPanel
+              query={query}
+              filter={filter}
+              onQueryChange={setQuery}
+              onFilterChange={setFilter}
+            />
+          </div>
+        </Suspense>
+      ) : null}
     </aside>
   )
 }

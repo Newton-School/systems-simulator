@@ -1,8 +1,12 @@
-import { useState } from 'react'
+import { lazy, Suspense, useState } from 'react'
 import { Settings } from 'lucide-react'
 import useStore from '@renderer/store/useStore'
 import { IconButton } from '../../ui/IconButton'
-import { SettingsModal } from './SettingsModal'
+
+const SettingsModal = lazy(async () => {
+  const module = await import('./SettingsModal')
+  return { default: module.SettingsModal }
+})
 
 /**
  * Header entry point for the settings modal — a gear button that owns the open
@@ -26,7 +30,11 @@ export function SettingsButton(): React.JSX.Element | null {
         label="Settings"
         aria-haspopup="dialog"
       />
-      {open && <SettingsModal onClose={() => setOpen(false)} />}
+      {open ? (
+        <Suspense fallback={null}>
+          <SettingsModal onClose={() => setOpen(false)} />
+        </Suspense>
+      ) : null}
     </>
   )
 }

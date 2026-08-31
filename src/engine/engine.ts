@@ -1754,10 +1754,7 @@ export class SimulationEngine {
     request.path.push(nodeId)
   }
 
-  private buildOutcomeSemantics(
-    request: Request,
-    status: TerminalRequestStatus | 'in-flight'
-  ) {
+  private buildOutcomeSemantics(request: Request, status: TerminalRequestStatus | 'in-flight') {
     const queueNodeId = readQueueDeliveryOriginNodeId(request)
     if (!queueNodeId) {
       return buildRequestSemanticsSnapshot(status, {

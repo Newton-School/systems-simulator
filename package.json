@@ -25,6 +25,7 @@
     "preview": "vite preview",
     "start:electron": "electron-vite preview",
     "postinstall": "node scripts/postinstall.mjs",
+    "check:web-bundle-budget": "node --experimental-strip-types scripts/check-web-bundle-budget.mts",
     "test": "vitest run --root .",
     "test:perf": "RUN_PERF_TESTS=true vitest run --root .",
     "simulate": "tsx src/cli/index.ts",

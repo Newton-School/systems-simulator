@@ -43,7 +43,12 @@ export const DOMAIN_SUPPORT_LEDGER: Record<QuestionDomain, SupportLedgerEntry> =
     tier: 'guided',
     summary:
       'Retries, circuit breakers, health-aware routing, and failure windows are modeled, but replication and failover semantics are still partial.',
-    simulates: ['retry backoff', 'circuit breaker state', 'health-aware routing', 'status timelines'],
+    simulates: [
+      'retry backoff',
+      'circuit breaker state',
+      'health-aware routing',
+      'status timelines'
+    ],
     deferred: ['replication lag', 'quorum acknowledgements', 'leader failover semantics']
   },
   correctness: {
@@ -70,7 +75,8 @@ export const COMPONENT_CATEGORY_SUPPORT_LEDGER: Record<ComponentCategory, Suppor
   },
   'network-and-edge': {
     tier: 'guided',
-    summary: 'Routing and edge effects exist, but edge physics and transport semantics are still incomplete.'
+    summary:
+      'Routing and edge effects exist, but edge physics and transport semantics are still incomplete.'
   },
   'storage-and-data': {
     tier: 'first-class',
@@ -152,7 +158,8 @@ export const TRAIT_SUPPORT_LEDGER = {
   },
   'routing.dns-policy': {
     tier: 'first-class',
-    summary: 'Weighted, failover, and latency-aware DNS policy choices are modeled at the routing layer.'
+    summary:
+      'Weighted, failover, and latency-aware DNS policy choices are modeled at the routing layer.'
   },
   'messaging.broadcast-fanout': {
     tier: 'guided',
@@ -176,7 +183,8 @@ export const TRAIT_SUPPORT_LEDGER = {
   },
   'storage.reservation-store': {
     tier: 'first-class',
-    summary: 'Reservation state and guard-store behavior are modeled as first-class runtime effects.'
+    summary:
+      'Reservation state and guard-store behavior are modeled as first-class runtime effects.'
   },
   'access.read-write-split': {
     tier: 'first-class',
@@ -196,7 +204,8 @@ export const TRAIT_SUPPORT_LEDGER = {
   },
   'control.rate-limiter': {
     tier: 'first-class',
-    summary: 'Shared rate-limiter behavior and request rejection are modeled with explicit controls.'
+    summary:
+      'Shared rate-limiter behavior and request rejection are modeled with explicit controls.'
   },
   'performance.cold-start': {
     tier: 'first-class',
@@ -264,7 +273,8 @@ export const CONCEPT_SUPPORT_LEDGER = {
   },
   'async-decoupling': {
     tier: 'first-class',
-    summary: 'Moving synchronous work behind queues and workers is directly visible in latency and backlog.'
+    summary:
+      'Moving synchronous work behind queues and workers is directly visible in latency and backlog.'
   },
   fanout: {
     tier: 'first-class',
@@ -285,7 +295,8 @@ export const CONCEPT_SUPPORT_LEDGER = {
   },
   'circuit-breaking': {
     tier: 'guided',
-    summary: 'Breaker behavior is modeled, but resilience outcomes still simplify real replication and failover.'
+    summary:
+      'Breaker behavior is modeled, but resilience outcomes still simplify real replication and failover.'
   },
   'retry-backoff': {
     tier: 'guided',
@@ -298,7 +309,8 @@ export const CONCEPT_SUPPORT_LEDGER = {
   },
   'dns-routing': {
     tier: 'guided',
-    summary: 'DNS policy choices are teachable, but full recursive resolution and global routing semantics are not.'
+    summary:
+      'DNS policy choices are teachable, but full recursive resolution and global routing semantics are not.'
   },
   idempotency: {
     tier: 'guided',
@@ -307,7 +319,8 @@ export const CONCEPT_SUPPORT_LEDGER = {
   },
   'lock-contention': {
     tier: 'guided',
-    summary: 'Contention and lease behavior are visible, but correctness judgments still need structural framing.'
+    summary:
+      'Contention and lease behavior are visible, but correctness judgments still need structural framing.'
   },
   'exactly-once': {
     tier: 'structural-only',

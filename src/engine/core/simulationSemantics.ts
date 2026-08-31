@@ -37,11 +37,7 @@ export const DELIVERY_GUARANTEES = [
 
 export type DeliveryGuarantee = (typeof DELIVERY_GUARANTEES)[number]
 
-export const QUEUE_DELIVERY_SEMANTICS = [
-  'at-most-once',
-  'at-least-once',
-  'exactly-once'
-] as const
+export const QUEUE_DELIVERY_SEMANTICS = ['at-most-once', 'at-least-once', 'exactly-once'] as const
 
 export type QueueDeliverySemantics = (typeof QUEUE_DELIVERY_SEMANTICS)[number]
 
@@ -101,9 +97,7 @@ function hasDlq(config: QueueDeliverySemanticsInput): boolean {
 }
 
 export function isQueueDeliverySemantics(value: unknown): value is QueueDeliverySemantics {
-  return (
-    value === 'at-most-once' || value === 'at-least-once' || value === 'exactly-once'
-  )
+  return value === 'at-most-once' || value === 'at-least-once' || value === 'exactly-once'
 }
 
 export function normalizeQueueDeliverySemantics(
@@ -208,13 +202,19 @@ function appendCoordinationNotes(
 ): void {
   switch (coordination.idempotencyDecision) {
     case 'duplicate':
-      notes.push('The idempotency guard suppressed a duplicate retry before downstream side effects.')
+      notes.push(
+        'The idempotency guard suppressed a duplicate retry before downstream side effects.'
+      )
       break
     case 'recorded':
-      notes.push('The idempotency guard recorded a first-seen key and allowed the write path to continue.')
+      notes.push(
+        'The idempotency guard recorded a first-seen key and allowed the write path to continue.'
+      )
       break
     case 'no-key':
-      notes.push('The idempotency guard saw no key, so the request passed through without dedup protection.')
+      notes.push(
+        'The idempotency guard saw no key, so the request passed through without dedup protection.'
+      )
       break
   }
 
@@ -223,10 +223,14 @@ function appendCoordinationNotes(
       notes.push('The request acquired the lock lease for its contended resource key.')
       break
     case 'contended':
-      notes.push('The request lost lock contention and was rejected before entering the critical section.')
+      notes.push(
+        'The request lost lock contention and was rejected before entering the critical section.'
+      )
       break
     case 'held-by-request':
-      notes.push('The request already held the lock lease while continuing through the guarded path.')
+      notes.push(
+        'The request already held the lock lease while continuing through the guarded path.'
+      )
       break
     case 'attempting':
       notes.push('The request attempted lock acquisition but no later lock state was recorded.')
@@ -241,13 +245,19 @@ function appendCoordinationNotes(
       notes.push('The reservation authority committed the resource key successfully.')
       break
     case 'sold-out':
-      notes.push('The reservation authority reported the resource key as already committed at the same authority.')
+      notes.push(
+        'The reservation authority reported the resource key as already committed at the same authority.'
+      )
       break
     case 'oversold':
-      notes.push('A second independent reservation authority also committed the same key, exposing an oversell.')
+      notes.push(
+        'A second independent reservation authority also committed the same key, exposing an oversell.'
+      )
       break
     case 'no-key':
-      notes.push('The reservation authority saw no resource key, so the request bypassed reservation logic.')
+      notes.push(
+        'The reservation authority saw no resource key, so the request bypassed reservation logic.'
+      )
       break
   }
 }
@@ -338,7 +348,9 @@ export function buildRequestSemanticsSnapshot(
   const delivery = assessQueueDeliverySemantics(context.queueDelivery)
   const notes = [delivery.summary]
   if (delivery.downgradedFromConfigured) {
-    notes.push('Commit outcome coordination is not modeled yet, so true exactly-once is not proved.')
+    notes.push(
+      'Commit outcome coordination is not modeled yet, so true exactly-once is not proved.'
+    )
   }
   if ((context.attempts ?? 1) > 1) {
     notes.push('This request was replayed at least once after an earlier delivery attempt.')
