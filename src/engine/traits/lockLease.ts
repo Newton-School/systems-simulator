@@ -1,6 +1,7 @@
 import { msToMicro } from '../core/time'
 import type { Request } from '../core/events'
 import type { ComponentNode, ComponentType } from '../core/types'
+import { writeLockDecision } from '../core/simulationSemantics'
 import { SERVICE_TIME_DISTRIBUTION_OVERRIDE_KEY } from './serviceTimeOverride'
 import type { NodeBehaviourTrait, NodeCapabilityModule, TraitStateStore } from './types'
 
@@ -172,6 +173,7 @@ export const lockLeaseTrait: NodeBehaviourTrait = {
     const config = readLockLeaseConfig(node)
     const key = readResourceKey(request, config.keyField)
     if (!key) {
+      writeLockDecision(request, 'no-key')
       return {
         action: 'continue',
         payload: {
@@ -182,6 +184,7 @@ export const lockLeaseTrait: NodeBehaviourTrait = {
     }
 
     setAcquireOverride(request, config.acquireMs)
+    writeLockDecision(request, 'attempting')
     return {
       action: 'continue',
       payload: {
@@ -203,6 +206,7 @@ export const lockLeaseTrait: NodeBehaviourTrait = {
 
     const current = leases.get(key)
     if (current && current.ownerRequestId !== request.id) {
+      writeLockDecision(request, 'contended')
       return {
         action: 'rejected',
         reason: 'lock_contended',
@@ -222,6 +226,7 @@ export const lockLeaseTrait: NodeBehaviourTrait = {
         fencingToken
       })
       attachLockLease(request, { nodeId: node.id, resourceKey: key, fencingToken })
+      writeLockDecision(request, 'acquired')
       return {
         action: 'route',
         payload: {
@@ -234,6 +239,7 @@ export const lockLeaseTrait: NodeBehaviourTrait = {
       }
     }
 
+    writeLockDecision(request, 'held-by-request')
     return {
       action: 'route',
       payload: {

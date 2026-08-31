@@ -1760,19 +1760,29 @@ export class SimulationEngine {
   ) {
     const queueNodeId = readQueueDeliveryOriginNodeId(request)
     if (!queueNodeId) {
-      return buildRequestSemanticsSnapshot(status)
+      return buildRequestSemanticsSnapshot(status, {
+        metadata: request.metadata,
+        attempts: (request.retryCount ?? 0) + 1
+      })
     }
 
     const queueNode = this.nodeDefinitionsById.get(queueNodeId)
     if (!queueNode) {
-      return buildRequestSemanticsSnapshot(status)
+      return buildRequestSemanticsSnapshot(status, {
+        metadata: request.metadata,
+        attempts: (request.retryCount ?? 0) + 1
+      })
     }
 
     const delivery = readQueueDeliveryConfig(queueNode)
     return buildRequestSemanticsSnapshot(status, {
-      deliverySemantics: delivery.deliverySemantics,
-      maxReceiveCount: delivery.maxReceiveCount,
-      dlqNodeId: delivery.dlqNodeId
+      queueDelivery: {
+        deliverySemantics: delivery.deliverySemantics,
+        maxReceiveCount: delivery.maxReceiveCount,
+        dlqNodeId: delivery.dlqNodeId
+      },
+      metadata: request.metadata,
+      attempts: (request.retryCount ?? 0) + 1
     })
   }
 

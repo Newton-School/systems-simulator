@@ -46,4 +46,36 @@ describe('simulation semantics', () => {
       delivery: null
     })
   })
+
+  it('includes coordination markers and retry tags in queued semantics snapshots', () => {
+    const snapshot = buildRequestSemanticsSnapshot('rejected', {
+      queueDelivery: {
+        deliverySemantics: 'exactly-once',
+        maxReceiveCount: 3,
+        dlqNodeId: 'queue-dlq'
+      },
+      metadata: {
+        __semanticsIdempotencyDecision: 'duplicate',
+        __semanticsLockDecision: 'contended',
+        __semanticsReservationDecision: 'oversold'
+      },
+      attempts: 2
+    })
+
+    expect(snapshot.stateTags).toEqual(
+      expect.arrayContaining([
+        'queued-delivery',
+        'retried',
+        'idempotency:duplicate',
+        'lock:contended',
+        'reservation:oversold'
+      ])
+    )
+    expect(snapshot.coordination).toMatchObject({
+      idempotencyDecision: 'duplicate',
+      lockDecision: 'contended',
+      reservationDecision: 'oversold'
+    })
+    expect(snapshot.notes.join(' ')).toContain('true exactly-once is not proved')
+  })
 })

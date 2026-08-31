@@ -55,6 +55,7 @@ describe('lockLeaseTrait', () => {
       action: 'continue',
       payload: { lockDecision: 'attempting', resourceKey: 'A-12', leaseMs: 500 }
     })
+    expect(request.metadata.__semanticsLockDecision).toBe('acquired')
     expect(request.metadata[SERVICE_TIME_DISTRIBUTION_OVERRIDE_KEY]).toEqual({
       type: 'constant',
       value: 3
@@ -95,6 +96,7 @@ describe('lockLeaseTrait', () => {
         metricCounters: { lockContentions: 1 }
       }
     })
+    expect(second.metadata.__semanticsLockDecision).toBe('contended')
 
     const [attachment] = readLockLeaseAttachments(first)
     expect(releaseLockLeaseAttachment(state, first.id, attachment)).toBe(true)
@@ -110,12 +112,14 @@ describe('lockLeaseTrait', () => {
       action: 'route',
       payload: { lockDecision: 'acquired', resourceKey: 'A-12' }
     })
+    expect(second.metadata.__semanticsLockDecision).toBe('acquired')
   })
 
   it('passes requests without the configured key through unlocked', () => {
+    const request = makeRequest('req-1')
     const decision = lockLeaseTrait.beforeArrival?.({
       node: makeNode(),
-      request: makeRequest('req-1'),
+      request,
       clock: 0n,
       state: makeState()
     })
@@ -124,5 +128,6 @@ describe('lockLeaseTrait', () => {
       action: 'continue',
       payload: { lockDecision: 'no-key', metricCounters: { lockKeyless: 1 } }
     })
+    expect(request.metadata.__semanticsLockDecision).toBe('no-key')
   })
 })

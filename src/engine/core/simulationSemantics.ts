@@ -12,6 +12,21 @@ export const REQUEST_LIFECYCLE_STATES = [
 
 export type RequestLifecycleState = (typeof REQUEST_LIFECYCLE_STATES)[number]
 
+export const IDEMPOTENCY_DECISIONS = ['recorded', 'duplicate', 'no-key'] as const
+export type IdempotencyDecision = (typeof IDEMPOTENCY_DECISIONS)[number]
+
+export const LOCK_DECISIONS = [
+  'attempting',
+  'acquired',
+  'contended',
+  'held-by-request',
+  'no-key'
+] as const
+export type LockDecision = (typeof LOCK_DECISIONS)[number]
+
+export const RESERVATION_DECISIONS = ['committed', 'sold-out', 'oversold', 'no-key'] as const
+export type ReservationDecision = (typeof RESERVATION_DECISIONS)[number]
+
 export const DELIVERY_GUARANTEES = [
   'best-effort',
   'at-most-once',
@@ -57,10 +72,29 @@ export interface RequestSemanticsSnapshot {
   lifecycleState: RequestLifecycleState
   flowKind: 'direct' | 'queued'
   delivery: QueueDeliveryAssessment | null
+  stateTags: string[]
+  coordination: {
+    idempotencyDecision: IdempotencyDecision | null
+    lockDecision: LockDecision | null
+    reservationDecision: ReservationDecision | null
+  }
   notes: string[]
 }
 
 const DEFAULT_QUEUE_DELIVERY: QueueDeliverySemantics = 'at-most-once'
+const IDEMPOTENCY_DECISION_METADATA_KEY = '__semanticsIdempotencyDecision'
+const LOCK_DECISION_METADATA_KEY = '__semanticsLockDecision'
+const RESERVATION_DECISION_METADATA_KEY = '__semanticsReservationDecision'
+
+interface MetadataCarrier {
+  metadata: Record<string, unknown>
+}
+
+interface RequestSemanticsContext {
+  queueDelivery?: QueueDeliverySemanticsInput | null
+  metadata?: Record<string, unknown> | null
+  attempts?: number
+}
 
 function hasDlq(config: QueueDeliverySemanticsInput): boolean {
   return typeof config.dlqNodeId === 'string' && config.dlqNodeId.trim().length > 0
@@ -77,6 +111,145 @@ export function normalizeQueueDeliverySemantics(
   fallback: QueueDeliverySemantics = DEFAULT_QUEUE_DELIVERY
 ): QueueDeliverySemantics {
   return isQueueDeliverySemantics(value) ? value : fallback
+}
+
+function isIdempotencyDecision(value: unknown): value is IdempotencyDecision {
+  return value === 'recorded' || value === 'duplicate' || value === 'no-key'
+}
+
+function isLockDecision(value: unknown): value is LockDecision {
+  return (
+    value === 'attempting' ||
+    value === 'acquired' ||
+    value === 'contended' ||
+    value === 'held-by-request' ||
+    value === 'no-key'
+  )
+}
+
+function isReservationDecision(value: unknown): value is ReservationDecision {
+  return value === 'committed' || value === 'sold-out' || value === 'oversold' || value === 'no-key'
+}
+
+function readDecision<T extends string>(
+  metadata: Record<string, unknown> | null | undefined,
+  key: string,
+  guard: (value: unknown) => value is T
+): T | null {
+  const value = metadata?.[key]
+  return guard(value) ? value : null
+}
+
+export function writeIdempotencyDecision(
+  request: MetadataCarrier,
+  decision: IdempotencyDecision
+): void {
+  request.metadata[IDEMPOTENCY_DECISION_METADATA_KEY] = decision
+}
+
+export function writeLockDecision(request: MetadataCarrier, decision: LockDecision): void {
+  request.metadata[LOCK_DECISION_METADATA_KEY] = decision
+}
+
+export function writeReservationDecision(
+  request: MetadataCarrier,
+  decision: ReservationDecision
+): void {
+  request.metadata[RESERVATION_DECISION_METADATA_KEY] = decision
+}
+
+function buildCoordinationSnapshot(metadata: Record<string, unknown> | null | undefined): {
+  idempotencyDecision: IdempotencyDecision | null
+  lockDecision: LockDecision | null
+  reservationDecision: ReservationDecision | null
+} {
+  return {
+    idempotencyDecision: readDecision(
+      metadata,
+      IDEMPOTENCY_DECISION_METADATA_KEY,
+      isIdempotencyDecision
+    ),
+    lockDecision: readDecision(metadata, LOCK_DECISION_METADATA_KEY, isLockDecision),
+    reservationDecision: readDecision(
+      metadata,
+      RESERVATION_DECISION_METADATA_KEY,
+      isReservationDecision
+    )
+  }
+}
+
+function buildStateTags(
+  coordination: RequestSemanticsSnapshot['coordination'],
+  flowKind: RequestSemanticsSnapshot['flowKind'],
+  attempts: number
+): string[] {
+  const tags = new Set<string>()
+  if (flowKind === 'queued') {
+    tags.add('queued-delivery')
+  }
+  if (attempts > 1) {
+    tags.add('retried')
+  }
+  if (coordination.idempotencyDecision) {
+    tags.add(`idempotency:${coordination.idempotencyDecision}`)
+  }
+  if (coordination.lockDecision) {
+    tags.add(`lock:${coordination.lockDecision}`)
+  }
+  if (coordination.reservationDecision) {
+    tags.add(`reservation:${coordination.reservationDecision}`)
+  }
+  return [...tags]
+}
+
+function appendCoordinationNotes(
+  notes: string[],
+  coordination: RequestSemanticsSnapshot['coordination']
+): void {
+  switch (coordination.idempotencyDecision) {
+    case 'duplicate':
+      notes.push('The idempotency guard suppressed a duplicate retry before downstream side effects.')
+      break
+    case 'recorded':
+      notes.push('The idempotency guard recorded a first-seen key and allowed the write path to continue.')
+      break
+    case 'no-key':
+      notes.push('The idempotency guard saw no key, so the request passed through without dedup protection.')
+      break
+  }
+
+  switch (coordination.lockDecision) {
+    case 'acquired':
+      notes.push('The request acquired the lock lease for its contended resource key.')
+      break
+    case 'contended':
+      notes.push('The request lost lock contention and was rejected before entering the critical section.')
+      break
+    case 'held-by-request':
+      notes.push('The request already held the lock lease while continuing through the guarded path.')
+      break
+    case 'attempting':
+      notes.push('The request attempted lock acquisition but no later lock state was recorded.')
+      break
+    case 'no-key':
+      notes.push('The lock guard saw no resource key, so the request passed through unlocked.')
+      break
+  }
+
+  switch (coordination.reservationDecision) {
+    case 'committed':
+      notes.push('The reservation authority committed the resource key successfully.')
+      break
+    case 'sold-out':
+      notes.push('The reservation authority reported the resource key as already committed at the same authority.')
+      break
+    case 'oversold':
+      notes.push('A second independent reservation authority also committed the same key, exposing an oversell.')
+      break
+    case 'no-key':
+      notes.push('The reservation authority saw no resource key, so the request bypassed reservation logic.')
+      break
+  }
 }
 
 export function classifyRequestLifecycleState(
@@ -142,29 +315,42 @@ export function assessQueueDeliverySemantics(
 
 export function buildRequestSemanticsSnapshot(
   status: RequestOutcomeStatusLike,
-  queueDelivery?: QueueDeliverySemanticsInput | null
+  context: RequestSemanticsContext = {}
 ): RequestSemanticsSnapshot {
   const lifecycleState = classifyRequestLifecycleState(status)
+  const flowKind = context.queueDelivery ? 'queued' : 'direct'
+  const coordination = buildCoordinationSnapshot(context.metadata)
+  const stateTags = buildStateTags(coordination, flowKind, context.attempts ?? 1)
 
-  if (!queueDelivery) {
+  if (!context.queueDelivery) {
+    const notes = ['No queue delivery contract was attached to this request path.']
+    appendCoordinationNotes(notes, coordination)
     return {
       lifecycleState,
-      flowKind: 'direct',
+      flowKind,
       delivery: null,
-      notes: ['No queue delivery contract was attached to this request path.']
+      stateTags,
+      coordination,
+      notes
     }
   }
 
-  const delivery = assessQueueDeliverySemantics(queueDelivery)
+  const delivery = assessQueueDeliverySemantics(context.queueDelivery)
   const notes = [delivery.summary]
   if (delivery.downgradedFromConfigured) {
     notes.push('Commit outcome coordination is not modeled yet, so true exactly-once is not proved.')
   }
+  if ((context.attempts ?? 1) > 1) {
+    notes.push('This request was replayed at least once after an earlier delivery attempt.')
+  }
+  appendCoordinationNotes(notes, coordination)
 
   return {
     lifecycleState,
-    flowKind: 'queued',
+    flowKind,
     delivery,
+    stateTags,
+    coordination,
     notes
   }
 }

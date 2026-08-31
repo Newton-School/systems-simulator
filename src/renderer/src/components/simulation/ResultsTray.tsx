@@ -488,6 +488,14 @@ function fmtAttempts(attempts: number): string {
   return attempts === 1 ? '1' : `${attempts}×`
 }
 
+function formatSemanticsTag(tag: string): string {
+  if (tag.includes(':')) {
+    const [kind, value] = tag.split(':', 2)
+    return `${kind.replace(/-/g, ' ')}: ${value.replace(/-/g, ' ')}`
+  }
+  return tag.replace(/-/g, ' ')
+}
+
 /** Prettify a canonical lifecycle event type for the per-row drill-down. */
 function lifecycleStepLabel(type: CanonicalEventType): string {
   return type.replace(/^request-/, '').replace(/-/g, ' ')
@@ -980,8 +988,14 @@ function RequestOutcomeLog({
       const reason = row.reasonCode ?? reasonByRequestId.get(row.requestId)?.reason ?? ''
       const operationLabel = row.operationLabel ?? row.requestType ?? row.requestId
       const statusFamily = outcomeFamilyLabel(row.outcomeFamily)
+      const semanticsSearch = [
+        row.semantics.lifecycleState,
+        row.semantics.flowKind,
+        ...(row.semantics.stateTags ?? []),
+        ...(row.semantics.notes ?? [])
+      ].join(' ')
       const haystack =
-        `${row.requestId} ${operationLabel} ${nodeLabel} ${OUTCOME_STATUS_LABEL[row.status]} ${statusFamily} ${row.statusClass} ${reason}`.toLowerCase()
+        `${row.requestId} ${operationLabel} ${nodeLabel} ${OUTCOME_STATUS_LABEL[row.status]} ${statusFamily} ${row.statusClass} ${reason} ${semanticsSearch}`.toLowerCase()
       return haystack.includes(trimmedQuery)
     })
   }, [outcomes, statusFilter, trimmedQuery, graphLookup, reasonByRequestId])
@@ -1197,18 +1211,51 @@ function RequestOutcomeLog({
                       {isExpanded && (
                         <tr className="border-b border-nss-border bg-nss-bg/40">
                           <td colSpan={6} className="px-3 py-2">
-                            {expandedGroups.length > 0 ? (
-                              <LifecycleTree
-                                requestId={row.requestId}
-                                totalLatencyMs={row.latencyMs}
-                                groups={expandedGroups}
-                              />
-                            ) : (
-                              <div className="text-[10px] text-nss-muted">
-                                Lifecycle steps for this request were not retained (the event stream
-                                was capped for this large run).
+                            <div className="space-y-2">
+                              <div className="rounded-md border border-nss-border bg-nss-surface/70 px-2.5 py-2">
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                  <span className="rounded-full border border-nss-border px-1.5 py-0.5 text-[10px] font-medium text-nss-text">
+                                    lifecycle: {row.semantics.lifecycleState}
+                                  </span>
+                                  <span className="rounded-full border border-nss-border px-1.5 py-0.5 text-[10px] font-medium text-nss-text">
+                                    flow: {row.semantics.flowKind}
+                                  </span>
+                                  {row.semantics.delivery && (
+                                    <span className="rounded-full border border-nss-border px-1.5 py-0.5 text-[10px] font-medium text-nss-text">
+                                      delivery: {row.semantics.delivery.configuredSemantics} {'->'}{' '}
+                                      {row.semantics.delivery.runtimeGuarantee}
+                                    </span>
+                                  )}
+                                  {row.semantics.stateTags.map((tag) => (
+                                    <span
+                                      key={`${row.requestId}-${tag}`}
+                                      className="rounded-full border border-nss-primary/20 bg-nss-primary/10 px-1.5 py-0.5 text-[10px] text-nss-primary"
+                                    >
+                                      {formatSemanticsTag(tag)}
+                                    </span>
+                                  ))}
+                                </div>
+                                {row.semantics.notes.length > 0 && (
+                                  <div className="mt-2 space-y-1 text-[10px] text-nss-muted">
+                                    {row.semantics.notes.map((note, index) => (
+                                      <div key={`${row.requestId}-note-${index}`}>{note}</div>
+                                    ))}
+                                  </div>
+                                )}
                               </div>
-                            )}
+                              {expandedGroups.length > 0 ? (
+                                <LifecycleTree
+                                  requestId={row.requestId}
+                                  totalLatencyMs={row.latencyMs}
+                                  groups={expandedGroups}
+                                />
+                              ) : (
+                                <div className="text-[10px] text-nss-muted">
+                                  Lifecycle steps for this request were not retained (the event
+                                  stream was capped for this large run).
+                                </div>
+                              )}
+                            </div>
                           </td>
                         </tr>
                       )}

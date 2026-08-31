@@ -1,5 +1,6 @@
 import { msToMicro } from '../core/time'
 import type { ComponentType } from '../core/types'
+import { writeIdempotencyDecision } from '../core/simulationSemantics'
 import { SERVICE_TIME_DISTRIBUTION_OVERRIDE_KEY } from './serviceTimeOverride'
 import type { NodeBehaviourTrait, NodeCapabilityModule, TraitStateStore } from './types'
 
@@ -113,6 +114,7 @@ export const idempotencyDedupTrait: NodeBehaviourTrait = {
     const key = readIdempotencyKey(request.metadata, configuredKeyField)
 
     if (!key) {
+      writeIdempotencyDecision(request, 'no-key')
       request.metadata[SERVICE_TIME_DISTRIBUTION_OVERRIDE_KEY] = {
         type: 'constant',
         value: lookupMs
@@ -127,6 +129,7 @@ export const idempotencyDedupTrait: NodeBehaviourTrait = {
     const keys = seenKeys(state)
     const expiresAt = keys.get(key)
     if (expiresAt !== undefined && expiresAt > clock) {
+      writeIdempotencyDecision(request, 'duplicate')
       return {
         action: 'handled',
         latencyUs: lookupLatencyUs(lookupMs),
@@ -135,6 +138,7 @@ export const idempotencyDedupTrait: NodeBehaviourTrait = {
     }
 
     keys.set(key, clock + msToMicro(windowMs))
+    writeIdempotencyDecision(request, 'recorded')
     request.metadata[SERVICE_TIME_DISTRIBUTION_OVERRIDE_KEY] = {
       type: 'constant',
       value: lookupMs
