@@ -39,6 +39,7 @@ import {
   createEmptyRequestOutcomeBreakdown
 } from './core/requestOutcomeSemantics'
 import { describeRequestOperation } from './core/requestSemantics'
+import { buildRequestSemanticsSnapshot } from './core/simulationSemantics'
 import { microToMs, msToMicro, secToMicro } from './core/time'
 import { ComponentNode, EdgeDefinition, EventScheduler, TopologyJSON } from './core/types'
 import {
@@ -1753,6 +1754,28 @@ export class SimulationEngine {
     request.path.push(nodeId)
   }
 
+  private buildOutcomeSemantics(
+    request: Request,
+    status: TerminalRequestStatus | 'in-flight'
+  ) {
+    const queueNodeId = readQueueDeliveryOriginNodeId(request)
+    if (!queueNodeId) {
+      return buildRequestSemanticsSnapshot(status)
+    }
+
+    const queueNode = this.nodeDefinitionsById.get(queueNodeId)
+    if (!queueNode) {
+      return buildRequestSemanticsSnapshot(status)
+    }
+
+    const delivery = readQueueDeliveryConfig(queueNode)
+    return buildRequestSemanticsSnapshot(status, {
+      deliverySemantics: delivery.deliverySemantics,
+      maxReceiveCount: delivery.maxReceiveCount,
+      dlqNodeId: delivery.dlqNodeId
+    })
+  }
+
   private markRequestTerminal(
     request: Request,
     status: TerminalRequestStatus,
@@ -1764,6 +1787,7 @@ export class SimulationEngine {
     const terminalAtMs = microToMs(this.clock)
     const operation = describeRequestOperation(request)
     const classification = classifyRequestOutcome(status, reasonCode)
+    const semantics = this.buildOutcomeSemantics(request, status)
     this.requestOutcomeBreakdown[classification.family]++
     this.retainRequestOutcome({
       requestId: request.id,
@@ -1781,7 +1805,8 @@ export class SimulationEngine {
       operationLabel: operation.operationLabel,
       outcomeFamily: classification.family,
       statusClass: classification.statusClass,
-      statusCodeHint: classification.statusCodeHint
+      statusCodeHint: classification.statusCodeHint,
+      semantics
     })
     this.requestById.delete(request.id)
   }
@@ -1849,6 +1874,7 @@ export class SimulationEngine {
     for (const request of this.requestById.values()) {
       const operation = describeRequestOperation(request)
       const classification = classifyRequestOutcome('in-flight')
+      const semantics = this.buildOutcomeSemantics(request, 'in-flight')
       this.retainRequestOutcome({
         requestId: request.id,
         status: 'in-flight',
@@ -1865,7 +1891,8 @@ export class SimulationEngine {
         operationLabel: operation.operationLabel,
         outcomeFamily: classification.family,
         statusClass: classification.statusClass,
-        statusCodeHint: classification.statusCodeHint
+        statusCodeHint: classification.statusCodeHint,
+        semantics
       })
     }
 

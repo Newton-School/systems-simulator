@@ -99,10 +99,22 @@ describe('validateAuthoredQuestion', () => {
     expect(cs).not.toContain('domains.missing')
   })
 
-  it('warns that a V2 domain (network) has no physics yet', () => {
+  it('warns when a domain is only partially supported', () => {
     const pkg = base()
     pkg.domains = ['network']
-    expect(codes(pkg)).toContain('domains.v2')
+    expect(codes(pkg)).toContain('domains.supportTier')
+  })
+
+  it('warns when a known concept is structural-only or deferred', () => {
+    const pkg = base()
+    pkg.concepts = ['exactly-once', 'consumer-groups']
+    expect(codes(pkg)).toContain('concepts.supportTier')
+  })
+
+  it('does not warn for first-class concepts', () => {
+    const pkg = base()
+    pkg.concepts = ['read-cache', 'store-fit']
+    expect(codes(pkg)).not.toContain('concepts.supportTier')
   })
 
   it('errors when explicit blank-canvas entryFormat does not match scaffold shape', () => {

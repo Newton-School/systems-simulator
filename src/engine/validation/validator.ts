@@ -6,6 +6,7 @@ import type {
   TopologyJSON
 } from '../core/types'
 import { inferStructuralRole } from '../catalog/componentSpecs'
+import { isQueueDeliverySemantics } from '../core/simulationSemantics'
 import { validateEdgeConstraintSelection } from '../defaults/edgeConstraints'
 import {
   CONTENT_ROUTING_MATCH_FIELDS,
@@ -863,12 +864,7 @@ export const validateTopology = (
     }
 
     const deliverySemantics = node.config?.['deliverySemantics']
-    if (
-      deliverySemantics !== undefined &&
-      deliverySemantics !== 'at-most-once' &&
-      deliverySemantics !== 'at-least-once' &&
-      deliverySemantics !== 'exactly-once'
-    ) {
+    if (deliverySemantics !== undefined && !isQueueDeliverySemantics(deliverySemantics)) {
       errors.push({
         path: `nodes[${index}].config.deliverySemantics`,
         message: oneOf('Delivery mode', ['at-most-once', 'at-least-once', 'exactly-once'])

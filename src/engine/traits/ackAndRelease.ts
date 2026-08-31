@@ -1,10 +1,13 @@
 import { msToMicro } from '../core/time'
 import type { Request } from '../core/events'
 import type { ComponentNode, ComponentType } from '../core/types'
+import {
+  normalizeQueueDeliverySemantics,
+  type QueueDeliverySemantics
+} from '../core/simulationSemantics'
 import type { NodeBehaviourTrait, NodeCapabilityModule } from './types'
 
 export const ACK_AND_RELEASE_COMPONENT_TYPES = ['queue'] as const satisfies readonly ComponentType[]
-export type QueueDeliverySemantics = 'at-most-once' | 'at-least-once' | 'exactly-once'
 
 export interface QueueDeliveryConfig {
   deliverySemantics: QueueDeliverySemantics
@@ -32,12 +35,10 @@ function asNonNegativeNumber(value: unknown): number | null {
 }
 
 export function readQueueDeliveryConfig(node: Pick<ComponentNode, 'config'>): QueueDeliveryConfig {
-  const semantics =
-    node.config?.['deliverySemantics'] === 'at-least-once' ||
-    node.config?.['deliverySemantics'] === 'exactly-once' ||
-    node.config?.['deliverySemantics'] === 'at-most-once'
-      ? (node.config['deliverySemantics'] as QueueDeliverySemantics)
-      : DEFAULT_QUEUE_DELIVERY_SEMANTICS
+  const semantics = normalizeQueueDeliverySemantics(
+    node.config?.['deliverySemantics'],
+    DEFAULT_QUEUE_DELIVERY_SEMANTICS
+  )
 
   const visibilityTimeoutMs = asNonNegativeNumber(node.config?.['visibilityTimeoutMs']) ?? 0
   const maxReceiveCount =

@@ -1,5 +1,6 @@
 import type { EventType, SimulationEvent } from './events'
 import type { RequestOutcomeFamily, RequestOutcomeStatusClass } from './requestOutcomeSemantics'
+import type { RequestSemanticsSnapshot } from './simulationSemantics'
 
 export const CANONICAL_EVENT_TYPES = [
   'request-generated',
@@ -62,6 +63,7 @@ export interface RequestOutcomeRecord {
   outcomeFamily: RequestOutcomeFamily
   statusClass: RequestOutcomeStatusClass
   statusCodeHint: string | null
+  semantics: RequestSemanticsSnapshot
 }
 
 export type JsonSafeValue =

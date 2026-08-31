@@ -53,7 +53,7 @@ describe('resolveExperienceEnvelope', () => {
     })
 
     expect(envelope.kind).toBe('LAB')
-    expect(envelope.allowedTabs).toEqual(['question', 'labs'])
+    expect(envelope.allowedTabs).toEqual(['question'])
     expect(envelope.canvasLocked).toBe(true)
   })
 
