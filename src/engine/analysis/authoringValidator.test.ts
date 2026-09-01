@@ -244,6 +244,21 @@ describe('validateAuthoredQuestion', () => {
     expect(d.some((x) => x.code === 'justify.dangling' && x.level === 'error')).toBe(true)
   })
 
+  it('errors when a runtime semantic criterion references an unknown suite case id', () => {
+    const pkg = base()
+    pkg.semanticCriteria = [
+      {
+        id: 'dedup-runtime',
+        kind: 'stateTransition',
+        points: 2,
+        where: { caseId: 'missing-case', outcomeStatus: 'rejected' },
+        match: { scope: 'idempotency', state: 'deduped' }
+      }
+    ]
+    const d = validateAuthoredQuestion(pkg)
+    expect(d.some((x) => x.code === 'semantic.caseIdUnknown' && x.level === 'error')).toBe(true)
+  })
+
   it('warns on a guardedPath with a destination under a read/write mix', () => {
     const pkg = base()
     pkg.semanticCriteria = [

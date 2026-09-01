@@ -507,6 +507,7 @@ export function validateAuthoredQuestion(pkg: QuestionPackage): AuthoringDiagnos
 
   // ── dangling justify bindings ──────────────────────────────────────────────
   const justifyIds = new Set((pkg.justify ?? []).map((j) => j.id))
+  const suiteCaseIds = new Set(pkg.suite.cases.map((testCase) => testCase.id))
   ;(pkg.semanticCriteria ?? []).forEach((c, i) => {
     if (c.kind === 'forbidUnjustified' && c.justifyId && !justifyIds.has(c.justifyId)) {
       out.push(
@@ -514,6 +515,20 @@ export function validateAuthoredQuestion(pkg: QuestionPackage): AuthoringDiagnos
           'justify.dangling',
           `forbidUnjustified references justifyId "${c.justifyId}" which is not defined in justify[].`,
           `semanticCriteria[${i}].justifyId`
+        )
+      )
+    }
+
+    if (
+      (c.kind === 'stateTransition' || c.kind === 'stateSequence') &&
+      c.where?.caseId &&
+      !suiteCaseIds.has(c.where.caseId)
+    ) {
+      out.push(
+        err(
+          'semantic.caseIdUnknown',
+          `runtime semantic criterion references caseId "${c.where.caseId}" which is not defined in suite.cases[].`,
+          `semanticCriteria[${i}].where.caseId`
         )
       )
     }

@@ -105,7 +105,9 @@ export type RequestStateValue =
   | LockTimelineState
   | ReservationTimelineState
 
-export type RequestStateTransitionSource = 'event' | 'trait' | 'engine'
+export const REQUEST_STATE_TRANSITION_SOURCES = ['event', 'trait', 'engine'] as const
+
+export type RequestStateTransitionSource = (typeof REQUEST_STATE_TRANSITION_SOURCES)[number]
 
 export interface RequestStateTransition {
   scope: RequestStateScope

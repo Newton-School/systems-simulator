@@ -15,6 +15,21 @@
  */
 import { z } from 'zod'
 import type { ComponentType } from '../core/types'
+import {
+  DELIVERY_TIMELINE_STATES,
+  IDEMPOTENCY_TIMELINE_STATES,
+  LOCK_TIMELINE_STATES,
+  REQUEST_STATE_TRANSITION_SOURCES,
+  REQUEST_TIMELINE_STATES,
+  RESERVATION_TIMELINE_STATES,
+  type DeliveryTimelineState,
+  type IdempotencyTimelineState,
+  type LockTimelineState,
+  type RequestStateTransitionSource,
+  type RequestTimelineState,
+  type ReservationTimelineState
+} from '../core/simulationSemantics'
+import { REQUEST_OUTCOME_STATUSES, type RequestOutcomeStatus } from '../core/event-stream'
 
 export const GRADING_CRITERIA_VERSION = '1.0' as const
 
@@ -125,12 +140,81 @@ export interface ForbidUnjustifiedCriterion extends CriterionBase {
   justifyId?: string
 }
 
+interface RuntimeStateTransitionMatcherBase {
+  source?: RequestStateTransitionSource
+  nodeId?: string
+  nodeType?: ComponentType
+  reasonCode?: string
+}
+
+export interface RequestStateTransitionMatcher extends RuntimeStateTransitionMatcherBase {
+  scope: 'request'
+  state: RequestTimelineState
+}
+
+export interface DeliveryStateTransitionMatcher extends RuntimeStateTransitionMatcherBase {
+  scope: 'delivery'
+  state: DeliveryTimelineState
+}
+
+export interface IdempotencyStateTransitionMatcher extends RuntimeStateTransitionMatcherBase {
+  scope: 'idempotency'
+  state: IdempotencyTimelineState
+}
+
+export interface LockStateTransitionMatcher extends RuntimeStateTransitionMatcherBase {
+  scope: 'lock'
+  state: LockTimelineState
+}
+
+export interface ReservationStateTransitionMatcher extends RuntimeStateTransitionMatcherBase {
+  scope: 'reservation'
+  state: ReservationTimelineState
+}
+
+export type RuntimeStateTransitionMatcher =
+  | RequestStateTransitionMatcher
+  | DeliveryStateTransitionMatcher
+  | IdempotencyStateTransitionMatcher
+  | LockStateTransitionMatcher
+  | ReservationStateTransitionMatcher
+
+export interface RuntimeOutcomeFilter {
+  caseId?: string
+  outcomeStatus?: RequestOutcomeStatus
+  terminalNodeId?: string
+  terminalNodeType?: ComponentType
+}
+
+export interface StateTransitionCriterion extends CriterionBase {
+  kind: 'stateTransition'
+  match: RuntimeStateTransitionMatcher
+  where?: RuntimeOutcomeFilter
+  /**
+   * Expected number of matching transitions across all eligible request
+   * outcomes. Defaults to `1`, except `maxCount: 0` implies an absence check.
+   */
+  minCount?: number
+  /** Optional upper bound, useful for absence checks (e.g. oversell never occurs). */
+  maxCount?: number
+}
+
+export interface StateSequenceCriterion extends CriterionBase {
+  kind: 'stateSequence'
+  sequence: RuntimeStateTransitionMatcher[]
+  where?: RuntimeOutcomeFilter
+  /** Minimum eligible request outcomes whose timeline must contain the sequence. */
+  minMatches?: number
+}
+
 export type SemanticCriterion =
   | PlacementCriterion
   | GuardedPathCriterion
   | FanoutCriterion
   | StorageFitCriterion
   | ForbidUnjustifiedCriterion
+  | StateTransitionCriterion
+  | StateSequenceCriterion
 
 export type SemanticCriterionKind = SemanticCriterion['kind']
 
@@ -201,6 +285,61 @@ const criterionBase = {
   hardFail: z.boolean().optional()
 }
 
+const RuntimeOutcomeFilterSchema: z.ZodType<RuntimeOutcomeFilter> = z
+  .object({
+    caseId: z.string().min(1).optional(),
+    outcomeStatus: z.enum(REQUEST_OUTCOME_STATUSES).optional(),
+    terminalNodeId: z.string().min(1).optional(),
+    terminalNodeType: ComponentTypeSchema.optional()
+  })
+  .strict()
+
+const runtimeTransitionMatcherBase = {
+  source: z.enum(REQUEST_STATE_TRANSITION_SOURCES).optional(),
+  nodeId: z.string().min(1).optional(),
+  nodeType: ComponentTypeSchema.optional(),
+  reasonCode: z.string().min(1).optional()
+}
+
+const RuntimeStateTransitionMatcherSchema: z.ZodType<RuntimeStateTransitionMatcher> =
+  z.discriminatedUnion('scope', [
+    z
+      .object({
+        ...runtimeTransitionMatcherBase,
+        scope: z.literal('request'),
+        state: z.enum(REQUEST_TIMELINE_STATES)
+      })
+      .strict(),
+    z
+      .object({
+        ...runtimeTransitionMatcherBase,
+        scope: z.literal('delivery'),
+        state: z.enum(DELIVERY_TIMELINE_STATES)
+      })
+      .strict(),
+    z
+      .object({
+        ...runtimeTransitionMatcherBase,
+        scope: z.literal('idempotency'),
+        state: z.enum(IDEMPOTENCY_TIMELINE_STATES)
+      })
+      .strict(),
+    z
+      .object({
+        ...runtimeTransitionMatcherBase,
+        scope: z.literal('lock'),
+        state: z.enum(LOCK_TIMELINE_STATES)
+      })
+      .strict(),
+    z
+      .object({
+        ...runtimeTransitionMatcherBase,
+        scope: z.literal('reservation'),
+        state: z.enum(RESERVATION_TIMELINE_STATES)
+      })
+      .strict()
+  ]) as unknown as z.ZodType<RuntimeStateTransitionMatcher>
+
 export const SemanticCriterionSchema: z.ZodType<SemanticCriterion> = z.discriminatedUnion('kind', [
   z.object({
     ...criterionBase,
@@ -237,7 +376,39 @@ export const SemanticCriterionSchema: z.ZodType<SemanticCriterion> = z.discrimin
     kind: z.literal('forbidUnjustified'),
     componentType: ComponentTypeSchema,
     justifyId: z.string().optional()
-  })
+  }),
+  z
+    .object({
+      ...criterionBase,
+      kind: z.literal('stateTransition'),
+      match: RuntimeStateTransitionMatcherSchema,
+      where: RuntimeOutcomeFilterSchema.optional(),
+      minCount: z.number().int().nonnegative().optional(),
+      maxCount: z.number().int().nonnegative().optional()
+    })
+    .strict()
+    .superRefine((criterion, ctx) => {
+      if (
+        criterion.maxCount !== undefined &&
+        criterion.minCount !== undefined &&
+        criterion.maxCount < criterion.minCount
+      ) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['maxCount'],
+          message: 'maxCount must be greater than or equal to minCount.'
+        })
+      }
+    }),
+  z
+    .object({
+      ...criterionBase,
+      kind: z.literal('stateSequence'),
+      sequence: z.array(RuntimeStateTransitionMatcherSchema).min(2),
+      where: RuntimeOutcomeFilterSchema.optional(),
+      minMatches: z.number().int().positive().optional()
+    })
+    .strict()
 ]) as unknown as z.ZodType<SemanticCriterion>
 
 export const JustifyPromptSchema: z.ZodType<JustifyPrompt> = z
