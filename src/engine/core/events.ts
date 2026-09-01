@@ -1,3 +1,5 @@
+import type { RequestStateTransition } from './simulationSemantics'
+
 /**
  * All possible event types that drive the simulation state.
  */
@@ -123,6 +125,7 @@ export interface Request {
   spans: RequestSpan[] // tracing data per node
   hops?: EdgeHop[] // successful edge traversals, for phase-timeline decomposition
   phaseRecord?: RequestPhaseRecord
+  stateTimeline?: RequestStateTransition[]
   retryCount: number
   metadata: Record<string, unknown>
   /**

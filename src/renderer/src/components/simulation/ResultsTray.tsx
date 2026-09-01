@@ -496,6 +496,18 @@ function formatSemanticsTag(tag: string): string {
   return tag.replace(/-/g, ' ')
 }
 
+function formatStateTimelineScope(
+  scope: RequestOutcomeRecord['stateTimeline'][number]['scope']
+): string {
+  return scope.replace(/-/g, ' ')
+}
+
+function formatStateTimelineState(
+  state: RequestOutcomeRecord['stateTimeline'][number]['state']
+): string {
+  return state.replace(/-/g, ' ')
+}
+
 /** Prettify a canonical lifecycle event type for the per-row drill-down. */
 function lifecycleStepLabel(type: CanonicalEventType): string {
   return type.replace(/^request-/, '').replace(/-/g, ' ')
@@ -994,8 +1006,20 @@ function RequestOutcomeLog({
         ...(row.semantics.stateTags ?? []),
         ...(row.semantics.notes ?? [])
       ].join(' ')
+      const timelineSearch = row.stateTimeline
+        .map((transition) =>
+          [
+            transition.scope,
+            transition.state,
+            transition.source,
+            transition.nodeId ?? '',
+            transition.detail ?? '',
+            transition.reasonCode ?? ''
+          ].join(' ')
+        )
+        .join(' ')
       const haystack =
-        `${row.requestId} ${operationLabel} ${nodeLabel} ${OUTCOME_STATUS_LABEL[row.status]} ${statusFamily} ${row.statusClass} ${reason} ${semanticsSearch}`.toLowerCase()
+        `${row.requestId} ${operationLabel} ${nodeLabel} ${OUTCOME_STATUS_LABEL[row.status]} ${statusFamily} ${row.statusClass} ${reason} ${semanticsSearch} ${timelineSearch}`.toLowerCase()
       return haystack.includes(trimmedQuery)
     })
   }, [outcomes, statusFilter, trimmedQuery, graphLookup, reasonByRequestId])
@@ -1037,6 +1061,10 @@ function RequestOutcomeLog({
   const inFlightCount = statusCounts['in-flight']
   const totalOutcomeCount = output.requestOutcomeTotal ?? outcomes.length
   const outcomesSampled = output.requestOutcomesSampled ?? false
+  const runtimeSemantics = output.runtimeSemanticsSummary
+  const hasRuntimeSemantics =
+    runtimeSemantics.queuedOutcomes > 0 ||
+    Object.values(runtimeSemantics.affectedOutcomeCounts).some((count) => count > 0)
 
   const filters: OutcomeStatusFilter[] = ['all', ...OUTCOME_STATUS_ORDER]
 
@@ -1073,6 +1101,62 @@ function RequestOutcomeLog({
       {inFlightCount > 0 && (
         <div className="mt-3 rounded-md border border-nss-muted/30 bg-nss-muted/10 px-2.5 py-1.5 text-[11px] leading-snug text-nss-muted">
           {formatInFlightAtCutoffBanner(inFlightCount)}
+        </div>
+      )}
+
+      {hasRuntimeSemantics && (
+        <div className="mt-3 space-y-2">
+          <div className="flex items-center justify-between gap-2">
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-nss-muted">
+              Runtime Semantics
+            </div>
+            {outcomesSampled && (
+              <div className="text-[10px] text-nss-muted">
+                Exact across the full run; only row retention is sampled.
+              </div>
+            )}
+          </div>
+          <div className="grid grid-cols-2 gap-2 text-sm md:grid-cols-3 xl:grid-cols-6">
+            <StatCard
+              label="Queued Outcomes"
+              value={runtimeSemantics.queuedOutcomes.toLocaleString()}
+            />
+            <StatCard
+              label="Retries"
+              value={runtimeSemantics.retriedOutcomes.toLocaleString()}
+              highlight={runtimeSemantics.retriedOutcomes > 0 ? 'warn' : undefined}
+            />
+            <StatCard
+              label="Downgraded Guarantees"
+              value={runtimeSemantics.downgradedQueuedOutcomes.toLocaleString()}
+              highlight={runtimeSemantics.downgradedQueuedOutcomes > 0 ? 'warn' : undefined}
+            />
+            <StatCard
+              label="Redeliveries"
+              value={runtimeSemantics.affectedOutcomeCounts.redeliveryScheduled.toLocaleString()}
+              highlight={
+                runtimeSemantics.affectedOutcomeCounts.redeliveryScheduled > 0 ? 'warn' : undefined
+              }
+            />
+            <StatCard
+              label="Deduped"
+              value={runtimeSemantics.affectedOutcomeCounts.duplicateSuppressed.toLocaleString()}
+            />
+            <StatCard
+              label="Lock Contention"
+              value={runtimeSemantics.affectedOutcomeCounts.lockContended.toLocaleString()}
+              highlight={
+                runtimeSemantics.affectedOutcomeCounts.lockContended > 0 ? 'warn' : undefined
+              }
+            />
+            <StatCard
+              label="Oversold"
+              value={runtimeSemantics.affectedOutcomeCounts.reservationOversold.toLocaleString()}
+              highlight={
+                runtimeSemantics.affectedOutcomeCounts.reservationOversold > 0 ? 'crit' : undefined
+              }
+            />
+          </div>
         </div>
       )}
 
@@ -1240,6 +1324,57 @@ function RequestOutcomeLog({
                                     {row.semantics.notes.map((note, index) => (
                                       <div key={`${row.requestId}-note-${index}`}>{note}</div>
                                     ))}
+                                  </div>
+                                )}
+                                {row.stateTimeline.length > 0 && (
+                                  <div className="mt-2 border-t border-nss-border/70 pt-2">
+                                    <div className="pb-1 text-[10px] font-semibold uppercase tracking-wider text-nss-muted">
+                                      State Timeline
+                                    </div>
+                                    <ol className="space-y-1 text-[10px] text-nss-muted">
+                                      {row.stateTimeline.map((transition, index) => {
+                                        const transitionNodeLabel = transition.nodeId
+                                          ? (labelForNode(transition.nodeId, graphLookup) ??
+                                            transition.nodeId)
+                                          : null
+                                        return (
+                                          <li
+                                            key={`${row.requestId}-timeline-${index}`}
+                                            className="flex items-start gap-2"
+                                          >
+                                            <span className="w-12 shrink-0 tabular-nums text-nss-muted/80">
+                                              {fmtChartTime(Number(transition.timestampUs) / 1000)}
+                                            </span>
+                                            <div className="min-w-0">
+                                              <span className="text-nss-text">
+                                                <span className="capitalize">
+                                                  {formatStateTimelineScope(transition.scope)}
+                                                </span>
+                                                {' · '}
+                                                {formatStateTimelineState(transition.state)}
+                                              </span>
+                                              {transitionNodeLabel && (
+                                                <span className="text-nss-muted">
+                                                  {' @ '}
+                                                  {transitionNodeLabel}
+                                                </span>
+                                              )}
+                                              {transition.reasonCode && (
+                                                <span className="text-nss-muted">
+                                                  {' · '}
+                                                  {transition.reasonCode}
+                                                </span>
+                                              )}
+                                              {transition.detail && (
+                                                <div className="break-words text-nss-muted/90">
+                                                  {transition.detail}
+                                                </div>
+                                              )}
+                                            </div>
+                                          </li>
+                                        )
+                                      })}
+                                    </ol>
                                   </div>
                                 )}
                               </div>

@@ -3,7 +3,9 @@ import {
   assessQueueDeliverySemantics,
   buildRequestSemanticsSnapshot,
   classifyRequestLifecycleState,
-  normalizeQueueDeliverySemantics
+  deriveTraitStateTransitions,
+  normalizeQueueDeliverySemantics,
+  recordRequestStateTransition
 } from './simulationSemantics'
 
 describe('simulation semantics', () => {
@@ -77,5 +79,61 @@ describe('simulation semantics', () => {
       reservationDecision: 'oversold'
     })
     expect(snapshot.notes.join(' ')).toContain('true exactly-once is not proved')
+  })
+
+  it('derives semantic state transitions from trait payloads', () => {
+    expect(
+      deriveTraitStateTransitions({
+        forkConsumerRequest: true,
+        idempotencyDecision: 'duplicate',
+        idempotencyKey: 'payment-1',
+        lockDecision: 'contended',
+        resourceKey: 'seat-42',
+        reason: 'lock_contended',
+        reservationDecision: 'oversold',
+        firstCommitter: 'reservation-a'
+      })
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          scope: 'delivery',
+          state: 'producer-acked'
+        }),
+        expect.objectContaining({
+          scope: 'idempotency',
+          state: 'deduped'
+        }),
+        expect.objectContaining({
+          scope: 'lock',
+          state: 'contended',
+          reasonCode: 'lock_contended'
+        }),
+        expect.objectContaining({
+          scope: 'reservation',
+          state: 'oversold'
+        })
+      ])
+    )
+  })
+
+  it('deduplicates identical consecutive state transitions', () => {
+    const carrier: { stateTimeline?: unknown[] } = {}
+
+    recordRequestStateTransition(carrier as any, {
+      scope: 'request',
+      state: 'generated',
+      timestampUs: 0n,
+      source: 'event',
+      nodeId: 'source'
+    })
+    recordRequestStateTransition(carrier as any, {
+      scope: 'request',
+      state: 'generated',
+      timestampUs: 0n,
+      source: 'event',
+      nodeId: 'source'
+    })
+
+    expect(carrier.stateTimeline).toHaveLength(1)
   })
 })

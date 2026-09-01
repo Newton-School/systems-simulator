@@ -5,7 +5,8 @@ import {
   createEmptyEventCounts,
   type CanonicalEventRecord,
   type DebugEvent,
-  type RequestLifecycle
+  type RequestLifecycle,
+  type RequestOutcomeRecord
 } from '../core/event-stream'
 import type { CompletedRequest } from '../metrics'
 import { MetricsCollector } from '../metrics'
@@ -222,6 +223,139 @@ describe('generateSimulationOutput', () => {
 
     expect(output.eventStream).toEqual(eventStream)
     expect(output.eventCountsByType['request-generated']).toBe(1)
+  })
+
+  it('builds an exact runtime semantics summary from retained request outcomes', () => {
+    const metrics = new MetricsCollector({ warmupDuration: 0 })
+    const tracer = new RequestTracer({ sampleRate: 0 })
+    const config: GlobalConfig = {
+      simulationDuration: 1_000,
+      seed: 'semantics-summary',
+      warmupDuration: 0,
+      timeResolution: 'microsecond',
+      defaultTimeout: 1_000
+    }
+
+    const requestOutcomes: RequestOutcomeRecord[] = [
+      {
+        requestId: 'req-1',
+        status: 'success',
+        reasonCode: null,
+        createdAtMs: 0,
+        terminalAtMs: 12,
+        nodeId: 'queue',
+        attempts: 2,
+        latencyMs: 12,
+        requestType: 'POST',
+        method: 'POST',
+        host: null,
+        path: '/payments',
+        operationLabel: 'Create payment',
+        outcomeFamily: 'success_2xx',
+        statusClass: 'success',
+        statusCodeHint: '2xx',
+        semantics: {
+          lifecycleState: 'completed',
+          flowKind: 'queued',
+          delivery: {
+            configuredSemantics: 'exactly-once',
+            runtimeGuarantee: 'at-least-once',
+            duplicatePossible: true,
+            replayPossible: true,
+            lossPossible: false,
+            downgradedFromConfigured: true,
+            summary: 'downgraded'
+          },
+          stateTags: ['queued-delivery', 'retried'],
+          coordination: {
+            idempotencyDecision: 'duplicate',
+            lockDecision: 'contended',
+            reservationDecision: 'oversold'
+          },
+          notes: ['test note']
+        },
+        stateTimeline: [
+          { scope: 'request', state: 'generated', timestampUs: '0', source: 'event' },
+          { scope: 'delivery', state: 'producer-acked', timestampUs: '1', source: 'trait' },
+          {
+            scope: 'delivery',
+            state: 'released-to-consumer',
+            timestampUs: '2',
+            source: 'engine'
+          },
+          {
+            scope: 'delivery',
+            state: 'redelivery-scheduled',
+            timestampUs: '3',
+            source: 'engine'
+          },
+          { scope: 'idempotency', state: 'deduped', timestampUs: '4', source: 'trait' },
+          { scope: 'lock', state: 'contended', timestampUs: '5', source: 'trait' },
+          { scope: 'reservation', state: 'oversold', timestampUs: '6', source: 'trait' },
+          { scope: 'request', state: 'completed', timestampUs: '12', source: 'event' }
+        ]
+      },
+      {
+        requestId: 'req-2',
+        status: 'success',
+        reasonCode: null,
+        createdAtMs: 0,
+        terminalAtMs: 8,
+        nodeId: 'api',
+        attempts: 1,
+        latencyMs: 8,
+        requestType: 'GET',
+        method: 'GET',
+        host: null,
+        path: '/status',
+        operationLabel: 'Read status',
+        outcomeFamily: 'success_2xx',
+        statusClass: 'success',
+        statusCodeHint: '2xx',
+        semantics: {
+          lifecycleState: 'completed',
+          flowKind: 'direct',
+          delivery: null,
+          stateTags: [],
+          coordination: {
+            idempotencyDecision: null,
+            lockDecision: null,
+            reservationDecision: null
+          },
+          notes: []
+        },
+        stateTimeline: [
+          { scope: 'request', state: 'generated', timestampUs: '0', source: 'event' },
+          { scope: 'request', state: 'completed', timestampUs: '8', source: 'event' }
+        ]
+      }
+    ]
+
+    const output = generateSimulationOutput(
+      metrics,
+      tracer,
+      [],
+      null,
+      [],
+      config,
+      2,
+      [],
+      createEmptyEventCounts(),
+      { requestOutcomes }
+    )
+
+    expect(output.runtimeSemanticsSummary.queuedOutcomes).toBe(1)
+    expect(output.runtimeSemanticsSummary.retriedOutcomes).toBe(1)
+    expect(output.runtimeSemanticsSummary.downgradedQueuedOutcomes).toBe(1)
+    expect(output.runtimeSemanticsSummary.configuredDeliverySemantics['exactly-once']).toBe(1)
+    expect(output.runtimeSemanticsSummary.runtimeDeliveryGuarantees['at-least-once']).toBe(1)
+    expect(output.runtimeSemanticsSummary.transitionCounts.request.generated).toBe(2)
+    expect(output.runtimeSemanticsSummary.transitionCounts.request.completed).toBe(2)
+    expect(output.runtimeSemanticsSummary.transitionCounts.delivery['producer-acked']).toBe(1)
+    expect(output.runtimeSemanticsSummary.affectedOutcomeCounts.redeliveryScheduled).toBe(1)
+    expect(output.runtimeSemanticsSummary.affectedOutcomeCounts.duplicateSuppressed).toBe(1)
+    expect(output.runtimeSemanticsSummary.affectedOutcomeCounts.lockContended).toBe(1)
+    expect(output.runtimeSemanticsSummary.affectedOutcomeCounts.reservationOversold).toBe(1)
   })
 
   it('conservation check flags nodes with large in-flight counts', () => {

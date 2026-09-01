@@ -41,6 +41,82 @@ export const QUEUE_DELIVERY_SEMANTICS = ['at-most-once', 'at-least-once', 'exact
 
 export type QueueDeliverySemantics = (typeof QUEUE_DELIVERY_SEMANTICS)[number]
 
+export const REQUEST_STATE_SCOPES = [
+  'request',
+  'delivery',
+  'idempotency',
+  'lock',
+  'reservation'
+] as const
+
+export type RequestStateScope = (typeof REQUEST_STATE_SCOPES)[number]
+
+export const REQUEST_TIMELINE_STATES = [
+  'generated',
+  'admitted',
+  'queued',
+  'processing',
+  'forwarded',
+  'retry-scheduled',
+  'completed',
+  'timed-out',
+  'rejected',
+  'in-flight'
+] as const
+
+export type RequestTimelineState = (typeof REQUEST_TIMELINE_STATES)[number]
+
+export const DELIVERY_TIMELINE_STATES = [
+  'producer-acked',
+  'released-to-consumer',
+  'redelivery-scheduled',
+  'dlq-routed'
+] as const
+
+export type DeliveryTimelineState = (typeof DELIVERY_TIMELINE_STATES)[number]
+
+export const IDEMPOTENCY_TIMELINE_STATES = ['recorded', 'deduped', 'key-missing'] as const
+export type IdempotencyTimelineState = (typeof IDEMPOTENCY_TIMELINE_STATES)[number]
+
+export const LOCK_TIMELINE_STATES = [
+  'attempting',
+  'acquired',
+  'contended',
+  'held',
+  'released',
+  'key-missing'
+] as const
+
+export type LockTimelineState = (typeof LOCK_TIMELINE_STATES)[number]
+
+export const RESERVATION_TIMELINE_STATES = [
+  'committed',
+  'sold-out',
+  'oversold',
+  'key-missing'
+] as const
+
+export type ReservationTimelineState = (typeof RESERVATION_TIMELINE_STATES)[number]
+
+export type RequestStateValue =
+  | RequestTimelineState
+  | DeliveryTimelineState
+  | IdempotencyTimelineState
+  | LockTimelineState
+  | ReservationTimelineState
+
+export type RequestStateTransitionSource = 'event' | 'trait' | 'engine'
+
+export interface RequestStateTransition {
+  scope: RequestStateScope
+  state: RequestStateValue
+  timestampUs: string
+  source: RequestStateTransitionSource
+  nodeId?: string
+  detail?: string
+  reasonCode?: string
+}
+
 export type RequestOutcomeStatusLike =
   | 'success'
   | 'timeout'
@@ -86,6 +162,20 @@ interface MetadataCarrier {
   metadata: Record<string, unknown>
 }
 
+interface StateTimelineCarrier {
+  stateTimeline?: RequestStateTransition[]
+}
+
+interface RequestStateTransitionInput {
+  scope: RequestStateScope
+  state: RequestStateValue
+  timestampUs: bigint | number | string
+  source: RequestStateTransitionSource
+  nodeId?: string | null
+  detail?: string | null
+  reasonCode?: string | null
+}
+
 interface RequestSemanticsContext {
   queueDelivery?: QueueDeliverySemanticsInput | null
   metadata?: Record<string, unknown> | null
@@ -94,6 +184,199 @@ interface RequestSemanticsContext {
 
 function hasDlq(config: QueueDeliverySemanticsInput): boolean {
   return typeof config.dlqNodeId === 'string' && config.dlqNodeId.trim().length > 0
+}
+
+function normalizeTimestampUs(timestampUs: bigint | number | string): string {
+  if (typeof timestampUs === 'bigint') {
+    return timestampUs.toString()
+  }
+
+  if (typeof timestampUs === 'number') {
+    if (!Number.isFinite(timestampUs) || timestampUs < 0) {
+      throw new Error(`timestampUs must be a non-negative finite number: ${timestampUs}`)
+    }
+    return Math.trunc(timestampUs).toString()
+  }
+
+  if (!/^\d+$/.test(timestampUs)) {
+    throw new Error(`timestampUs must be a non-negative integer string: ${timestampUs}`)
+  }
+  return timestampUs
+}
+
+function asNonEmptyString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
+}
+
+function maybeSetDetail(parts: Array<string | null | undefined>): string | undefined {
+  const detail = parts.filter((part): part is string => typeof part === 'string' && part.length > 0)
+  return detail.length > 0 ? detail.join(' • ') : undefined
+}
+
+function transitionsEqual(first: RequestStateTransition, second: RequestStateTransition): boolean {
+  return (
+    first.scope === second.scope &&
+    first.state === second.state &&
+    first.timestampUs === second.timestampUs &&
+    first.source === second.source &&
+    first.nodeId === second.nodeId &&
+    first.detail === second.detail &&
+    first.reasonCode === second.reasonCode
+  )
+}
+
+export function cloneRequestStateTimeline(
+  transitions: readonly RequestStateTransition[] | undefined
+): RequestStateTransition[] | undefined {
+  if (!transitions) {
+    return undefined
+  }
+
+  return transitions.map((transition) => ({ ...transition }))
+}
+
+export function recordRequestStateTransition(
+  carrier: StateTimelineCarrier,
+  input: RequestStateTransitionInput
+): RequestStateTransition {
+  const timeline = carrier.stateTimeline ?? []
+  const transition: RequestStateTransition = {
+    scope: input.scope,
+    state: input.state,
+    timestampUs: normalizeTimestampUs(input.timestampUs),
+    source: input.source,
+    ...(input.nodeId ? { nodeId: input.nodeId } : {}),
+    ...(input.detail ? { detail: input.detail } : {}),
+    ...(input.reasonCode ? { reasonCode: input.reasonCode } : {})
+  }
+
+  const last = timeline[timeline.length - 1]
+  if (last && transitionsEqual(last, transition)) {
+    carrier.stateTimeline = timeline
+    return last
+  }
+
+  timeline.push(transition)
+  carrier.stateTimeline = timeline
+  return transition
+}
+
+export function deriveTraitStateTransitions(
+  payload: Record<string, unknown>
+): Array<Omit<RequestStateTransitionInput, 'timestampUs' | 'source' | 'nodeId'>> {
+  const transitions: Array<Omit<RequestStateTransitionInput, 'timestampUs' | 'source' | 'nodeId'>> =
+    []
+  const reasonCode = asNonEmptyString(payload.reason)
+  const resourceKey = asNonEmptyString(payload.resourceKey)
+  const idempotencyKey = asNonEmptyString(payload.idempotencyKey)
+  const firstCommitter = asNonEmptyString(payload.firstCommitter)
+
+  if (payload.forkConsumerRequest === true) {
+    transitions.push({
+      scope: 'delivery',
+      state: 'producer-acked',
+      detail: 'Producer was acknowledged at enqueue time.'
+    })
+  }
+
+  switch (payload.idempotencyDecision) {
+    case 'recorded':
+      transitions.push({
+        scope: 'idempotency',
+        state: 'recorded',
+        detail: maybeSetDetail([idempotencyKey ? `key ${idempotencyKey}` : null])
+      })
+      break
+    case 'duplicate':
+      transitions.push({
+        scope: 'idempotency',
+        state: 'deduped',
+        detail: maybeSetDetail([idempotencyKey ? `key ${idempotencyKey}` : null])
+      })
+      break
+    case 'no-key':
+      transitions.push({
+        scope: 'idempotency',
+        state: 'key-missing',
+        detail: 'No idempotency key was present on the request.'
+      })
+      break
+  }
+
+  switch (payload.lockDecision) {
+    case 'attempting':
+      transitions.push({
+        scope: 'lock',
+        state: 'attempting',
+        detail: maybeSetDetail([resourceKey ? `key ${resourceKey}` : null])
+      })
+      break
+    case 'acquired':
+      transitions.push({
+        scope: 'lock',
+        state: 'acquired',
+        detail: maybeSetDetail([resourceKey ? `key ${resourceKey}` : null])
+      })
+      break
+    case 'contended':
+      transitions.push({
+        scope: 'lock',
+        state: 'contended',
+        detail: maybeSetDetail([resourceKey ? `key ${resourceKey}` : null, reasonCode]),
+        ...(reasonCode ? { reasonCode } : {})
+      })
+      break
+    case 'held-by-request':
+      transitions.push({
+        scope: 'lock',
+        state: 'held',
+        detail: maybeSetDetail([resourceKey ? `key ${resourceKey}` : null])
+      })
+      break
+    case 'no-key':
+      transitions.push({
+        scope: 'lock',
+        state: 'key-missing',
+        detail: 'No lock key was present on the request.'
+      })
+      break
+  }
+
+  switch (payload.reservationDecision) {
+    case 'committed':
+      transitions.push({
+        scope: 'reservation',
+        state: 'committed',
+        detail: maybeSetDetail([resourceKey ? `key ${resourceKey}` : null])
+      })
+      break
+    case 'sold-out':
+      transitions.push({
+        scope: 'reservation',
+        state: 'sold-out',
+        detail: maybeSetDetail([resourceKey ? `key ${resourceKey}` : null])
+      })
+      break
+    case 'oversold':
+      transitions.push({
+        scope: 'reservation',
+        state: 'oversold',
+        detail: maybeSetDetail([
+          resourceKey ? `key ${resourceKey}` : null,
+          firstCommitter ? `first committer ${firstCommitter}` : null
+        ])
+      })
+      break
+    case 'no-key':
+      transitions.push({
+        scope: 'reservation',
+        state: 'key-missing',
+        detail: 'No reservation key was present on the request.'
+      })
+      break
+  }
+
+  return transitions
 }
 
 export function isQueueDeliverySemantics(value: unknown): value is QueueDeliverySemantics {
