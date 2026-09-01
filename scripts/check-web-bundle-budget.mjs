@@ -2,16 +2,10 @@ import { readdirSync, statSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-interface BundleBudget {
-  prefix: string
-  label: string
-  maxKb: number
-}
-
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const assetsDir = resolve(projectRoot, 'dist/assets')
 
-const BUNDLE_BUDGETS: readonly BundleBudget[] = [
+const BUNDLE_BUDGETS = [
   {
     prefix: 'index-',
     label: 'main renderer entry',
@@ -34,17 +28,17 @@ const BUNDLE_BUDGETS: readonly BundleBudget[] = [
   }
 ]
 
-function formatKb(bytes: number): string {
+function formatKb(bytes) {
   return (bytes / 1000).toFixed(2)
 }
 
-function findAssetByPrefix(files: readonly string[], prefix: string): string | null {
+function findAssetByPrefix(files, prefix) {
   return files.find((file) => file.startsWith(prefix) && file.endsWith('.js')) ?? null
 }
 
-function main(): void {
+function main() {
   const assetFiles = readdirSync(assetsDir)
-  const failures: string[] = []
+  const failures = []
 
   for (const budget of BUNDLE_BUDGETS) {
     const file = findAssetByPrefix(assetFiles, budget.prefix)
