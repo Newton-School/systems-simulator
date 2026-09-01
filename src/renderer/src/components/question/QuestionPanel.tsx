@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import useStore from '@renderer/store/useStore'
 import { useTopologySerializer } from '@renderer/hooks/useTopologySerializer'
 import { useQuestionGrader } from '@renderer/hooks/useQuestionGrader'
@@ -21,6 +21,11 @@ import {
   gradeJustification,
   type JustificationResult
 } from '../../../../engine/analysis/justification'
+import {
+  mapGeminiResponseToResult,
+  type GeminiGradeRequest,
+  type GeminiGradeResponse
+} from '../../../../engine/analysis/geminiGrader'
 import { buildQuestionEvaluationContract } from '../../../../engine/analysis/evaluationContract'
 import { buildEvaluationEnvelope } from '../../../../engine/analysis/evaluationEnvelope'
 import {
@@ -64,12 +69,14 @@ import {
 const SECTION_TITLE = 'text-[10px] font-bold uppercase tracking-widest text-nss-muted'
 
 /**
- * V1 kill-switch for the justification feature. The deterministic keyword grader
- * makes for a confusing "guess the exact token" UX, so justification input is
- * hidden for launch. Flip to `true` (and restore `justify` in the question
- * packages) to bring it back for the V2 redesign.
+ * V2: justification feature is now enabled with LLM-backed grading via Gemini.
+ * The deterministic keyword grader is kept as a fallback when the Gemini API is
+ * unavailable (non-Electron mode, network errors, missing API key).
  */
-const SHOW_JUSTIFICATION = false
+const SHOW_JUSTIFICATION = true
+
+/** Debounce delay (ms) for live Gemini grading as the student types. */
+const GEMINI_GRADE_DEBOUNCE_MS = 1500
 
 type PendingRun = {
   kind: 'dry-run' | 'submit'
@@ -372,15 +379,17 @@ export const QuestionPanel = () => {
   // Live, deterministic feedback on justification prompts - graded against the
   // current graph (graph-consistency), no LLM. Re-derives when the graph or an
   // answer changes. Declared before the early return to satisfy rules-of-hooks.
-  const justifyGrades = useMemo<Record<string, JustificationResult>>(() => {
+  // ── Debounced Gemini-backed justification grading ──────────────────────────
+  // Calls Gemini via IPC for semantic grading; falls back to the deterministic
+  // grader when the API is unavailable or the student hasn't typed enough.
+  const [justifyGrades, setJustifyGrades] = useState<Record<string, JustificationResult>>({})
+  const geminiTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const gradeDeterministic = useCallback((): Record<string, JustificationResult> => {
     const prompts = activeQuestion?.justify ?? []
-    if (prompts.length === 0) {
-      return {}
-    }
+    if (prompts.length === 0) return {}
     const { topology } = serialize()
-    if (!topology) {
-      return {}
-    }
+    if (!topology) return {}
     const scaleNumbers: number[] = [
       ...Object.values(activeQuestion!.prompt.scale).filter(
         (v): v is number => typeof v === 'number'
@@ -397,6 +406,87 @@ export const QuestionPanel = () => {
       )
     }
     return out
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeQuestion, justificationAnswers, nodes, edges])
+
+  useEffect(() => {
+    const prompts = activeQuestion?.justify ?? []
+    if (prompts.length === 0) {
+      setJustifyGrades({})
+      return
+    }
+
+    // Immediately show deterministic grades while Gemini is pending
+    setJustifyGrades(gradeDeterministic())
+
+    // Check if Gemini IPC is available (Electron only)
+    const geminiAvailable = typeof window.nssimulator?.gradeJustification === 'function'
+    if (!geminiAvailable) return
+
+    // Debounce the Gemini call
+    if (geminiTimerRef.current) clearTimeout(geminiTimerRef.current)
+    geminiTimerRef.current = setTimeout(async () => {
+      const { topology } = serialize()
+      if (!topology) return
+
+      const scaleNumbers: number[] = [
+        ...Object.values(activeQuestion!.prompt.scale).filter(
+          (v): v is number => typeof v === 'number'
+        ),
+        ...activeQuestion!.prompt.nonFunctionalRequirements.map((nfr) => nfr.value)
+      ]
+      const ctx = buildJustificationContext(topology, scaleNumbers)
+
+      const geminiGrades: Record<string, JustificationResult> = {}
+      for (const prompt of prompts) {
+        const text = justificationAnswers[prompt.id] ?? ''
+        if (text.trim().length < 10) {
+          // Too short for LLM — use deterministic grade
+          geminiGrades[prompt.id] = gradeJustification(
+            prompt,
+            { promptId: prompt.id, text },
+            ctx
+          )
+          continue
+        }
+
+        try {
+          const boundType = ctx.resolveBoundType(prompt.boundTo)
+          const request: GeminiGradeRequest = {
+            prompt,
+            studentAnswer: text,
+            actualComponentType: boundType,
+            scaleNumbers
+          }
+          const ipcResult = await window.nssimulator!.gradeJustification(request)
+          if (ipcResult.ok && ipcResult.data) {
+            geminiGrades[prompt.id] = mapGeminiResponseToResult(
+              prompt.id,
+              ipcResult.data as GeminiGradeResponse
+            )
+          } else {
+            // Gemini failed — keep deterministic fallback
+            geminiGrades[prompt.id] = gradeJustification(
+              prompt,
+              { promptId: prompt.id, text },
+              ctx
+            )
+          }
+        } catch {
+          // Network/IPC error — keep deterministic fallback
+          geminiGrades[prompt.id] = gradeJustification(
+            prompt,
+            { promptId: prompt.id, text },
+            ctx
+          )
+        }
+      }
+      setJustifyGrades(geminiGrades)
+    }, GEMINI_GRADE_DEBOUNCE_MS)
+
+    return () => {
+      if (geminiTimerRef.current) clearTimeout(geminiTimerRef.current)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeQuestion, justificationAnswers, nodes, edges])
   const supportReality = useMemo(() => {
@@ -852,7 +942,7 @@ export const QuestionPanel = () => {
                 <h3 className={SECTION_TITLE}>Justify your design</h3>
                 <p className="text-[11px] leading-relaxed text-nss-muted">
                   Reference the component you actually placed, cite a number from the question, and
-                  state a tradeoff. Graded deterministically against your graph.
+                  state a tradeoff. Your answer is evaluated by AI for semantic correctness.
                 </p>
                 <div className="space-y-3">
                   {activeQuestion.justify.map((prompt) => {

@@ -1219,21 +1219,10 @@ for (const [id, build] of Object.entries(builders)) {
   const concepts = CONCEPTS[id]
   if (concepts) q.concepts = concepts
 
-  // V1: hide the justification feature. Move `justify` to `_justify` (an unknown
-  // key the parser strips), so no justify prompts are graded or shown, while the
-  // authored data is preserved in the file for the V2 redesign.
-  if (q.justify) {
-    q._justify = q.justify
-    delete q.justify
-  }
+  // V2: justification is now LLM-graded via Gemini — keep `justify` as-is.
 
   const w = (name: string, data: unknown) =>
     writeFileSync(join(dir, name), JSON.stringify(data, null, 2) + '\n')
-
-  // Remove any stale justification-answer files (unused now that justify is hidden).
-  for (const stale of ['answers.json', 'gamed-answers.json']) {
-    rmSync(join(dir, stale), { force: true })
-  }
 
   w('question.json', q)
   w('reference-topology.json', trio.ref)

@@ -46,7 +46,13 @@ const api = {
     }
   },
 
-  runSimulation: (config: any) => ipcRenderer.send('nssimulator:run-simulation', config)
+  runSimulation: (config: any) => ipcRenderer.send('nssimulator:run-simulation', config),
+
+  gradeJustification: (request: any) =>
+    ipcRenderer.invoke('gemini:gradeJustification', request).catch((error) => {
+      console.error('Error in gradeJustification:', error)
+      return { error: String(error) }
+    })
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to

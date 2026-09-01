@@ -592,7 +592,10 @@ describe('queueing core regression (no failure)', () => {
     // Median successful latency in the tens of ms (queue wait + service under load).
     expect(output.summary.latency.p50).toBeGreaterThan(20)
     expect(output.summary.latency.p50).toBeLessThan(120)
-  })
+    // This case runs a full 60s Poisson simulation (~60k requests); it completes in
+    // ~1s locally but can exceed the 5s default on slower/parallel-loaded CI runners.
+    // Give it explicit headroom — the assertions are fast; only the sim is heavy.
+  }, 20_000)
 })
 
 describe('per-node scoped aggregation (honest node badge)', () => {
