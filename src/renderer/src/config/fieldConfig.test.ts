@@ -232,7 +232,14 @@ describe('getNodeConfigSections', () => {
       getNodeConfigSections(rateLimiter)
         .find((section) => section.id === 'rate-limiting')
         ?.fields.map((field) => field.path)
-    ).toEqual(['sim.maxTokens', 'sim.refillRatePerSecond'])
+    ).toEqual([
+      'sim.algorithm',
+      'sim.limit',
+      'sim.windowMs',
+      'sim.rateLimitKeyField',
+      'sim.maxTokens',
+      'sim.refillRatePerSecond'
+    ])
 
     expect(
       getNodeConfigSections(circuitBreaker)

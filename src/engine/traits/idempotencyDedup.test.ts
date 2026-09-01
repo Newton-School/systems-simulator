@@ -126,4 +126,73 @@ describe('idempotencyDedupTrait', () => {
       value: 2
     })
   })
+
+  it('confirms a committed key and blocks a retry whose prior outcome is unknown', () => {
+    const state = makeState()
+    const node = makeNode({ commitOutcomeJournal: true })
+    const firstRequest = makeRequest('req-1', { idempotencyKey: 'pay-001' })
+
+    const first = idempotencyDedupTrait.beforeArrival?.({
+      node,
+      request: firstRequest,
+      clock: 0n,
+      state
+    })
+    expect(first).toMatchObject({
+      action: 'continue',
+      payload: { commitOutcomeDecision: 'intent-recorded' }
+    })
+
+    const committed = idempotencyDedupTrait.afterTerminal?.({
+      node,
+      request: firstRequest,
+      clock: 10n,
+      state,
+      status: 'success'
+    })
+    expect(committed).toEqual({
+      commitOutcomeDecision: 'commit-confirmed',
+      idempotencyKey: 'pay-001'
+    })
+
+    const knownDuplicate = idempotencyDedupTrait.beforeArrival?.({
+      node,
+      request: makeRequest('req-2', { idempotencyKey: 'pay-001' }),
+      clock: 20n,
+      state
+    })
+    expect(knownDuplicate).toMatchObject({
+      action: 'handled',
+      payload: { commitOutcomeDecision: 'commit-confirmed' }
+    })
+
+    const interruptedRequest = makeRequest('req-3', { idempotencyKey: 'pay-002' })
+    idempotencyDedupTrait.beforeArrival?.({
+      node,
+      request: interruptedRequest,
+      clock: 30n,
+      state
+    })
+    const unknown = idempotencyDedupTrait.afterTerminal?.({
+      node,
+      request: interruptedRequest,
+      clock: 40n,
+      state,
+      status: 'timeout',
+      reasonCode: 'deadline_exceeded'
+    })
+    expect(unknown).toMatchObject({ commitOutcomeDecision: 'outcome-unknown' })
+
+    const blockedRetry = idempotencyDedupTrait.beforeArrival?.({
+      node,
+      request: makeRequest('req-4', { idempotencyKey: 'pay-002' }),
+      clock: 50n,
+      state
+    })
+    expect(blockedRetry).toMatchObject({
+      action: 'rejected',
+      reason: 'commit_outcome_unknown',
+      payload: { commitOutcomeDecision: 'replay-blocked' }
+    })
+  })
 })

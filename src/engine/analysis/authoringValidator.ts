@@ -44,9 +44,24 @@ const SIMULATION_METRICS = new Set<string>([
   'summary.totalRequests',
   'summary.successfulRequests',
   'summary.failedRequests',
+  'summary.rejectedRequests',
+  'summary.timedOutRequests',
+  'summary.connectionResetRequests',
   'perNode.maxUtilization',
   'perNode.maxErrorRate',
-  'perNode.maxLatencyP99'
+  'perNode.maxLatencyP99',
+  'reservations.commits',
+  'reservations.conflicts',
+  'reservations.oversells',
+  'locks.acquires',
+  'locks.contentions',
+  'locks.keyless',
+  'retries.attempts',
+  'retries.budgetExhausted',
+  'rateLimit.admitted',
+  'rateLimit.rejected',
+  'rateLimit.breaches',
+  'rateLimit.keyless'
 ])
 
 /** Known-good invariant metric keys. */

@@ -421,6 +421,7 @@ export class RoutingTable {
         clock: options.clock ?? 0n,
         random: this.rng.next,
         candidates: filtered,
+        getNode: (nodeId) => this.nodeById.get(nodeId),
         isTargetHealthy: options.isTargetHealthy,
         isEdgeHealthy: options.isEdgeHealthy,
         state: this.getTraitStateStore(sourceNodeId)

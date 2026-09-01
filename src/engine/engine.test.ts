@@ -382,7 +382,8 @@ describe('SimulationEngine', () => {
         {
           ...makeNode('idempotency'),
           type: 'idempotency-manager',
-          category: 'coordination-and-consensus'
+          category: 'coordination-and-consensus',
+          config: { commitOutcomeJournal: true }
         },
         {
           ...makeNode('lock'),
@@ -430,6 +431,11 @@ describe('SimulationEngine', () => {
       expect.arrayContaining([
         expect.objectContaining({ scope: 'request', state: 'generated' }),
         expect.objectContaining({ scope: 'idempotency', state: 'recorded', nodeId: 'idempotency' }),
+        expect.objectContaining({
+          scope: 'commit-outcome',
+          state: 'intent-recorded',
+          nodeId: 'idempotency'
+        }),
         expect.objectContaining({ scope: 'lock', state: 'attempting', nodeId: 'lock' }),
         expect.objectContaining({ scope: 'lock', state: 'acquired', nodeId: 'lock' }),
         expect.objectContaining({
@@ -438,7 +444,12 @@ describe('SimulationEngine', () => {
           nodeId: 'reservation'
         }),
         expect.objectContaining({ scope: 'lock', state: 'released', nodeId: 'lock' }),
-        expect.objectContaining({ scope: 'request', state: 'completed', nodeId: 'reservation' })
+        expect.objectContaining({ scope: 'request', state: 'completed', nodeId: 'reservation' }),
+        expect.objectContaining({
+          scope: 'commit-outcome',
+          state: 'commit-confirmed',
+          nodeId: 'idempotency'
+        })
       ])
     )
     expect(deduped?.stateTimeline).toEqual(

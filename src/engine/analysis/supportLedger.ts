@@ -54,8 +54,13 @@ export const DOMAIN_SUPPORT_LEDGER: Record<QuestionDomain, SupportLedgerEntry> =
   correctness: {
     tier: 'guided',
     summary:
-      'Guarded paths, lock contention, dedup, and durable-write placement are teachable, but exactly-once, quorum, and linearizability are not proved by runtime.',
-    simulates: ['lock contention', 'duplicate suppression', 'guarded write paths'],
+      'Guarded paths, lock contention, duplicate suppression, and commit-outcome journaling are teachable, but exactly-once, quorum, and linearizability are not proved by runtime.',
+    simulates: [
+      'lock contention',
+      'duplicate suppression',
+      'commit outcome journal transitions',
+      'guarded write paths'
+    ],
     inferred: ['topology proxies', 'justification-backed decisions'],
     deferred: ['exactly-once commit coordination', 'quorum', 'linearizability']
   },
@@ -85,7 +90,7 @@ export const COMPONENT_CATEGORY_SUPPORT_LEDGER: Record<ComponentCategory, Suppor
   'messaging-and-streaming': {
     tier: 'guided',
     summary:
-      'Queues and fanout are modeled, but consumer groups, retention, ordering, and broker replication are still partial.'
+      'Queues, fanout, deterministic partition assignment, and one-delivery-per-group routing exist, but offsets, retention, ordering guarantees, and broker replication are still partial.'
   },
   'orchestration-and-infra': {
     tier: 'presentational-only',
@@ -164,7 +169,12 @@ export const TRAIT_SUPPORT_LEDGER = {
   'messaging.broadcast-fanout': {
     tier: 'guided',
     summary:
-      'One-to-many fanout is modeled, but broker retention, partitions, and consumer-group semantics are not.'
+      'One-to-many fanout is modeled, but broker retention, partitions, and offset semantics are still partial.'
+  },
+  'stream.partitioned-broker': {
+    tier: 'guided',
+    summary:
+      'Partition-affine routing and one delivery per configured consumer group are modeled, but offsets, retention, replication, and rebalancing are not.'
   },
   'queue.ack-and-release': {
     tier: 'guided',
@@ -174,7 +184,7 @@ export const TRAIT_SUPPORT_LEDGER = {
   'coordination.idempotency-dedup': {
     tier: 'guided',
     summary:
-      'Time-window duplicate suppression is modeled, but commit outcome tracking and cross-node dedup truth are missing.'
+      'Time-window duplicate suppression and commit-outcome journal transitions are modeled, but cross-node consensus and automatic reconciliation are not.'
   },
   'coordination.lock-lease': {
     tier: 'guided',
@@ -315,7 +325,7 @@ export const CONCEPT_SUPPORT_LEDGER = {
   idempotency: {
     tier: 'guided',
     summary:
-      'Duplicate suppression exists, but it does not yet prove full commit-outcome correctness by itself.'
+      'Duplicate suppression exists, and the commit journal can expose confirmed versus unknown outcomes, but it does not prove full exactly-once correctness by itself.'
   },
   'lock-contention': {
     tier: 'guided',
@@ -333,9 +343,9 @@ export const CONCEPT_SUPPORT_LEDGER = {
       'The simulator can distinguish some routing shape and config choices, but not the full behavioral teaching surface.'
   },
   'consumer-groups': {
-    tier: 'deferred',
+    tier: 'guided',
     summary:
-      'Consumer-group offsets, independent replay, and group-specific lag are not yet first-class runtime behavior.'
+      'One delivery per configured consumer group is modeled, but offsets, independent replay, and group-specific lag are not yet first-class runtime behavior.'
   },
   'message-ordering': {
     tier: 'deferred',

@@ -3,7 +3,7 @@ import type { CanvasNodeDataV2 } from '../catalog/nodeSpecTypes'
 import type { ComponentNode, ComponentType, EdgeDefinition, NodeState } from '../core/types'
 import type { ResolveRoute } from '../routing'
 
-export type TraitHookName = 'beforeArrival' | 'beforeRouting' | 'filterRoutes'
+export type TraitHookName = 'beforeArrival' | 'beforeRouting' | 'filterRoutes' | 'afterTerminal'
 
 export type TraitRoutingStrategyHint = 'round-robin' | 'broadcast'
 export type FieldPath = string
@@ -140,8 +140,14 @@ export interface TraitContext {
 
 export interface TraitFilterRoutesContext extends TraitContext {
   candidates: ResolveRoute[]
+  getNode?: (nodeId: string) => ComponentNode | undefined
   isTargetHealthy?: (nodeId: string) => boolean
   isEdgeHealthy?: (edge: EdgeDefinition) => boolean
+}
+
+export interface TraitTerminalContext extends TraitContext {
+  status: 'success' | 'timeout' | 'rejected' | 'connection_reset'
+  reasonCode?: string | null
 }
 
 export type BeforeArrivalDecision =
@@ -170,6 +176,13 @@ export interface NodeBehaviourTrait {
   beforeArrival?: (context: TraitContext) => BeforeArrivalDecision
   beforeRouting?: (context: TraitContext) => BeforeRoutingDecision
   filterRoutes?: (context: TraitFilterRoutesContext) => FilterRoutesDecision
+  /**
+   * Receives the final runtime outcome after a request has traversed this node.
+   * This is deliberately terminal-only: traits use it to resolve durable
+   * coordination state without pretending an earlier arrival hook knew the
+   * downstream side effect had completed.
+   */
+  afterTerminal?: (context: TraitTerminalContext) => Record<string, unknown> | void
 }
 
 export type TraitResolver = (node: ComponentNode) => readonly NodeBehaviourTrait[]

@@ -16,17 +16,23 @@
 import { z } from 'zod'
 import type { ComponentType } from '../core/types'
 import {
+  BROKER_TIMELINE_STATES,
+  COMMIT_OUTCOME_TIMELINE_STATES,
   DELIVERY_TIMELINE_STATES,
   IDEMPOTENCY_TIMELINE_STATES,
   LOCK_TIMELINE_STATES,
   REQUEST_STATE_TRANSITION_SOURCES,
   REQUEST_TIMELINE_STATES,
+  REPLICATION_TIMELINE_STATES,
   RESERVATION_TIMELINE_STATES,
   type DeliveryTimelineState,
+  type BrokerTimelineState,
+  type CommitOutcomeTimelineState,
   type IdempotencyTimelineState,
   type LockTimelineState,
   type RequestStateTransitionSource,
   type RequestTimelineState,
+  type ReplicationTimelineState,
   type ReservationTimelineState
 } from '../core/simulationSemantics'
 import { REQUEST_OUTCOME_STATUSES, type RequestOutcomeStatus } from '../core/event-stream'
@@ -157,9 +163,24 @@ export interface DeliveryStateTransitionMatcher extends RuntimeStateTransitionMa
   state: DeliveryTimelineState
 }
 
+export interface BrokerStateTransitionMatcher extends RuntimeStateTransitionMatcherBase {
+  scope: 'broker'
+  state: BrokerTimelineState
+}
+
+export interface ReplicationStateTransitionMatcher extends RuntimeStateTransitionMatcherBase {
+  scope: 'replication'
+  state: ReplicationTimelineState
+}
+
 export interface IdempotencyStateTransitionMatcher extends RuntimeStateTransitionMatcherBase {
   scope: 'idempotency'
   state: IdempotencyTimelineState
+}
+
+export interface CommitOutcomeStateTransitionMatcher extends RuntimeStateTransitionMatcherBase {
+  scope: 'commit-outcome'
+  state: CommitOutcomeTimelineState
 }
 
 export interface LockStateTransitionMatcher extends RuntimeStateTransitionMatcherBase {
@@ -175,7 +196,10 @@ export interface ReservationStateTransitionMatcher extends RuntimeStateTransitio
 export type RuntimeStateTransitionMatcher =
   | RequestStateTransitionMatcher
   | DeliveryStateTransitionMatcher
+  | BrokerStateTransitionMatcher
+  | ReplicationStateTransitionMatcher
   | IdempotencyStateTransitionMatcher
+  | CommitOutcomeStateTransitionMatcher
   | LockStateTransitionMatcher
   | ReservationStateTransitionMatcher
 
@@ -320,8 +344,29 @@ const RuntimeStateTransitionMatcherSchema: z.ZodType<RuntimeStateTransitionMatch
     z
       .object({
         ...runtimeTransitionMatcherBase,
+        scope: z.literal('broker'),
+        state: z.enum(BROKER_TIMELINE_STATES)
+      })
+      .strict(),
+    z
+      .object({
+        ...runtimeTransitionMatcherBase,
+        scope: z.literal('replication'),
+        state: z.enum(REPLICATION_TIMELINE_STATES)
+      })
+      .strict(),
+    z
+      .object({
+        ...runtimeTransitionMatcherBase,
         scope: z.literal('idempotency'),
         state: z.enum(IDEMPOTENCY_TIMELINE_STATES)
+      })
+      .strict(),
+    z
+      .object({
+        ...runtimeTransitionMatcherBase,
+        scope: z.literal('commit-outcome'),
+        state: z.enum(COMMIT_OUTCOME_TIMELINE_STATES)
       })
       .strict(),
     z

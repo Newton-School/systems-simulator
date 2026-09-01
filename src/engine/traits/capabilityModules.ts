@@ -18,8 +18,11 @@ import { memoryPressureCapabilityModule } from './memoryPressure'
 import { rateLimiterCapabilityModule } from './rateLimiter'
 import { readOnlyCapabilityModule } from './readOnly'
 import { readWriteSplitCapabilityModule } from './readWriteSplit'
+import { replicationCapabilityModule } from './replication'
+import { protocolSessionCapabilityModule } from './protocolSession'
 import { retryBackoffCapabilityModule } from './retryBackoff'
 import { storageProfileCapabilityModule } from './storageProfile'
+import { streamBrokerCapabilityModule } from './streamBroker'
 import type { ConfigField, NodeCapabilityModule } from './types'
 import type { ComponentNode } from '../core/types'
 import { INSTANCE_CATALOG, INSTANCE_TYPES, PRICING_MODELS } from '../catalog/instanceCatalog'
@@ -859,10 +862,13 @@ export const TRAIT_CAPABILITY_MODULES: readonly NodeCapabilityModule[] = [
   coldStartCapabilityModule,
   keyBasedRoutingCapabilityModule,
   consumerLagCapabilityModule,
+  streamBrokerCapabilityModule,
   dnsRoutingPolicyCapabilityModule,
   circuitBreakerCapabilityModule,
   readOnlyCapabilityModule,
   readWriteSplitCapabilityModule,
+  replicationCapabilityModule,
+  protocolSessionCapabilityModule,
   storageProfileCapabilityModule,
   retryBackoffCapabilityModule,
   idempotencyDedupCapabilityModule,

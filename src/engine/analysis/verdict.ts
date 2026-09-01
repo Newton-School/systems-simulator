@@ -96,6 +96,22 @@ export interface SimulationVerdict {
     attempts: number
     budgetExhausted: number
   }
+  /**
+   * Run-wide rate-limiter tallies, summed across every rate-limiter node.
+   * `admitted`/`rejected` are the admission-control decisions. `breaches` is the
+   * key signal: how many admits pushed the true rolling-window count for a key
+   * above the contracted `limit` — non-zero means the limit was violated, either
+   * by two uncoordinated local limiters or by a fixed-window edge burst. Grade
+   * the rate-limiter correctness lesson with `rateLimit.breaches == 0`.
+   * `keyless` counts requests that reached a per-key limiter without the key
+   * field (usually a wiring mistake).
+   */
+  rateLimit: {
+    admitted: number
+    rejected: number
+    breaches: number
+    keyless: number
+  }
   sloTargetCount: number
   sloBreaches: Array<{
     nodeId: string
@@ -175,6 +191,16 @@ function sumRetryCounters(output: SimulationOutput): SimulationVerdict['retries'
   }
 }
 
+/** Run-wide rate-limiter tallies (see the rate-limiter capability). */
+function sumRateLimitCounters(output: SimulationOutput): SimulationVerdict['rateLimit'] {
+  return {
+    admitted: sumTraitCounter(output, 'rateAdmitted'),
+    rejected: sumTraitCounter(output, 'rateRejected'),
+    breaches: sumTraitCounter(output, 'rateLimitBreaches'),
+    keyless: sumTraitCounter(output, 'rateKeyless')
+  }
+}
+
 export function projectToVerdict(output: SimulationOutput): SimulationVerdict {
   return {
     version: SIMULATION_VERDICT_VERSION,
@@ -234,6 +260,7 @@ export function projectToVerdict(output: SimulationOutput): SimulationVerdict {
     reservations: sumReservationCounters(output),
     locks: sumLockCounters(output),
     retries: sumRetryCounters(output),
+    rateLimit: sumRateLimitCounters(output),
     sloTargetCount: output.sloTargetCount,
     sloBreaches: output.sloBreaches.map((breach) => ({ ...breach })),
     invariantViolations: output.invariantViolations.map((violation) => ({

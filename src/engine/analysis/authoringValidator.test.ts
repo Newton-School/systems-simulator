@@ -229,6 +229,36 @@ describe('validateAuthoredQuestion', () => {
     expect(codes(pkg)).toContain('correctness.simulationCheck')
   })
 
+  it('accepts shipped run-wide verdict counters as recognized simulation metrics', () => {
+    const pkg = base()
+    pkg.rubric.checks = [
+      {
+        id: 'oversell-free',
+        kind: 'simulation',
+        description: 'No oversells',
+        metric: 'reservations.oversells',
+        op: '==',
+        value: 0
+      },
+      {
+        id: 'no-breaches',
+        kind: 'simulation',
+        description: 'No rate-limit breaches',
+        metric: 'rateLimit.breaches',
+        op: '==',
+        value: 0
+      }
+    ]
+
+    const diagnostics = validateAuthoredQuestion(pkg)
+    expect(
+      diagnostics.some(
+        (diagnostic) =>
+          diagnostic.code === 'metric.unrecognized' || diagnostic.code === 'metric.uncommon'
+      )
+    ).toBe(false)
+  })
+
   it('errors on a dangling forbidUnjustified.justifyId', () => {
     const pkg = base()
     pkg.semanticCriteria = [

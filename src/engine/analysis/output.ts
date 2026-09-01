@@ -12,6 +12,7 @@ import {
   type RequestOutcomeFamily
 } from '../core/requestOutcomeSemantics'
 import {
+  COMMIT_OUTCOME_TIMELINE_STATES,
   DELIVERY_TIMELINE_STATES,
   IDEMPOTENCY_TIMELINE_STATES,
   LOCK_TIMELINE_STATES,
@@ -19,6 +20,7 @@ import {
   REQUEST_TIMELINE_STATES,
   RESERVATION_TIMELINE_STATES,
   type DeliveryGuarantee,
+  type CommitOutcomeTimelineState,
   type DeliveryTimelineState,
   type IdempotencyTimelineState,
   type LockTimelineState,
@@ -162,6 +164,7 @@ export interface RuntimeSemanticsSummary {
     request: Record<RequestTimelineState, number>
     delivery: Record<DeliveryTimelineState, number>
     idempotency: Record<IdempotencyTimelineState, number>
+    commitOutcome: Record<CommitOutcomeTimelineState, number>
     lock: Record<LockTimelineState, number>
     reservation: Record<ReservationTimelineState, number>
   }
@@ -171,6 +174,7 @@ export interface RuntimeSemanticsSummary {
     redeliveryScheduled: number
     dlqRouted: number
     duplicateSuppressed: number
+    commitOutcomeUnknown: number
     lockContended: number
     reservationOversold: number
   }
@@ -311,6 +315,7 @@ function buildRuntimeSemanticsSummary(
       request: createCountRecord(REQUEST_TIMELINE_STATES),
       delivery: createCountRecord(DELIVERY_TIMELINE_STATES),
       idempotency: createCountRecord(IDEMPOTENCY_TIMELINE_STATES),
+      commitOutcome: createCountRecord(COMMIT_OUTCOME_TIMELINE_STATES),
       lock: createCountRecord(LOCK_TIMELINE_STATES),
       reservation: createCountRecord(RESERVATION_TIMELINE_STATES)
     },
@@ -320,6 +325,7 @@ function buildRuntimeSemanticsSummary(
       redeliveryScheduled: 0,
       dlqRouted: 0,
       duplicateSuppressed: 0,
+      commitOutcomeUnknown: 0,
       lockContended: 0,
       reservationOversold: 0
     }
@@ -344,6 +350,7 @@ function buildRuntimeSemanticsSummary(
     let redeliveryScheduled = false
     let dlqRouted = false
     let duplicateSuppressed = false
+    let commitOutcomeUnknown = false
     let lockContended = false
     let reservationOversold = false
 
@@ -368,6 +375,13 @@ function buildRuntimeSemanticsSummary(
           summary.transitionCounts.idempotency[transition.state as IdempotencyTimelineState] += 1
           if (transition.state === 'deduped') {
             duplicateSuppressed = true
+          }
+          break
+        case 'commit-outcome':
+          summary.transitionCounts.commitOutcome[transition.state as CommitOutcomeTimelineState] +=
+            1
+          if (transition.state === 'outcome-unknown') {
+            commitOutcomeUnknown = true
           }
           break
         case 'lock':
@@ -399,6 +413,9 @@ function buildRuntimeSemanticsSummary(
     }
     if (duplicateSuppressed) {
       summary.affectedOutcomeCounts.duplicateSuppressed += 1
+    }
+    if (commitOutcomeUnknown) {
+      summary.affectedOutcomeCounts.commitOutcomeUnknown += 1
     }
     if (lockContended) {
       summary.affectedOutcomeCounts.lockContended += 1

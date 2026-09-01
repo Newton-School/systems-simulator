@@ -1,6 +1,7 @@
 import { msToMicro } from '../core/time'
 import type { ComponentType } from '../core/types'
 import { writeIdempotencyDecision } from '../core/simulationSemantics'
+import { reconcileExternalOutcome } from '../semantics/v2StateMachines'
 import { SERVICE_TIME_DISTRIBUTION_OVERRIDE_KEY } from './serviceTimeOverride'
 import type { NodeBehaviourTrait, NodeCapabilityModule, TraitStateStore } from './types'
 
@@ -8,8 +9,12 @@ const DEFAULT_DEDUP_WINDOW_MS = 300_000
 const DEFAULT_LOOKUP_MS = 2
 const DEFAULT_KEY_FIELD = 'idempotencyKey'
 const SEEN_KEYS_STATE_KEY = 'idempotencyDedup.seenKeys'
+const COMMIT_OUTCOME_JOURNAL_STATE_KEY = 'idempotencyDedup.commitOutcomeJournal'
+const COMMIT_OUTCOME_ATTACHMENT_KEY = '__commitOutcomeJournalAttachment'
 
 type SeenKeyStore = Map<string, bigint>
+type CommitOutcome = 'pending' | 'committed' | 'unknown'
+type CommitOutcomeJournal = Map<string, CommitOutcome>
 
 export const IDEMPOTENCY_DEDUP_COMPONENT_TYPES = [
   'idempotency-manager'
@@ -35,6 +40,19 @@ function keyField(config: Record<string, unknown> | undefined): string {
   return asNonEmptyString(config?.['dedupKeyField']) ?? DEFAULT_KEY_FIELD
 }
 
+function commitOutcomeJournalEnabled(config: Record<string, unknown> | undefined): boolean {
+  return config?.['commitOutcomeJournal'] === true
+}
+
+function reconcileUnknownOutcomes(config: Record<string, unknown> | undefined): boolean {
+  return config?.['reconcileUnknownOutcomes'] === true
+}
+
+function reconciliationResult(config: Record<string, unknown> | undefined) {
+  const value = config?.['reconciliationProbeResult']
+  return value === 'committed' || value === 'not-found' || value === 'unknown' ? value : 'unknown'
+}
+
 function lookupLatencyUs(latencyMs: number): bigint {
   return BigInt(Math.max(1, Math.round(latencyMs * 1000)))
 }
@@ -47,6 +65,17 @@ function seenKeys(state: TraitStateStore | undefined): SeenKeyStore {
 
   const created: SeenKeyStore = new Map()
   state?.set(SEEN_KEYS_STATE_KEY, created)
+  return created
+}
+
+function commitOutcomeJournal(state: TraitStateStore | undefined): CommitOutcomeJournal {
+  const existing = state?.get<CommitOutcomeJournal>(COMMIT_OUTCOME_JOURNAL_STATE_KEY)
+  if (existing) {
+    return existing
+  }
+
+  const created: CommitOutcomeJournal = new Map()
+  state?.set(COMMIT_OUTCOME_JOURNAL_STATE_KEY, created)
   return created
 }
 
@@ -126,6 +155,87 @@ export const idempotencyDedupTrait: NodeBehaviourTrait = {
       }
     }
 
+    if (commitOutcomeJournalEnabled(node.config)) {
+      const journal = commitOutcomeJournal(state)
+      const priorOutcome = journal.get(key)
+      if (priorOutcome === 'committed') {
+        writeIdempotencyDecision(request, 'duplicate')
+        return {
+          action: 'handled',
+          latencyUs: lookupLatencyUs(lookupMs),
+          payload: {
+            ...duplicatePayload(key, windowMs, lookupMs),
+            commitOutcomeDecision: 'commit-confirmed'
+          }
+        }
+      }
+
+      if (priorOutcome === 'unknown' && reconcileUnknownOutcomes(node.config)) {
+        const resolution = reconcileExternalOutcome(
+          { lookup: () => reconciliationResult(node.config) },
+          key
+        )
+        if (resolution === 'safe-retry') {
+          journal.delete(key)
+        } else {
+          journal.set(key, 'committed')
+        }
+        if (resolution === 'safe-retry') {
+          request.metadata[COMMIT_OUTCOME_ATTACHMENT_KEY] = { nodeId: node.id, key }
+          writeIdempotencyDecision(request, 'recorded')
+          return {
+            action: 'continue',
+            payload: {
+              idempotencyDecision: 'recorded',
+              idempotencyKey: key,
+              commitOutcomeDecision: 'intent-recorded',
+              metricCounters: { idempotencyReconciliations: 1, idempotencySafeRetries: 1 }
+            }
+          }
+        }
+        writeIdempotencyDecision(request, 'duplicate')
+        return {
+          action: 'handled',
+          latencyUs: lookupLatencyUs(lookupMs),
+          payload: {
+            ...duplicatePayload(key, windowMs, lookupMs),
+            commitOutcomeDecision:
+              resolution === 'commit-confirmed' ? 'commit-confirmed' : 'replay-blocked',
+            metricCounters: { idempotencyReconciliations: 1 }
+          }
+        }
+      }
+
+      if (priorOutcome === 'pending' || priorOutcome === 'unknown') {
+        writeIdempotencyDecision(request, 'duplicate')
+        return {
+          action: 'rejected',
+          reason: 'commit_outcome_unknown',
+          payload: {
+            idempotencyDecision: 'duplicate',
+            idempotencyKey: key,
+            commitOutcomeDecision: 'replay-blocked',
+            metricCounters: { idempotencyOutcomeUnknown: 1 }
+          }
+        }
+      }
+
+      journal.set(key, 'pending')
+      request.metadata[COMMIT_OUTCOME_ATTACHMENT_KEY] = { nodeId: node.id, key }
+      writeIdempotencyDecision(request, 'recorded')
+      request.metadata[SERVICE_TIME_DISTRIBUTION_OVERRIDE_KEY] = {
+        type: 'constant',
+        value: lookupMs
+      }
+      return {
+        action: 'continue',
+        payload: {
+          ...continuePayload('recorded', windowMs, lookupMs, key),
+          commitOutcomeDecision: 'intent-recorded'
+        }
+      }
+    }
+
     const keys = seenKeys(state)
     const expiresAt = keys.get(key)
     if (expiresAt !== undefined && expiresAt > clock) {
@@ -148,6 +258,36 @@ export const idempotencyDedupTrait: NodeBehaviourTrait = {
       action: 'continue',
       payload: continuePayload('recorded', windowMs, lookupMs, key)
     }
+  },
+  afterTerminal: ({ node, request, state, status, reasonCode }) => {
+    if (!commitOutcomeJournalEnabled(node.config)) {
+      return undefined
+    }
+
+    const attachment = request.metadata[COMMIT_OUTCOME_ATTACHMENT_KEY]
+    if (
+      !attachment ||
+      typeof attachment !== 'object' ||
+      (attachment as Record<string, unknown>)['nodeId'] !== node.id ||
+      typeof (attachment as Record<string, unknown>)['key'] !== 'string'
+    ) {
+      return undefined
+    }
+
+    const key = (attachment as Record<string, string>)['key']
+    const journal = commitOutcomeJournal(state)
+    if (status === 'success') {
+      journal.set(key, 'committed')
+      return { commitOutcomeDecision: 'commit-confirmed', idempotencyKey: key }
+    }
+
+    journal.set(key, 'unknown')
+    return {
+      commitOutcomeDecision: 'outcome-unknown',
+      idempotencyKey: key,
+      reason: reasonCode ?? status,
+      metricCounters: { idempotencyOutcomeUnknown: 1 }
+    }
   }
 }
 
@@ -160,7 +300,7 @@ export const idempotencyDedupCapabilityModule: NodeCapabilityModule = {
       {
         id: 'idempotency-dedup',
         title: 'Idempotency Guard',
-        note: 'This guard records first-seen keys for a time window and short-circuits duplicate writes before they reach the downstream write path. It teaches retried-write dedup, not full distributed exactly-once.',
+        note: 'This guard records first-seen keys for a time window and short-circuits duplicate writes before they reach the downstream write path. Enable the commit journal when a question needs explicit committed-versus-unknown outcome state.',
         noteTone: 'info',
         fields: [
           {
@@ -191,6 +331,28 @@ export const idempotencyDedupCapabilityModule: NodeCapabilityModule = {
             altitude: 'advanced',
             placeholder: placeholder('dedupWindowMs'),
             why: 'Controls how long a seen key suppresses retried writes.'
+          },
+          {
+            path: 'sim.commitOutcomeJournal',
+            type: 'boolean',
+            label: 'Commit outcome journal',
+            altitude: 'advanced',
+            why: 'Records intent before downstream work and confirms the key only after a successful terminal outcome. Interrupted attempts become outcome-unknown and are blocked from re-executing until reconciled.'
+          },
+          {
+            path: 'sim.reconcileUnknownOutcomes',
+            type: 'boolean',
+            label: 'Reconcile unknown outcomes',
+            altitude: 'advanced',
+            why: 'Deterministically resolves a prior unknown outcome as committed before suppressing a replay. Enable only when the external side effect can be queried safely.'
+          },
+          {
+            path: 'sim.reconciliationProbeResult',
+            type: 'select',
+            label: 'Authoritative probe result',
+            options: ['committed', 'not-found', 'unknown'],
+            altitude: 'advanced',
+            why: 'Scenario-owned response from the external side-effect status probe.'
           }
         ]
       }
@@ -198,14 +360,23 @@ export const idempotencyDedupCapabilityModule: NodeCapabilityModule = {
   },
   defaults: [],
   metrics: {
-    counters: ['idempotencyDuplicateHits', 'idempotencyUniqueKeys', 'idempotencyKeysMissing']
+    counters: [
+      'idempotencyDuplicateHits',
+      'idempotencyUniqueKeys',
+      'idempotencyKeysMissing',
+      'idempotencyOutcomeUnknown',
+      'idempotencyReconciliations',
+      'idempotencySafeRetries'
+    ]
   },
   honesty: {
-    simulates: ['time-window dedup by idempotency key and duplicate short-circuit at the guard'],
+    simulates: [
+      'time-window dedup by idempotency key and duplicate short-circuit at the guard',
+      'durable per-key intent, confirmed commit outcome, and explicit unknown-outcome blocking when the commit journal is enabled'
+    ],
     notModeled: [
-      'commit outcome tracking',
       'cross-node consensus on dedup state',
-      'partial-failure recovery between the guard and downstream ledger'
+      'external reconciliation I/O; this deterministic policy represents a successful authoritative outcome lookup'
     ]
   }
 }

@@ -42,6 +42,7 @@ function baselineVerdict(): SimulationVerdict {
     reservations: { commits: 0, conflicts: 0, oversells: 0 },
     locks: { acquires: 0, contentions: 0, keyless: 0 },
     retries: { attempts: 0, budgetExhausted: 0 },
+    rateLimit: { admitted: 0, rejected: 0, breaches: 0, keyless: 0 },
     sloTargetCount: 0,
     sloBreaches: [],
     invariantViolations: [],

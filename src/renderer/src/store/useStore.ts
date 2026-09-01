@@ -153,7 +153,6 @@ type GraphMutationOptions = {
 type IndexedNodeRecord = { index: number; node: Node }
 type IndexedEdgeRecord = { index: number; edge: Edge }
 type AtomicGraphHistoryEntry =
-  | { kind: 'replace-graph'; before: GraphSnapshot; after: GraphSnapshot }
   | { kind: 'move-nodes'; before: Node[]; after: Node[] }
   | { kind: 'update-node'; before: Node; after: Node }
   | { kind: 'update-edge'; before: Edge; after: Edge }
@@ -161,6 +160,8 @@ type AtomicGraphHistoryEntry =
   | { kind: 'remove-nodes'; nodes: IndexedNodeRecord[] }
   | { kind: 'add-edge'; edge: IndexedEdgeRecord }
   | { kind: 'remove-edges'; edges: IndexedEdgeRecord[] }
+  | { kind: 'reorder-nodes'; before: string[]; after: string[] }
+  | { kind: 'reorder-edges'; before: string[]; after: string[] }
 type GraphHistoryEntry =
   | AtomicGraphHistoryEntry
   | { kind: 'composite'; entries: AtomicGraphHistoryEntry[] }
@@ -237,14 +238,15 @@ const EDGE_PRESENTATION_IGNORED_KEYS = new Set(['selected'])
 const NODE_MOVE_KEYS = new Set(['position', 'positionAbsolute', 'parentNode', 'extent', 'zIndex'])
 const NODE_NON_MOVE_IGNORED_KEYS = new Set([...NODE_PRESENTATION_IGNORED_KEYS, ...NODE_MOVE_KEYS])
 const GRAPH_HISTORY_KIND_PRIORITY: Record<AtomicGraphHistoryEntry['kind'], number> = {
-  'replace-graph': 0,
   'remove-edges': 1,
   'remove-nodes': 2,
   'move-nodes': 3,
   'update-node': 4,
   'update-edge': 5,
   'add-node': 6,
-  'add-edge': 7
+  'add-edge': 7,
+  'reorder-nodes': 8,
+  'reorder-edges': 9
 }
 const EMPTY_GRAPH_HISTORY: GraphHistoryState = {
   past: [],
@@ -371,15 +373,20 @@ function cloneEdgeForHistory(edge: Edge): Edge {
   }
 }
 
-function cloneGraphSnapshot(snapshot: GraphSnapshot): GraphSnapshot {
-  return {
-    nodes: snapshot.nodes.map(cloneNodeForHistory),
-    edges: snapshot.edges.map(cloneEdgeForHistory)
-  }
+function orderByIds<T extends { id: string }>(items: readonly T[], ids: readonly string[]): T[] {
+  const byId = new Map(items.map((item) => [item.id, item]))
+  const ordered = ids.flatMap((id) => {
+    const item = byId.get(id)
+    return item ? [item] : []
+  })
+  const included = new Set(ids)
+  return [...ordered, ...items.filter((item) => !included.has(item.id))]
 }
 
+// Undo/redo applies operations against an immutable view; history itself stores
+// only inverse operations, never a full graph replacement snapshot.
 function snapshotGraph(state: Pick<RFState, 'nodes' | 'edges'>): GraphSnapshot {
-  return cloneGraphSnapshot({ nodes: state.nodes, edges: state.edges })
+  return { nodes: [...state.nodes], edges: [...state.edges] }
 }
 
 function replaceNodesById(nodes: readonly Node[], replacements: readonly Node[]): Node[] {
@@ -563,10 +570,6 @@ function buildNodeHistoryEntries(
   const removedNodeIds = new Set([...beforeNodeIds].filter((nodeId) => !afterNodeIds.has(nodeId)))
   const addedNodeIds = new Set([...afterNodeIds].filter((nodeId) => !beforeNodeIds.has(nodeId)))
 
-  if (hasRelativeOrderChanged(beforeNodes, afterNodes, addedNodeIds, removedNodeIds)) {
-    return undefined
-  }
-
   const entries: AtomicGraphHistoryEntry[] = []
 
   if (removedNodeIds.size > 0) {
@@ -625,6 +628,14 @@ function buildNodeHistoryEntries(
     })
   })
 
+  if (hasRelativeOrderChanged(beforeNodes, afterNodes, addedNodeIds, removedNodeIds)) {
+    entries.push({
+      kind: 'reorder-nodes',
+      before: beforeNodes.map((node) => node.id),
+      after: afterNodes.map((node) => node.id)
+    })
+  }
+
   return entries
 }
 
@@ -636,10 +647,6 @@ function buildEdgeHistoryEntries(
   const afterEdgeIds = new Set(afterEdges.map((edge) => edge.id))
   const removedEdgeIds = new Set([...beforeEdgeIds].filter((edgeId) => !afterEdgeIds.has(edgeId)))
   const addedEdgeIds = new Set([...afterEdgeIds].filter((edgeId) => !beforeEdgeIds.has(edgeId)))
-
-  if (hasRelativeOrderChanged(beforeEdges, afterEdges, addedEdgeIds, removedEdgeIds)) {
-    return undefined
-  }
 
   const entries: AtomicGraphHistoryEntry[] = []
 
@@ -683,6 +690,14 @@ function buildEdgeHistoryEntries(
     })
   })
 
+  if (hasRelativeOrderChanged(beforeEdges, afterEdges, addedEdgeIds, removedEdgeIds)) {
+    entries.push({
+      kind: 'reorder-edges',
+      before: beforeEdges.map((edge) => edge.id),
+      after: afterEdges.map((edge) => edge.id)
+    })
+  }
+
   return entries
 }
 
@@ -714,17 +729,6 @@ function buildSetGraphHistoryEntry(
   }
 
   return buildCompositeHistoryEntry(sortGraphHistoryEntries([...nodeEntries, ...edgeEntries]))
-}
-
-function createReplaceGraphHistoryEntry(
-  state: RFState,
-  nextSnapshot: GraphSnapshot
-): GraphHistoryEntry {
-  return {
-    kind: 'replace-graph',
-    before: snapshotGraph(state),
-    after: cloneGraphSnapshot(nextSnapshot)
-  }
 }
 
 function pushGraphHistoryEntry(
@@ -827,13 +831,12 @@ function resolveGraphMutation(
     }
   }
 
-  return {
-    graphHistory: pushGraphHistoryEntry(
-      state.graphHistory,
-      entry ?? createReplaceGraphHistoryEntry(state, nextSnapshot)
-    ),
-    graphRevision: state.graphRevision + 1
-  }
+  return entry
+    ? {
+        graphHistory: pushGraphHistoryEntry(state.graphHistory, entry),
+        graphRevision: state.graphRevision + 1
+      }
+    : { graphHistory: state.graphHistory, graphRevision: state.graphRevision + 1 }
 }
 
 function resolveDerivedGraphMutation(
@@ -868,8 +871,6 @@ function applyGraphHistoryEntry(
         snapshot
       )
     }
-    case 'replace-graph':
-      return cloneGraphSnapshot(direction === 'undo' ? entry.before : entry.after)
     case 'move-nodes':
       return {
         nodes: replaceNodesById(snapshot.nodes, direction === 'undo' ? entry.before : entry.after),
@@ -933,6 +934,16 @@ function applyGraphHistoryEntry(
               new Set(entry.edges.map((record) => record.edge.id))
             )
           }
+    case 'reorder-nodes':
+      return {
+        nodes: orderByIds(snapshot.nodes, direction === 'undo' ? entry.before : entry.after),
+        edges: [...snapshot.edges]
+      }
+    case 'reorder-edges':
+      return {
+        nodes: [...snapshot.nodes],
+        edges: orderByIds(snapshot.edges, direction === 'undo' ? entry.before : entry.after)
+      }
   }
 }
 

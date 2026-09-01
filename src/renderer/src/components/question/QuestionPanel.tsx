@@ -22,10 +22,10 @@ import {
   type JustificationResult
 } from '../../../../engine/analysis/justification'
 import {
-  mapGeminiResponseToResult,
-  type GeminiGradeRequest,
-  type GeminiGradeResponse
-} from '../../../../engine/analysis/geminiGrader'
+  mapLlmResponseToResult,
+  type LlmGradeRequest,
+  type LlmGradeResponse
+} from '../../../../engine/analysis/llmGrader'
 import { buildQuestionEvaluationContract } from '../../../../engine/analysis/evaluationContract'
 import { buildEvaluationEnvelope } from '../../../../engine/analysis/evaluationEnvelope'
 import {
@@ -69,14 +69,15 @@ import {
 const SECTION_TITLE = 'text-[10px] font-bold uppercase tracking-widest text-nss-muted'
 
 /**
- * V2: justification feature is now enabled with LLM-backed grading via Gemini.
- * The deterministic keyword grader is kept as a fallback when the Gemini API is
- * unavailable (non-Electron mode, network errors, missing API key).
+ * V2: justification feature is now enabled with LLM-backed grading via the
+ * configured provider (Gemini / Claude / OpenAI). The deterministic keyword
+ * grader is kept as a fallback when the LLM API is unavailable (non-Electron
+ * mode, network errors, no provider key configured).
  */
 const SHOW_JUSTIFICATION = true
 
-/** Debounce delay (ms) for live Gemini grading as the student types. */
-const GEMINI_GRADE_DEBOUNCE_MS = 1500
+/** Debounce delay (ms) for live LLM grading as the student types. */
+const LLM_GRADE_DEBOUNCE_MS = 1500
 
 type PendingRun = {
   kind: 'dry-run' | 'submit'
@@ -379,11 +380,12 @@ export const QuestionPanel = () => {
   // Live, deterministic feedback on justification prompts - graded against the
   // current graph (graph-consistency), no LLM. Re-derives when the graph or an
   // answer changes. Declared before the early return to satisfy rules-of-hooks.
-  // ── Debounced Gemini-backed justification grading ──────────────────────────
-  // Calls Gemini via IPC for semantic grading; falls back to the deterministic
-  // grader when the API is unavailable or the student hasn't typed enough.
+  // ── Debounced LLM-backed justification grading ─────────────────────────────
+  // Calls the configured LLM provider via IPC for semantic grading; falls back
+  // to the deterministic grader when the API is unavailable or the student
+  // hasn't typed enough.
   const [justifyGrades, setJustifyGrades] = useState<Record<string, JustificationResult>>({})
-  const geminiTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const llmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const gradeDeterministic = useCallback((): Record<string, JustificationResult> => {
     const prompts = activeQuestion?.justify ?? []
@@ -416,16 +418,16 @@ export const QuestionPanel = () => {
       return
     }
 
-    // Immediately show deterministic grades while Gemini is pending
+    // Immediately show deterministic grades while the LLM call is pending
     setJustifyGrades(gradeDeterministic())
 
-    // Check if Gemini IPC is available (Electron only)
-    const geminiAvailable = typeof window.nssimulator?.gradeJustification === 'function'
-    if (!geminiAvailable) return
+    // Check if LLM grading IPC is available (Electron only)
+    const llmAvailable = typeof window.nssimulator?.gradeJustification === 'function'
+    if (!llmAvailable) return
 
-    // Debounce the Gemini call
-    if (geminiTimerRef.current) clearTimeout(geminiTimerRef.current)
-    geminiTimerRef.current = setTimeout(async () => {
+    // Debounce the LLM call
+    if (llmTimerRef.current) clearTimeout(llmTimerRef.current)
+    llmTimerRef.current = setTimeout(async () => {
       const { topology } = serialize()
       if (!topology) return
 
@@ -437,18 +439,18 @@ export const QuestionPanel = () => {
       ]
       const ctx = buildJustificationContext(topology, scaleNumbers)
 
-      const geminiGrades: Record<string, JustificationResult> = {}
+      const llmGrades: Record<string, JustificationResult> = {}
       for (const prompt of prompts) {
         const text = justificationAnswers[prompt.id] ?? ''
         if (text.trim().length < 10) {
           // Too short for LLM — use deterministic grade
-          geminiGrades[prompt.id] = gradeJustification(prompt, { promptId: prompt.id, text }, ctx)
+          llmGrades[prompt.id] = gradeJustification(prompt, { promptId: prompt.id, text }, ctx)
           continue
         }
 
         try {
           const boundType = ctx.resolveBoundType(prompt.boundTo)
-          const request: GeminiGradeRequest = {
+          const request: LlmGradeRequest = {
             prompt,
             studentAnswer: text,
             actualComponentType: boundType,
@@ -456,24 +458,24 @@ export const QuestionPanel = () => {
           }
           const ipcResult = await window.nssimulator!.gradeJustification(request)
           if (ipcResult.ok && ipcResult.data) {
-            geminiGrades[prompt.id] = mapGeminiResponseToResult(
+            llmGrades[prompt.id] = mapLlmResponseToResult(
               prompt.id,
-              ipcResult.data as GeminiGradeResponse
+              ipcResult.data as LlmGradeResponse
             )
           } else {
-            // Gemini failed — keep deterministic fallback
-            geminiGrades[prompt.id] = gradeJustification(prompt, { promptId: prompt.id, text }, ctx)
+            // LLM failed — keep deterministic fallback
+            llmGrades[prompt.id] = gradeJustification(prompt, { promptId: prompt.id, text }, ctx)
           }
         } catch {
           // Network/IPC error — keep deterministic fallback
-          geminiGrades[prompt.id] = gradeJustification(prompt, { promptId: prompt.id, text }, ctx)
+          llmGrades[prompt.id] = gradeJustification(prompt, { promptId: prompt.id, text }, ctx)
         }
       }
-      setJustifyGrades(geminiGrades)
-    }, GEMINI_GRADE_DEBOUNCE_MS)
+      setJustifyGrades(llmGrades)
+    }, LLM_GRADE_DEBOUNCE_MS)
 
     return () => {
-      if (geminiTimerRef.current) clearTimeout(geminiTimerRef.current)
+      if (llmTimerRef.current) clearTimeout(llmTimerRef.current)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeQuestion, justificationAnswers, nodes, edges])

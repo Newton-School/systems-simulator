@@ -1959,6 +1959,7 @@ export class SimulationEngine {
     status: TerminalRequestStatus,
     reasonCode?: string | null
   ): void {
+    this.resolveTerminalTraitOutcomes(request, status, reasonCode)
     request.metadata.__terminal = status
     this.markTerminalTombstone(request.id)
     const createdAtMs = microToMs(request.createdAt)
@@ -1988,6 +1989,40 @@ export class SimulationEngine {
       stateTimeline: this.buildOutcomeStateTimeline(request, status)
     })
     this.requestById.delete(request.id)
+  }
+
+  private resolveTerminalTraitOutcomes(
+    request: Request,
+    status: TerminalRequestStatus,
+    reasonCode?: string | null
+  ): void {
+    const visitedNodeIds = new Set(request.path)
+    for (const nodeId of visitedNodeIds) {
+      const node = this.nodeDefinitionsById.get(nodeId)
+      if (!node) {
+        continue
+      }
+      for (const trait of this.traitsByNodeId.get(nodeId) ?? []) {
+        if (!trait.afterTerminal) {
+          continue
+        }
+        const payload = trait.afterTerminal({
+          node,
+          request,
+          clock: this.clock,
+          state: this.getTraitStateStore(nodeId),
+          sharedState: this.getSharedTraitStateStore(),
+          nodeState: this.nodes.get(nodeId)?.getState(),
+          status,
+          reasonCode
+        })
+        if (!payload) {
+          continue
+        }
+        this.recordTraitPayloadMetrics(nodeId, payload)
+        this.recordTraitDecision(nodeId, request, trait.name, 'afterTerminal', payload)
+      }
+    }
   }
 
   private markTerminalTombstone(requestId: string, terminalAtUs = this.clock): void {
