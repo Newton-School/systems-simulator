@@ -3,6 +3,7 @@ import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { registerIpcHandlers } from './ipcHandlers'
+import { callGeminiGradeAPI, type GeminiGradeRequest } from '../engine/analysis/geminiGrader'
 
 function createWindow(): void {
   const CLOSE_RESPONSE_TIMEOUT_MS = 5000
@@ -203,6 +204,28 @@ app.whenReady().then(() => {
 
   ipcMain.on('nssimulator:run-simulation', (_, config) => {
     console.log('Received simulation config:', config)
+  })
+
+  // ── Gemini justification grading (LLM proxy) ─────────────────────────────
+  // The API key lives exclusively in the main process; the renderer never
+  // sees it. Read it from the process environment so it is never committed.
+  // If the key is missing, the renderer falls back to deterministic grading
+  // silently.
+  const GEMINI_API_KEY =
+    process.env['GEMINI_API_KEY']?.trim() || process.env['GOOGLE_API_KEY']?.trim() || ''
+
+  ipcMain.handle('gemini:gradeJustification', async (_event, payload: GeminiGradeRequest) => {
+    if (!GEMINI_API_KEY) {
+      return { error: 'Gemini API key not configured.' }
+    }
+    try {
+      const result = await callGeminiGradeAPI(GEMINI_API_KEY, payload)
+      return { ok: true, data: result }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err)
+      console.error('[gemini:gradeJustification] error:', message)
+      return { error: message }
+    }
   })
 })
 

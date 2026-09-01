@@ -37,10 +37,11 @@ describe('reservationStoreTrait', () => {
     const node = makeNode('reservation')
     const state = makeState()
     const shared = makeState()
+    const firstRequest = makeRequest('req-1', { seatId: 'seatId-7' })
 
     const first = reservationStoreTrait.beforeArrival?.({
       node,
-      request: makeRequest('req-1', { seatId: 'seatId-7' }),
+      request: firstRequest,
       clock: 0n,
       state,
       sharedState: shared
@@ -49,6 +50,7 @@ describe('reservationStoreTrait', () => {
       action: 'continue',
       payload: { reservationDecision: 'committed', metricCounters: { reservationCommits: 1 } }
     })
+    expect(firstRequest.metadata.__semanticsReservationDecision).toBe('committed')
 
     const soldOutRequest = makeRequest('req-2', { seatId: 'seatId-7' })
     const soldOut = reservationStoreTrait.beforeArrival?.({
@@ -62,6 +64,7 @@ describe('reservationStoreTrait', () => {
       action: 'handled',
       payload: { reservationDecision: 'sold-out', metricCounters: { reservationConflicts: 1 } }
     })
+    expect(soldOutRequest.metadata.__semanticsReservationDecision).toBe('sold-out')
     // A sold-out response is a fast success, not an oversell.
     expect(soldOut).not.toMatchObject({ payload: { metricCounters: { reservationOversells: 1 } } })
   })
@@ -70,10 +73,11 @@ describe('reservationStoreTrait', () => {
     const shared = makeState()
     const stateA = makeState()
     const stateB = makeState()
+    const requestA = makeRequest('req-1', { seatId: 'seatId-3' })
 
     const committedAtA = reservationStoreTrait.beforeArrival?.({
       node: makeNode('reservation-a'),
-      request: makeRequest('req-1', { seatId: 'seatId-3' }),
+      request: requestA,
       clock: 0n,
       state: stateA,
       sharedState: shared
@@ -81,11 +85,13 @@ describe('reservationStoreTrait', () => {
     expect(committedAtA).toMatchObject({
       payload: { reservationDecision: 'committed', metricCounters: { reservationCommits: 1 } }
     })
+    expect(requestA.metadata.__semanticsReservationDecision).toBe('committed')
 
     // Same seat reaches a *different* reservation node that never saw it locally.
+    const requestB = makeRequest('req-2', { seatId: 'seatId-3' })
     const oversold = reservationStoreTrait.beforeArrival?.({
       node: makeNode('reservation-b'),
-      request: makeRequest('req-2', { seatId: 'seatId-3' }),
+      request: requestB,
       clock: 5n,
       state: stateB,
       sharedState: shared
@@ -98,6 +104,7 @@ describe('reservationStoreTrait', () => {
         metricCounters: { reservationCommits: 1, reservationOversells: 1 }
       }
     })
+    expect(requestB.metadata.__semanticsReservationDecision).toBe('oversold')
   })
 
   it('passes keyless requests through unreserved while charging the reserve latency', () => {
@@ -113,6 +120,7 @@ describe('reservationStoreTrait', () => {
       action: 'continue',
       payload: { reservationDecision: 'no-key', metricCounters: { reservationKeyless: 1 } }
     })
+    expect(request.metadata.__semanticsReservationDecision).toBe('no-key')
     expect(request.metadata[SERVICE_TIME_DISTRIBUTION_OVERRIDE_KEY]).toEqual({
       type: 'constant',
       value: 4

@@ -49,6 +49,31 @@ describe('parseSemanticCriterion', () => {
       points: 10,
       componentType: 'cdn' as never,
       justifyId: 'why-cdn'
+    },
+    {
+      id: 'dedup-observed',
+      kind: 'stateTransition',
+      points: 12,
+      where: { caseId: 'duplicate-write', outcomeStatus: 'rejected' },
+      match: {
+        scope: 'idempotency',
+        state: 'deduped',
+        source: 'trait',
+        nodeType: 'idempotency-store' as never
+      },
+      minCount: 1
+    },
+    {
+      id: 'lock-then-commit',
+      kind: 'stateSequence',
+      points: 18,
+      where: { outcomeStatus: 'success', terminalNodeType: 'microservice' as never },
+      sequence: [
+        { scope: 'lock', state: 'acquired', source: 'trait' },
+        { scope: 'reservation', state: 'committed', source: 'trait' },
+        { scope: 'request', state: 'completed', source: 'engine' }
+      ],
+      minMatches: 1
     }
   ]
 
@@ -68,6 +93,28 @@ describe('parseSemanticCriterion', () => {
         points: 1,
         accessPattern: 'time-series',
         accept: []
+      })
+    ).toThrow()
+  })
+
+  it('rejects an invalid runtime semantic contract', () => {
+    expect(() =>
+      parseSemanticCriterion({
+        id: 'too-short',
+        kind: 'stateSequence',
+        points: 2,
+        sequence: [{ scope: 'request', state: 'completed' }]
+      })
+    ).toThrow()
+
+    expect(() =>
+      parseSemanticCriterion({
+        id: 'bad-bounds',
+        kind: 'stateTransition',
+        points: 2,
+        match: { scope: 'request', state: 'completed' },
+        minCount: 2,
+        maxCount: 1
       })
     ).toThrow()
   })

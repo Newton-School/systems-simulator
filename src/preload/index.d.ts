@@ -14,4 +14,5 @@ export interface NsSimulatorApi {
   runSimulation: (config: any) => void
   confirmDiscard: () => Promise<boolean>
   onCloseRequest: (callback: () => boolean) => () => void
+  gradeJustification: (request: any) => Promise<{ ok?: boolean; data?: any; error?: string }>
 }

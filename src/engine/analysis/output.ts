@@ -11,6 +11,21 @@ import {
   createEmptyRequestOutcomeBreakdown,
   type RequestOutcomeFamily
 } from '../core/requestOutcomeSemantics'
+import {
+  DELIVERY_TIMELINE_STATES,
+  IDEMPOTENCY_TIMELINE_STATES,
+  LOCK_TIMELINE_STATES,
+  QUEUE_DELIVERY_SEMANTICS,
+  REQUEST_TIMELINE_STATES,
+  RESERVATION_TIMELINE_STATES,
+  type DeliveryGuarantee,
+  type DeliveryTimelineState,
+  type IdempotencyTimelineState,
+  type LockTimelineState,
+  type QueueDeliverySemantics,
+  type RequestTimelineState,
+  type ReservationTimelineState
+} from '../core/simulationSemantics'
 import { MetricsCollector, PerEdgeMetrics, PerNodeMetrics, SimulationSummary } from '../metrics'
 import { RequestTrace, RequestTracer } from '../tracer'
 
@@ -135,6 +150,32 @@ export interface StatusWindow {
   endMs: number
 }
 
+export type RuntimeDeliveryGuarantee = Exclude<DeliveryGuarantee, 'best-effort' | 'exactly-once'>
+
+export interface RuntimeSemanticsSummary {
+  queuedOutcomes: number
+  retriedOutcomes: number
+  downgradedQueuedOutcomes: number
+  configuredDeliverySemantics: Record<QueueDeliverySemantics, number>
+  runtimeDeliveryGuarantees: Record<RuntimeDeliveryGuarantee, number>
+  transitionCounts: {
+    request: Record<RequestTimelineState, number>
+    delivery: Record<DeliveryTimelineState, number>
+    idempotency: Record<IdempotencyTimelineState, number>
+    lock: Record<LockTimelineState, number>
+    reservation: Record<ReservationTimelineState, number>
+  }
+  affectedOutcomeCounts: {
+    producerAcked: number
+    releasedToConsumer: number
+    redeliveryScheduled: number
+    dlqRouted: number
+    duplicateSuppressed: number
+    lockContended: number
+    reservationOversold: number
+  }
+}
+
 export interface SimulationOutput {
   summary: SimulationSummary
   perNode: Record<string, PerNodeMetrics>
@@ -177,7 +218,15 @@ export interface SimulationOutput {
   requestOutcomeBreakdown: Record<RequestOutcomeFamily, number>
   /** True when `requestOutcomes` is a sampled subset of the total outcome ledger. */
   requestOutcomesSampled: boolean
+  /** Exact run-level semantics summary computed before any worker-side sampling. */
+  runtimeSemanticsSummary: RuntimeSemanticsSummary
 }
+
+const RUNTIME_DELIVERY_GUARANTEES = [
+  'at-most-once',
+  'at-least-once',
+  'effectively-once'
+] as const satisfies readonly RuntimeDeliveryGuarantee[]
 
 export function generateSimulationOutput(
   metrics: MetricsCollector,
@@ -211,6 +260,7 @@ export function generateSimulationOutput(
   const conservationCheck = buildConservationCheck(perNode)
 
   const requestOutcomes = debugData?.requestOutcomes ?? []
+  const runtimeSemanticsSummary = buildRuntimeSemanticsSummary(requestOutcomes)
 
   return {
     summary,
@@ -239,8 +289,126 @@ export function generateSimulationOutput(
     requestOutcomeTotal: debugData?.requestOutcomeTotal ?? requestOutcomes.length,
     requestOutcomeBreakdown:
       debugData?.requestOutcomeBreakdown ?? createEmptyRequestOutcomeBreakdown(),
-    requestOutcomesSampled: debugData?.requestOutcomesSampled ?? false
+    requestOutcomesSampled: debugData?.requestOutcomesSampled ?? false,
+    runtimeSemanticsSummary
   }
+}
+
+function createCountRecord<T extends string>(values: readonly T[]): Record<T, number> {
+  return Object.fromEntries(values.map((value) => [value, 0])) as Record<T, number>
+}
+
+function buildRuntimeSemanticsSummary(
+  requestOutcomes: readonly RequestOutcomeRecord[]
+): RuntimeSemanticsSummary {
+  const summary: RuntimeSemanticsSummary = {
+    queuedOutcomes: 0,
+    retriedOutcomes: 0,
+    downgradedQueuedOutcomes: 0,
+    configuredDeliverySemantics: createCountRecord(QUEUE_DELIVERY_SEMANTICS),
+    runtimeDeliveryGuarantees: createCountRecord(RUNTIME_DELIVERY_GUARANTEES),
+    transitionCounts: {
+      request: createCountRecord(REQUEST_TIMELINE_STATES),
+      delivery: createCountRecord(DELIVERY_TIMELINE_STATES),
+      idempotency: createCountRecord(IDEMPOTENCY_TIMELINE_STATES),
+      lock: createCountRecord(LOCK_TIMELINE_STATES),
+      reservation: createCountRecord(RESERVATION_TIMELINE_STATES)
+    },
+    affectedOutcomeCounts: {
+      producerAcked: 0,
+      releasedToConsumer: 0,
+      redeliveryScheduled: 0,
+      dlqRouted: 0,
+      duplicateSuppressed: 0,
+      lockContended: 0,
+      reservationOversold: 0
+    }
+  }
+
+  for (const row of requestOutcomes) {
+    if (row.semantics.delivery) {
+      summary.queuedOutcomes += 1
+      summary.configuredDeliverySemantics[row.semantics.delivery.configuredSemantics] += 1
+      summary.runtimeDeliveryGuarantees[row.semantics.delivery.runtimeGuarantee] += 1
+      if (row.semantics.delivery.downgradedFromConfigured) {
+        summary.downgradedQueuedOutcomes += 1
+      }
+    }
+
+    if (row.attempts > 1) {
+      summary.retriedOutcomes += 1
+    }
+
+    let producerAcked = false
+    let releasedToConsumer = false
+    let redeliveryScheduled = false
+    let dlqRouted = false
+    let duplicateSuppressed = false
+    let lockContended = false
+    let reservationOversold = false
+
+    for (const transition of row.stateTimeline) {
+      switch (transition.scope) {
+        case 'request':
+          summary.transitionCounts.request[transition.state as RequestTimelineState] += 1
+          break
+        case 'delivery':
+          summary.transitionCounts.delivery[transition.state as DeliveryTimelineState] += 1
+          if (transition.state === 'producer-acked') {
+            producerAcked = true
+          } else if (transition.state === 'released-to-consumer') {
+            releasedToConsumer = true
+          } else if (transition.state === 'redelivery-scheduled') {
+            redeliveryScheduled = true
+          } else if (transition.state === 'dlq-routed') {
+            dlqRouted = true
+          }
+          break
+        case 'idempotency':
+          summary.transitionCounts.idempotency[transition.state as IdempotencyTimelineState] += 1
+          if (transition.state === 'deduped') {
+            duplicateSuppressed = true
+          }
+          break
+        case 'lock':
+          summary.transitionCounts.lock[transition.state as LockTimelineState] += 1
+          if (transition.state === 'contended') {
+            lockContended = true
+          }
+          break
+        case 'reservation':
+          summary.transitionCounts.reservation[transition.state as ReservationTimelineState] += 1
+          if (transition.state === 'oversold') {
+            reservationOversold = true
+          }
+          break
+      }
+    }
+
+    if (producerAcked) {
+      summary.affectedOutcomeCounts.producerAcked += 1
+    }
+    if (releasedToConsumer) {
+      summary.affectedOutcomeCounts.releasedToConsumer += 1
+    }
+    if (redeliveryScheduled) {
+      summary.affectedOutcomeCounts.redeliveryScheduled += 1
+    }
+    if (dlqRouted) {
+      summary.affectedOutcomeCounts.dlqRouted += 1
+    }
+    if (duplicateSuppressed) {
+      summary.affectedOutcomeCounts.duplicateSuppressed += 1
+    }
+    if (lockContended) {
+      summary.affectedOutcomeCounts.lockContended += 1
+    }
+    if (reservationOversold) {
+      summary.affectedOutcomeCounts.reservationOversold += 1
+    }
+  }
+
+  return summary
 }
 
 function countSLOTargets(

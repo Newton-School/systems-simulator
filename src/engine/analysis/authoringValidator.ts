@@ -12,7 +12,14 @@
  * `error` diagnostics should block a save; `warning`s are advisory.
  */
 import type { QuestionPackage } from './question'
+import type { QuestionDomain } from './gradingCriteria'
 import { inferRubricCheckKind } from './rubric'
+import {
+  buildSupportLedgerMessage,
+  getConceptSupport,
+  getDomainSupport,
+  supportTierNeedsAuthorWarning
+} from './supportLedger'
 
 export type AuthoringLevel = 'error' | 'warning'
 
@@ -159,7 +166,7 @@ function validateDomains(pkg: QuestionPackage, out: AuthoringDiagnostic[]): void
   }
 
   // Duplicate guard — the schema allows [] but not a set, so catch repeats here.
-  const seen = new Set<string>()
+  const seen = new Set<QuestionDomain>()
   for (const d of domains) {
     if (seen.has(d)) out.push(warn('domains.duplicate', `domain '${d}' is listed more than once.`))
     seen.add(d)
@@ -181,6 +188,17 @@ function validateDomains(pkg: QuestionPackage, out: AuthoringDiagnostic[]): void
   const hasJustify = (pkg.justify ?? []).length > 0
 
   for (const domain of seen) {
+    const support = getDomainSupport(domain)
+    if (supportTierNeedsAuthorWarning(support.tier)) {
+      out.push(
+        warn(
+          'domains.supportTier',
+          buildSupportLedgerMessage(`domain '${domain}'`, support),
+          'domains'
+        )
+      )
+    }
+
     switch (domain) {
       case 'compute':
         if (!hasSimCheck && !hasForbidUnjustified)
@@ -209,18 +227,61 @@ function validateDomains(pkg: QuestionPackage, out: AuthoringDiagnostic[]): void
             )
           )
         break
+      case 'cost':
+        if (!pkg.budget) {
+          out.push(
+            warn(
+              'domains.mismatch',
+              "domain 'cost' is strongest when the question includes a budget cap or an explicit cost-aware optimization target."
+            )
+          )
+        }
+        break
       case 'network':
       case 'resilience':
-      case 'cost':
-        out.push(
-          warn(
-            'domains.v2',
-            `domain '${domain}' is a V2 domain — its physics/traits (edge cost, circuit-breaking, budget) are not built yet.`
-          )
-        )
         break
     }
   }
+}
+
+function validateConcepts(pkg: QuestionPackage, out: AuthoringDiagnostic[]): void {
+  const concepts = pkg.concepts
+  if (!concepts || concepts.length === 0) {
+    return
+  }
+
+  const seen = new Set<string>()
+  concepts.forEach((concept, index) => {
+    const normalized = concept.trim().toLowerCase()
+    if (!normalized) {
+      return
+    }
+
+    if (seen.has(normalized)) {
+      out.push(
+        warn(
+          'concepts.duplicate',
+          `concept '${concept}' is listed more than once.`,
+          `concepts[${index}]`
+        )
+      )
+      return
+    }
+    seen.add(normalized)
+
+    const support = getConceptSupport(normalized)
+    if (!support || !supportTierNeedsAuthorWarning(support.tier)) {
+      return
+    }
+
+    out.push(
+      warn(
+        'concepts.supportTier',
+        buildSupportLedgerMessage(`concept '${concept}'`, support),
+        `concepts[${index}]`
+      )
+    )
+  })
 }
 
 function validateEntryFormat(pkg: QuestionPackage, out: AuthoringDiagnostic[]): void {
@@ -354,6 +415,7 @@ export function validateAuthoredQuestion(pkg: QuestionPackage): AuthoringDiagnos
   const out: AuthoringDiagnostic[] = []
 
   validateDomains(pkg, out)
+  validateConcepts(pkg, out)
   validateEntryFormat(pkg, out)
 
   // ── suite / rubric presence ────────────────────────────────────────────────
@@ -445,6 +507,7 @@ export function validateAuthoredQuestion(pkg: QuestionPackage): AuthoringDiagnos
 
   // ── dangling justify bindings ──────────────────────────────────────────────
   const justifyIds = new Set((pkg.justify ?? []).map((j) => j.id))
+  const suiteCaseIds = new Set(pkg.suite.cases.map((testCase) => testCase.id))
   ;(pkg.semanticCriteria ?? []).forEach((c, i) => {
     if (c.kind === 'forbidUnjustified' && c.justifyId && !justifyIds.has(c.justifyId)) {
       out.push(
@@ -452,6 +515,20 @@ export function validateAuthoredQuestion(pkg: QuestionPackage): AuthoringDiagnos
           'justify.dangling',
           `forbidUnjustified references justifyId "${c.justifyId}" which is not defined in justify[].`,
           `semanticCriteria[${i}].justifyId`
+        )
+      )
+    }
+
+    if (
+      (c.kind === 'stateTransition' || c.kind === 'stateSequence') &&
+      c.where?.caseId &&
+      !suiteCaseIds.has(c.where.caseId)
+    ) {
+      out.push(
+        err(
+          'semantic.caseIdUnknown',
+          `runtime semantic criterion references caseId "${c.where.caseId}" which is not defined in suite.cases[].`,
+          `semanticCriteria[${i}].where.caseId`
         )
       )
     }

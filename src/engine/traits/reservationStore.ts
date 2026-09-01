@@ -1,5 +1,6 @@
 import { SERVICE_TIME_DISTRIBUTION_OVERRIDE_KEY } from './serviceTimeOverride'
 import type { ComponentType } from '../core/types'
+import { writeReservationDecision } from '../core/simulationSemantics'
 import type {
   BeforeArrivalDecision,
   NodeBehaviourTrait,
@@ -92,6 +93,7 @@ export const reservationStoreTrait: NodeBehaviourTrait = {
     // unrelated traffic (e.g. browse requests).
     if (!key) {
       setLookupOverride(request, lookupMs)
+      writeReservationDecision(request, 'no-key')
       return {
         action: 'continue',
         payload: {
@@ -103,6 +105,7 @@ export const reservationStoreTrait: NodeBehaviourTrait = {
 
     const committed = committedKeys(state)
     if (committed.has(key)) {
+      writeReservationDecision(request, 'sold-out')
       return {
         action: 'handled',
         latencyUs: lookupLatencyUs(lookupMs),
@@ -121,6 +124,7 @@ export const reservationStoreTrait: NodeBehaviourTrait = {
     if (firstCommitter === undefined) {
       ledger.set(key, node.id)
       setLookupOverride(request, lookupMs)
+      writeReservationDecision(request, 'committed')
       return {
         action: 'continue',
         payload: {
@@ -133,6 +137,7 @@ export const reservationStoreTrait: NodeBehaviourTrait = {
 
     // A different authority already sold this key: double-booking.
     setLookupOverride(request, lookupMs)
+    writeReservationDecision(request, 'oversold')
     return {
       action: 'continue',
       payload: {

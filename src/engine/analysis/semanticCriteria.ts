@@ -9,13 +9,20 @@
  * or defended by a justification.
  *
  * Every evaluator is a deterministic graph computation (counts + reachability),
- * mirroring `structural.ts`. The one external dependency — whether a
- * `forbidUnjustified` component is defended by a valid justification — is
- * injected via `SemanticContext`, so this module stays pure and unit-testable
- * with no justification/store/catalog coupling.
+ * mirroring `structural.ts`. The external dependencies — justification outcomes
+ * and captured runtime case outputs — are injected via `SemanticContext`, so
+ * this module stays pure and unit-testable with no engine/store coupling.
  */
 import type { ComponentType, TopologyJSON } from '../core/types'
-import type { SemanticCriterion } from './gradingCriteria'
+import type { RequestOutcomeRecord } from '../core/event-stream'
+import type { RequestStateTransition } from '../core/simulationSemantics'
+import type {
+  RuntimeStateTransitionMatcher,
+  SemanticCriterion,
+  StateSequenceCriterion,
+  StateTransitionCriterion
+} from './gradingCriteria'
+import type { SimulationOutput } from './output'
 
 export const SEMANTIC_CRITERIA_VERSION = '1.0' as const
 
@@ -44,6 +51,11 @@ export interface SemanticEvaluation {
   hardFailed: boolean
 }
 
+export interface SemanticRuntimeCase {
+  caseId: string
+  output: SimulationOutput | null
+}
+
 export interface SemanticContext {
   /**
    * Whether the justify prompt with this id was satisfied, used by
@@ -52,6 +64,11 @@ export interface SemanticContext {
    * default).
    */
   justificationPassed?: (justifyId: string) => boolean | undefined
+  /**
+   * Raw runtime evidence keyed by suite case id. Runtime semantic criteria
+   * consume this directly from `requestOutcomes[].stateTimeline`.
+   */
+  runtimeCases?: readonly SemanticRuntimeCase[]
 }
 
 // ── graph helpers (local, mirroring structural.ts) ───────────────────────────
@@ -62,6 +79,10 @@ function nodeIdsOfType(topology: TopologyJSON, type: ComponentType): string[] {
 
 function hasType(topology: TopologyJSON, type: ComponentType): boolean {
   return topology.nodes.some((node) => node.type === type)
+}
+
+function nodeTypeById(topology: TopologyJSON): Map<string, ComponentType> {
+  return new Map(topology.nodes.map((node) => [node.id, node.type]))
 }
 
 function directedAdjacency(
@@ -122,6 +143,149 @@ function anyReachable(
 interface RawOutcome {
   outcome: SemanticOutcome
   detail?: string
+}
+
+interface EligibleRuntimeOutcome {
+  caseId: string
+  outcome: RequestOutcomeRecord
+}
+
+function transitionMatches(
+  transition: RequestStateTransition,
+  matcher: RuntimeStateTransitionMatcher,
+  nodeTypes: ReadonlyMap<string, ComponentType>
+): boolean {
+  if (transition.scope !== matcher.scope || transition.state !== matcher.state) {
+    return false
+  }
+  if (matcher.source && transition.source !== matcher.source) {
+    return false
+  }
+  if (matcher.nodeId && transition.nodeId !== matcher.nodeId) {
+    return false
+  }
+  if (matcher.reasonCode && transition.reasonCode !== matcher.reasonCode) {
+    return false
+  }
+  if (matcher.nodeType) {
+    const transitionNodeType = transition.nodeId ? nodeTypes.get(transition.nodeId) : undefined
+    if (transitionNodeType !== matcher.nodeType) {
+      return false
+    }
+  }
+  return true
+}
+
+function outcomeMatchesFilter(
+  outcome: RequestOutcomeRecord,
+  where: StateTransitionCriterion['where'] | StateSequenceCriterion['where'],
+  nodeTypes: ReadonlyMap<string, ComponentType>
+): boolean {
+  if (!where) {
+    return true
+  }
+  if (where.outcomeStatus && outcome.status !== where.outcomeStatus) {
+    return false
+  }
+  if (where.terminalNodeId && outcome.nodeId !== where.terminalNodeId) {
+    return false
+  }
+  if (where.terminalNodeType) {
+    const terminalNodeType = outcome.nodeId ? nodeTypes.get(outcome.nodeId) : undefined
+    if (terminalNodeType !== where.terminalNodeType) {
+      return false
+    }
+  }
+  return true
+}
+
+function eligibleRuntimeOutcomes(
+  topology: TopologyJSON,
+  ctx: SemanticContext,
+  where: StateTransitionCriterion['where'] | StateSequenceCriterion['where']
+): EligibleRuntimeOutcome[] | RawOutcome {
+  if (!ctx.runtimeCases || ctx.runtimeCases.length === 0) {
+    return {
+      outcome: 'failed',
+      detail: 'No runtime case outputs were provided for transition-aware semantic grading.'
+    }
+  }
+
+  const selectedCases = where?.caseId
+    ? ctx.runtimeCases.filter((entry) => entry.caseId === where.caseId)
+    : ctx.runtimeCases.filter((entry) => entry.output !== null)
+
+  if (selectedCases.length === 0) {
+    return {
+      outcome: 'failed',
+      detail: where?.caseId
+        ? `Runtime case "${where.caseId}" is not part of this grading run.`
+        : 'No grading suite case produced a runtime output for transition-aware semantic grading.'
+    }
+  }
+
+  if (where?.caseId && selectedCases[0]?.output === null) {
+    return {
+      outcome: 'failed',
+      detail: `Runtime case "${where.caseId}" did not produce an output, so this criterion could not be evaluated.`
+    }
+  }
+
+  const casesWithOutputs = selectedCases.filter(
+    (entry): entry is SemanticRuntimeCase & { output: SimulationOutput } => entry.output !== null
+  )
+
+  for (const entry of casesWithOutputs) {
+    if (entry.output.requestOutcomesSampled) {
+      return {
+        outcome: 'failed',
+        detail: `Runtime case "${entry.caseId}" only retained sampled request outcomes; transition-aware semantic grading requires the full request ledger.`
+      }
+    }
+  }
+
+  const nodeTypes = nodeTypeById(topology)
+  const outcomes: EligibleRuntimeOutcome[] = []
+  for (const entry of casesWithOutputs) {
+    for (const outcome of entry.output.requestOutcomes) {
+      if (outcomeMatchesFilter(outcome, where, nodeTypes)) {
+        outcomes.push({ caseId: entry.caseId, outcome })
+      }
+    }
+  }
+
+  if (outcomes.length === 0) {
+    return {
+      outcome: 'failed',
+      detail: 'No request outcomes matched the authored runtime filter for this semantic criterion.'
+    }
+  }
+
+  return outcomes
+}
+
+function sequenceMatchesTimeline(
+  timeline: readonly RequestStateTransition[],
+  sequence: readonly RuntimeStateTransitionMatcher[],
+  nodeTypes: ReadonlyMap<string, ComponentType>
+): boolean {
+  let nextIndex = 0
+  for (const transition of timeline) {
+    if (transitionMatches(transition, sequence[nextIndex], nodeTypes)) {
+      nextIndex += 1
+      if (nextIndex === sequence.length) {
+        return true
+      }
+    }
+  }
+  return false
+}
+
+function resolvedMinCount(criterion: StateTransitionCriterion): number {
+  if (criterion.minCount !== undefined) {
+    return criterion.minCount
+  }
+  return criterion.maxCount === 0 ? 0 : 1
 }
 
 function evalGuardedPath(
@@ -340,6 +504,82 @@ function evalForbidUnjustified(
   }
 }
 
+function evalStateTransition(
+  topology: TopologyJSON,
+  c: Extract<SemanticCriterion, { kind: 'stateTransition' }>,
+  ctx: SemanticContext
+): RawOutcome {
+  const eligible = eligibleRuntimeOutcomes(topology, ctx, c.where)
+  if (!Array.isArray(eligible)) {
+    return eligible
+  }
+
+  const nodeTypes = nodeTypeById(topology)
+  let count = 0
+  for (const { outcome } of eligible) {
+    for (const transition of outcome.stateTimeline) {
+      if (transitionMatches(transition, c.match, nodeTypes)) {
+        count += 1
+      }
+    }
+  }
+
+  const minCount = resolvedMinCount(c)
+  if (c.maxCount !== undefined && count > c.maxCount) {
+    return {
+      outcome: 'failed',
+      detail: `Found ${count} matching transitions; expected at most ${c.maxCount}.`
+    }
+  }
+  if (count >= minCount) {
+    return { outcome: 'passed' }
+  }
+  if (count > 0 && minCount > 1) {
+    return {
+      outcome: 'partial',
+      detail: `Found ${count} matching transitions; expected at least ${minCount}.`
+    }
+  }
+  return {
+    outcome: 'failed',
+    detail: `Found ${count} matching transitions; expected at least ${minCount}.`
+  }
+}
+
+function evalStateSequence(
+  topology: TopologyJSON,
+  c: Extract<SemanticCriterion, { kind: 'stateSequence' }>,
+  ctx: SemanticContext
+): RawOutcome {
+  const eligible = eligibleRuntimeOutcomes(topology, ctx, c.where)
+  if (!Array.isArray(eligible)) {
+    return eligible
+  }
+
+  const minMatches = c.minMatches ?? 1
+  const nodeTypes = nodeTypeById(topology)
+  let matches = 0
+  for (const { outcome } of eligible) {
+    if (sequenceMatchesTimeline(outcome.stateTimeline, c.sequence, nodeTypes)) {
+      matches += 1
+    }
+  }
+
+  if (matches >= minMatches) {
+    return { outcome: 'passed' }
+  }
+  if (matches > 0 && minMatches > 1) {
+    return {
+      outcome: 'partial',
+      detail: `Found ${matches} eligible request outcomes with the required transition sequence; expected at least ${minMatches}.`
+    }
+  }
+  return {
+    outcome: 'failed',
+    detail: `Found ${matches} eligible request outcomes with the required transition sequence; expected at least ${minMatches}.`
+  }
+}
+
 function evaluateCriterion(
   topology: TopologyJSON,
   criterion: SemanticCriterion,
@@ -356,6 +596,10 @@ function evaluateCriterion(
       return evalStorageFit(topology, criterion)
     case 'forbidUnjustified':
       return evalForbidUnjustified(topology, criterion, ctx)
+    case 'stateTransition':
+      return evalStateTransition(topology, criterion, ctx)
+    case 'stateSequence':
+      return evalStateSequence(topology, criterion, ctx)
   }
 }
 

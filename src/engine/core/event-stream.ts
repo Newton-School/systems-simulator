@@ -1,5 +1,6 @@
 import type { EventType, SimulationEvent } from './events'
 import type { RequestOutcomeFamily, RequestOutcomeStatusClass } from './requestOutcomeSemantics'
+import type { RequestSemanticsSnapshot, RequestStateTransition } from './simulationSemantics'
 
 export const CANONICAL_EVENT_TYPES = [
   'request-generated',
@@ -21,7 +22,14 @@ export const CANONICAL_EVENT_TYPES = [
 
 export type CanonicalEventType = (typeof CANONICAL_EVENT_TYPES)[number]
 
-export type TerminalRequestStatus = 'success' | 'timeout' | 'rejected' | 'connection_reset'
+export const TERMINAL_REQUEST_STATUSES = [
+  'success',
+  'timeout',
+  'rejected',
+  'connection_reset'
+] as const
+
+export type TerminalRequestStatus = (typeof TERMINAL_REQUEST_STATUSES)[number]
 export type AdmissionDecisionStatus = 'accepted' | 'queued' | 'rejected' | 'timed-out'
 export type DebugEventStatus = 'info' | 'success' | 'timeout' | 'rejected' | 'failure'
 
@@ -31,7 +39,9 @@ export type DebugEventStatus = 'info' | 'success' | 'timeout' | 'rejected' | 'fa
  * its cutoff. It exists so the outcome log can account for every generated
  * request explicitly instead of letting unfinished ones silently vanish.
  */
-export type RequestOutcomeStatus = TerminalRequestStatus | 'in-flight'
+export const REQUEST_OUTCOME_STATUSES = [...TERMINAL_REQUEST_STATUSES, 'in-flight'] as const
+
+export type RequestOutcomeStatus = (typeof REQUEST_OUTCOME_STATUSES)[number]
 
 /**
  * A complete, unsampled ledger row for one request's outcome. Sourced from the
@@ -62,6 +72,8 @@ export interface RequestOutcomeRecord {
   outcomeFamily: RequestOutcomeFamily
   statusClass: RequestOutcomeStatusClass
   statusCodeHint: string | null
+  semantics: RequestSemanticsSnapshot
+  stateTimeline: RequestStateTransition[]
 }
 
 export type JsonSafeValue =

@@ -39,6 +39,12 @@ import {
   createEmptyRequestOutcomeBreakdown
 } from './core/requestOutcomeSemantics'
 import { describeRequestOperation } from './core/requestSemantics'
+import {
+  buildRequestSemanticsSnapshot,
+  cloneRequestStateTimeline,
+  deriveTraitStateTransitions,
+  recordRequestStateTransition
+} from './core/simulationSemantics'
 import { microToMs, msToMicro, secToMicro } from './core/time'
 import { ComponentNode, EdgeDefinition, EventScheduler, TopologyJSON } from './core/types'
 import {
@@ -574,6 +580,10 @@ export class SimulationEngine {
       nodeId: event.nodeId,
       payload: { request }
     })
+    this.recordRequestState(request, 'generated', {
+      nodeId: event.nodeId,
+      timestampUs: this.clock
+    })
 
     const sourceNodeId = event.nodeId
     const routeResult = this.resolveRoutes(sourceNodeId, request)
@@ -612,6 +622,10 @@ export class SimulationEngine {
           nodeId: sourceNodeId,
           payload: { request: routedRequest, branchOfRequestId: request.id }
         })
+        this.recordRequestState(routedRequest, 'generated', {
+          nodeId: sourceNodeId,
+          timestampUs: this.clock
+        })
       }
       this.recordCanonicalEvent({
         timestampUs: this.clock,
@@ -648,6 +662,17 @@ export class SimulationEngine {
         nodeId: event.nodeId,
         payload: { request, branchOfRequestId, internalQueueConsumer: true }
       })
+      this.recordRequestState(request, 'generated', {
+        nodeId: event.nodeId,
+        timestampUs: request.createdAt
+      })
+      this.recordRequestState(request, 'released-to-consumer', {
+        scope: 'delivery',
+        nodeId: event.nodeId,
+        timestampUs: this.clock,
+        source: 'engine',
+        detail: 'Queue released the message to a consumer attempt.'
+      })
     }
 
     this.releaseEdgeTransfer(event.data.edgeId)
@@ -655,6 +680,10 @@ export class SimulationEngine {
     this.recordSimulationEvent(event, this.createNodeSnapshot(event.nodeId))
     this.metrics.recordNodeArrival(event.nodeId, this.clock)
     this.recordNodePhaseArrival(request, event.nodeId, this.clock)
+    this.recordRequestState(request, 'admitted', {
+      nodeId: event.nodeId,
+      timestampUs: this.clock
+    })
 
     if (internalQueueConsumer) {
       this.admitToNodeQueue(node, event.nodeId, request)
@@ -702,6 +731,15 @@ export class SimulationEngine {
   ): void {
     const completionTime = this.clock + decision.latencyUs
     this.markNodePhaseServiceStart(request, nodeId, this.clock)
+    if (decision.payload?.forkConsumerRequest === true) {
+      this.recordRequestState(request, 'producer-acked', {
+        scope: 'delivery',
+        nodeId,
+        timestampUs: this.clock,
+        source: 'trait',
+        detail: 'Queue acknowledged the producer before consumer processing.'
+      })
+    }
     if (request.deadline <= completionTime) {
       this.eventQueue.insert(
         createEvent(
@@ -803,6 +841,10 @@ export class SimulationEngine {
         nodeSnapshot,
         record.sequence
       )
+      this.recordRequestState(request, 'queued', {
+        nodeId,
+        timestampUs: this.clock
+      })
     } else {
       const record = this.recordCanonicalEvent({
         timestampUs: this.clock,
@@ -821,6 +863,10 @@ export class SimulationEngine {
         nodeSnapshot,
         record.sequence
       )
+      this.recordRequestState(request, 'processing', {
+        nodeId,
+        timestampUs: this.clock
+      })
     }
 
     this.scheduleNodeTimeout(nodeId, request)
@@ -858,6 +904,10 @@ export class SimulationEngine {
         nodeId: event.nodeId,
         payload: { request: completion.nextRequest },
         nodeSnapshot
+      })
+      this.recordRequestState(completion.nextRequest, 'processing', {
+        nodeId: event.nodeId,
+        timestampUs: this.clock
       })
     }
 
@@ -938,6 +988,10 @@ export class SimulationEngine {
           nodeId: event.nodeId,
           payload: { request: routedRequest, branchOfRequestId: request.id }
         })
+        this.recordRequestState(routedRequest, 'generated', {
+          nodeId: event.nodeId,
+          timestampUs: this.clock
+        })
       }
 
       this.eventQueue.insert(
@@ -965,6 +1019,10 @@ export class SimulationEngine {
     }
 
     this.recordSimulationEvent(event)
+    this.recordRequestState(request, 'forwarded', {
+      nodeId: event.nodeId,
+      timestampUs: this.clock
+    })
     this.maybeTrackCircuitBreakerRequest(request, edge.source, targetNodeId)
     this.enqueueEdgeTransfer(request, edge, targetNodeId)
   }
@@ -977,6 +1035,10 @@ export class SimulationEngine {
     this.recordSimulationEvent(event, this.createNodeSnapshot(event.nodeId))
 
     const totalLatency = microToMs(this.clock - request.createdAt)
+    this.recordRequestState(request, 'completed', {
+      nodeId: event.nodeId,
+      timestampUs: this.clock
+    })
     this.markRequestPhaseTerminal(request, 'completed', event.nodeId, 'node', this.clock)
     this.metrics.recordRequest({
       id: request.id,
@@ -1039,6 +1101,11 @@ export class SimulationEngine {
       }
     }
     this.recordSimulationEvent(event, this.createNodeSnapshot(event.nodeId))
+    this.recordRequestState(request, 'timed-out', {
+      nodeId: event.nodeId,
+      timestampUs: this.clock,
+      reasonCode: typeof event.data.reason === 'string' ? event.data.reason : 'deadline_exceeded'
+    })
     if (observationPoint === 'node') {
       this.maybeRecordCircuitBreakerOutcome(request, event.nodeId, false)
     }
@@ -1115,6 +1182,11 @@ export class SimulationEngine {
       this.markNodeUnhealthyForReason(event.nodeId, reason)
     }
     this.recordSimulationEvent(event, this.createNodeSnapshot(event.nodeId))
+    this.recordRequestState(request, 'rejected', {
+      nodeId: event.nodeId,
+      timestampUs: this.clock,
+      reasonCode: reason
+    })
     if (observationPoint === 'node') {
       this.maybeRecordCircuitBreakerOutcome(request, event.nodeId, false)
     }
@@ -1387,6 +1459,73 @@ export class SimulationEngine {
     return this.lastSnapshotAt < 0n || timestamp - this.lastSnapshotAt >= this.snapshotIntervalUs
   }
 
+  private recordRequestState(
+    request: Request,
+    state: Parameters<typeof recordRequestStateTransition>[1]['state'],
+    options: {
+      scope?: Parameters<typeof recordRequestStateTransition>[1]['scope']
+      timestampUs?: bigint
+      nodeId?: string | null
+      detail?: string
+      reasonCode?: string | null
+      source?: Parameters<typeof recordRequestStateTransition>[1]['source']
+    } = {}
+  ): void {
+    recordRequestStateTransition(request, {
+      scope: options.scope ?? 'request',
+      state,
+      timestampUs: options.timestampUs ?? this.clock,
+      nodeId: options.nodeId ?? undefined,
+      detail: options.detail,
+      reasonCode: options.reasonCode ?? undefined,
+      source: options.source ?? 'event'
+    })
+  }
+
+  private recordTraitStateTransitions(
+    request: Request,
+    nodeId: string,
+    payload: Record<string, unknown>
+  ): Array<{
+    scope: Parameters<typeof recordRequestStateTransition>[1]['scope']
+    state: Parameters<typeof recordRequestStateTransition>[1]['state']
+    detail?: string | null
+    reasonCode?: string | null
+  }> {
+    const transitions = deriveTraitStateTransitions(payload)
+    for (const transition of transitions) {
+      this.recordRequestState(request, transition.state, {
+        scope: transition.scope,
+        nodeId,
+        detail: transition.detail ?? undefined,
+        reasonCode: transition.reasonCode ?? undefined,
+        source: 'trait'
+      })
+    }
+    return transitions
+  }
+
+  private buildOutcomeStateTimeline(request: Request, status: TerminalRequestStatus | 'in-flight') {
+    const timeline = cloneRequestStateTimeline(request.stateTimeline) ?? []
+
+    if (status !== 'in-flight') {
+      return timeline
+    }
+
+    recordRequestStateTransition(
+      { stateTimeline: timeline },
+      {
+        scope: 'request',
+        state: 'in-flight',
+        timestampUs: this.clock,
+        nodeId: request.path[request.path.length - 1] ?? undefined,
+        source: 'engine',
+        detail: 'The run ended before this request reached a terminal outcome.'
+      }
+    )
+    return timeline
+  }
+
   private prepareRequestsForRoutes(request: Request, routeCount: number): Request[] {
     if (routeCount <= 1) {
       return [request]
@@ -1409,6 +1548,7 @@ export class SimulationEngine {
       spans: request.spans.map((span) => ({ ...span })),
       hops: request.hops?.map((hop) => ({ ...hop })),
       phaseRecord: cloneRequestPhaseRecord(request.phaseRecord),
+      stateTimeline: cloneRequestStateTimeline(request.stateTimeline),
       metadata: { ...request.metadata }
     }
   }
@@ -1431,6 +1571,7 @@ export class SimulationEngine {
     attempt.spans = []
     attempt.hops = []
     attempt.phaseRecord = undefined
+    attempt.stateTimeline = undefined
     attempt.retryCount = retryCount
     this.clearPerAttemptRequestMetadata(attempt)
     clearLockLeaseAttachments(attempt)
@@ -1502,6 +1643,12 @@ export class SimulationEngine {
           retryCount: request.retryCount ?? 0
         })
       ) {
+        this.recordRequestState(request, 'dlq-routed', {
+          scope: 'delivery',
+          nodeId: queueNodeId,
+          source: 'engine',
+          detail: `Moved to DLQ ${delivery.dlqNodeId}.`
+        })
         this.metrics.recordNodeTraitCounters(queueNodeId, { queueDlqMoves: 1 })
       }
       return
@@ -1518,6 +1665,12 @@ export class SimulationEngine {
         }
       )
     ) {
+      this.recordRequestState(request, 'redelivery-scheduled', {
+        scope: 'delivery',
+        nodeId: queueNodeId,
+        source: 'engine',
+        detail: 'Visibility timeout expired; another delivery attempt was scheduled.'
+      })
       this.metrics.recordNodeTraitCounters(queueNodeId, { queueRedeliveries: 1 })
     }
   }
@@ -1529,7 +1682,20 @@ export class SimulationEngine {
     }
 
     for (const attachment of attachments) {
-      releaseLockLeaseAttachment(this.getTraitStateStore(attachment.nodeId), request.id, attachment)
+      if (
+        releaseLockLeaseAttachment(
+          this.getTraitStateStore(attachment.nodeId),
+          request.id,
+          attachment
+        )
+      ) {
+        this.recordRequestState(request, 'released', {
+          scope: 'lock',
+          nodeId: attachment.nodeId,
+          source: 'engine',
+          detail: `Released key ${attachment.resourceKey}.`
+        })
+      }
     }
 
     clearLockLeaseAttachments(request)
@@ -1621,6 +1787,12 @@ export class SimulationEngine {
     this.releaseRequestLockLeases(request)
     this.clearPerAttemptRequestMetadata(request)
     request.retryCount = (request.retryCount ?? 0) + 1
+    this.recordRequestState(request, 'retry-scheduled', {
+      nodeId: retryOwnerNodeId,
+      source: 'engine',
+      reasonCode: reason,
+      detail: `Retry ${request.retryCount + 1} scheduled from ${retryOwnerNodeId}.`
+    })
 
     this.metrics.recordNodeTraitCounters(retryOwnerNodeId, { retryAttempts: 1 })
     this.eventQueue.insert(
@@ -1753,6 +1925,35 @@ export class SimulationEngine {
     request.path.push(nodeId)
   }
 
+  private buildOutcomeSemantics(request: Request, status: TerminalRequestStatus | 'in-flight') {
+    const queueNodeId = readQueueDeliveryOriginNodeId(request)
+    if (!queueNodeId) {
+      return buildRequestSemanticsSnapshot(status, {
+        metadata: request.metadata,
+        attempts: (request.retryCount ?? 0) + 1
+      })
+    }
+
+    const queueNode = this.nodeDefinitionsById.get(queueNodeId)
+    if (!queueNode) {
+      return buildRequestSemanticsSnapshot(status, {
+        metadata: request.metadata,
+        attempts: (request.retryCount ?? 0) + 1
+      })
+    }
+
+    const delivery = readQueueDeliveryConfig(queueNode)
+    return buildRequestSemanticsSnapshot(status, {
+      queueDelivery: {
+        deliverySemantics: delivery.deliverySemantics,
+        maxReceiveCount: delivery.maxReceiveCount,
+        dlqNodeId: delivery.dlqNodeId
+      },
+      metadata: request.metadata,
+      attempts: (request.retryCount ?? 0) + 1
+    })
+  }
+
   private markRequestTerminal(
     request: Request,
     status: TerminalRequestStatus,
@@ -1764,6 +1965,7 @@ export class SimulationEngine {
     const terminalAtMs = microToMs(this.clock)
     const operation = describeRequestOperation(request)
     const classification = classifyRequestOutcome(status, reasonCode)
+    const semantics = this.buildOutcomeSemantics(request, status)
     this.requestOutcomeBreakdown[classification.family]++
     this.retainRequestOutcome({
       requestId: request.id,
@@ -1781,7 +1983,9 @@ export class SimulationEngine {
       operationLabel: operation.operationLabel,
       outcomeFamily: classification.family,
       statusClass: classification.statusClass,
-      statusCodeHint: classification.statusCodeHint
+      statusCodeHint: classification.statusCodeHint,
+      semantics,
+      stateTimeline: this.buildOutcomeStateTimeline(request, status)
     })
     this.requestById.delete(request.id)
   }
@@ -1849,6 +2053,7 @@ export class SimulationEngine {
     for (const request of this.requestById.values()) {
       const operation = describeRequestOperation(request)
       const classification = classifyRequestOutcome('in-flight')
+      const semantics = this.buildOutcomeSemantics(request, 'in-flight')
       this.retainRequestOutcome({
         requestId: request.id,
         status: 'in-flight',
@@ -1865,7 +2070,9 @@ export class SimulationEngine {
         operationLabel: operation.operationLabel,
         outcomeFamily: classification.family,
         statusClass: classification.statusClass,
-        statusCodeHint: classification.statusCodeHint
+        statusCodeHint: classification.statusCodeHint,
+        semantics,
+        stateTimeline: this.buildOutcomeStateTimeline(request, 'in-flight')
       })
     }
 
@@ -2174,7 +2381,7 @@ export class SimulationEngine {
       getInFlight: (nodeId) => this.nodes.get(nodeId)?.getState().totalInSystem ?? 0,
       onTraitDecision: (decision) => {
         this.recordTraitPayloadMetrics(decision.nodeId, decision.payload)
-        this.recordTraitDecision(decision.nodeId, request.id, decision.traitName, decision.hook, {
+        this.recordTraitDecision(decision.nodeId, request, decision.traitName, decision.hook, {
           decision: decision.decision,
           ...(decision.payload ?? {})
         })
@@ -2561,7 +2768,7 @@ export class SimulationEngine {
         nodeState: this.nodes.get(nodeId)?.getState()
       })
       this.recordTraitPayloadMetrics(nodeId, decision.payload)
-      this.recordTraitDecision(nodeId, request.id, trait.name, 'beforeArrival', {
+      this.recordTraitDecision(nodeId, request, trait.name, 'beforeArrival', {
         decision: decision.action,
         ...(decision.action === 'handled' ? { latencyUs: decision.latencyUs.toString() } : {}),
         ...(decision.action === 'rejected' ? { reason: decision.reason } : {}),
@@ -2597,7 +2804,7 @@ export class SimulationEngine {
         nodeState: this.nodes.get(nodeId)?.getState()
       })
       this.recordTraitPayloadMetrics(nodeId, decision.payload)
-      this.recordTraitDecision(nodeId, request.id, trait.name, 'beforeRouting', {
+      this.recordTraitDecision(nodeId, request, trait.name, 'beforeRouting', {
         decision: decision.action,
         ...(decision.action === 'reroute' ? { targetNodeId: decision.targetNodeId } : {}),
         ...(decision.action === 'rejected' ? { reason: decision.reason } : {}),
@@ -2614,7 +2821,7 @@ export class SimulationEngine {
 
   private recordTraitDecision(
     nodeId: string,
-    requestId: string,
+    request: Request,
     traitName: string,
     hook: TraitHookName,
     payload: Record<string, unknown>
@@ -2625,17 +2832,19 @@ export class SimulationEngine {
         : hook === 'filterRoutes'
           ? EventPriority.DEPARTURE
           : EventPriority.PROCESSING
+    const semanticTransitions = this.recordTraitStateTransitions(request, nodeId, payload)
 
     this.recordCanonicalEvent({
       timestampUs: this.clock,
       type: 'trait-evaluated',
       priority,
-      requestId,
+      requestId: request.id,
       nodeId,
       payload: {
         traitName,
         hook,
-        ...payload
+        ...payload,
+        ...(semanticTransitions.length > 0 ? { semanticTransitions } : {})
       },
       nodeSnapshot: this.createNodeSnapshot(nodeId)
     })

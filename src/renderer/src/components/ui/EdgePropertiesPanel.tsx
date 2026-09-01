@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { Children, type ReactNode } from 'react'
 import { Waypoints } from 'lucide-react'
 import { EdgeSimulationData } from '@renderer/types/ui'
 import { TooltipInfo } from '@renderer/components/ui/Tooltip'
@@ -110,6 +110,11 @@ export const EdgePropertiesPanel = ({
   readOnly = false,
   connectorOnly = false
 }: EdgePropertiesPanelProps) => {
+  // `children` arrives as a JSX array (e.g. `[false, undefined]`) whenever the caller
+  // conditionally renders slots — and an array is always truthy, so a plain `children`
+  // check would hide the config form for an editable edge with no locked-warning or
+  // metrics slot. Count only real, renderable children.
+  const hasRealChildren = Children.toArray(children).length > 0
   const defaults = inferEdgeDefaults(sourceNodeData, targetNodeData)
   const constraints = getEdgeConstraints(
     sourceNodeData?.componentType,
@@ -229,7 +234,7 @@ export const EdgePropertiesPanel = ({
 
       {tabs}
 
-      {connectorOnly && !children ? (
+      {connectorOnly && !hasRealChildren ? (
         <div className="flex-1 overflow-y-auto custom-scrollbar p-5 space-y-3">
           <div className="rounded border border-nss-border bg-nss-surface px-3 py-2 text-[11px] leading-relaxed text-nss-muted">
             This connection is a simple link showing how the components are wired. It carries no
@@ -247,7 +252,7 @@ export const EdgePropertiesPanel = ({
             />
           </div>
         </div>
-      ) : children ? (
+      ) : hasRealChildren ? (
         <div className="flex-1 overflow-y-auto custom-scrollbar p-5 bg-nss-panel">{children}</div>
       ) : (
         <div className="flex-1 overflow-y-auto custom-scrollbar p-5 space-y-3">

@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
+import type { RequestOutcomeRecord } from '../core/event-stream'
+import type { RequestStateTransition } from '../core/simulationSemantics'
 import type { ComponentNode, ComponentType, EdgeDefinition, TopologyJSON } from '../core/types'
 import type { SemanticCriterion } from './gradingCriteria'
+import type { SimulationOutput } from './output'
 import { evaluateSemanticCriteria, type SemanticContext } from './semanticCriteria'
 
 // ── tiny topology builder ────────────────────────────────────────────────────
@@ -28,6 +31,57 @@ function topo(nodes: ComponentNode[], edges: EdgeDefinition[]): TopologyJSON {
     nodes,
     edges
   } as unknown as TopologyJSON
+}
+
+function transition(
+  scope: RequestStateTransition['scope'],
+  state: RequestStateTransition['state'],
+  overrides: Partial<RequestStateTransition> = {}
+): RequestStateTransition {
+  return {
+    scope,
+    state,
+    timestampUs: '1000',
+    source: 'engine',
+    ...overrides
+  }
+}
+
+function outcome(
+  requestId: string,
+  overrides: Partial<RequestOutcomeRecord> = {}
+): RequestOutcomeRecord {
+  return {
+    requestId,
+    status: 'success',
+    reasonCode: null,
+    createdAtMs: 0,
+    terminalAtMs: 10,
+    nodeId: 'svc',
+    attempts: 1,
+    latencyMs: 10,
+    requestType: null,
+    method: null,
+    host: null,
+    path: null,
+    operationLabel: 'op',
+    outcomeFamily: 'success',
+    statusClass: 'success',
+    statusCodeHint: null,
+    semantics: {} as RequestOutcomeRecord['semantics'],
+    stateTimeline: [],
+    ...overrides
+  } as unknown as RequestOutcomeRecord
+}
+
+function runtimeOutput(
+  requestOutcomes: RequestOutcomeRecord[],
+  requestOutcomesSampled = false
+): SimulationOutput {
+  return {
+    requestOutcomes,
+    requestOutcomesSampled
+  } as unknown as SimulationOutput
 }
 
 // A linear read path: microservice → in-memory-cache → kv-store
@@ -258,6 +312,152 @@ describe('forbidUnjustified', () => {
     const res = evaluateSemanticCriteria(t, [criterion]) // no ctx
     expect(res.results[0].outcome).toBe('failed')
     expect(res.results[0].detail).toMatch(/not evaluated/i)
+  })
+})
+
+describe('runtime semantic criteria', () => {
+  function runtimeTopology(): TopologyJSON {
+    return topo(
+      [
+        node('microservice' as ComponentType, 'svc'),
+        node('idempotency-store' as ComponentType, 'idem'),
+        node('lock-service' as ComponentType, 'locker'),
+        node('reservation-authority' as ComponentType, 'authority')
+      ],
+      []
+    )
+  }
+
+  it('passes a stateTransition criterion when the targeted runtime transition appears', () => {
+    const criterion: SemanticCriterion = {
+      id: 'dedup-hit',
+      kind: 'stateTransition',
+      points: 4,
+      where: { caseId: 'duplicate-write', outcomeStatus: 'rejected' },
+      match: {
+        scope: 'idempotency',
+        state: 'deduped',
+        source: 'trait',
+        nodeType: 'idempotency-store' as ComponentType
+      }
+    }
+
+    const ctx: SemanticContext = {
+      runtimeCases: [
+        {
+          caseId: 'steady',
+          output: runtimeOutput([
+            outcome('r-steady', {
+              stateTimeline: [
+                transition('request', 'completed', { source: 'engine', nodeId: 'svc' })
+              ]
+            })
+          ])
+        },
+        {
+          caseId: 'duplicate-write',
+          output: runtimeOutput([
+            outcome('r-dup', {
+              status: 'rejected',
+              reasonCode: 'duplicate-request',
+              stateTimeline: [
+                transition('idempotency', 'deduped', {
+                  source: 'trait',
+                  nodeId: 'idem',
+                  reasonCode: 'duplicate-request'
+                }),
+                transition('request', 'rejected', {
+                  source: 'engine',
+                  nodeId: 'svc',
+                  reasonCode: 'duplicate-request'
+                })
+              ]
+            })
+          ])
+        }
+      ]
+    }
+
+    const res = evaluateSemanticCriteria(runtimeTopology(), [criterion], ctx)
+    expect(res.results[0].outcome).toBe('passed')
+    expect(res.pointsEarned).toBe(4)
+  })
+
+  it('fails runtime semantic grading conservatively when only sampled request outcomes are available', () => {
+    const criterion: SemanticCriterion = {
+      id: 'no-oversell',
+      kind: 'stateTransition',
+      points: 4,
+      match: { scope: 'reservation', state: 'oversold' },
+      minCount: 0,
+      maxCount: 0
+    }
+
+    const ctx: SemanticContext = {
+      runtimeCases: [
+        {
+          caseId: 'peak',
+          output: runtimeOutput(
+            [outcome('r1', { stateTimeline: [transition('reservation', 'committed')] })],
+            true
+          )
+        }
+      ]
+    }
+
+    const res = evaluateSemanticCriteria(runtimeTopology(), [criterion], ctx)
+    expect(res.results[0].outcome).toBe('failed')
+    expect(res.results[0].detail).toMatch(/sampled request outcomes/i)
+  })
+
+  it('returns partial credit when too few outcomes exhibit the authored state sequence', () => {
+    const criterion: SemanticCriterion = {
+      id: 'lock-then-commit',
+      kind: 'stateSequence',
+      points: 5,
+      sequence: [
+        { scope: 'lock', state: 'acquired', source: 'trait', nodeId: 'locker' },
+        { scope: 'reservation', state: 'committed', source: 'trait', nodeId: 'authority' },
+        {
+          scope: 'request',
+          state: 'completed',
+          source: 'engine',
+          nodeType: 'microservice' as ComponentType
+        }
+      ],
+      minMatches: 2
+    }
+
+    const ctx: SemanticContext = {
+      runtimeCases: [
+        {
+          caseId: 'peak',
+          output: runtimeOutput([
+            outcome('r1', {
+              stateTimeline: [
+                transition('lock', 'acquired', { source: 'trait', nodeId: 'locker' }),
+                transition('reservation', 'committed', {
+                  source: 'trait',
+                  nodeId: 'authority'
+                }),
+                transition('request', 'completed', { source: 'engine', nodeId: 'svc' })
+              ]
+            }),
+            outcome('r2', {
+              stateTimeline: [
+                transition('lock', 'attempting', { source: 'trait', nodeId: 'locker' }),
+                transition('request', 'rejected', { source: 'engine', nodeId: 'svc' })
+              ]
+            })
+          ])
+        }
+      ]
+    }
+
+    const res = evaluateSemanticCriteria(runtimeTopology(), [criterion], ctx)
+    expect(res.results[0].outcome).toBe('partial')
+    expect(res.results[0].pointsEarned).toBe(2)
+    expect(res.results[0].detail).toMatch(/expected at least 2/i)
   })
 })
 

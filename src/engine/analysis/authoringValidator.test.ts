@@ -99,10 +99,22 @@ describe('validateAuthoredQuestion', () => {
     expect(cs).not.toContain('domains.missing')
   })
 
-  it('warns that a V2 domain (network) has no physics yet', () => {
+  it('warns when a domain is only partially supported', () => {
     const pkg = base()
     pkg.domains = ['network']
-    expect(codes(pkg)).toContain('domains.v2')
+    expect(codes(pkg)).toContain('domains.supportTier')
+  })
+
+  it('warns when a known concept is structural-only or deferred', () => {
+    const pkg = base()
+    pkg.concepts = ['exactly-once', 'consumer-groups']
+    expect(codes(pkg)).toContain('concepts.supportTier')
+  })
+
+  it('does not warn for first-class concepts', () => {
+    const pkg = base()
+    pkg.concepts = ['read-cache', 'store-fit']
+    expect(codes(pkg)).not.toContain('concepts.supportTier')
   })
 
   it('errors when explicit blank-canvas entryFormat does not match scaffold shape', () => {
@@ -230,6 +242,21 @@ describe('validateAuthoredQuestion', () => {
     ]
     const d = validateAuthoredQuestion(pkg)
     expect(d.some((x) => x.code === 'justify.dangling' && x.level === 'error')).toBe(true)
+  })
+
+  it('errors when a runtime semantic criterion references an unknown suite case id', () => {
+    const pkg = base()
+    pkg.semanticCriteria = [
+      {
+        id: 'dedup-runtime',
+        kind: 'stateTransition',
+        points: 2,
+        where: { caseId: 'missing-case', outcomeStatus: 'rejected' },
+        match: { scope: 'idempotency', state: 'deduped' }
+      }
+    ]
+    const d = validateAuthoredQuestion(pkg)
+    expect(d.some((x) => x.code === 'semantic.caseIdUnknown' && x.level === 'error')).toBe(true)
   })
 
   it('warns on a guardedPath with a destination under a read/write mix', () => {

@@ -347,6 +347,10 @@ function describeSemanticCriterion(spec: Record<string, unknown>): string {
       return `Correct placement of ${str(spec, 'componentType') ?? 'the component'}`
     case 'fanout':
       return 'Broker must fan out to independent consumers'
+    case 'stateTransition':
+      return 'Required runtime transition must appear in the request timeline'
+    case 'stateSequence':
+      return 'Runtime transition sequence must appear in request timelines'
     default:
       return `Semantic criterion: ${kind}`
   }

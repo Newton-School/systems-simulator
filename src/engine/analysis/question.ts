@@ -2083,11 +2083,9 @@ export interface GradedAttempt {
  * Evaluates a package's semantic criteria against the student topology, or
  * `undefined` when none are authored.
  *
- * `forbidUnjustified` needs to know whether a bound justification passed; until
- * justification answers are threaded into grading (backend B3), no justification
- * context is available, so a present-but-undefended component conservatively
- * fails. A future overload can pass a real `SemanticContext` built from graded
- * justifications.
+ * The semantic layer can consume both graph-only evidence (placement, fanout,
+ * storage fit, guarded paths) and runtime request-ledger evidence
+ * (`requestOutcomes[].stateTimeline`) injected through `SemanticContext`.
  */
 function evaluateSemanticCriteriaForPackage(
   pkg: QuestionPackage,
@@ -2171,9 +2169,14 @@ export function gradeAttemptWithArtifacts(
   const passedByJustifyId = new Map(
     (justification ?? []).map((result) => [result.promptId, result.outcome === 'passed'])
   )
-  const semanticCtx: SemanticContext = justification
-    ? { justificationPassed: (id) => passedByJustifyId.get(id) }
-    : {}
+  const runtimeCases = preparedCases.map((entry) => ({
+    caseId: entry.id,
+    output: 'topology' in entry ? (outputByTopology.get(entry.topology) ?? null) : null
+  }))
+  const semanticCtx: SemanticContext = {
+    ...(justification ? { justificationPassed: (id: string) => passedByJustifyId.get(id) } : {}),
+    runtimeCases
+  }
   const semantic = evaluateSemanticCriteriaForPackage(pkg, studentTopology, semanticCtx)
   const budget = pkg.budget ? evaluateBudget(studentTopology, pkg.budget) : undefined
   const primaryCaseId = pkg.suite.cases[0]?.id

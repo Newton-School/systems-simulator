@@ -374,6 +374,81 @@ describe('SimulationEngine', () => {
     }
   })
 
+  it('retains coordination state transitions for a guarded write path', () => {
+    const topology = makeTopology({
+      global: { simulationDuration: 600, defaultTimeout: 1_000, traceSampleRate: 1 },
+      nodes: [
+        makeNode('source'),
+        {
+          ...makeNode('idempotency'),
+          type: 'idempotency-manager',
+          category: 'coordination-and-consensus'
+        },
+        {
+          ...makeNode('lock'),
+          type: 'distributed-lock',
+          category: 'coordination-and-consensus'
+        },
+        {
+          ...makeNode('reservation'),
+          type: 'reservation-store',
+          category: 'storage-and-data'
+        }
+      ],
+      edges: [
+        makeEdge('source-idempotency', 'source', 'idempotency'),
+        makeEdge('idempotency-lock', 'idempotency', 'lock'),
+        makeEdge('lock-reservation', 'lock', 'reservation')
+      ],
+      workload: {
+        sourceNodeId: 'source',
+        pattern: 'constant',
+        baseRps: 2,
+        requestDistribution: [
+          {
+            type: 'POST',
+            weight: 1,
+            sizeBytes: 100,
+            metadata: {
+              idempotencyKey: 'payment-1',
+              seatId: 'seat-42'
+            }
+          }
+        ]
+      }
+    })
+
+    const output = new SimulationEngine(topology).run()
+    const committed = output.requestOutcomes.find(
+      (row) => row.status === 'success' && row.nodeId === 'reservation'
+    )
+    const deduped = output.requestOutcomes.find(
+      (row) => row.status === 'success' && row.nodeId === 'idempotency'
+    )
+
+    expect(committed?.stateTimeline).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ scope: 'request', state: 'generated' }),
+        expect.objectContaining({ scope: 'idempotency', state: 'recorded', nodeId: 'idempotency' }),
+        expect.objectContaining({ scope: 'lock', state: 'attempting', nodeId: 'lock' }),
+        expect.objectContaining({ scope: 'lock', state: 'acquired', nodeId: 'lock' }),
+        expect.objectContaining({
+          scope: 'reservation',
+          state: 'committed',
+          nodeId: 'reservation'
+        }),
+        expect.objectContaining({ scope: 'lock', state: 'released', nodeId: 'lock' }),
+        expect.objectContaining({ scope: 'request', state: 'completed', nodeId: 'reservation' })
+      ])
+    )
+    expect(deduped?.stateTimeline).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ scope: 'idempotency', state: 'deduped', nodeId: 'idempotency' }),
+        expect.objectContaining({ scope: 'request', state: 'completed', nodeId: 'idempotency' })
+      ])
+    )
+  })
+
   it('records trait decisions and rejects requests when a beforeArrival trait rejects them', () => {
     const rejectAllTrait: NodeBehaviourTrait = {
       name: 'test.reject-all',
@@ -940,6 +1015,69 @@ describe('SimulationEngine', () => {
     expect(output.perNode.queue.traitCounters.queueRedeliveries).toBe(1)
     expect(output.summary.timedOutRequests).toBe(2)
     expect(attemptOutcomes).toEqual([1, 2])
+  })
+
+  it('retains delivery state transitions for queue ack, release, and redelivery', () => {
+    const topology = makeTopology({
+      global: {
+        simulationDuration: 60,
+        defaultTimeout: 10,
+        traceSampleRate: 1,
+        seed: 'queue-redelivery-state'
+      },
+      nodes: [
+        makeNode('source'),
+        makeQueueNode(
+          'queue',
+          {
+            deliverySemantics: 'at-least-once',
+            visibilityTimeoutMs: 10,
+            maxReceiveCount: 2
+          },
+          {
+            queue: { workers: 1, capacity: 100, discipline: 'fifo' },
+            processing: { distribution: { type: 'constant', value: 50 }, timeout: 10 }
+          }
+        )
+      ],
+      edges: [makeEdge('source-queue', 'source', 'queue')],
+      workload: {
+        sourceNodeId: 'source',
+        pattern: 'constant',
+        baseRps: 1,
+        requestDistribution: [{ type: 'GET', weight: 1, sizeBytes: 100 }]
+      }
+    })
+
+    const output = new SimulationEngine(topology).run()
+    const producerOutcome = output.requestOutcomes.find(
+      (row) => row.requestId === 'req-000001' && row.nodeId === 'queue'
+    )
+    const firstAttempt = output.requestOutcomes.find(
+      (row) => row.requestId.includes('::branch-') && row.attempts === 1
+    )
+
+    expect(producerOutcome?.stateTimeline).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ scope: 'delivery', state: 'producer-acked', nodeId: 'queue' }),
+        expect.objectContaining({ scope: 'request', state: 'completed', nodeId: 'queue' })
+      ])
+    )
+    expect(firstAttempt?.stateTimeline).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          scope: 'delivery',
+          state: 'released-to-consumer',
+          nodeId: 'queue'
+        }),
+        expect.objectContaining({ scope: 'request', state: 'timed-out', nodeId: 'queue' }),
+        expect.objectContaining({
+          scope: 'delivery',
+          state: 'redelivery-scheduled',
+          nodeId: 'queue'
+        })
+      ])
+    )
   })
 
   it('queue moves exhausted consumer attempts to the configured DLQ', () => {

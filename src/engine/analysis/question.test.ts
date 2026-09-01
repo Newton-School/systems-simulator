@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest'
+import type { RequestOutcomeRecord } from '../core/event-stream'
+import type { RequestStateTransition } from '../core/simulationSemantics'
 import type { TopologyJSON } from '../core/types'
 import type { SimulationOutput } from './output'
 import {
@@ -78,6 +80,58 @@ function fakeOutputWithSummary({
         p99
       }
     }
+  } as unknown as SimulationOutput
+}
+
+function fakeTransition(
+  scope: RequestStateTransition['scope'],
+  state: RequestStateTransition['state'],
+  overrides: Partial<RequestStateTransition> = {}
+): RequestStateTransition {
+  return {
+    scope,
+    state,
+    timestampUs: '1000',
+    source: 'engine',
+    ...overrides
+  }
+}
+
+function fakeRequestOutcome(
+  requestId: string,
+  overrides: Partial<RequestOutcomeRecord> = {}
+): RequestOutcomeRecord {
+  return {
+    requestId,
+    status: 'success',
+    reasonCode: null,
+    createdAtMs: 0,
+    terminalAtMs: 10,
+    nodeId: 'svc',
+    attempts: 1,
+    latencyMs: 10,
+    requestType: null,
+    method: null,
+    host: null,
+    path: null,
+    operationLabel: 'op',
+    outcomeFamily: 'success',
+    statusClass: 'success',
+    statusCodeHint: null,
+    semantics: {} as RequestOutcomeRecord['semantics'],
+    stateTimeline: [],
+    ...overrides
+  } as unknown as RequestOutcomeRecord
+}
+
+function fakeOutputWithRequestOutcomes(
+  requestOutcomes: RequestOutcomeRecord[],
+  requestOutcomesSampled = false
+): SimulationOutput {
+  return {
+    ...fakeOutput(0.01),
+    requestOutcomes,
+    requestOutcomesSampled
   } as unknown as SimulationOutput
 }
 
@@ -660,6 +714,90 @@ describe('gradeAttempt — semantic criteria wiring', () => {
   it('leaves semantic undefined when the package authors no criteria', () => {
     const grade = gradeAttempt(pkg, studentTopology(), () => fakeOutput(0.02))
     expect(grade.semantic).toBeUndefined()
+  })
+
+  it('evaluates runtime semantic criteria against the matching suite case output', () => {
+    const runtimeSemanticPkg: QuestionPackage = {
+      ...pkg,
+      id: 'q-runtime-semantic',
+      semanticCriteria: [
+        {
+          id: 'deduped-peak-write',
+          description: 'The duplicate write path should show dedup before rejection',
+          kind: 'stateTransition',
+          points: 4,
+          where: { caseId: 'peak', outcomeStatus: 'rejected' },
+          match: {
+            scope: 'idempotency',
+            state: 'deduped',
+            source: 'trait',
+            nodeId: 'idem'
+          }
+        }
+      ]
+    }
+
+    const topology = {
+      id: 't-runtime',
+      name: 't-runtime',
+      version: '2.0.0',
+      global: { seed: 'base', simulationDuration: 1000, warmupDuration: 0 },
+      nodes: [
+        {
+          id: 'svc',
+          type: 'microservice',
+          category: 'compute',
+          label: 'svc',
+          position: { x: 0, y: 0 }
+        },
+        {
+          id: 'idem',
+          type: 'idempotency-store',
+          category: 'storage',
+          label: 'idem',
+          position: { x: 120, y: 0 }
+        }
+      ],
+      edges: []
+    } as unknown as TopologyJSON
+
+    const grade = gradeAttempt(runtimeSemanticPkg, topology, (preparedTopology) => {
+      const seed = (preparedTopology.global as { seed: string }).seed
+      if (seed === 'peak-seed') {
+        return fakeOutputWithRequestOutcomes([
+          fakeRequestOutcome('dup-1', {
+            status: 'rejected',
+            reasonCode: 'duplicate-request',
+            stateTimeline: [
+              fakeTransition('idempotency', 'deduped', {
+                source: 'trait',
+                nodeId: 'idem',
+                reasonCode: 'duplicate-request'
+              }),
+              fakeTransition('request', 'rejected', {
+                source: 'engine',
+                nodeId: 'svc',
+                reasonCode: 'duplicate-request'
+              })
+            ]
+          })
+        ])
+      }
+
+      return fakeOutputWithRequestOutcomes([
+        fakeRequestOutcome('steady-1', {
+          stateTimeline: [
+            fakeTransition('request', 'completed', { source: 'engine', nodeId: 'svc' })
+          ]
+        })
+      ])
+    })
+
+    expect(grade.semantic?.results[0].outcome).toBe('passed')
+    expect(grade.semantic?.results[0].kind).toBe('stateTransition')
+    expect(
+      grade.contract.tests.find((t) => t.id === semanticTestId('deduped-peak-write'))?.passed
+    ).toBe(true)
   })
 })
 

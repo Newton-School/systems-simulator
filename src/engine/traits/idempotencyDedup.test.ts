@@ -62,6 +62,7 @@ describe('idempotencyDedupTrait', () => {
         metricCounters: { idempotencyUniqueKeys: 1 }
       }
     })
+    expect(firstRequest.metadata.__semanticsIdempotencyDecision).toBe('recorded')
     expect(firstRequest.metadata[SERVICE_TIME_DISTRIBUTION_OVERRIDE_KEY]).toEqual({
       type: 'constant',
       value: 2
@@ -84,6 +85,7 @@ describe('idempotencyDedupTrait', () => {
         metricCounters: { idempotencyDuplicateHits: 1 }
       }
     })
+    expect(duplicateRequest.metadata.__semanticsIdempotencyDecision).toBe('duplicate')
 
     const afterExpiryRequest = makeRequest('req-3', { idempotencyKey: 'pay-001' })
     const afterExpiry = idempotencyDedupTrait.beforeArrival?.({
@@ -118,6 +120,7 @@ describe('idempotencyDedupTrait', () => {
         metricCounters: { idempotencyKeysMissing: 1 }
       }
     })
+    expect(request.metadata.__semanticsIdempotencyDecision).toBe('no-key')
     expect(request.metadata[SERVICE_TIME_DISTRIBUTION_OVERRIDE_KEY]).toEqual({
       type: 'constant',
       value: 2

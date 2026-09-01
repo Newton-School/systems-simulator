@@ -146,11 +146,31 @@ import type { RoutingStrategy } from '../../../engine/catalog/nodeSpecTypes'
 
 type FailureCountsByCause = Partial<Record<EdgeFailureCause, number>>
 type GraphSnapshot = { nodes: Node[]; edges: Edge[] }
-type GraphMutationOptions = { history?: 'record' | 'skip'; resetHistory?: boolean }
+type GraphMutationOptions = {
+  history?: 'record' | 'skip' | 'drag-commit'
+  resetHistory?: boolean
+}
+type IndexedNodeRecord = { index: number; node: Node }
+type IndexedEdgeRecord = { index: number; edge: Edge }
+type AtomicGraphHistoryEntry =
+  | { kind: 'replace-graph'; before: GraphSnapshot; after: GraphSnapshot }
+  | { kind: 'move-nodes'; before: Node[]; after: Node[] }
+  | { kind: 'update-node'; before: Node; after: Node }
+  | { kind: 'update-edge'; before: Edge; after: Edge }
+  | { kind: 'add-node'; node: IndexedNodeRecord }
+  | { kind: 'remove-nodes'; nodes: IndexedNodeRecord[] }
+  | { kind: 'add-edge'; edge: IndexedEdgeRecord }
+  | { kind: 'remove-edges'; edges: IndexedEdgeRecord[] }
+type GraphHistoryEntry =
+  | AtomicGraphHistoryEntry
+  | { kind: 'composite'; entries: AtomicGraphHistoryEntry[] }
+type GraphDragSession = {
+  beforeNodes: Node[]
+}
 type GraphHistoryState = {
-  past: GraphSnapshot[]
-  future: GraphSnapshot[]
-  dragSnapshot: GraphSnapshot | null
+  past: GraphHistoryEntry[]
+  future: GraphHistoryEntry[]
+  dragSession: GraphDragSession | null
 }
 
 const RUNTIME_METRIC_LENSES: ReadonlySet<MetricLens> = new Set([
@@ -212,10 +232,24 @@ const EDGE_FLOW_HISTORY_MAX_EVENTS = 10_000
 const EDGE_FLOW_PLAYBACK_SPEED = 10
 const EDGE_FLOW_LIVE_RETAINED_EVENTS_PER_BATCH = 100
 const GRAPH_HISTORY_LIMIT = 100
+const NODE_PRESENTATION_IGNORED_KEYS = new Set(['selected', 'dragging'])
+const EDGE_PRESENTATION_IGNORED_KEYS = new Set(['selected'])
+const NODE_MOVE_KEYS = new Set(['position', 'positionAbsolute', 'parentNode', 'extent', 'zIndex'])
+const NODE_NON_MOVE_IGNORED_KEYS = new Set([...NODE_PRESENTATION_IGNORED_KEYS, ...NODE_MOVE_KEYS])
+const GRAPH_HISTORY_KIND_PRIORITY: Record<AtomicGraphHistoryEntry['kind'], number> = {
+  'replace-graph': 0,
+  'remove-edges': 1,
+  'remove-nodes': 2,
+  'move-nodes': 3,
+  'update-node': 4,
+  'update-edge': 5,
+  'add-node': 6,
+  'add-edge': 7
+}
 const EMPTY_GRAPH_HISTORY: GraphHistoryState = {
   past: [],
   future: [],
-  dragSnapshot: null
+  dragSession: null
 }
 
 const EMPTY_EDGE_FLOW_STATE: EdgeFlowState = {
@@ -238,6 +272,87 @@ const EMPTY_EDGE_FLOW_STATE: EdgeFlowState = {
   lastStartedAtMs: 0,
   totalFailedByCause: {},
   totalPostWarmupFailedByCause: {}
+}
+
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}
+
+function deepEqualUnknown(first: unknown, second: unknown): boolean {
+  if (Object.is(first, second)) {
+    return true
+  }
+
+  if (Array.isArray(first) || Array.isArray(second)) {
+    if (!Array.isArray(first) || !Array.isArray(second) || first.length !== second.length) {
+      return false
+    }
+
+    return first.every((value, index) => deepEqualUnknown(value, second[index]))
+  }
+
+  if (!isObjectRecord(first) || !isObjectRecord(second)) {
+    return false
+  }
+
+  const firstKeys = Object.keys(first)
+  const secondKeys = Object.keys(second)
+  if (firstKeys.length !== secondKeys.length) {
+    return false
+  }
+
+  return firstKeys.every(
+    (key) =>
+      Object.prototype.hasOwnProperty.call(second, key) && deepEqualUnknown(first[key], second[key])
+  )
+}
+
+function deepEqualIgnoringKeys(
+  first: Record<string, unknown>,
+  second: Record<string, unknown>,
+  ignoredKeys: ReadonlySet<string>
+): boolean {
+  const keys = new Set([...Object.keys(first), ...Object.keys(second)])
+
+  for (const key of keys) {
+    if (ignoredKeys.has(key)) {
+      continue
+    }
+
+    if (!deepEqualUnknown(first[key], second[key])) {
+      return false
+    }
+  }
+
+  return true
+}
+
+function hasRelativeOrderChanged<T extends { id: string }>(
+  beforeItems: readonly T[],
+  afterItems: readonly T[],
+  addedIds: ReadonlySet<string>,
+  removedIds: ReadonlySet<string>
+): boolean {
+  const beforeCommonIds = beforeItems
+    .filter((item) => !removedIds.has(item.id))
+    .map((item) => item.id)
+  const afterCommonIds = afterItems.filter((item) => !addedIds.has(item.id)).map((item) => item.id)
+
+  if (beforeCommonIds.length !== afterCommonIds.length) {
+    return true
+  }
+
+  return beforeCommonIds.some((id, index) => id !== afterCommonIds[index])
+}
+
+function buildCompositeHistoryEntry(
+  entries: readonly AtomicGraphHistoryEntry[]
+): GraphHistoryEntry | null {
+  if (entries.length === 0) {
+    return null
+  }
+
+  return entries.length === 1 ? entries[0] : { kind: 'composite', entries: [...entries] }
 }
 
 function cloneNodeForHistory(node: Node): Node {
@@ -267,54 +382,558 @@ function snapshotGraph(state: Pick<RFState, 'nodes' | 'edges'>): GraphSnapshot {
   return cloneGraphSnapshot({ nodes: state.nodes, edges: state.edges })
 }
 
-function areGraphSnapshotsEqual(first: GraphSnapshot, second: GraphSnapshot): boolean {
-  return JSON.stringify(first) === JSON.stringify(second)
+function replaceNodesById(nodes: readonly Node[], replacements: readonly Node[]): Node[] {
+  if (replacements.length === 0) {
+    return [...nodes]
+  }
+
+  const replacementsById = new Map(replacements.map((node) => [node.id, cloneNodeForHistory(node)]))
+  return nodes.map((node) => replacementsById.get(node.id) ?? node)
 }
 
-function pushGraphHistory(state: RFState): GraphHistoryState {
-  const snapshot = snapshotGraph(state)
-  const lastSnapshot = state.graphHistory.past[state.graphHistory.past.length - 1]
+function replaceEdgesById(edges: readonly Edge[], replacements: readonly Edge[]): Edge[] {
+  if (replacements.length === 0) {
+    return [...edges]
+  }
 
-  if (lastSnapshot && areGraphSnapshotsEqual(lastSnapshot, snapshot)) {
-    return { ...state.graphHistory, future: [], dragSnapshot: null }
+  const replacementsById = new Map(replacements.map((edge) => [edge.id, cloneEdgeForHistory(edge)]))
+  return edges.map((edge) => replacementsById.get(edge.id) ?? edge)
+}
+
+function removeNodesById(nodes: readonly Node[], nodeIds: ReadonlySet<string>): Node[] {
+  if (nodeIds.size === 0) {
+    return [...nodes]
+  }
+
+  return nodes.filter((node) => !nodeIds.has(node.id))
+}
+
+function removeEdgesById(edges: readonly Edge[], edgeIds: ReadonlySet<string>): Edge[] {
+  if (edgeIds.size === 0) {
+    return [...edges]
+  }
+
+  return edges.filter((edge) => !edgeIds.has(edge.id))
+}
+
+function insertNodesAtIndices(
+  nodes: readonly Node[],
+  records: readonly IndexedNodeRecord[]
+): Node[] {
+  const restored = [...nodes]
+  const sorted = [...records].sort((first, second) => first.index - second.index)
+
+  for (const record of sorted) {
+    restored.splice(Math.min(record.index, restored.length), 0, cloneNodeForHistory(record.node))
+  }
+
+  return restored
+}
+
+function insertEdgesAtIndices(
+  edges: readonly Edge[],
+  records: readonly IndexedEdgeRecord[]
+): Edge[] {
+  const restored = [...edges]
+  const sorted = [...records].sort((first, second) => first.index - second.index)
+
+  for (const record of sorted) {
+    restored.splice(Math.min(record.index, restored.length), 0, cloneEdgeForHistory(record.edge))
+  }
+
+  return restored
+}
+
+function captureIndexedNodes(
+  nodes: readonly Node[],
+  nodeIds: ReadonlySet<string>
+): IndexedNodeRecord[] {
+  return nodes.reduce<IndexedNodeRecord[]>((records, node, index) => {
+    if (nodeIds.has(node.id)) {
+      records.push({ index, node: cloneNodeForHistory(node) })
+    }
+    return records
+  }, [])
+}
+
+function captureIndexedEdges(
+  edges: readonly Edge[],
+  edgeIds: ReadonlySet<string>
+): IndexedEdgeRecord[] {
+  return edges.reduce<IndexedEdgeRecord[]>((records, edge, index) => {
+    if (edgeIds.has(edge.id)) {
+      records.push({ index, edge: cloneEdgeForHistory(edge) })
+    }
+    return records
+  }, [])
+}
+
+function captureNodesById(nodes: readonly Node[], nodeIds: ReadonlySet<string>): Node[] {
+  return nodes.filter((node) => nodeIds.has(node.id)).map(cloneNodeForHistory)
+}
+
+function pointsEqual(
+  first: { x: number; y: number } | undefined,
+  second: { x: number; y: number } | undefined
+): boolean {
+  if (first === second) {
+    return true
+  }
+  if (!first || !second) {
+    return first === second
+  }
+  return first.x === second.x && first.y === second.y
+}
+
+function hasNodeMoveChanged(first: Node, second: Node): boolean {
+  return (
+    !pointsEqual(first.position, second.position) ||
+    !pointsEqual(first.positionAbsolute, second.positionAbsolute) ||
+    first.parentNode !== second.parentNode ||
+    first.extent !== second.extent ||
+    first.zIndex !== second.zIndex
+  )
+}
+
+function areNodesStructurallyEqualIgnoringPresentation(first: Node, second: Node): boolean {
+  return deepEqualIgnoringKeys(
+    first as Record<string, unknown>,
+    second as Record<string, unknown>,
+    NODE_PRESENTATION_IGNORED_KEYS
+  )
+}
+
+function areEdgesStructurallyEqualIgnoringPresentation(first: Edge, second: Edge): boolean {
+  return deepEqualIgnoringKeys(
+    first as Record<string, unknown>,
+    second as Record<string, unknown>,
+    EDGE_PRESENTATION_IGNORED_KEYS
+  )
+}
+
+function isNodeMoveOnlyChange(first: Node, second: Node): boolean {
+  return (
+    hasNodeMoveChanged(first, second) &&
+    deepEqualIgnoringKeys(
+      first as Record<string, unknown>,
+      second as Record<string, unknown>,
+      NODE_NON_MOVE_IGNORED_KEYS
+    )
+  )
+}
+
+function buildMoveNodesHistoryEntry(
+  beforeNodes: readonly Node[],
+  afterNodes: readonly Node[]
+): GraphHistoryEntry | null {
+  const beforeById = new Map(beforeNodes.map((node) => [node.id, node]))
+  const movedBefore: Node[] = []
+  const movedAfter: Node[] = []
+
+  for (const afterNode of afterNodes) {
+    const beforeNode = beforeById.get(afterNode.id)
+    if (!beforeNode || !hasNodeMoveChanged(beforeNode, afterNode)) {
+      continue
+    }
+
+    movedBefore.push(cloneNodeForHistory(beforeNode))
+    movedAfter.push(cloneNodeForHistory(afterNode))
+  }
+
+  return movedBefore.length > 0
+    ? { kind: 'move-nodes', before: movedBefore, after: movedAfter }
+    : null
+}
+
+function sortGraphHistoryEntries(
+  entries: readonly AtomicGraphHistoryEntry[]
+): AtomicGraphHistoryEntry[] {
+  return [...entries].sort(
+    (first, second) =>
+      GRAPH_HISTORY_KIND_PRIORITY[first.kind] - GRAPH_HISTORY_KIND_PRIORITY[second.kind]
+  )
+}
+
+function buildNodeHistoryEntries(
+  beforeNodes: readonly Node[],
+  afterNodes: readonly Node[]
+): AtomicGraphHistoryEntry[] | undefined {
+  const beforeNodeIds = new Set(beforeNodes.map((node) => node.id))
+  const afterNodeIds = new Set(afterNodes.map((node) => node.id))
+  const removedNodeIds = new Set([...beforeNodeIds].filter((nodeId) => !afterNodeIds.has(nodeId)))
+  const addedNodeIds = new Set([...afterNodeIds].filter((nodeId) => !beforeNodeIds.has(nodeId)))
+
+  if (hasRelativeOrderChanged(beforeNodes, afterNodes, addedNodeIds, removedNodeIds)) {
+    return undefined
+  }
+
+  const entries: AtomicGraphHistoryEntry[] = []
+
+  if (removedNodeIds.size > 0) {
+    entries.push({
+      kind: 'remove-nodes',
+      nodes: captureIndexedNodes(beforeNodes, removedNodeIds)
+    })
+  }
+
+  const beforeNodesById = new Map(beforeNodes.map((node) => [node.id, node]))
+  const movedBefore: Node[] = []
+  const movedAfter: Node[] = []
+
+  for (const afterNode of afterNodes) {
+    const beforeNode = beforeNodesById.get(afterNode.id)
+    if (!beforeNode) {
+      continue
+    }
+
+    if (areNodesStructurallyEqualIgnoringPresentation(beforeNode, afterNode)) {
+      continue
+    }
+
+    if (isNodeMoveOnlyChange(beforeNode, afterNode)) {
+      movedBefore.push(cloneNodeForHistory(beforeNode))
+      movedAfter.push(cloneNodeForHistory(afterNode))
+      continue
+    }
+
+    entries.push({
+      kind: 'update-node',
+      before: cloneNodeForHistory(beforeNode),
+      after: cloneNodeForHistory(afterNode)
+    })
+  }
+
+  if (movedBefore.length > 0) {
+    entries.push({
+      kind: 'move-nodes',
+      before: movedBefore,
+      after: movedAfter
+    })
+  }
+
+  afterNodes.forEach((node, index) => {
+    if (!addedNodeIds.has(node.id)) {
+      return
+    }
+
+    entries.push({
+      kind: 'add-node',
+      node: {
+        index,
+        node: cloneNodeForHistory(node)
+      }
+    })
+  })
+
+  return entries
+}
+
+function buildEdgeHistoryEntries(
+  beforeEdges: readonly Edge[],
+  afterEdges: readonly Edge[]
+): AtomicGraphHistoryEntry[] | undefined {
+  const beforeEdgeIds = new Set(beforeEdges.map((edge) => edge.id))
+  const afterEdgeIds = new Set(afterEdges.map((edge) => edge.id))
+  const removedEdgeIds = new Set([...beforeEdgeIds].filter((edgeId) => !afterEdgeIds.has(edgeId)))
+  const addedEdgeIds = new Set([...afterEdgeIds].filter((edgeId) => !beforeEdgeIds.has(edgeId)))
+
+  if (hasRelativeOrderChanged(beforeEdges, afterEdges, addedEdgeIds, removedEdgeIds)) {
+    return undefined
+  }
+
+  const entries: AtomicGraphHistoryEntry[] = []
+
+  if (removedEdgeIds.size > 0) {
+    entries.push({
+      kind: 'remove-edges',
+      edges: captureIndexedEdges(beforeEdges, removedEdgeIds)
+    })
+  }
+
+  const beforeEdgesById = new Map(beforeEdges.map((edge) => [edge.id, edge]))
+
+  for (const afterEdge of afterEdges) {
+    const beforeEdge = beforeEdgesById.get(afterEdge.id)
+    if (!beforeEdge) {
+      continue
+    }
+
+    if (areEdgesStructurallyEqualIgnoringPresentation(beforeEdge, afterEdge)) {
+      continue
+    }
+
+    entries.push({
+      kind: 'update-edge',
+      before: cloneEdgeForHistory(beforeEdge),
+      after: cloneEdgeForHistory(afterEdge)
+    })
+  }
+
+  afterEdges.forEach((edge, index) => {
+    if (!addedEdgeIds.has(edge.id)) {
+      return
+    }
+
+    entries.push({
+      kind: 'add-edge',
+      edge: {
+        index,
+        edge: cloneEdgeForHistory(edge)
+      }
+    })
+  })
+
+  return entries
+}
+
+function buildSetNodesHistoryEntry(
+  beforeNodes: readonly Node[],
+  afterNodes: readonly Node[]
+): GraphHistoryEntry | null | undefined {
+  const entries = buildNodeHistoryEntries(beforeNodes, afterNodes)
+  return entries === undefined ? undefined : buildCompositeHistoryEntry(entries)
+}
+
+function buildSetEdgesHistoryEntry(
+  beforeEdges: readonly Edge[],
+  afterEdges: readonly Edge[]
+): GraphHistoryEntry | null | undefined {
+  const entries = buildEdgeHistoryEntries(beforeEdges, afterEdges)
+  return entries === undefined ? undefined : buildCompositeHistoryEntry(entries)
+}
+
+function buildSetGraphHistoryEntry(
+  beforeSnapshot: GraphSnapshot,
+  afterSnapshot: GraphSnapshot
+): GraphHistoryEntry | null | undefined {
+  const nodeEntries = buildNodeHistoryEntries(beforeSnapshot.nodes, afterSnapshot.nodes)
+  const edgeEntries = buildEdgeHistoryEntries(beforeSnapshot.edges, afterSnapshot.edges)
+
+  if (nodeEntries === undefined || edgeEntries === undefined) {
+    return undefined
+  }
+
+  return buildCompositeHistoryEntry(sortGraphHistoryEntries([...nodeEntries, ...edgeEntries]))
+}
+
+function createReplaceGraphHistoryEntry(
+  state: RFState,
+  nextSnapshot: GraphSnapshot
+): GraphHistoryEntry {
+  return {
+    kind: 'replace-graph',
+    before: snapshotGraph(state),
+    after: cloneGraphSnapshot(nextSnapshot)
+  }
+}
+
+function pushGraphHistoryEntry(
+  graphHistory: GraphHistoryState,
+  entry: GraphHistoryEntry
+): GraphHistoryState {
+  return {
+    past: [...graphHistory.past, entry].slice(-GRAPH_HISTORY_LIMIT),
+    future: [],
+    dragSession: null
+  }
+}
+
+function clearGraphDragSession(graphHistory: GraphHistoryState): GraphHistoryState {
+  if (graphHistory.dragSession === null) {
+    return graphHistory
   }
 
   return {
-    past: [...state.graphHistory.past, snapshot].slice(-GRAPH_HISTORY_LIMIT),
-    future: [],
-    dragSnapshot: null
+    ...graphHistory,
+    dragSession: null
   }
 }
 
-function pushGraphDragHistory(state: RFState): GraphHistoryState {
-  if (state.graphHistory.dragSnapshot) {
+function beginGraphDragSession(state: RFState, nodeIds: ReadonlySet<string>): GraphHistoryState {
+  if (nodeIds.size === 0) {
+    return state.graphHistory
+  }
+
+  const captured = captureNodesById(state.nodes, nodeIds)
+  if (captured.length === 0) {
+    return state.graphHistory
+  }
+
+  const existing = state.graphHistory.dragSession
+  if (!existing) {
+    return {
+      ...state.graphHistory,
+      dragSession: { beforeNodes: captured }
+    }
+  }
+
+  const existingIds = new Set(existing.beforeNodes.map((node) => node.id))
+  const missing = captured.filter((node) => !existingIds.has(node.id))
+  if (missing.length === 0) {
     return state.graphHistory
   }
 
   return {
-    ...pushGraphHistory(state),
-    dragSnapshot: snapshotGraph(state)
+    ...state.graphHistory,
+    dragSession: {
+      beforeNodes: [...existing.beforeNodes, ...missing]
+    }
   }
 }
 
-function resolveGraphHistory(
+function resolveGraphMutation(
   state: RFState,
   nextSnapshot: GraphSnapshot,
-  options?: GraphMutationOptions
-): GraphHistoryState {
+  options?: GraphMutationOptions,
+  entry?: GraphHistoryEntry | null
+): Pick<RFState, 'graphHistory' | 'graphRevision'> {
+  const graphChanged = nextSnapshot.nodes !== state.nodes || nextSnapshot.edges !== state.edges
+
+  if (!graphChanged) {
+    return {
+      graphHistory:
+        options?.history === 'drag-commit'
+          ? clearGraphDragSession(state.graphHistory)
+          : state.graphHistory,
+      graphRevision: state.graphRevision
+    }
+  }
+
   if (options?.resetHistory) {
-    return EMPTY_GRAPH_HISTORY
+    return {
+      graphHistory: EMPTY_GRAPH_HISTORY,
+      graphRevision: state.graphRevision + 1
+    }
   }
 
   if (options?.history === 'skip') {
-    return state.graphHistory
+    return {
+      graphHistory: clearGraphDragSession(state.graphHistory),
+      graphRevision: state.graphRevision + 1
+    }
   }
 
-  if (areGraphSnapshotsEqual(snapshotGraph(state), nextSnapshot)) {
-    return state.graphHistory
+  if (options?.history === 'drag-commit') {
+    if (!entry) {
+      return {
+        graphHistory: clearGraphDragSession(state.graphHistory),
+        graphRevision: state.graphRevision
+      }
+    }
+
+    return {
+      graphHistory: pushGraphHistoryEntry(state.graphHistory, entry),
+      graphRevision: state.graphRevision + 1
+    }
   }
 
-  return pushGraphHistory(state)
+  return {
+    graphHistory: pushGraphHistoryEntry(
+      state.graphHistory,
+      entry ?? createReplaceGraphHistoryEntry(state, nextSnapshot)
+    ),
+    graphRevision: state.graphRevision + 1
+  }
+}
+
+function resolveDerivedGraphMutation(
+  state: RFState,
+  nextSnapshot: GraphSnapshot,
+  options: GraphMutationOptions | undefined,
+  entry: GraphHistoryEntry | null | undefined
+): Pick<RFState, 'graphHistory' | 'graphRevision'> {
+  if (entry === undefined) {
+    return resolveGraphMutation(state, nextSnapshot, options)
+  }
+
+  if (entry === null) {
+    return resolveGraphMutation(state, nextSnapshot, { ...options, history: 'skip' })
+  }
+
+  return resolveGraphMutation(state, nextSnapshot, options, entry)
+}
+
+function applyGraphHistoryEntry(
+  snapshot: GraphSnapshot,
+  entry: GraphHistoryEntry,
+  direction: 'undo' | 'redo'
+): GraphSnapshot {
+  switch (entry.kind) {
+    case 'composite': {
+      const orderedEntries = direction === 'undo' ? [...entry.entries].reverse() : entry.entries
+
+      return orderedEntries.reduce(
+        (currentSnapshot, currentEntry) =>
+          applyGraphHistoryEntry(currentSnapshot, currentEntry, direction),
+        snapshot
+      )
+    }
+    case 'replace-graph':
+      return cloneGraphSnapshot(direction === 'undo' ? entry.before : entry.after)
+    case 'move-nodes':
+      return {
+        nodes: replaceNodesById(snapshot.nodes, direction === 'undo' ? entry.before : entry.after),
+        edges: [...snapshot.edges]
+      }
+    case 'update-node':
+      return {
+        nodes: replaceNodesById(snapshot.nodes, [
+          direction === 'undo' ? entry.before : entry.after
+        ]),
+        edges: [...snapshot.edges]
+      }
+    case 'update-edge':
+      return {
+        nodes: [...snapshot.nodes],
+        edges: replaceEdgesById(snapshot.edges, [direction === 'undo' ? entry.before : entry.after])
+      }
+    case 'add-node':
+      return direction === 'undo'
+        ? {
+            nodes: removeNodesById(snapshot.nodes, new Set([entry.node.node.id])),
+            edges: [...snapshot.edges]
+          }
+        : {
+            nodes: insertNodesAtIndices(snapshot.nodes, [entry.node]),
+            edges: [...snapshot.edges]
+          }
+    case 'remove-nodes':
+      return direction === 'undo'
+        ? {
+            nodes: insertNodesAtIndices(snapshot.nodes, entry.nodes),
+            edges: [...snapshot.edges]
+          }
+        : {
+            nodes: removeNodesById(
+              snapshot.nodes,
+              new Set(entry.nodes.map((record) => record.node.id))
+            ),
+            edges: [...snapshot.edges]
+          }
+    case 'add-edge':
+      return direction === 'undo'
+        ? {
+            nodes: [...snapshot.nodes],
+            edges: removeEdgesById(snapshot.edges, new Set([entry.edge.edge.id]))
+          }
+        : {
+            nodes: [...snapshot.nodes],
+            edges: insertEdgesAtIndices(snapshot.edges, [entry.edge])
+          }
+    case 'remove-edges':
+      return direction === 'undo'
+        ? {
+            nodes: [...snapshot.nodes],
+            edges: insertEdgesAtIndices(snapshot.edges, entry.edges)
+          }
+        : {
+            nodes: [...snapshot.nodes],
+            edges: removeEdgesById(
+              snapshot.edges,
+              new Set(entry.edges.map((record) => record.edge.id))
+            )
+          }
+  }
 }
 
 function shouldRecordNodeChanges(changes: NodeChange[]): boolean {
@@ -331,6 +950,40 @@ function hasNodePositionChange(changes: NodeChange[]): boolean {
 
 function hasActiveNodeDrag(changes: NodeChange[]): boolean {
   return changes.some((change) => change.type === 'position' && change.dragging)
+}
+
+function collectChangedNodeIds(changes: NodeChange[]): Set<string> {
+  return changes.reduce<Set<string>>((ids, change) => {
+    if ('id' in change && change.type === 'position') {
+      ids.add(change.id)
+    }
+    return ids
+  }, new Set<string>())
+}
+
+function collectRemovedNodeIds(changes: NodeChange[]): Set<string> {
+  return changes.reduce<Set<string>>((ids, change) => {
+    if ('id' in change && change.type === 'remove') {
+      ids.add(change.id)
+    }
+    return ids
+  }, new Set<string>())
+}
+
+function collectRemovedEdgeIds(changes: EdgeChange[]): Set<string> {
+  return changes.reduce<Set<string>>((ids, change) => {
+    if ('id' in change && change.type === 'remove') {
+      ids.add(change.id)
+    }
+    return ids
+  }, new Set<string>())
+}
+
+function hasRecordPatchChanges(
+  current: Record<string, unknown> | undefined,
+  patch: Record<string, unknown>
+): boolean {
+  return Object.entries(patch).some(([key, value]) => !Object.is(current?.[key], value))
 }
 
 function summarizeEdgeFlow(
@@ -566,6 +1219,7 @@ type RFState = {
   setGraph: (nodes: Node[], edges: Edge[], options?: GraphMutationOptions) => void
   selectGraphElements: (selection: { nodeId?: string; edgeId?: string }) => void
   graphHistory: GraphHistoryState
+  graphRevision: number
   undoGraph: () => void
   redoGraph: () => void
 
@@ -591,6 +1245,7 @@ const useStore = create<RFState>((set, get) => ({
   runInspectorDrilldownActive: false,
   routingStrategyVisualization: null,
   graphHistory: EMPTY_GRAPH_HISTORY,
+  graphRevision: 0,
 
   // Initial File State
   fileName: 'Untitled',
@@ -644,20 +1299,50 @@ const useStore = create<RFState>((set, get) => ({
       const hasMeaningfulChange = shouldRecordNodeChanges(permitted)
       const isDragging = hasActiveNodeDrag(permitted)
       const hasPositionChange = hasNodePositionChange(permitted)
-      const graphHistory = !hasMeaningfulChange
-        ? state.graphHistory
-        : isDragging
-          ? pushGraphDragHistory(state)
-          : {
-              ...(hasPositionChange && state.graphHistory.dragSnapshot
-                ? state.graphHistory
-                : resolveGraphHistory(state, { nodes, edges: state.edges })),
-              dragSnapshot: null
+
+      if (!hasMeaningfulChange) {
+        return {
+          nodes,
+          graphHistory: state.graphHistory
+        }
+      }
+
+      if (isDragging) {
+        return {
+          nodes,
+          graphHistory: beginGraphDragSession(state, collectChangedNodeIds(permitted))
+        }
+      }
+
+      if (hasPositionChange && state.graphHistory.dragSession) {
+        return {
+          nodes,
+          graphHistory: state.graphHistory
+        }
+      }
+
+      const removedNodeIds = collectRemovedNodeIds(permitted)
+      const historyEntry = hasPositionChange
+        ? buildMoveNodesHistoryEntry(
+            captureNodesById(state.nodes, collectChangedNodeIds(permitted)),
+            captureNodesById(nodes, collectChangedNodeIds(permitted))
+          )
+        : removedNodeIds.size > 0
+          ? {
+              kind: 'remove-nodes' as const,
+              nodes: captureIndexedNodes(state.nodes, removedNodeIds)
             }
+          : null
+      const mutation = resolveGraphMutation(
+        state,
+        { nodes, edges: state.edges },
+        undefined,
+        historyEntry
+      )
 
       return {
         nodes,
-        graphHistory
+        ...mutation
       }
     })
   },
@@ -690,11 +1375,21 @@ const useStore = create<RFState>((set, get) => ({
         )
       })
       const edges = applyEdgeChanges(permitted, state.edges)
+      const removedEdgeIds = collectRemovedEdgeIds(permitted)
+      const historyEntry =
+        removedEdgeIds.size > 0
+          ? {
+              kind: 'remove-edges' as const,
+              edges: captureIndexedEdges(state.edges, removedEdgeIds)
+            }
+          : null
+      const mutation = shouldRecordEdgeChanges(permitted)
+        ? resolveGraphMutation(state, { nodes: state.nodes, edges }, undefined, historyEntry)
+        : { graphHistory: state.graphHistory, graphRevision: state.graphRevision }
+
       return {
         edges,
-        graphHistory: shouldRecordEdgeChanges(permitted)
-          ? resolveGraphHistory(state, { nodes: state.nodes, edges })
-          : state.graphHistory
+        ...mutation
       }
     })
   },
@@ -702,9 +1397,27 @@ const useStore = create<RFState>((set, get) => ({
   onConnect: (connection: Connection) => {
     set((state) => {
       const edges = addEdge(connection, state.edges)
+      const nextEdge = edges[edges.length - 1]
+      const historyEntry =
+        nextEdge && edges.length === state.edges.length + 1
+          ? {
+              kind: 'add-edge' as const,
+              edge: {
+                index: edges.length - 1,
+                edge: cloneEdgeForHistory(nextEdge)
+              }
+            }
+          : null
+      const mutation = resolveGraphMutation(
+        state,
+        { nodes: state.nodes, edges },
+        undefined,
+        historyEntry
+      )
+
       return {
         edges,
-        graphHistory: resolveGraphHistory(state, { nodes: state.nodes, edges })
+        ...mutation
       }
     })
   },
@@ -720,15 +1433,15 @@ const useStore = create<RFState>((set, get) => ({
         return {}
       }
 
-      const current = snapshotGraph(state)
-      const restored = cloneGraphSnapshot(previous)
+      const restored = applyGraphHistoryEntry(snapshotGraph(state), previous, 'undo')
       return {
         nodes: restored.nodes,
         edges: restored.edges,
+        graphRevision: state.graphRevision + 1,
         graphHistory: {
           past: state.graphHistory.past.slice(0, -1),
-          future: [current, ...state.graphHistory.future].slice(0, GRAPH_HISTORY_LIMIT),
-          dragSnapshot: null
+          future: [previous, ...state.graphHistory.future].slice(0, GRAPH_HISTORY_LIMIT),
+          dragSession: null
         }
       }
     })
@@ -745,15 +1458,15 @@ const useStore = create<RFState>((set, get) => ({
         return {}
       }
 
-      const current = snapshotGraph(state)
-      const restored = cloneGraphSnapshot(next)
+      const restored = applyGraphHistoryEntry(snapshotGraph(state), next, 'redo')
       return {
         nodes: restored.nodes,
         edges: restored.edges,
+        graphRevision: state.graphRevision + 1,
         graphHistory: {
-          past: [...state.graphHistory.past, current].slice(-GRAPH_HISTORY_LIMIT),
+          past: [...state.graphHistory.past, next].slice(-GRAPH_HISTORY_LIMIT),
           future: state.graphHistory.future.slice(1),
-          dragSnapshot: null
+          dragSession: null
         }
       }
     })
@@ -794,33 +1507,97 @@ const useStore = create<RFState>((set, get) => ({
 
     set((state) => {
       const nodes = [...state.nodes, safeNode]
+      const mutation = resolveGraphMutation(state, { nodes, edges: state.edges }, undefined, {
+        kind: 'add-node',
+        node: {
+          index: nodes.length - 1,
+          node: cloneNodeForHistory(safeNode)
+        }
+      })
+
       return {
         nodes,
-        graphHistory: resolveGraphHistory(state, { nodes, edges: state.edges })
+        ...mutation
       }
     })
   },
 
   setNodes: (nodes: Node[], options) => {
-    set((state) => ({
-      nodes,
-      graphHistory: resolveGraphHistory(state, { nodes, edges: state.edges }, options)
-    }))
+    set((state) => {
+      const nextSnapshot = { nodes, edges: state.edges }
+
+      if (options?.resetHistory || options?.history === 'skip') {
+        return {
+          nodes,
+          ...resolveGraphMutation(state, nextSnapshot, options)
+        }
+      }
+
+      const historyEntry =
+        options?.history === 'drag-commit' && state.graphHistory.dragSession
+          ? buildMoveNodesHistoryEntry(
+              state.graphHistory.dragSession.beforeNodes,
+              captureNodesById(
+                nodes,
+                new Set(state.graphHistory.dragSession.beforeNodes.map((node) => node.id))
+              )
+            )
+          : buildSetNodesHistoryEntry(state.nodes, nodes)
+      const mutation = resolveDerivedGraphMutation(state, nextSnapshot, options, historyEntry)
+
+      return {
+        nodes,
+        ...mutation
+      }
+    })
   },
 
   setEdges: (edges: Edge[], options) => {
-    set((state) => ({
-      edges,
-      graphHistory: resolveGraphHistory(state, { nodes: state.nodes, edges }, options)
-    }))
+    set((state) => {
+      const nextSnapshot = { nodes: state.nodes, edges }
+
+      if (options?.resetHistory || options?.history === 'skip') {
+        return {
+          edges,
+          ...resolveGraphMutation(state, nextSnapshot, options)
+        }
+      }
+
+      return {
+        edges,
+        ...resolveDerivedGraphMutation(
+          state,
+          nextSnapshot,
+          options,
+          buildSetEdgesHistoryEntry(state.edges, edges)
+        )
+      }
+    })
   },
 
   setGraph: (nodes: Node[], edges: Edge[], options) => {
-    set((state) => ({
-      nodes,
-      edges,
-      graphHistory: resolveGraphHistory(state, { nodes, edges }, options)
-    }))
+    set((state) => {
+      const nextSnapshot = { nodes, edges }
+
+      if (options?.resetHistory || options?.history === 'skip') {
+        return {
+          nodes,
+          edges,
+          ...resolveGraphMutation(state, nextSnapshot, options)
+        }
+      }
+
+      return {
+        nodes,
+        edges,
+        ...resolveDerivedGraphMutation(
+          state,
+          nextSnapshot,
+          options,
+          buildSetGraphHistoryEntry({ nodes: state.nodes, edges: state.edges }, nextSnapshot)
+        )
+      }
+    })
   },
 
   selectGraphElements: ({ nodeId, edgeId }) => {
@@ -854,22 +1631,35 @@ const useStore = create<RFState>((set, get) => ({
       return
     }
     set((state) => {
-      const nodes = state.nodes.map((node) => {
-        if (node.id === nodeId) {
-          return {
-            ...node,
-            data: {
-              ...(node.data as Record<string, unknown>),
-              ...(patch as Record<string, unknown>)
-            }
-          }
+      const existingNode = state.nodes.find((node) => node.id === nodeId)
+      if (!existingNode) {
+        return {}
+      }
+
+      const typedPatch = patch as Record<string, unknown>
+      if (
+        !hasRecordPatchChanges(existingNode.data as Record<string, unknown> | undefined, typedPatch)
+      ) {
+        return {}
+      }
+
+      const nextNode = {
+        ...existingNode,
+        data: {
+          ...(existingNode.data as Record<string, unknown>),
+          ...typedPatch
         }
-        return node
+      }
+      const nodes = state.nodes.map((node) => (node.id === nodeId ? nextNode : node))
+      const mutation = resolveGraphMutation(state, { nodes, edges: state.edges }, undefined, {
+        kind: 'update-node',
+        before: cloneNodeForHistory(existingNode),
+        after: cloneNodeForHistory(nextNode)
       })
 
       return {
         nodes,
-        graphHistory: resolveGraphHistory(state, { nodes, edges: state.edges })
+        ...mutation
       }
     })
   },
@@ -888,26 +1678,44 @@ const useStore = create<RFState>((set, get) => ({
       return
     }
     set((state) => {
-      const edges = state.edges.map((edge) => {
-        if (edge.id === edgeId) {
-          const nextData = patch.data
-            ? {
-                ...((edge.data as Record<string, unknown> | undefined) ?? {}),
-                ...patch.data
-              }
-            : edge.data
-          return {
-            ...edge,
-            ...(patch.label !== undefined ? { label: patch.label } : {}),
-            ...(nextData !== undefined ? { data: nextData } : {})
+      const existingEdge = state.edges.find((edge) => edge.id === edgeId)
+      if (!existingEdge) {
+        return {}
+      }
+
+      const nextData = patch.data
+        ? {
+            ...((existingEdge.data as Record<string, unknown> | undefined) ?? {}),
+            ...patch.data
           }
-        }
-        return edge
+        : existingEdge.data
+      const labelChanged = patch.label !== undefined && patch.label !== existingEdge.label
+      const dataChanged =
+        patch.data !== undefined &&
+        hasRecordPatchChanges(
+          (existingEdge.data as Record<string, unknown> | undefined) ?? {},
+          patch.data as Record<string, unknown>
+        )
+
+      if (!labelChanged && !dataChanged) {
+        return {}
+      }
+
+      const nextEdge = {
+        ...existingEdge,
+        ...(patch.label !== undefined ? { label: patch.label } : {}),
+        ...(nextData !== undefined ? { data: nextData } : {})
+      }
+      const edges = state.edges.map((edge) => (edge.id === edgeId ? nextEdge : edge))
+      const mutation = resolveGraphMutation(state, { nodes: state.nodes, edges }, undefined, {
+        kind: 'update-edge',
+        before: cloneEdgeForHistory(existingEdge),
+        after: cloneEdgeForHistory(nextEdge)
       })
 
       return {
         edges,
-        graphHistory: resolveGraphHistory(state, { nodes: state.nodes, edges })
+        ...mutation
       }
     })
   },

@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   verify:
-    name: Lint, Typecheck, Build
+    name: Lint, Test, Typecheck, Build
     runs-on: ubuntu-latest
 
     steps:
@@ -34,8 +34,14 @@ jobs:
       - name: Run lint
         run: npm run lint
 
+      - name: Run tests
+        run: npm test
+
       - name: Run type check
         run: npm run typecheck
 
       - name: Run dual-target builds
         run: npm run build:all
+
+      - name: Check web bundle budget
+        run: npm run check:web-bundle-budget
