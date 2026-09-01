@@ -176,6 +176,10 @@ describe('useStore graph history', () => {
     return { id, type: 'service', position: { x, y }, data: { label: id } }
   }
 
+  function edge(id: string, source: string, target: string) {
+    return { id, source, target, data: { latencyValue: 1 } }
+  }
+
   beforeEach(() => {
     useStore.getState().setGraph([node('n1') as any], [], { history: 'skip', resetHistory: true })
     useStore.getState().setAttemptState(null)
@@ -231,6 +235,105 @@ describe('useStore graph history', () => {
 
     expect(useStore.getState().graphHistory.past).toHaveLength(0)
     expect(useStore.getState().graphRevision).toBe(startRevision)
+  })
+
+  it('records layout-style setNodes mutations as move history entries', () => {
+    useStore.getState().setGraph([node('n1'), node('n2', 40, 10)] as any, [], {
+      history: 'skip',
+      resetHistory: true
+    })
+
+    useStore.getState().setNodes([node('n1', 20, 30), node('n2', 80, 50)] as any)
+
+    expect(useStore.getState().graphHistory.past).toHaveLength(1)
+    expect(useStore.getState().graphHistory.past[0]?.kind).toBe('move-nodes')
+
+    useStore.getState().undoGraph()
+    expect(useStore.getState().nodes.map((current) => current.position)).toEqual([
+      { x: 0, y: 0 },
+      { x: 40, y: 10 }
+    ])
+
+    useStore.getState().redoGraph()
+    expect(useStore.getState().nodes.map((current) => current.position)).toEqual([
+      { x: 20, y: 30 },
+      { x: 80, y: 50 }
+    ])
+  })
+
+  it('records edge reconnects from setEdges as update-edge entries', () => {
+    useStore
+      .getState()
+      .setGraph(
+        [node('n1'), node('n2', 20, 0), node('n3', 40, 0)] as any,
+        [edge('e1', 'n1', 'n2')] as any,
+        { history: 'skip', resetHistory: true }
+      )
+
+    useStore.getState().setEdges([edge('e1', 'n1', 'n3')] as any)
+
+    expect(useStore.getState().graphHistory.past).toHaveLength(1)
+    expect(useStore.getState().graphHistory.past[0]?.kind).toBe('update-edge')
+
+    useStore.getState().undoGraph()
+    expect(useStore.getState().edges[0]?.target).toBe('n2')
+
+    useStore.getState().redoGraph()
+    expect(useStore.getState().edges[0]?.target).toBe('n3')
+  })
+
+  it('records setGraph additions as structural composite history', () => {
+    useStore.getState().setGraph([node('n1')] as any, [], { history: 'skip', resetHistory: true })
+
+    useStore
+      .getState()
+      .setGraph([node('n1'), node('n2', 50, 20)] as any, [edge('e1', 'n1', 'n2')] as any)
+
+    expect(useStore.getState().graphHistory.past).toHaveLength(1)
+    expect(useStore.getState().graphHistory.past[0]?.kind).toBe('composite')
+
+    useStore.getState().undoGraph()
+    expect(useStore.getState().nodes.map((current) => current.id)).toEqual(['n1'])
+    expect(useStore.getState().edges).toEqual([])
+
+    useStore.getState().redoGraph()
+    expect(useStore.getState().nodes.map((current) => current.id)).toEqual(['n1', 'n2'])
+    expect(useStore.getState().edges.map((current) => current.id)).toEqual(['e1'])
+  })
+
+  it('records setGraph deletions as structural composite history', () => {
+    useStore
+      .getState()
+      .setGraph([node('n1'), node('n2', 30, 10)] as any, [edge('e1', 'n1', 'n2')] as any, {
+        history: 'skip',
+        resetHistory: true
+      })
+
+    useStore.getState().setGraph([node('n1')] as any, [])
+
+    expect(useStore.getState().graphHistory.past).toHaveLength(1)
+    expect(useStore.getState().graphHistory.past[0]?.kind).toBe('composite')
+
+    useStore.getState().undoGraph()
+    expect(useStore.getState().nodes.map((current) => current.id)).toEqual(['n1', 'n2'])
+    expect(useStore.getState().edges.map((current) => current.id)).toEqual(['e1'])
+
+    useStore.getState().redoGraph()
+    expect(useStore.getState().nodes.map((current) => current.id)).toEqual(['n1'])
+    expect(useStore.getState().edges).toEqual([])
+  })
+
+  it('does not record history for selection-only setGraph changes', () => {
+    useStore.getState().setGraph([{ ...node('n1'), selected: true } as any], [], {
+      history: 'skip',
+      resetHistory: true
+    })
+    const startRevision = useStore.getState().graphRevision
+
+    useStore.getState().setGraph([{ ...node('n1'), selected: false } as any], [])
+
+    expect(useStore.getState().graphHistory.past).toHaveLength(0)
+    expect(useStore.getState().graphRevision).toBe(startRevision + 1)
   })
 })
 

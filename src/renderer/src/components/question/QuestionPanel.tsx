@@ -442,11 +442,7 @@ export const QuestionPanel = () => {
         const text = justificationAnswers[prompt.id] ?? ''
         if (text.trim().length < 10) {
           // Too short for LLM — use deterministic grade
-          geminiGrades[prompt.id] = gradeJustification(
-            prompt,
-            { promptId: prompt.id, text },
-            ctx
-          )
+          geminiGrades[prompt.id] = gradeJustification(prompt, { promptId: prompt.id, text }, ctx)
           continue
         }
 
@@ -466,19 +462,11 @@ export const QuestionPanel = () => {
             )
           } else {
             // Gemini failed — keep deterministic fallback
-            geminiGrades[prompt.id] = gradeJustification(
-              prompt,
-              { promptId: prompt.id, text },
-              ctx
-            )
+            geminiGrades[prompt.id] = gradeJustification(prompt, { promptId: prompt.id, text }, ctx)
           }
         } catch {
           // Network/IPC error — keep deterministic fallback
-          geminiGrades[prompt.id] = gradeJustification(
-            prompt,
-            { promptId: prompt.id, text },
-            ctx
-          )
+          geminiGrades[prompt.id] = gradeJustification(prompt, { promptId: prompt.id, text }, ctx)
         }
       }
       setJustifyGrades(geminiGrades)

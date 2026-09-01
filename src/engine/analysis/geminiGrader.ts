@@ -107,11 +107,7 @@ export function mapGeminiResponseToResult(
   response: GeminiGradeResponse
 ): JustificationResult {
   const outcome: JustificationOutcome =
-    response.outcome === 'passed'
-      ? 'passed'
-      : response.outcome === 'partial'
-        ? 'partial'
-        : 'failed'
+    response.outcome === 'passed' ? 'passed' : response.outcome === 'partial' ? 'partial' : 'failed'
 
   return {
     promptId,

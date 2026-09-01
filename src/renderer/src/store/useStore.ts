@@ -152,7 +152,7 @@ type GraphMutationOptions = {
 }
 type IndexedNodeRecord = { index: number; node: Node }
 type IndexedEdgeRecord = { index: number; edge: Edge }
-type GraphHistoryEntry =
+type AtomicGraphHistoryEntry =
   | { kind: 'replace-graph'; before: GraphSnapshot; after: GraphSnapshot }
   | { kind: 'move-nodes'; before: Node[]; after: Node[] }
   | { kind: 'update-node'; before: Node; after: Node }
@@ -161,6 +161,9 @@ type GraphHistoryEntry =
   | { kind: 'remove-nodes'; nodes: IndexedNodeRecord[] }
   | { kind: 'add-edge'; edge: IndexedEdgeRecord }
   | { kind: 'remove-edges'; edges: IndexedEdgeRecord[] }
+type GraphHistoryEntry =
+  | AtomicGraphHistoryEntry
+  | { kind: 'composite'; entries: AtomicGraphHistoryEntry[] }
 type GraphDragSession = {
   beforeNodes: Node[]
 }
@@ -229,6 +232,20 @@ const EDGE_FLOW_HISTORY_MAX_EVENTS = 10_000
 const EDGE_FLOW_PLAYBACK_SPEED = 10
 const EDGE_FLOW_LIVE_RETAINED_EVENTS_PER_BATCH = 100
 const GRAPH_HISTORY_LIMIT = 100
+const NODE_PRESENTATION_IGNORED_KEYS = new Set(['selected', 'dragging'])
+const EDGE_PRESENTATION_IGNORED_KEYS = new Set(['selected'])
+const NODE_MOVE_KEYS = new Set(['position', 'positionAbsolute', 'parentNode', 'extent', 'zIndex'])
+const NODE_NON_MOVE_IGNORED_KEYS = new Set([...NODE_PRESENTATION_IGNORED_KEYS, ...NODE_MOVE_KEYS])
+const GRAPH_HISTORY_KIND_PRIORITY: Record<AtomicGraphHistoryEntry['kind'], number> = {
+  'replace-graph': 0,
+  'remove-edges': 1,
+  'remove-nodes': 2,
+  'move-nodes': 3,
+  'update-node': 4,
+  'update-edge': 5,
+  'add-node': 6,
+  'add-edge': 7
+}
 const EMPTY_GRAPH_HISTORY: GraphHistoryState = {
   past: [],
   future: [],
@@ -255,6 +272,87 @@ const EMPTY_EDGE_FLOW_STATE: EdgeFlowState = {
   lastStartedAtMs: 0,
   totalFailedByCause: {},
   totalPostWarmupFailedByCause: {}
+}
+
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}
+
+function deepEqualUnknown(first: unknown, second: unknown): boolean {
+  if (Object.is(first, second)) {
+    return true
+  }
+
+  if (Array.isArray(first) || Array.isArray(second)) {
+    if (!Array.isArray(first) || !Array.isArray(second) || first.length !== second.length) {
+      return false
+    }
+
+    return first.every((value, index) => deepEqualUnknown(value, second[index]))
+  }
+
+  if (!isObjectRecord(first) || !isObjectRecord(second)) {
+    return false
+  }
+
+  const firstKeys = Object.keys(first)
+  const secondKeys = Object.keys(second)
+  if (firstKeys.length !== secondKeys.length) {
+    return false
+  }
+
+  return firstKeys.every(
+    (key) =>
+      Object.prototype.hasOwnProperty.call(second, key) && deepEqualUnknown(first[key], second[key])
+  )
+}
+
+function deepEqualIgnoringKeys(
+  first: Record<string, unknown>,
+  second: Record<string, unknown>,
+  ignoredKeys: ReadonlySet<string>
+): boolean {
+  const keys = new Set([...Object.keys(first), ...Object.keys(second)])
+
+  for (const key of keys) {
+    if (ignoredKeys.has(key)) {
+      continue
+    }
+
+    if (!deepEqualUnknown(first[key], second[key])) {
+      return false
+    }
+  }
+
+  return true
+}
+
+function hasRelativeOrderChanged<T extends { id: string }>(
+  beforeItems: readonly T[],
+  afterItems: readonly T[],
+  addedIds: ReadonlySet<string>,
+  removedIds: ReadonlySet<string>
+): boolean {
+  const beforeCommonIds = beforeItems
+    .filter((item) => !removedIds.has(item.id))
+    .map((item) => item.id)
+  const afterCommonIds = afterItems.filter((item) => !addedIds.has(item.id)).map((item) => item.id)
+
+  if (beforeCommonIds.length !== afterCommonIds.length) {
+    return true
+  }
+
+  return beforeCommonIds.some((id, index) => id !== afterCommonIds[index])
+}
+
+function buildCompositeHistoryEntry(
+  entries: readonly AtomicGraphHistoryEntry[]
+): GraphHistoryEntry | null {
+  if (entries.length === 0) {
+    return null
+  }
+
+  return entries.length === 1 ? entries[0] : { kind: 'composite', entries: [...entries] }
 }
 
 function cloneNodeForHistory(node: Node): Node {
@@ -391,7 +489,36 @@ function hasNodeMoveChanged(first: Node, second: Node): boolean {
   return (
     !pointsEqual(first.position, second.position) ||
     !pointsEqual(first.positionAbsolute, second.positionAbsolute) ||
-    first.parentNode !== second.parentNode
+    first.parentNode !== second.parentNode ||
+    first.extent !== second.extent ||
+    first.zIndex !== second.zIndex
+  )
+}
+
+function areNodesStructurallyEqualIgnoringPresentation(first: Node, second: Node): boolean {
+  return deepEqualIgnoringKeys(
+    first as Record<string, unknown>,
+    second as Record<string, unknown>,
+    NODE_PRESENTATION_IGNORED_KEYS
+  )
+}
+
+function areEdgesStructurallyEqualIgnoringPresentation(first: Edge, second: Edge): boolean {
+  return deepEqualIgnoringKeys(
+    first as Record<string, unknown>,
+    second as Record<string, unknown>,
+    EDGE_PRESENTATION_IGNORED_KEYS
+  )
+}
+
+function isNodeMoveOnlyChange(first: Node, second: Node): boolean {
+  return (
+    hasNodeMoveChanged(first, second) &&
+    deepEqualIgnoringKeys(
+      first as Record<string, unknown>,
+      second as Record<string, unknown>,
+      NODE_NON_MOVE_IGNORED_KEYS
+    )
   )
 }
 
@@ -416,6 +543,177 @@ function buildMoveNodesHistoryEntry(
   return movedBefore.length > 0
     ? { kind: 'move-nodes', before: movedBefore, after: movedAfter }
     : null
+}
+
+function sortGraphHistoryEntries(
+  entries: readonly AtomicGraphHistoryEntry[]
+): AtomicGraphHistoryEntry[] {
+  return [...entries].sort(
+    (first, second) =>
+      GRAPH_HISTORY_KIND_PRIORITY[first.kind] - GRAPH_HISTORY_KIND_PRIORITY[second.kind]
+  )
+}
+
+function buildNodeHistoryEntries(
+  beforeNodes: readonly Node[],
+  afterNodes: readonly Node[]
+): AtomicGraphHistoryEntry[] | undefined {
+  const beforeNodeIds = new Set(beforeNodes.map((node) => node.id))
+  const afterNodeIds = new Set(afterNodes.map((node) => node.id))
+  const removedNodeIds = new Set([...beforeNodeIds].filter((nodeId) => !afterNodeIds.has(nodeId)))
+  const addedNodeIds = new Set([...afterNodeIds].filter((nodeId) => !beforeNodeIds.has(nodeId)))
+
+  if (hasRelativeOrderChanged(beforeNodes, afterNodes, addedNodeIds, removedNodeIds)) {
+    return undefined
+  }
+
+  const entries: AtomicGraphHistoryEntry[] = []
+
+  if (removedNodeIds.size > 0) {
+    entries.push({
+      kind: 'remove-nodes',
+      nodes: captureIndexedNodes(beforeNodes, removedNodeIds)
+    })
+  }
+
+  const beforeNodesById = new Map(beforeNodes.map((node) => [node.id, node]))
+  const movedBefore: Node[] = []
+  const movedAfter: Node[] = []
+
+  for (const afterNode of afterNodes) {
+    const beforeNode = beforeNodesById.get(afterNode.id)
+    if (!beforeNode) {
+      continue
+    }
+
+    if (areNodesStructurallyEqualIgnoringPresentation(beforeNode, afterNode)) {
+      continue
+    }
+
+    if (isNodeMoveOnlyChange(beforeNode, afterNode)) {
+      movedBefore.push(cloneNodeForHistory(beforeNode))
+      movedAfter.push(cloneNodeForHistory(afterNode))
+      continue
+    }
+
+    entries.push({
+      kind: 'update-node',
+      before: cloneNodeForHistory(beforeNode),
+      after: cloneNodeForHistory(afterNode)
+    })
+  }
+
+  if (movedBefore.length > 0) {
+    entries.push({
+      kind: 'move-nodes',
+      before: movedBefore,
+      after: movedAfter
+    })
+  }
+
+  afterNodes.forEach((node, index) => {
+    if (!addedNodeIds.has(node.id)) {
+      return
+    }
+
+    entries.push({
+      kind: 'add-node',
+      node: {
+        index,
+        node: cloneNodeForHistory(node)
+      }
+    })
+  })
+
+  return entries
+}
+
+function buildEdgeHistoryEntries(
+  beforeEdges: readonly Edge[],
+  afterEdges: readonly Edge[]
+): AtomicGraphHistoryEntry[] | undefined {
+  const beforeEdgeIds = new Set(beforeEdges.map((edge) => edge.id))
+  const afterEdgeIds = new Set(afterEdges.map((edge) => edge.id))
+  const removedEdgeIds = new Set([...beforeEdgeIds].filter((edgeId) => !afterEdgeIds.has(edgeId)))
+  const addedEdgeIds = new Set([...afterEdgeIds].filter((edgeId) => !beforeEdgeIds.has(edgeId)))
+
+  if (hasRelativeOrderChanged(beforeEdges, afterEdges, addedEdgeIds, removedEdgeIds)) {
+    return undefined
+  }
+
+  const entries: AtomicGraphHistoryEntry[] = []
+
+  if (removedEdgeIds.size > 0) {
+    entries.push({
+      kind: 'remove-edges',
+      edges: captureIndexedEdges(beforeEdges, removedEdgeIds)
+    })
+  }
+
+  const beforeEdgesById = new Map(beforeEdges.map((edge) => [edge.id, edge]))
+
+  for (const afterEdge of afterEdges) {
+    const beforeEdge = beforeEdgesById.get(afterEdge.id)
+    if (!beforeEdge) {
+      continue
+    }
+
+    if (areEdgesStructurallyEqualIgnoringPresentation(beforeEdge, afterEdge)) {
+      continue
+    }
+
+    entries.push({
+      kind: 'update-edge',
+      before: cloneEdgeForHistory(beforeEdge),
+      after: cloneEdgeForHistory(afterEdge)
+    })
+  }
+
+  afterEdges.forEach((edge, index) => {
+    if (!addedEdgeIds.has(edge.id)) {
+      return
+    }
+
+    entries.push({
+      kind: 'add-edge',
+      edge: {
+        index,
+        edge: cloneEdgeForHistory(edge)
+      }
+    })
+  })
+
+  return entries
+}
+
+function buildSetNodesHistoryEntry(
+  beforeNodes: readonly Node[],
+  afterNodes: readonly Node[]
+): GraphHistoryEntry | null | undefined {
+  const entries = buildNodeHistoryEntries(beforeNodes, afterNodes)
+  return entries === undefined ? undefined : buildCompositeHistoryEntry(entries)
+}
+
+function buildSetEdgesHistoryEntry(
+  beforeEdges: readonly Edge[],
+  afterEdges: readonly Edge[]
+): GraphHistoryEntry | null | undefined {
+  const entries = buildEdgeHistoryEntries(beforeEdges, afterEdges)
+  return entries === undefined ? undefined : buildCompositeHistoryEntry(entries)
+}
+
+function buildSetGraphHistoryEntry(
+  beforeSnapshot: GraphSnapshot,
+  afterSnapshot: GraphSnapshot
+): GraphHistoryEntry | null | undefined {
+  const nodeEntries = buildNodeHistoryEntries(beforeSnapshot.nodes, afterSnapshot.nodes)
+  const edgeEntries = buildEdgeHistoryEntries(beforeSnapshot.edges, afterSnapshot.edges)
+
+  if (nodeEntries === undefined || edgeEntries === undefined) {
+    return undefined
+  }
+
+  return buildCompositeHistoryEntry(sortGraphHistoryEntries([...nodeEntries, ...edgeEntries]))
 }
 
 function createReplaceGraphHistoryEntry(
@@ -538,12 +836,38 @@ function resolveGraphMutation(
   }
 }
 
+function resolveDerivedGraphMutation(
+  state: RFState,
+  nextSnapshot: GraphSnapshot,
+  options: GraphMutationOptions | undefined,
+  entry: GraphHistoryEntry | null | undefined
+): Pick<RFState, 'graphHistory' | 'graphRevision'> {
+  if (entry === undefined) {
+    return resolveGraphMutation(state, nextSnapshot, options)
+  }
+
+  if (entry === null) {
+    return resolveGraphMutation(state, nextSnapshot, { ...options, history: 'skip' })
+  }
+
+  return resolveGraphMutation(state, nextSnapshot, options, entry)
+}
+
 function applyGraphHistoryEntry(
   snapshot: GraphSnapshot,
   entry: GraphHistoryEntry,
   direction: 'undo' | 'redo'
 ): GraphSnapshot {
   switch (entry.kind) {
+    case 'composite': {
+      const orderedEntries = direction === 'undo' ? [...entry.entries].reverse() : entry.entries
+
+      return orderedEntries.reduce(
+        (currentSnapshot, currentEntry) =>
+          applyGraphHistoryEntry(currentSnapshot, currentEntry, direction),
+        snapshot
+      )
+    }
     case 'replace-graph':
       return cloneGraphSnapshot(direction === 'undo' ? entry.before : entry.after)
     case 'move-nodes':
@@ -1200,6 +1524,15 @@ const useStore = create<RFState>((set, get) => ({
 
   setNodes: (nodes: Node[], options) => {
     set((state) => {
+      const nextSnapshot = { nodes, edges: state.edges }
+
+      if (options?.resetHistory || options?.history === 'skip') {
+        return {
+          nodes,
+          ...resolveGraphMutation(state, nextSnapshot, options)
+        }
+      }
+
       const historyEntry =
         options?.history === 'drag-commit' && state.graphHistory.dragSession
           ? buildMoveNodesHistoryEntry(
@@ -1209,13 +1542,8 @@ const useStore = create<RFState>((set, get) => ({
                 new Set(state.graphHistory.dragSession.beforeNodes.map((node) => node.id))
               )
             )
-          : null
-      const mutation = resolveGraphMutation(
-        state,
-        { nodes, edges: state.edges },
-        options,
-        historyEntry
-      )
+          : buildSetNodesHistoryEntry(state.nodes, nodes)
+      const mutation = resolveDerivedGraphMutation(state, nextSnapshot, options, historyEntry)
 
       return {
         nodes,
@@ -1225,18 +1553,51 @@ const useStore = create<RFState>((set, get) => ({
   },
 
   setEdges: (edges: Edge[], options) => {
-    set((state) => ({
-      edges,
-      ...resolveGraphMutation(state, { nodes: state.nodes, edges }, options)
-    }))
+    set((state) => {
+      const nextSnapshot = { nodes: state.nodes, edges }
+
+      if (options?.resetHistory || options?.history === 'skip') {
+        return {
+          edges,
+          ...resolveGraphMutation(state, nextSnapshot, options)
+        }
+      }
+
+      return {
+        edges,
+        ...resolveDerivedGraphMutation(
+          state,
+          nextSnapshot,
+          options,
+          buildSetEdgesHistoryEntry(state.edges, edges)
+        )
+      }
+    })
   },
 
   setGraph: (nodes: Node[], edges: Edge[], options) => {
-    set((state) => ({
-      nodes,
-      edges,
-      ...resolveGraphMutation(state, { nodes, edges }, options)
-    }))
+    set((state) => {
+      const nextSnapshot = { nodes, edges }
+
+      if (options?.resetHistory || options?.history === 'skip') {
+        return {
+          nodes,
+          edges,
+          ...resolveGraphMutation(state, nextSnapshot, options)
+        }
+      }
+
+      return {
+        nodes,
+        edges,
+        ...resolveDerivedGraphMutation(
+          state,
+          nextSnapshot,
+          options,
+          buildSetGraphHistoryEntry({ nodes: state.nodes, edges: state.edges }, nextSnapshot)
+        )
+      }
+    })
   },
 
   selectGraphElements: ({ nodeId, edgeId }) => {
