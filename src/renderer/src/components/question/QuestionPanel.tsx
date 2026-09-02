@@ -65,6 +65,7 @@ import {
   QuestionEntryFormatGuideCard,
   SHOW_ENTRY_FORMAT_WORKFLOW
 } from './questionEntryFormatPresentation'
+import { shouldShowQuestionSupportDetails } from './supportDetailsVisibility'
 
 const SECTION_TITLE = 'text-[10px] font-bold uppercase tracking-widest text-nss-muted'
 
@@ -89,13 +90,15 @@ type QuestionPanelView = 'brief' | 'tests'
 function formatSupportTier(tier: SupportTier): string {
   switch (tier) {
     case 'first-class':
-      return 'First-class'
+      return 'Measured'
+    case 'guided':
+      return 'Guided'
     case 'structural-only':
-      return 'Structural only'
+      return 'Structure only'
     case 'presentational-only':
-      return 'Presentational only'
-    default:
-      return tier[0].toUpperCase() + tier.slice(1)
+      return 'Diagram only'
+    case 'deferred':
+      return 'Not checked'
   }
 }
 
@@ -479,8 +482,9 @@ export const QuestionPanel = () => {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeQuestion, justificationAnswers, nodes, edges])
-  const supportReality = useMemo(() => {
-    if (!activeQuestion) {
+  const showSupportDetails = useMemo(() => shouldShowQuestionSupportDetails(), [])
+  const supportDetails = useMemo(() => {
+    if (!activeQuestion || !showSupportDetails) {
       return { domains: [], concepts: [] }
     }
 
@@ -499,7 +503,7 @@ export const QuestionPanel = () => {
             item !== null
         )
     }
-  }, [activeQuestion])
+  }, [activeQuestion, showSupportDetails])
 
   if (!activeQuestion) {
     return (
@@ -865,11 +869,11 @@ export const QuestionPanel = () => {
               </>
             )}
 
-            {(supportReality.domains.length > 0 || supportReality.concepts.length > 0) && (
+            {(supportDetails.domains.length > 0 || supportDetails.concepts.length > 0) && (
               <section className="space-y-2">
-                <h3 className={SECTION_TITLE}>Support Reality</h3>
+                <h3 className={SECTION_TITLE}>Simulator Coverage</h3>
                 <div className="space-y-2">
-                  {supportReality.domains.map(({ label, support }) => (
+                  {supportDetails.domains.map(({ label, support }) => (
                     <div
                       key={`domain-${label}`}
                       className="rounded-md border border-nss-border bg-nss-surface px-3 py-2"
@@ -893,7 +897,7 @@ export const QuestionPanel = () => {
                     </div>
                   ))}
 
-                  {supportReality.concepts.map(({ label, support }) => (
+                  {supportDetails.concepts.map(({ label, support }) => (
                     <div
                       key={`concept-${label}`}
                       className="rounded-md border border-nss-border bg-nss-surface px-3 py-2"
