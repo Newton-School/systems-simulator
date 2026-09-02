@@ -74,6 +74,37 @@ describe('parseSemanticCriterion', () => {
         { scope: 'request', state: 'completed', source: 'engine' }
       ],
       minMatches: 1
+    },
+    {
+      id: 'commit-confirmed',
+      kind: 'stateSequence',
+      points: 10,
+      sequence: [
+        { scope: 'commit-outcome', state: 'intent-recorded', source: 'trait' },
+        { scope: 'commit-outcome', state: 'commit-confirmed', source: 'trait' }
+      ]
+    },
+    {
+      id: 'partition-affinity',
+      kind: 'stateTransition',
+      points: 8,
+      match: {
+        scope: 'broker',
+        state: 'partition-assigned',
+        source: 'trait',
+        nodeType: 'event-broker' as never
+      }
+    },
+    {
+      id: 'http-ack',
+      kind: 'stateTransition',
+      points: 4,
+      match: {
+        scope: 'protocol',
+        state: 'http-acknowledged',
+        source: 'trait',
+        nodeType: 'api-gateway'
+      }
     }
   ]
 

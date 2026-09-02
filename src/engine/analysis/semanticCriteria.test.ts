@@ -410,6 +410,74 @@ describe('runtime semantic criteria', () => {
     expect(res.results[0].detail).toMatch(/sampled request outcomes/i)
   })
 
+  it('evaluates a commit-outcome sequence from runtime evidence', () => {
+    const criterion: SemanticCriterion = {
+      id: 'confirmed-commit',
+      kind: 'stateSequence',
+      points: 6,
+      sequence: [
+        { scope: 'commit-outcome', state: 'intent-recorded', source: 'trait', nodeId: 'idem' },
+        { scope: 'commit-outcome', state: 'commit-confirmed', source: 'trait', nodeId: 'idem' }
+      ]
+    }
+    const ctx: SemanticContext = {
+      runtimeCases: [
+        {
+          caseId: 'payment',
+          output: runtimeOutput([
+            outcome('r1', {
+              stateTimeline: [
+                transition('commit-outcome', 'intent-recorded', {
+                  source: 'trait',
+                  nodeId: 'idem'
+                }),
+                transition('commit-outcome', 'commit-confirmed', {
+                  source: 'trait',
+                  nodeId: 'idem'
+                })
+              ]
+            })
+          ])
+        }
+      ]
+    }
+
+    expect(evaluateSemanticCriteria(runtimeTopology(), [criterion], ctx).results[0].outcome).toBe(
+      'passed'
+    )
+  })
+
+  it('evaluates broker transitions from runtime evidence', () => {
+    const criterion: SemanticCriterion = {
+      id: 'partition-assigned',
+      kind: 'stateTransition',
+      points: 4,
+      match: { scope: 'broker', state: 'partition-assigned', source: 'trait' }
+    }
+    const ctx: SemanticContext = {
+      runtimeCases: [
+        {
+          caseId: 'stream',
+          output: runtimeOutput([
+            outcome('r1', {
+              stateTimeline: [
+                transition('broker', 'partition-assigned', {
+                  source: 'trait',
+                  nodeId: 'stream',
+                  detail: 'partition 2'
+                })
+              ]
+            })
+          ])
+        }
+      ]
+    }
+
+    expect(evaluateSemanticCriteria(runtimeTopology(), [criterion], ctx).results[0].outcome).toBe(
+      'passed'
+    )
+  })
+
   it('returns partial credit when too few outcomes exhibit the authored state sequence', () => {
     const criterion: SemanticCriterion = {
       id: 'lock-then-commit',

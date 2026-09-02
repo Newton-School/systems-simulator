@@ -22,10 +22,10 @@ import {
   type JustificationResult
 } from '../../../../engine/analysis/justification'
 import {
-  mapGeminiResponseToResult,
-  type GeminiGradeRequest,
-  type GeminiGradeResponse
-} from '../../../../engine/analysis/geminiGrader'
+  mapLlmResponseToResult,
+  type LlmGradeRequest,
+  type LlmGradeResponse
+} from '../../../../engine/analysis/llmGrader'
 import { buildQuestionEvaluationContract } from '../../../../engine/analysis/evaluationContract'
 import { buildEvaluationEnvelope } from '../../../../engine/analysis/evaluationEnvelope'
 import {
@@ -65,18 +65,20 @@ import {
   QuestionEntryFormatGuideCard,
   SHOW_ENTRY_FORMAT_WORKFLOW
 } from './questionEntryFormatPresentation'
+import { shouldShowQuestionSupportDetails } from './supportDetailsVisibility'
 
 const SECTION_TITLE = 'text-[10px] font-bold uppercase tracking-widest text-nss-muted'
 
 /**
- * V2: justification feature is now enabled with LLM-backed grading via Gemini.
- * The deterministic keyword grader is kept as a fallback when the Gemini API is
- * unavailable (non-Electron mode, network errors, missing API key).
+ * V2: justification feature is now enabled with LLM-backed grading via the
+ * configured provider (Gemini / Claude / OpenAI). The deterministic keyword
+ * grader is kept as a fallback when the LLM API is unavailable (non-Electron
+ * mode, network errors, no provider key configured).
  */
 const SHOW_JUSTIFICATION = true
 
-/** Debounce delay (ms) for live Gemini grading as the student types. */
-const GEMINI_GRADE_DEBOUNCE_MS = 1500
+/** Debounce delay (ms) for live LLM grading as the student types. */
+const LLM_GRADE_DEBOUNCE_MS = 1500
 
 type PendingRun = {
   kind: 'dry-run' | 'submit'
@@ -88,13 +90,15 @@ type QuestionPanelView = 'brief' | 'tests'
 function formatSupportTier(tier: SupportTier): string {
   switch (tier) {
     case 'first-class':
-      return 'First-class'
+      return 'Measured'
+    case 'guided':
+      return 'Guided'
     case 'structural-only':
-      return 'Structural only'
+      return 'Structure only'
     case 'presentational-only':
-      return 'Presentational only'
-    default:
-      return tier[0].toUpperCase() + tier.slice(1)
+      return 'Diagram only'
+    case 'deferred':
+      return 'Not checked'
   }
 }
 
@@ -379,11 +383,12 @@ export const QuestionPanel = () => {
   // Live, deterministic feedback on justification prompts - graded against the
   // current graph (graph-consistency), no LLM. Re-derives when the graph or an
   // answer changes. Declared before the early return to satisfy rules-of-hooks.
-  // ── Debounced Gemini-backed justification grading ──────────────────────────
-  // Calls Gemini via IPC for semantic grading; falls back to the deterministic
-  // grader when the API is unavailable or the student hasn't typed enough.
+  // ── Debounced LLM-backed justification grading ─────────────────────────────
+  // Calls the configured LLM provider via IPC for semantic grading; falls back
+  // to the deterministic grader when the API is unavailable or the student
+  // hasn't typed enough.
   const [justifyGrades, setJustifyGrades] = useState<Record<string, JustificationResult>>({})
-  const geminiTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const llmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const gradeDeterministic = useCallback((): Record<string, JustificationResult> => {
     const prompts = activeQuestion?.justify ?? []
@@ -416,16 +421,16 @@ export const QuestionPanel = () => {
       return
     }
 
-    // Immediately show deterministic grades while Gemini is pending
+    // Immediately show deterministic grades while the LLM call is pending
     setJustifyGrades(gradeDeterministic())
 
-    // Check if Gemini IPC is available (Electron only)
-    const geminiAvailable = typeof window.nssimulator?.gradeJustification === 'function'
-    if (!geminiAvailable) return
+    // Check if LLM grading IPC is available (Electron only)
+    const llmAvailable = typeof window.nssimulator?.gradeJustification === 'function'
+    if (!llmAvailable) return
 
-    // Debounce the Gemini call
-    if (geminiTimerRef.current) clearTimeout(geminiTimerRef.current)
-    geminiTimerRef.current = setTimeout(async () => {
+    // Debounce the LLM call
+    if (llmTimerRef.current) clearTimeout(llmTimerRef.current)
+    llmTimerRef.current = setTimeout(async () => {
       const { topology } = serialize()
       if (!topology) return
 
@@ -437,18 +442,18 @@ export const QuestionPanel = () => {
       ]
       const ctx = buildJustificationContext(topology, scaleNumbers)
 
-      const geminiGrades: Record<string, JustificationResult> = {}
+      const llmGrades: Record<string, JustificationResult> = {}
       for (const prompt of prompts) {
         const text = justificationAnswers[prompt.id] ?? ''
         if (text.trim().length < 10) {
           // Too short for LLM — use deterministic grade
-          geminiGrades[prompt.id] = gradeJustification(prompt, { promptId: prompt.id, text }, ctx)
+          llmGrades[prompt.id] = gradeJustification(prompt, { promptId: prompt.id, text }, ctx)
           continue
         }
 
         try {
           const boundType = ctx.resolveBoundType(prompt.boundTo)
-          const request: GeminiGradeRequest = {
+          const request: LlmGradeRequest = {
             prompt,
             studentAnswer: text,
             actualComponentType: boundType,
@@ -456,29 +461,30 @@ export const QuestionPanel = () => {
           }
           const ipcResult = await window.nssimulator!.gradeJustification(request)
           if (ipcResult.ok && ipcResult.data) {
-            geminiGrades[prompt.id] = mapGeminiResponseToResult(
+            llmGrades[prompt.id] = mapLlmResponseToResult(
               prompt.id,
-              ipcResult.data as GeminiGradeResponse
+              ipcResult.data as LlmGradeResponse
             )
           } else {
-            // Gemini failed — keep deterministic fallback
-            geminiGrades[prompt.id] = gradeJustification(prompt, { promptId: prompt.id, text }, ctx)
+            // LLM failed — keep deterministic fallback
+            llmGrades[prompt.id] = gradeJustification(prompt, { promptId: prompt.id, text }, ctx)
           }
         } catch {
           // Network/IPC error — keep deterministic fallback
-          geminiGrades[prompt.id] = gradeJustification(prompt, { promptId: prompt.id, text }, ctx)
+          llmGrades[prompt.id] = gradeJustification(prompt, { promptId: prompt.id, text }, ctx)
         }
       }
-      setJustifyGrades(geminiGrades)
-    }, GEMINI_GRADE_DEBOUNCE_MS)
+      setJustifyGrades(llmGrades)
+    }, LLM_GRADE_DEBOUNCE_MS)
 
     return () => {
-      if (geminiTimerRef.current) clearTimeout(geminiTimerRef.current)
+      if (llmTimerRef.current) clearTimeout(llmTimerRef.current)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeQuestion, justificationAnswers, nodes, edges])
-  const supportReality = useMemo(() => {
-    if (!activeQuestion) {
+  const showSupportDetails = useMemo(() => shouldShowQuestionSupportDetails(), [])
+  const supportDetails = useMemo(() => {
+    if (!activeQuestion || !showSupportDetails) {
       return { domains: [], concepts: [] }
     }
 
@@ -497,7 +503,7 @@ export const QuestionPanel = () => {
             item !== null
         )
     }
-  }, [activeQuestion])
+  }, [activeQuestion, showSupportDetails])
 
   if (!activeQuestion) {
     return (
@@ -863,11 +869,11 @@ export const QuestionPanel = () => {
               </>
             )}
 
-            {(supportReality.domains.length > 0 || supportReality.concepts.length > 0) && (
+            {(supportDetails.domains.length > 0 || supportDetails.concepts.length > 0) && (
               <section className="space-y-2">
-                <h3 className={SECTION_TITLE}>Support Reality</h3>
+                <h3 className={SECTION_TITLE}>Simulator Coverage</h3>
                 <div className="space-y-2">
-                  {supportReality.domains.map(({ label, support }) => (
+                  {supportDetails.domains.map(({ label, support }) => (
                     <div
                       key={`domain-${label}`}
                       className="rounded-md border border-nss-border bg-nss-surface px-3 py-2"
@@ -891,7 +897,7 @@ export const QuestionPanel = () => {
                     </div>
                   ))}
 
-                  {supportReality.concepts.map(({ label, support }) => (
+                  {supportDetails.concepts.map(({ label, support }) => (
                     <div
                       key={`concept-${label}`}
                       className="rounded-md border border-nss-border bg-nss-surface px-3 py-2"
@@ -920,17 +926,14 @@ export const QuestionPanel = () => {
 
             {budget && liveTopology && <BudgetMeter budget={budget} topology={liveTopology} />}
 
-            {/* V1: the justification feature is hidden. The current grader is a
-               rigid deterministic keyword/number/tradeoff matcher (not an LLM),
-               which produces confusing "inconsistent" feedback. We will redesign
-               this UX for V2. The section is force-disabled here and `justify` is
-               also stripped from the question files, so nothing renders. */}
+            {/* Justification is evaluated against graph consistency plus fair,
+               explainable prose checks before optional AI grading is used. */}
             {SHOW_JUSTIFICATION && activeQuestion.justify && activeQuestion.justify.length > 0 && (
               <section className="space-y-2">
                 <h3 className={SECTION_TITLE}>Justify your design</h3>
                 <p className="text-[11px] leading-relaxed text-nss-muted">
-                  Reference the component you actually placed, cite a number from the question, and
-                  state a tradeoff. Your answer is evaluated by AI for semantic correctness.
+                  Reference the component you actually placed, give a concrete reason, cite a
+                  question number when required, and state the tradeoff.
                 </p>
                 <div className="space-y-3">
                   {activeQuestion.justify.map((prompt) => {

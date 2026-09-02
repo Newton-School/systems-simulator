@@ -37,6 +37,7 @@ const SERVER_ERROR_HINTS: Record<string, string> = {
   oom: '503',
   max_concurrency_exceeded: '503',
   no_healthy_targets: '503',
+  broker_unavailable: '503',
   circuit_breaker_open: '503',
   lock_contended: '503',
   read_only_node: '503',

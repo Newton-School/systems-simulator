@@ -64,7 +64,6 @@ import {
   LibrarySidebarContent,
   type LibrarySidebarTab
 } from '../library/LibrarySidebar'
-import { FlowCanvas } from '../canvas/FlowCanvas'
 import { Header } from './Header'
 import { SampleScenarioPicker } from '../samples/SampleScenarioPicker'
 import { SAMPLE_SCENARIOS, type SampleScenario } from '@renderer/config/sampleScenarios'
@@ -101,6 +100,11 @@ const PropertiesPanel = lazy(async () => {
 const ResultsTray = lazy(async () => {
   const module = await import('../simulation/ResultsTray')
   return { default: module.ResultsTray }
+})
+
+const FlowCanvas = lazy(async () => {
+  const module = await import('../canvas/FlowCanvas')
+  return { default: module.FlowCanvas }
 })
 
 function titleCaseField(field: string): string {
@@ -1155,14 +1159,16 @@ export const WorkspaceLayout = () => {
               {/* Canvas */}
               <Panel defaultSize={showResults ? 65 : 100} minSize={10} order={1}>
                 <div className="relative h-full">
-                  <FlowCanvas
-                    showMetricLens={environmentProfile.visibility.liveMetrics}
-                    interactionLocked={experienceEnvelope.canvasLocked}
-                    onNodeDoubleClick={(_, node) => {
-                      selectGraphElements({ nodeId: node.id })
-                      setIsRightOpen(true)
-                    }}
-                  />
+                  <Suspense fallback={<PanelFallback label="Loading canvas..." />}>
+                    <FlowCanvas
+                      showMetricLens={environmentProfile.visibility.liveMetrics}
+                      interactionLocked={experienceEnvelope.canvasLocked}
+                      onNodeDoubleClick={(_, node) => {
+                        selectGraphElements({ nodeId: node.id })
+                        setIsRightOpen(true)
+                      }}
+                    />
+                  </Suspense>
 
                   {!showResults && sim.results && (
                     <button

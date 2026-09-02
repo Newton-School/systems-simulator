@@ -12,6 +12,7 @@ import {
   type RequestOutcomeFamily
 } from '../core/requestOutcomeSemantics'
 import {
+  COMMIT_OUTCOME_TIMELINE_STATES,
   DELIVERY_TIMELINE_STATES,
   IDEMPOTENCY_TIMELINE_STATES,
   LOCK_TIMELINE_STATES,
@@ -19,6 +20,7 @@ import {
   REQUEST_TIMELINE_STATES,
   RESERVATION_TIMELINE_STATES,
   type DeliveryGuarantee,
+  type CommitOutcomeTimelineState,
   type DeliveryTimelineState,
   type IdempotencyTimelineState,
   type LockTimelineState,
@@ -162,6 +164,7 @@ export interface RuntimeSemanticsSummary {
     request: Record<RequestTimelineState, number>
     delivery: Record<DeliveryTimelineState, number>
     idempotency: Record<IdempotencyTimelineState, number>
+    commitOutcome: Record<CommitOutcomeTimelineState, number>
     lock: Record<LockTimelineState, number>
     reservation: Record<ReservationTimelineState, number>
   }
@@ -171,9 +174,46 @@ export interface RuntimeSemanticsSummary {
     redeliveryScheduled: number
     dlqRouted: number
     duplicateSuppressed: number
+    commitOutcomeUnknown: number
     lockContended: number
     reservationOversold: number
   }
+}
+
+export interface StreamBrokerProjection {
+  nodeId: string
+  brokerAvailable: boolean
+  partitions: Array<{
+    partition: number
+    startOffset: number
+    nextOffset: number
+    retainedRecords: number
+  }>
+  groups: Array<{
+    group: string
+    members: string[]
+    committedOffsets: Record<string, number>
+    lag: Record<string, number>
+  }>
+  replayCount: number
+  retentionRemovals: number
+}
+
+export interface ReplicationProjection {
+  clusterId: string
+  protocol: string
+  conflictResolution: string
+  leaderId: string | null
+  quorumSize: number
+  healthyReplicas: number
+  hasQuorum: boolean
+  members: Array<{
+    id: string
+    role: string
+    term: number
+    appliedIndex: number
+    durableIndex: number
+  }>
 }
 
 export interface SimulationOutput {
@@ -220,6 +260,10 @@ export interface SimulationOutput {
   requestOutcomesSampled: boolean
   /** Exact run-level semantics summary computed before any worker-side sampling. */
   runtimeSemanticsSummary: RuntimeSemanticsSummary
+  /** Broker-state projections for stream nodes with partitioned broker semantics enabled. */
+  streamProjection: StreamBrokerProjection[]
+  /** Durable replication cluster projections for storage nodes with replication enabled. */
+  replicationProjection: ReplicationProjection[]
 }
 
 const RUNTIME_DELIVERY_GUARANTEES = [
@@ -246,6 +290,8 @@ export function generateSimulationOutput(
     requestOutcomeTotal?: number
     requestOutcomeBreakdown?: Record<RequestOutcomeFamily, number>
     requestOutcomesSampled?: boolean
+    streamProjection?: StreamBrokerProjection[]
+    replicationProjection?: ReplicationProjection[]
   }
 ): SimulationOutput {
   const summary = metrics.generateSummary(config.simulationDuration)
@@ -290,7 +336,9 @@ export function generateSimulationOutput(
     requestOutcomeBreakdown:
       debugData?.requestOutcomeBreakdown ?? createEmptyRequestOutcomeBreakdown(),
     requestOutcomesSampled: debugData?.requestOutcomesSampled ?? false,
-    runtimeSemanticsSummary
+    runtimeSemanticsSummary,
+    streamProjection: debugData?.streamProjection ?? [],
+    replicationProjection: debugData?.replicationProjection ?? []
   }
 }
 
@@ -311,6 +359,7 @@ function buildRuntimeSemanticsSummary(
       request: createCountRecord(REQUEST_TIMELINE_STATES),
       delivery: createCountRecord(DELIVERY_TIMELINE_STATES),
       idempotency: createCountRecord(IDEMPOTENCY_TIMELINE_STATES),
+      commitOutcome: createCountRecord(COMMIT_OUTCOME_TIMELINE_STATES),
       lock: createCountRecord(LOCK_TIMELINE_STATES),
       reservation: createCountRecord(RESERVATION_TIMELINE_STATES)
     },
@@ -320,6 +369,7 @@ function buildRuntimeSemanticsSummary(
       redeliveryScheduled: 0,
       dlqRouted: 0,
       duplicateSuppressed: 0,
+      commitOutcomeUnknown: 0,
       lockContended: 0,
       reservationOversold: 0
     }
@@ -344,6 +394,7 @@ function buildRuntimeSemanticsSummary(
     let redeliveryScheduled = false
     let dlqRouted = false
     let duplicateSuppressed = false
+    let commitOutcomeUnknown = false
     let lockContended = false
     let reservationOversold = false
 
@@ -368,6 +419,13 @@ function buildRuntimeSemanticsSummary(
           summary.transitionCounts.idempotency[transition.state as IdempotencyTimelineState] += 1
           if (transition.state === 'deduped') {
             duplicateSuppressed = true
+          }
+          break
+        case 'commit-outcome':
+          summary.transitionCounts.commitOutcome[transition.state as CommitOutcomeTimelineState] +=
+            1
+          if (transition.state === 'outcome-unknown') {
+            commitOutcomeUnknown = true
           }
           break
         case 'lock':
@@ -399,6 +457,9 @@ function buildRuntimeSemanticsSummary(
     }
     if (duplicateSuppressed) {
       summary.affectedOutcomeCounts.duplicateSuppressed += 1
+    }
+    if (commitOutcomeUnknown) {
+      summary.affectedOutcomeCounts.commitOutcomeUnknown += 1
     }
     if (lockContended) {
       summary.affectedOutcomeCounts.lockContended += 1

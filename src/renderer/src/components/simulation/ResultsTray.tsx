@@ -22,6 +22,7 @@ import type {
   DebugEvent,
   RequestOutcomeRecord
 } from '../../../../engine/core/event-stream'
+import { projectToDebugEvent } from '../../../../engine/core/event-stream'
 import type { CanvasNodeDataV2 } from '../../../../engine/catalog/nodeSpecTypes'
 import {
   REQUEST_OUTCOME_FAMILIES,
@@ -196,6 +197,7 @@ function requestMixEntries(workload: ScenarioRunContext['workload']) {
 const SECTION_TITLE = 'text-[11px] font-semibold text-nss-muted uppercase tracking-wider'
 const SURFACE_CARD = 'bg-nss-surface border border-nss-border rounded-md'
 const TRAFFIC_EVENT_LOG_SIZE = 24
+const EVENT_LOG_PAGE_SIZE = 50
 const RESULTS_TABS: Array<{ id: ResultsTab; label: string }> = [
   { id: 'overview', label: 'Overview' },
   { id: 'bottlenecks', label: 'Bottlenecks' },
@@ -939,6 +941,217 @@ function TrafficEventLog({
             : mode === 'live'
               ? 'Waiting for requests to start moving through the graph.'
               : 'No retained request traversals exist at this replay point yet.'}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function SimulationEventLog({
+  output,
+  graphLookup
+}: {
+  output: SimulationOutput
+  graphLookup: EventGraphLookup
+}) {
+  const selectGraphElements = useStore((state) => state.selectGraphElements)
+  const [query, setQuery] = useState('')
+  const [page, setPage] = useState(1)
+  const trimmedQuery = query.trim().toLowerCase()
+  const retainedEvents = output.eventStream
+  const totalEventCount = totalReplayEventCount(output)
+  const eventsTruncated = retainedEvents.length < totalEventCount
+  const visibleEvents = useMemo(() => {
+    if (trimmedQuery === '') {
+      return retainedEvents
+    }
+
+    return retainedEvents.filter((event) => {
+      const projected = projectToDebugEvent(event)
+      const nodeLabel = event.nodeId
+        ? (labelForNode(event.nodeId, graphLookup) ?? event.nodeId)
+        : ''
+      const edgeLabel = event.edgeId
+        ? (graphLookup.edgeById.get(event.edgeId)?.label ?? event.edgeId)
+        : ''
+      return `${event.sequence} ${event.type} ${projected.message} ${event.requestId ?? ''} ${nodeLabel} ${edgeLabel} ${event.reasonCode ?? ''}`
+        .toLowerCase()
+        .includes(trimmedQuery)
+    })
+  }, [graphLookup, retainedEvents, trimmedQuery])
+  const pageCount = Math.max(1, Math.ceil(visibleEvents.length / EVENT_LOG_PAGE_SIZE))
+  const clampedPage = Math.min(page, pageCount)
+  const pageStart = (clampedPage - 1) * EVENT_LOG_PAGE_SIZE
+  const pagedEvents = visibleEvents.slice(pageStart, pageStart + EVENT_LOG_PAGE_SIZE)
+
+  useEffect(() => {
+    setPage(1)
+  }, [trimmedQuery])
+
+  return (
+    <div className={`${SURFACE_CARD} p-3`}>
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs font-semibold uppercase tracking-wider text-nss-muted">
+              Simulation Event Log
+            </span>
+            <TooltipInfo
+              label="About the simulation event log"
+              content="The ordered engine record of what happened during the run. One request creates several events, such as arrival, queueing, processing, forwarding, and terminal completion or failure."
+            />
+          </div>
+          <div className="text-[11px] text-nss-muted">
+            {eventsTruncated
+              ? `${retainedEvents.length.toLocaleString()} of ${totalEventCount.toLocaleString()} events are retained. Pagination and search cover the retained event history.`
+              : 'Every retained engine event, in deterministic sequence order.'}
+          </div>
+        </div>
+        <span className="text-[10px] text-nss-muted tabular-nums">
+          {visibleEvents.length.toLocaleString()} visible
+        </span>
+      </div>
+
+      <div className="relative mt-2">
+        <Search
+          size={13}
+          className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-nss-muted"
+          aria-hidden="true"
+        />
+        <input
+          type="text"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Search by event, request, node, edge, or reason..."
+          aria-label="Search simulation events"
+          className="w-full rounded-md border border-nss-border bg-nss-bg py-1.5 pl-8 pr-8 text-[11px] text-nss-text placeholder:text-nss-muted focus:border-nss-primary/50 focus:outline-none focus:ring-1 focus:ring-nss-primary/40"
+        />
+        {query !== '' && (
+          <button
+            type="button"
+            onClick={() => setQuery('')}
+            aria-label="Clear event search"
+            className="absolute right-2 top-1/2 -translate-y-1/2 text-nss-muted hover:text-nss-text"
+          >
+            <X size={13} />
+          </button>
+        )}
+      </div>
+
+      {pagedEvents.length > 0 ? (
+        <div className="mt-3 overflow-hidden rounded-md border border-nss-border">
+          <div className="max-h-80 overflow-auto">
+            <table className="w-full text-[11px] tabular-nums">
+              <thead className="sticky top-0 border-b border-nss-border bg-nss-surface text-nss-muted">
+                <tr>
+                  <th className="px-2 py-1.5 text-left">#</th>
+                  <th className="px-2 py-1.5 text-left">Sim Time</th>
+                  <th className="px-2 py-1.5 text-left">Event</th>
+                  <th className="px-2 py-1.5 text-left">Request</th>
+                  <th className="px-2 py-1.5 text-left">Details</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pagedEvents.map((event) => {
+                  const projected = projectToDebugEvent(event)
+                  const nodeLabel = event.nodeId
+                    ? (labelForNode(event.nodeId, graphLookup) ?? event.nodeId)
+                    : null
+                  const edgeLabel = event.edgeId
+                    ? (graphLookup.edgeById.get(event.edgeId)?.label ?? event.edgeId)
+                    : null
+                  return (
+                    <tr
+                      key={event.sequence}
+                      tabIndex={0}
+                      onClick={() =>
+                        selectGraphElements(
+                          event.edgeId
+                            ? { edgeId: event.edgeId }
+                            : event.nodeId
+                              ? { nodeId: event.nodeId }
+                              : {}
+                        )
+                      }
+                      onKeyDown={(keyboardEvent) => {
+                        if (keyboardEvent.key !== 'Enter' && keyboardEvent.key !== ' ') return
+                        keyboardEvent.preventDefault()
+                        selectGraphElements(
+                          event.edgeId
+                            ? { edgeId: event.edgeId }
+                            : event.nodeId
+                              ? { nodeId: event.nodeId }
+                              : {}
+                        )
+                      }}
+                      className="cursor-pointer border-b border-nss-border outline-none hover:bg-nss-bg focus:bg-nss-bg"
+                    >
+                      <td className="px-2 py-1 text-nss-muted">
+                        {event.sequence.toLocaleString()}
+                      </td>
+                      <td className="px-2 py-1 text-nss-muted">
+                        {fmtChartTime(Number(event.timestampUs) / 1000)}
+                      </td>
+                      <td className="px-2 py-1">
+                        <span
+                          className={`rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${eventStatusClass(projected.status)}`}
+                        >
+                          {lifecycleStepLabel(event.type)}
+                        </span>
+                      </td>
+                      <td className="max-w-40 px-2 py-1 text-nss-muted">
+                        <span className="block truncate">{event.requestId ?? '-'}</span>
+                      </td>
+                      <td className="max-w-80 px-2 py-1 text-nss-muted">
+                        <div className="truncate text-nss-text" title={projected.message}>
+                          {projected.message}
+                        </div>
+                        {(nodeLabel || edgeLabel || event.reasonCode) && (
+                          <div className="truncate text-[10px] text-nss-muted">
+                            {[nodeLabel, edgeLabel, event.reasonCode].filter(Boolean).join(' • ')}
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+          <div className="flex items-center justify-between gap-3 border-t border-nss-border px-2 py-1.5 text-[10px] text-nss-muted">
+            <span className="tabular-nums">
+              Showing {(pageStart + 1).toLocaleString()}–
+              {(pageStart + pagedEvents.length).toLocaleString()} of{' '}
+              {visibleEvents.length.toLocaleString()}
+            </span>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setPage((current) => Math.max(1, current - 1))}
+                disabled={clampedPage <= 1}
+                className="inline-flex items-center gap-0.5 rounded border border-nss-border px-1.5 py-0.5 text-nss-muted transition-colors hover:text-nss-text disabled:opacity-40 disabled:hover:text-nss-muted"
+              >
+                <ChevronLeft size={12} /> Prev
+              </button>
+              <span className="px-1 tabular-nums">
+                {clampedPage} / {pageCount}
+              </span>
+              <button
+                type="button"
+                onClick={() => setPage((current) => Math.min(pageCount, current + 1))}
+                disabled={clampedPage >= pageCount}
+                className="inline-flex items-center gap-0.5 rounded border border-nss-border px-1.5 py-0.5 text-nss-muted transition-colors hover:text-nss-text disabled:opacity-40 disabled:hover:text-nss-muted"
+              >
+                Next <ChevronRight size={12} />
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="mt-3 text-xs text-nss-muted">
+          {trimmedQuery === ''
+            ? 'No engine events were retained for this run.'
+            : 'No events match this search.'}
         </div>
       )}
     </div>
@@ -2177,6 +2390,8 @@ function ReplayMonitorPanel({
       </div>
 
       <RequestOutcomeLog output={output} graphLookup={graphLookup} />
+
+      <SimulationEventLog output={output} graphLookup={graphLookup} />
 
       <BusiestNodesCard
         busiestNodes={busiestNodes}

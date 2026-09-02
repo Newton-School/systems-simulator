@@ -24,6 +24,11 @@ export type EventType =
   | 'cache-hit'
   | 'cache-miss'
   | 'db-failover'
+  | 'stream-retention-expire'
+  | 'stream-replay'
+  | 'consumer-group-rebalance'
+  | 'broker-failure'
+  | 'broker-recovery'
 
 /**
  * Priorities for tie-breaking when two events share the same timestamp.
@@ -197,6 +202,11 @@ function getDefaultPriority(type: EventType): number {
     case 'circuit-breaker-close':
     case 'health-check':
     case 'db-failover':
+    case 'stream-retention-expire':
+    case 'stream-replay':
+    case 'consumer-group-rebalance':
+    case 'broker-failure':
+    case 'broker-recovery':
       return EventPriority.SYSTEM
 
     default: {

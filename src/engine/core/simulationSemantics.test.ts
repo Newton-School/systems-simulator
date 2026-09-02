@@ -87,6 +87,9 @@ describe('simulation semantics', () => {
         forkConsumerRequest: true,
         idempotencyDecision: 'duplicate',
         idempotencyKey: 'payment-1',
+        commitOutcomeDecision: 'outcome-unknown',
+        streamPartition: 2,
+        consumerGroup: 'indexers',
         lockDecision: 'contended',
         resourceKey: 'seat-42',
         reason: 'lock_contended',
@@ -102,6 +105,21 @@ describe('simulation semantics', () => {
         expect.objectContaining({
           scope: 'idempotency',
           state: 'deduped'
+        }),
+        expect.objectContaining({
+          scope: 'commit-outcome',
+          state: 'outcome-unknown',
+          reasonCode: 'lock_contended'
+        }),
+        expect.objectContaining({
+          scope: 'broker',
+          state: 'partition-assigned',
+          detail: 'partition 2'
+        }),
+        expect.objectContaining({
+          scope: 'broker',
+          state: 'group-delivered',
+          detail: 'group indexers'
         }),
         expect.objectContaining({
           scope: 'lock',

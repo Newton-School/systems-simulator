@@ -1,4 +1,12 @@
-import { useEffect, useMemo, useState, type KeyboardEvent, type ReactNode } from 'react'
+import {
+  lazy,
+  Suspense,
+  useEffect,
+  useMemo,
+  useState,
+  type KeyboardEvent,
+  type ReactNode
+} from 'react'
 import { clsx } from 'clsx'
 import {
   Activity,
@@ -32,7 +40,7 @@ import { PropertiesHeader } from './PropertiesHeader'
 import { PropertiesForm } from './PropertiesForm'
 import { NodeMetricsDetail, SourceNodeMetricsDetail } from './NodeMetricsDetail'
 import { MetricItem } from './MetricItem'
-import { EdgePropertiesPanel, type EdgePropertiesPanelValue } from '../ui/EdgePropertiesPanel'
+import type { EdgePropertiesPanelValue } from '../ui/EdgePropertiesPanel'
 import { TooltipInfo } from '../ui/Tooltip'
 import { LocationRollupsPanel } from '@renderer/components/location/LocationRollupsPanel'
 import {
@@ -55,10 +63,21 @@ import {
   normalizeTextLabelText
 } from '../nodes/textLabelEditing'
 
+const EdgePropertiesPanel = lazy(async () => {
+  const module = await import('../ui/EdgePropertiesPanel')
+  return { default: module.EdgePropertiesPanel }
+})
+
 const EmptyState = () => (
   <div className="h-full bg-nss-panel border-l border-nss-border flex flex-col items-center justify-center text-nss-muted gap-2">
     <Settings size={24} className="opacity-20" />
     <p className="text-xs font-medium uppercase tracking-wide">No Selection</p>
+  </div>
+)
+
+const EdgeInspectorFallback = () => (
+  <div className="h-full bg-nss-panel border-l border-nss-border p-4 text-xs text-nss-muted">
+    Loading edge inspector...
   </div>
 )
 
@@ -1611,47 +1630,51 @@ export const PropertiesPanel = ({ results = null }: { results?: SimulationOutput
     }
 
     return (
-      <EdgePropertiesPanel
-        title={selectedEdgeHasRuntime && tab === 'metrics' ? 'Edge Results' : 'Edge Properties'}
-        leadingAction={
-          selectedEdgeHasRuntime ? (
-            <RunInspectorHeaderAction mode={inspectorActionMode} onClick={returnToRunInspector} />
-          ) : null
-        }
-        sourceNodeData={sourceNodeData}
-        targetNodeData={targetNodeData}
-        sourceLocationLabel={formatNodeLocation(
-          locationTopology.nodeLocations.get(selectedEdge.source)
-        )}
-        targetLocationLabel={formatNodeLocation(
-          locationTopology.nodeLocations.get(selectedEdge.target)
-        )}
-        containerDerivedPathType={containerDerivedPath}
-        value={{
-          label: (selectedEdge.label as string) || '',
-          ...(((selectedEdge.data as EdgeSimulationData | undefined) ?? {}) as EdgeSimulationData)
-        }}
-        onChange={handleEdgeChange}
-        onClose={() => selectGraphElements({})}
-        readOnly={!canEditEdges}
-        connectorOnly={edgeIsConnectorOnly}
-        tabs={selectedEdgeHasRuntime ? <InspectorTabs active={tab} onChange={setTab} /> : undefined}
-      >
-        {selectedEdgeLocked && (
-          <div className="mb-4 flex items-start gap-2 rounded-md border border-nss-warning/30 bg-nss-warning/10 px-3 py-2 text-[11px] leading-relaxed text-nss-warning">
-            <Lock size={13} className="mt-0.5 shrink-0" />
-            <span>
-              This edge is provided by the question and locked in this environment. Its
-              configuration can&apos;t be changed and it can&apos;t be removed.
-            </span>
-          </div>
-        )}
-        {selectedEdgeHasRuntime && tab === 'metrics' ? (
-          selectedEdgeFlow ? (
-            <EdgeMetricsDetail flow={selectedEdgeFlow} />
-          ) : undefined
-        ) : undefined}
-      </EdgePropertiesPanel>
+      <Suspense fallback={<EdgeInspectorFallback />}>
+        <EdgePropertiesPanel
+          title={selectedEdgeHasRuntime && tab === 'metrics' ? 'Edge Results' : 'Edge Properties'}
+          leadingAction={
+            selectedEdgeHasRuntime ? (
+              <RunInspectorHeaderAction mode={inspectorActionMode} onClick={returnToRunInspector} />
+            ) : null
+          }
+          sourceNodeData={sourceNodeData}
+          targetNodeData={targetNodeData}
+          sourceLocationLabel={formatNodeLocation(
+            locationTopology.nodeLocations.get(selectedEdge.source)
+          )}
+          targetLocationLabel={formatNodeLocation(
+            locationTopology.nodeLocations.get(selectedEdge.target)
+          )}
+          containerDerivedPathType={containerDerivedPath}
+          value={{
+            label: (selectedEdge.label as string) || '',
+            ...(((selectedEdge.data as EdgeSimulationData | undefined) ?? {}) as EdgeSimulationData)
+          }}
+          onChange={handleEdgeChange}
+          onClose={() => selectGraphElements({})}
+          readOnly={!canEditEdges}
+          connectorOnly={edgeIsConnectorOnly}
+          tabs={
+            selectedEdgeHasRuntime ? <InspectorTabs active={tab} onChange={setTab} /> : undefined
+          }
+        >
+          {selectedEdgeLocked && (
+            <div className="mb-4 flex items-start gap-2 rounded-md border border-nss-warning/30 bg-nss-warning/10 px-3 py-2 text-[11px] leading-relaxed text-nss-warning">
+              <Lock size={13} className="mt-0.5 shrink-0" />
+              <span>
+                This edge is provided by the question and locked in this environment. Its
+                configuration can&apos;t be changed and it can&apos;t be removed.
+              </span>
+            </div>
+          )}
+          {selectedEdgeHasRuntime && tab === 'metrics' ? (
+            selectedEdgeFlow ? (
+              <EdgeMetricsDetail flow={selectedEdgeFlow} />
+            ) : undefined
+          ) : undefined}
+        </EdgePropertiesPanel>
+      </Suspense>
     )
   }
 

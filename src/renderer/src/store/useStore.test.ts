@@ -323,6 +323,37 @@ describe('useStore graph history', () => {
     expect(useStore.getState().edges).toEqual([])
   })
 
+  it('records setGraph reordering as inverse reorder operations', () => {
+    useStore
+      .getState()
+      .setGraph(
+        [node('n1'), node('n2'), node('n3')] as any,
+        [edge('e1', 'n1', 'n2'), edge('e2', 'n2', 'n3')] as any,
+        { history: 'skip', resetHistory: true }
+      )
+
+    useStore
+      .getState()
+      .setGraph(
+        [node('n3'), node('n1'), node('n2')] as any,
+        [edge('e2', 'n2', 'n3'), edge('e1', 'n1', 'n2')] as any
+      )
+
+    expect(useStore.getState().graphHistory.past).toHaveLength(1)
+    expect(useStore.getState().graphHistory.past[0]).toMatchObject({
+      kind: 'composite',
+      entries: [{ kind: 'reorder-nodes' }, { kind: 'reorder-edges' }]
+    })
+
+    useStore.getState().undoGraph()
+    expect(useStore.getState().nodes.map((current) => current.id)).toEqual(['n1', 'n2', 'n3'])
+    expect(useStore.getState().edges.map((current) => current.id)).toEqual(['e1', 'e2'])
+
+    useStore.getState().redoGraph()
+    expect(useStore.getState().nodes.map((current) => current.id)).toEqual(['n3', 'n1', 'n2'])
+    expect(useStore.getState().edges.map((current) => current.id)).toEqual(['e2', 'e1'])
+  })
+
   it('does not record history for selection-only setGraph changes', () => {
     useStore.getState().setGraph([{ ...node('n1'), selected: true } as any], [], {
       history: 'skip',

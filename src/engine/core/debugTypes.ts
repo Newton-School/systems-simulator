@@ -100,7 +100,12 @@ const STATUS_BY_EVENT_TYPE: Record<EventType, DebugEvent['status']> = {
   'health-check': 'info',
   'cache-hit': 'success',
   'cache-miss': 'info',
-  'db-failover': 'warn'
+  'db-failover': 'warn',
+  'stream-retention-expire': 'info',
+  'stream-replay': 'info',
+  'consumer-group-rebalance': 'info',
+  'broker-failure': 'danger',
+  'broker-recovery': 'success'
 }
 
 const LIFECYCLE_EVENT_RANK: Partial<Record<EventType, number>> = {
@@ -205,6 +210,16 @@ function formatEventMessage(
       return `Cache miss at ${nodeLabel}`
     case 'db-failover':
       return `Database failover at ${nodeLabel}`
+    case 'stream-retention-expire':
+      return `Stream retention expired at ${nodeLabel}`
+    case 'stream-replay':
+      return `Stream replay read at ${nodeLabel}`
+    case 'consumer-group-rebalance':
+      return `Consumer group rebalanced at ${nodeLabel}`
+    case 'broker-failure':
+      return `Broker failed: ${nodeLabel}`
+    case 'broker-recovery':
+      return `Broker recovered: ${nodeLabel}`
     default: {
       const exhaustiveCheck: never = event.type
       return exhaustiveCheck

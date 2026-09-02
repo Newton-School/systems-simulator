@@ -91,6 +91,40 @@ function makeQueueNode(
   }
 }
 
+function makeStreamNode(
+  id: string,
+  config: Record<string, unknown> | undefined = undefined
+): ComponentNode {
+  return {
+    id,
+    type: 'stream',
+    category: 'messaging-and-streaming',
+    role: 'processor',
+    label: id,
+    position: { x: 0, y: 0 },
+    queue: { workers: 1, capacity: 100, discipline: 'fifo' },
+    processing: { distribution: { type: 'constant', value: 0 }, timeout: 1_000 },
+    config
+  }
+}
+
+function makeDatabaseNode(
+  id: string,
+  config: Record<string, unknown> | undefined = undefined
+): ComponentNode {
+  return {
+    id,
+    type: 'relational-db',
+    category: 'storage-and-data',
+    role: 'storage',
+    label: id,
+    position: { x: 0, y: 0 },
+    queue: { workers: 20, capacity: 1000, discipline: 'fifo' },
+    processing: { distribution: { type: 'constant', value: 1 }, timeout: 1_000 },
+    config
+  }
+}
+
 function makeEdge(
   id: string,
   source: string,
@@ -218,6 +252,252 @@ describe('SimulationEngine', () => {
       queueLength: 1,
       workers: 1,
       capacity: 2
+    })
+  })
+
+  it('expires stream records at their scheduled retention deadline and projects offsets', () => {
+    const topology = makeTopology({
+      global: { simulationDuration: 5, defaultTimeout: 1_000 },
+      nodes: [
+        makeNode('source'),
+        makeStreamNode('stream', {
+          streamBrokerEnabled: true,
+          retentionMs: 1,
+          partitionCount: 1
+        })
+      ],
+      edges: [makeEdge('source-to-stream', 'source', 'stream')],
+      workload: {
+        sourceNodeId: 'source',
+        pattern: 'constant',
+        baseRps: 1,
+        requestDistribution: [
+          { type: 'POST', weight: 1, sizeBytes: 100, metadata: { partitionKey: 'order-1' } }
+        ]
+      }
+    })
+
+    const output = new SimulationEngine(topology).run()
+
+    expect(output.eventCountsByType['stream-retention-expired']).toBe(1)
+    expect(output.perNode.stream.traitCounters.streamRetentionExpired).toBe(1)
+    expect(output.streamProjection).toEqual([
+      expect.objectContaining({
+        nodeId: 'stream',
+        brokerAvailable: true,
+        retentionRemovals: 1,
+        partitions: [{ partition: 0, startOffset: 0, nextOffset: 0, retainedRecords: 0 }]
+      })
+    ])
+  })
+
+  it('replays from committed offsets and projects group lag for stream brokers', () => {
+    const slowConsumer = {
+      ...makeNode('consumer-a'),
+      config: { consumerGroup: 'search' },
+      processing: { distribution: { type: 'constant', value: 100 }, timeout: 1_000 }
+    } satisfies ComponentNode
+    const topology = makeTopology({
+      global: { simulationDuration: 5, defaultTimeout: 1_000 },
+      nodes: [
+        makeNode('source'),
+        makeStreamNode('stream', {
+          streamBrokerEnabled: true,
+          consumerGroupMode: true,
+          retentionMs: 1_000,
+          partitionCount: 1,
+          streamReplayIntervalMs: 1
+        }),
+        slowConsumer
+      ],
+      edges: [
+        makeEdge('source-to-stream', 'source', 'stream'),
+        makeEdge('stream-to-consumer-a', 'stream', 'consumer-a', { mode: 'streaming' })
+      ],
+      workload: {
+        sourceNodeId: 'source',
+        pattern: 'constant',
+        baseRps: 1,
+        requestDistribution: [
+          { type: 'POST', weight: 1, sizeBytes: 100, metadata: { partitionKey: 'order-2' } }
+        ]
+      }
+    })
+
+    const output = new SimulationEngine(topology).run()
+
+    expect(output.eventCountsByType['consumer-group-rebalanced']).toBe(1)
+    expect(output.eventCountsByType['stream-replayed']).toBe(5)
+    expect(output.perNode.stream.traitCounters.streamReplayReads).toBeGreaterThan(0)
+    expect(output.streamProjection[0]).toMatchObject({
+      nodeId: 'stream',
+      replayCount: 5,
+      groups: [
+        {
+          group: 'search',
+          members: ['consumer-a'],
+          committedOffsets: { '0': 0 },
+          lag: { '0': 1 }
+        }
+      ]
+    })
+  })
+
+  it('rebalances consumer ownership when stream consumers fail and recover', () => {
+    const topology = makeTopology({
+      global: { simulationDuration: 4, defaultTimeout: 1_000 },
+      nodes: [
+        makeStreamNode('stream', {
+          streamBrokerEnabled: true,
+          consumerGroupMode: true,
+          partitionCount: 2
+        }),
+        { ...makeNode('consumer-a'), config: { consumerGroup: 'search' } },
+        { ...makeNode('consumer-b'), config: { consumerGroup: 'search' } }
+      ],
+      edges: [
+        makeEdge('stream-to-consumer-a', 'stream', 'consumer-a', { mode: 'streaming' }),
+        makeEdge('stream-to-consumer-b', 'stream', 'consumer-b', { mode: 'streaming' })
+      ],
+      workload: undefined,
+      faults: [
+        {
+          id: 'fail-consumer-a',
+          targetId: 'consumer-a',
+          type: 'node-failure',
+          duration: 'fixed',
+          params: { atMs: 1, durationMs: 1, mode: 'reject' }
+        }
+      ]
+    })
+
+    const output = new SimulationEngine(topology).run()
+    const rebalanceEvents = output.eventStream.filter(
+      (event) => event.type === 'consumer-group-rebalanced'
+    )
+
+    expect(rebalanceEvents.map((event) => event.payload.members)).toEqual([
+      ['consumer-a', 'consumer-b'],
+      ['consumer-b'],
+      ['consumer-a', 'consumer-b']
+    ])
+    expect(output.perNode.stream.traitCounters.streamConsumerRebalances).toBe(3)
+  })
+
+  it('blocks and resumes stream broker delivery with broker failure events', () => {
+    const topology = makeTopology({
+      global: { simulationDuration: 5, defaultTimeout: 1_000 },
+      nodes: [
+        makeNode('source'),
+        makeStreamNode('stream', {
+          streamBrokerEnabled: true,
+          brokerFailureAtMs: 0,
+          brokerRecoveryAtMs: 2
+        })
+      ],
+      edges: [makeEdge('source-to-stream', 'source', 'stream')],
+      workload: {
+        sourceNodeId: 'source',
+        pattern: 'constant',
+        baseRps: 1,
+        requestDistribution: [
+          { type: 'POST', weight: 1, sizeBytes: 100, metadata: { partitionKey: 'order-3' } }
+        ]
+      }
+    })
+
+    const output = new SimulationEngine(topology).run()
+
+    expect(output.eventCountsByType['broker-failed']).toBe(1)
+    expect(output.eventCountsByType['broker-recovered']).toBe(1)
+    expect(output.requestOutcomeBreakdown.server_error_5xx).toBe(1)
+    expect(output.requestOutcomes[0]?.reasonCode).toBe('broker_unavailable')
+    expect(output.streamProjection[0]).toMatchObject({
+      nodeId: 'stream',
+      brokerAvailable: true
+    })
+  })
+
+  it('projects durable replicated-log cluster state for quorum writes', () => {
+    const topology = makeTopology({
+      global: { simulationDuration: 5, defaultTimeout: 1_000 },
+      nodes: [
+        makeNode('source'),
+        makeDatabaseNode('db-a', {
+          replicationEnabled: true,
+          writeAckPolicy: 'quorum',
+          replicaMembers: 'db-a, db-b, db-c',
+          consensusProtocol: 'raft'
+        })
+      ],
+      edges: [makeEdge('source-to-db', 'source', 'db-a')],
+      workload: {
+        sourceNodeId: 'source',
+        pattern: 'constant',
+        baseRps: 1,
+        requestDistribution: [{ type: 'write', weight: 1, sizeBytes: 100 }]
+      }
+    })
+
+    const output = new SimulationEngine(topology).run()
+
+    expect(output.replicationProjection).toEqual([
+      expect.objectContaining({
+        leaderId: 'db-a',
+        protocol: 'raft',
+        quorumSize: 2,
+        healthyReplicas: 3,
+        hasQuorum: true,
+        members: [
+          expect.objectContaining({ id: 'db-a', role: 'leader', durableIndex: 1 }),
+          expect.objectContaining({ id: 'db-b', role: 'follower', durableIndex: 1 }),
+          expect.objectContaining({ id: 'db-c', role: 'follower', durableIndex: 1 })
+        ]
+      })
+    ])
+    expect(output.requestOutcomes[0]?.stateTimeline).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ scope: 'replication', state: 'quorum-committed' })
+      ])
+    )
+  })
+
+  it('promotes a deterministic replica leader after primary failure', () => {
+    const topology = makeTopology({
+      global: { simulationDuration: 5, defaultTimeout: 1_000 },
+      nodes: [
+        makeDatabaseNode('db-a', {
+          replicationEnabled: true,
+          writeAckPolicy: 'quorum',
+          replicaMembers: 'db-a, db-b, db-c',
+          consensusProtocol: 'raft'
+        }),
+        makeDatabaseNode('db-b'),
+        makeDatabaseNode('db-c')
+      ],
+      workload: undefined,
+      faults: [
+        {
+          id: 'fail-db-a',
+          targetId: 'db-a',
+          type: 'node-failure',
+          duration: 'permanent',
+          params: { atMs: 1, mode: 'reject' }
+        }
+      ]
+    })
+
+    const output = new SimulationEngine(topology).run()
+
+    expect(output.replicationProjection[0]).toMatchObject({
+      leaderId: 'db-b',
+      healthyReplicas: 2,
+      hasQuorum: true,
+      members: [
+        expect.objectContaining({ id: 'db-a', role: 'failed' }),
+        expect.objectContaining({ id: 'db-b', role: 'leader' }),
+        expect.objectContaining({ id: 'db-c', role: 'follower' })
+      ]
     })
   })
 
@@ -382,7 +662,8 @@ describe('SimulationEngine', () => {
         {
           ...makeNode('idempotency'),
           type: 'idempotency-manager',
-          category: 'coordination-and-consensus'
+          category: 'coordination-and-consensus',
+          config: { commitOutcomeJournal: true }
         },
         {
           ...makeNode('lock'),
@@ -430,6 +711,11 @@ describe('SimulationEngine', () => {
       expect.arrayContaining([
         expect.objectContaining({ scope: 'request', state: 'generated' }),
         expect.objectContaining({ scope: 'idempotency', state: 'recorded', nodeId: 'idempotency' }),
+        expect.objectContaining({
+          scope: 'commit-outcome',
+          state: 'intent-recorded',
+          nodeId: 'idempotency'
+        }),
         expect.objectContaining({ scope: 'lock', state: 'attempting', nodeId: 'lock' }),
         expect.objectContaining({ scope: 'lock', state: 'acquired', nodeId: 'lock' }),
         expect.objectContaining({
@@ -438,7 +724,12 @@ describe('SimulationEngine', () => {
           nodeId: 'reservation'
         }),
         expect.objectContaining({ scope: 'lock', state: 'released', nodeId: 'lock' }),
-        expect.objectContaining({ scope: 'request', state: 'completed', nodeId: 'reservation' })
+        expect.objectContaining({ scope: 'request', state: 'completed', nodeId: 'reservation' }),
+        expect.objectContaining({
+          scope: 'commit-outcome',
+          state: 'commit-confirmed',
+          nodeId: 'idempotency'
+        })
       ])
     )
     expect(deduped?.stateTimeline).toEqual(

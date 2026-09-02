@@ -3,7 +3,11 @@ import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { registerIpcHandlers } from './ipcHandlers'
-import { callGeminiGradeAPI, type GeminiGradeRequest } from '../engine/analysis/geminiGrader'
+import {
+  callLlmGradeAPI,
+  resolveProviderConfig,
+  type LlmGradeRequest
+} from '../engine/analysis/llmGrader'
 
 function createWindow(): void {
   const CLOSE_RESPONSE_TIMEOUT_MS = 5000
@@ -206,24 +210,23 @@ app.whenReady().then(() => {
     console.log('Received simulation config:', config)
   })
 
-  // ── Gemini justification grading (LLM proxy) ─────────────────────────────
-  // The API key lives exclusively in the main process; the renderer never
-  // sees it. Read it from the process environment so it is never committed.
-  // If the key is missing, the renderer falls back to deterministic grading
-  // silently.
-  const GEMINI_API_KEY =
-    process.env['GEMINI_API_KEY']?.trim() || process.env['GOOGLE_API_KEY']?.trim() || ''
+  // ── LLM justification grading (provider-agnostic proxy) ──────────────────
+  // The API key lives exclusively in the main process; the renderer never sees
+  // it. The provider (Gemini / Claude / OpenAI) and key are resolved from the
+  // process environment — see `resolveProviderConfig`. If no usable key is
+  // configured, the renderer falls back to deterministic grading silently.
+  const llmConfig = resolveProviderConfig(process.env)
 
-  ipcMain.handle('gemini:gradeJustification', async (_event, payload: GeminiGradeRequest) => {
-    if (!GEMINI_API_KEY) {
-      return { error: 'Gemini API key not configured.' }
+  ipcMain.handle('llm:gradeJustification', async (_event, payload: LlmGradeRequest) => {
+    if (!llmConfig) {
+      return { error: 'No LLM grading provider configured.' }
     }
     try {
-      const result = await callGeminiGradeAPI(GEMINI_API_KEY, payload)
+      const result = await callLlmGradeAPI(llmConfig, payload)
       return { ok: true, data: result }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err)
-      console.error('[gemini:gradeJustification] error:', message)
+      console.error(`[llm:gradeJustification] (${llmConfig.providerId}) error:`, message)
       return { error: message }
     }
   })

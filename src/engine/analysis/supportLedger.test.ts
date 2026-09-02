@@ -17,6 +17,8 @@ describe('support ledger', () => {
   it('normalizes known concept and trait lookups', () => {
     expect(getConceptSupport('Read-Cache')?.tier).toBe('first-class')
     expect(getTraitSupport('QUEUE.ACK-AND-RELEASE')?.tier).toBe('guided')
+    expect(getTraitSupport('stream.partitioned-broker')?.tier).toBe('first-class')
+    expect(getConceptSupport('consumer-groups')?.tier).toBe('first-class')
   })
 
   it('tracks presentational-only component categories', () => {

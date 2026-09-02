@@ -290,6 +290,12 @@ describe('generateSimulationOutput', () => {
             source: 'engine'
           },
           { scope: 'idempotency', state: 'deduped', timestampUs: '4', source: 'trait' },
+          {
+            scope: 'commit-outcome',
+            state: 'outcome-unknown',
+            timestampUs: '4',
+            source: 'trait'
+          },
           { scope: 'lock', state: 'contended', timestampUs: '5', source: 'trait' },
           { scope: 'reservation', state: 'oversold', timestampUs: '6', source: 'trait' },
           { scope: 'request', state: 'completed', timestampUs: '12', source: 'event' }
@@ -347,6 +353,8 @@ describe('generateSimulationOutput', () => {
     expect(output.runtimeSemanticsSummary.queuedOutcomes).toBe(1)
     expect(output.runtimeSemanticsSummary.retriedOutcomes).toBe(1)
     expect(output.runtimeSemanticsSummary.downgradedQueuedOutcomes).toBe(1)
+    expect(output.runtimeSemanticsSummary.transitionCounts.commitOutcome['outcome-unknown']).toBe(1)
+    expect(output.runtimeSemanticsSummary.affectedOutcomeCounts.commitOutcomeUnknown).toBe(1)
     expect(output.runtimeSemanticsSummary.configuredDeliverySemantics['exactly-once']).toBe(1)
     expect(output.runtimeSemanticsSummary.runtimeDeliveryGuarantees['at-least-once']).toBe(1)
     expect(output.runtimeSemanticsSummary.transitionCounts.request.generated).toBe(2)

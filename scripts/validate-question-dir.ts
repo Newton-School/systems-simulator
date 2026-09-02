@@ -7,7 +7,7 @@
  *
  * Usage: tsx scripts/validate-question-dir.ts <dir> [<dir> ...]
  */
-import { readFileSync, existsSync } from 'node:fs'
+import { readFileSync, existsSync, statSync } from 'node:fs'
 import { resolve, join } from 'node:path'
 import process from 'node:process'
 import { SimulationEngine } from '../src/engine/engine'
@@ -54,6 +54,10 @@ function gradeRows(
 let hadFailure = false
 
 for (const dir of process.argv.slice(2)) {
+  if (!statSync(dir).isDirectory()) {
+    continue
+  }
+
   const qPath = join(dir, 'question.json')
   const refPath = join(dir, 'reference-topology.json')
   const gamedPath = join(dir, 'gamed-topology.json')

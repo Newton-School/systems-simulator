@@ -18,6 +18,8 @@ function verdict(overrides: {
   sloBreaches?: number
   utils?: number[]
   invariantViolations?: number
+  reservationOversells?: number
+  rateLimitBreaches?: number
 }): SimulationVerdict {
   const perNode = Object.fromEntries(
     (overrides.utils ?? []).map((utilization, i) => [
@@ -45,6 +47,19 @@ function verdict(overrides: {
       latency: { p50: 1, p90: 2, p95: 3, p99: overrides.p99 === undefined ? 50 : overrides.p99 }
     },
     perNode,
+    reservations: {
+      commits: 0,
+      conflicts: 0,
+      oversells: overrides.reservationOversells ?? 0
+    },
+    locks: { acquires: 0, contentions: 0, keyless: 0 },
+    retries: { attempts: 0, budgetExhausted: 0 },
+    rateLimit: {
+      admitted: 0,
+      rejected: 0,
+      breaches: overrides.rateLimitBreaches ?? 0,
+      keyless: 0
+    },
     sloBreaches: Array.from({ length: overrides.sloBreaches ?? 0 }, () => ({})),
     invariantViolations: Array.from({ length: overrides.invariantViolations ?? 0 }, (_, index) => ({
       invariantId: `inv-${index + 1}`,
@@ -118,11 +133,19 @@ function topology(): TopologyJSON {
 
 describe('resolveMetric', () => {
   it('resolves dotted paths and derived aggregates', () => {
-    const v = verdict({ errorRate: 0.05, sloBreaches: 2, utils: [0.3, 0.9, 0.5] })
+    const v = verdict({
+      errorRate: 0.05,
+      sloBreaches: 2,
+      utils: [0.3, 0.9, 0.5],
+      reservationOversells: 1,
+      rateLimitBreaches: 2
+    })
     expect(resolveMetric(v, 'summary.errorRate')).toBe(0.05)
     expect(resolveMetric(v, 'summary.latency.p99')).toBe(50)
     expect(resolveMetric(v, 'sloBreaches.count')).toBe(2)
     expect(resolveMetric(v, 'perNode.maxUtilization')).toBeCloseTo(0.9)
+    expect(resolveMetric(v, 'reservations.oversells')).toBe(1)
+    expect(resolveMetric(v, 'rateLimit.breaches')).toBe(2)
   })
 
   it('returns null for a null latency percentile or an unknown path', () => {
