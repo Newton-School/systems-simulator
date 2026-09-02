@@ -47,8 +47,11 @@ export interface RecoverResult {
 
 export class GGcKNode {
   private readonly id: string
-  private readonly maxWorkers: number
-  private readonly maxCapacity: number
+  // Mutable so an autoscaler (scheduler trait) can resize effective concurrency
+  // mid-run via `resizeConcurrency`. Utilization stays honest because the
+  // denominator is the capacity-time integral, not a single final worker count.
+  private maxWorkers: number
+  private maxCapacity: number
   /** How `maxWorkers` was derived (e.g. "effective c = 3 × 8 = 24") — for inline UI provenance. */
   readonly concurrencyProvenance: string = ''
   /** Rejection reason when the node is at K: 'oom' if RAM-bound, else 'capacity_exceeded'. */
@@ -83,6 +86,14 @@ export class GGcKNode {
    * cadence undersamples and a snapshot-average would lie.
    */
   private busyAreaUs = 0n
+  /**
+   * Time-weighted CAPACITY area — the integral ∫ maxWorkers dt (worker·µs) over
+   * the same window as `busyAreaUs`. Utilization = busyArea ÷ capacityArea, which
+   * stays correct even when `maxWorkers` changes mid-run (autoscaling). For a
+   * fixed-capacity node this equals `maxWorkers × duration`, so it's identical to
+   * the old `busyArea ÷ (duration × workers)` — no regression.
+   */
+  private capacityAreaUs = 0n
   private lastAccrualUs = 0n
 
   private metrics: NodeMetrics = {
@@ -455,7 +466,9 @@ export class GGcKNode {
     if (now <= this.lastAccrualUs) {
       return
     }
-    this.busyAreaUs += BigInt(this.activeWorkers) * (now - this.lastAccrualUs)
+    const dt = now - this.lastAccrualUs
+    this.busyAreaUs += BigInt(this.activeWorkers) * dt
+    this.capacityAreaUs += BigInt(this.maxWorkers) * dt
     this.lastAccrualUs = now
   }
 
@@ -464,9 +477,44 @@ export class GGcKNode {
     this.accrueBusy(nowUs)
   }
 
-  /** ∫ activeWorkers dt (worker·µs) — divide by (duration × maxWorkers) for utilization. */
+  /** ∫ activeWorkers dt (worker·µs) — divide by `getCapacityAreaUs()` for utilization. */
   getBusyAreaUs(): bigint {
     return this.busyAreaUs
+  }
+
+  /** ∫ maxWorkers dt (worker·µs) — the honest utilization denominator across resizes. */
+  getCapacityAreaUs(): bigint {
+    return this.capacityAreaUs
+  }
+
+  /** Current effective worker ceiling (post any autoscale resizes). */
+  getMaxWorkers(): number {
+    return this.maxWorkers
+  }
+
+  /**
+   * Autoscale: change effective concurrency mid-run. Accrues the busy/capacity
+   * integrals at the OLD ceiling first, then raises/lowers them — but never below
+   * what is currently in use (`activeWorkers` / `inSystem`), so in-flight work is
+   * never evicted (graceful drain; the target is reached on a later resize once
+   * usage falls). When the worker ceiling grows, immediately pumps queued work.
+   */
+  resizeConcurrency(effectiveC: number, effectiveK: number, now: bigint): { started: Request[] } {
+    this.accrueBusy(now)
+    this.maxWorkers = Math.max(1, Math.round(effectiveC), this.activeWorkers)
+    this.maxCapacity = Math.max(1, Math.round(effectiveK), this.inSystem())
+
+    const started: Request[] = []
+    while (this.activeWorkers < this.maxWorkers && this.queue.length > 0) {
+      const next = this.dequeue()
+      if (!next) {
+        break
+      }
+      this.startProcessing(next, now)
+      started.push(next)
+    }
+    this.updateStatus()
+    return { started }
   }
 
   /**

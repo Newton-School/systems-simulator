@@ -7,6 +7,7 @@ import type {
   RequestOutcomeRecord
 } from '../core/event-stream'
 import { createEmptyEventCounts } from '../core/event-stream'
+import type { SpofFinding } from './singlePointOfFailure'
 import {
   createEmptyRequestOutcomeBreakdown,
   type RequestOutcomeFamily
@@ -264,6 +265,12 @@ export interface SimulationOutput {
   streamProjection: StreamBrokerProjection[]
   /** Durable replication cluster projections for storage nodes with replication enabled. */
   replicationProjection: ReplicationProjection[]
+  /**
+   * Structural single points of failure: nodes whose loss disconnects the
+   * source(s) from part of the system and which run <2 instances. Computed from
+   * the topology (no run needed); surfaced in the results tray + on the canvas.
+   */
+  singlePointsOfFailure: SpofFinding[]
 }
 
 const RUNTIME_DELIVERY_GUARANTEES = [
@@ -338,7 +345,9 @@ export function generateSimulationOutput(
     requestOutcomesSampled: debugData?.requestOutcomesSampled ?? false,
     runtimeSemanticsSummary,
     streamProjection: debugData?.streamProjection ?? [],
-    replicationProjection: debugData?.replicationProjection ?? []
+    replicationProjection: debugData?.replicationProjection ?? [],
+    // Real value is filled in by the engine (which holds the topology); [] here.
+    singlePointsOfFailure: []
   }
 }
 

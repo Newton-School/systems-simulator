@@ -286,7 +286,9 @@ interface InternalNodeMetrics {
   finalInSystem: number
   /** ∫ activeWorkers dt (worker·µs) from the node — the utilization source of truth. */
   busyAreaUs: bigint
-  /** Worker count, for the utilization denominator. */
+  /** ∫ maxWorkers dt (worker·µs) — the utilization denominator, correct across autoscale resizes. */
+  capacityAreaUs: bigint
+  /** Final worker count, for display and the fixed-capacity fallback. */
   workers: number
   /** Streaming inter-arrival gap stats (post-warmup) → arrivalCV. */
   arrivalGaps: GapStats
@@ -616,10 +618,16 @@ export class MetricsCollector {
    * Record a node's finalized busy-area integral (worker·µs) and worker count —
    * the single source of truth for utilization. Called once at run end.
    */
-  recordNodeBusyTime(nodeId: string, busyAreaUs: bigint, workers: number): void {
+  recordNodeBusyTime(
+    nodeId: string,
+    busyAreaUs: bigint,
+    workers: number,
+    capacityAreaUs: bigint
+  ): void {
     const node = this.ensureNodeMetrics(nodeId)
     node.busyAreaUs = busyAreaUs
     node.workers = workers
+    node.capacityAreaUs = capacityAreaUs
   }
 
   /**
@@ -798,17 +806,21 @@ export class MetricsCollector {
         peakQueueLength: metrics?.peakQueueLength ?? 0,
         peakInSystem: metrics?.peakInSystem ?? 0,
         finalInSystem: metrics?.finalInSystem ?? 0,
-        // Time-weighted busy fraction: ∫activeWorkers dt / (duration × workers).
-        utilization:
-          metrics && metrics.workers > 0 && durationMs > 0
-            ? Math.min(
-                1,
-                Math.max(
-                  0,
-                  Number(metrics.busyAreaUs) / (Number(msToMicro(durationMs)) * metrics.workers)
-                )
-              )
-            : 0,
+        // Time-weighted busy fraction: ∫activeWorkers dt ÷ ∫maxWorkers dt. The
+        // capacity integral is the denominator so utilization stays correct when
+        // an autoscaler resizes workers mid-run; it falls back to duration×workers
+        // for older records where the capacity area was not accrued.
+        utilization: (() => {
+          if (!metrics) return 0
+          const denom =
+            metrics.capacityAreaUs > 0n
+              ? Number(metrics.capacityAreaUs)
+              : durationMs > 0 && metrics.workers > 0
+                ? Number(msToMicro(durationMs)) * metrics.workers
+                : 0
+          if (denom <= 0) return 0
+          return Math.min(1, Math.max(0, Number(metrics.busyAreaUs) / denom))
+        })(),
         throughput: durationSec > 0 ? pwProcessed / durationSec : 0,
         errorRate,
         availability: 1 - errorRate,
@@ -1235,6 +1247,7 @@ export class MetricsCollector {
       peakInSystem: 0,
       finalInSystem: 0,
       busyAreaUs: 0n,
+      capacityAreaUs: 0n,
       arrivalGaps: newGapStats(),
       workers: 0,
       cacheHits: 0,

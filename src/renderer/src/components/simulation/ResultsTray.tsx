@@ -4107,6 +4107,10 @@ function ComponentDrilldown({
 }
 
 function SimulationHealth({ output }: { output: SimulationOutput }) {
+  const selectGraphElements = useStore((state) => state.selectGraphElements)
+  const spofs = output.singlePointsOfFailure
+  const spofLevel: HealthLevel = spofs.length === 0 ? 'healthy' : 'breaches'
+
   const sloLevel: HealthLevel =
     output.sloBreaches.length === 0
       ? 'healthy'
@@ -4145,7 +4149,14 @@ function SimulationHealth({ output }: { output: SimulationOutput }) {
         ? 'warnings'
         : 'healthy'
 
-  const overall = worstLevel([sloLevel, llLevel, conservationLevel, warmupLevel, errorLevel])
+  const overall = worstLevel([
+    spofLevel,
+    sloLevel,
+    llLevel,
+    conservationLevel,
+    warmupLevel,
+    errorLevel
+  ])
   const hasConfiguredSloTargets = output.sloTargetCount > 0
 
   return (
@@ -4154,6 +4165,42 @@ function SimulationHealth({ output }: { output: SimulationOutput }) {
         <h3 className={SECTION_TITLE}>Simulation Health</h3>
         <HealthBadge level={overall} />
       </div>
+
+      {/* Single points of failure (structural resilience) */}
+      <CollapsibleCheck
+        title={
+          spofLevel === 'healthy'
+            ? 'Resilience -No single points of failure'
+            : `Single points of failure -${spofs.length} found`
+        }
+        level={spofLevel}
+        tooltip="A single point of failure is a node whose loss disconnects part of the system. Flagged when a node runs a single instance and has no redundant peer on an alternate path. Fix by adding an instance or a redundant peer."
+      >
+        {spofLevel === 'healthy' ? (
+          <p className="text-xs text-nss-muted">
+            No node is a structural single point of failure: every traffic-carrying component is
+            either internally redundant (≥2 instances) or has a redundant peer.
+          </p>
+        ) : (
+          <div className="space-y-1">
+            {spofs.map((spof) => (
+              <button
+                key={spof.nodeId}
+                type="button"
+                onClick={() => selectGraphElements({ nodeId: spof.nodeId })}
+                className="w-full text-left text-xs rounded px-2 py-1 flex items-start gap-2 bg-nss-danger/10 border border-nss-danger/20 text-nss-danger hover:bg-nss-danger/20 transition-colors"
+                title="Click to highlight this node on the canvas"
+              >
+                <span className="shrink-0 font-semibold">SPOF</span>
+                <span>
+                  <span className="font-medium">{spof.nodeLabel}</span>{' '}
+                  <span className="text-nss-muted">({spof.nodeType})</span> - {spof.reason}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+      </CollapsibleCheck>
 
       {/* SLO */}
       <CollapsibleCheck

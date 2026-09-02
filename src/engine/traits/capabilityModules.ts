@@ -11,6 +11,18 @@ import { consumerLagCapabilityModule } from './consumerLag'
 import { dnsRoutingPolicyCapabilityModule } from './dnsRoutingPolicy'
 import { healthAwareRoutingCapabilityModule } from './healthAwareRouting'
 import { idempotencyDedupCapabilityModule } from './idempotencyDedup'
+import { geoLatencyCapabilityModule } from './geoLatency'
+import { externalLatencyCapabilityModule } from './externalLatency'
+import { tieredRetrievalCapabilityModule } from './tieredRetrieval'
+import { cryptoCostCapabilityModule } from './cryptoCost'
+import { tokenCostCapabilityModule } from './tokenCost'
+import { inspectionCostCapabilityModule } from './inspectionCost'
+import { capacityLimitCapabilityModule } from './capacityLimit'
+import { batchingCapabilityModule } from './batching'
+import { logReplayCapabilityModule } from './logReplay'
+import { windowingCapabilityModule } from './windowing'
+import { fanoutQueryCapabilityModule } from './fanoutQuery'
+import { autoscalerCapabilityModule } from './autoscaler'
 import { lockLeaseCapabilityModule } from './lockLease'
 import { reservationStoreCapabilityModule } from './reservationStore'
 import { keyBasedRoutingCapabilityModule } from './keyBasedRouting'
@@ -875,7 +887,19 @@ export const TRAIT_CAPABILITY_MODULES: readonly NodeCapabilityModule[] = [
   lockLeaseCapabilityModule,
   reservationStoreCapabilityModule,
   memoryPressureCapabilityModule,
-  ackAndReleaseCapabilityModule
+  ackAndReleaseCapabilityModule,
+  geoLatencyCapabilityModule,
+  externalLatencyCapabilityModule,
+  tieredRetrievalCapabilityModule,
+  cryptoCostCapabilityModule,
+  tokenCostCapabilityModule,
+  inspectionCostCapabilityModule,
+  capacityLimitCapabilityModule,
+  batchingCapabilityModule,
+  logReplayCapabilityModule,
+  windowingCapabilityModule,
+  fanoutQueryCapabilityModule,
+  autoscalerCapabilityModule
 ]
 
 // Panel section order = this array order (see renderer `getNodeConfigSections`).

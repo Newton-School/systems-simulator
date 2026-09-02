@@ -3,7 +3,12 @@ import type { CanvasNodeDataV2 } from '../catalog/nodeSpecTypes'
 import type { ComponentNode, ComponentType, EdgeDefinition, NodeState } from '../core/types'
 import type { ResolveRoute } from '../routing'
 
-export type TraitHookName = 'beforeArrival' | 'beforeRouting' | 'filterRoutes' | 'afterTerminal'
+export type TraitHookName =
+  | 'beforeArrival'
+  | 'beforeRouting'
+  | 'filterRoutes'
+  | 'afterTerminal'
+  | 'onTick'
 
 export type TraitRoutingStrategyHint = 'round-robin' | 'broadcast'
 export type FieldPath = string
@@ -150,6 +155,22 @@ export interface TraitTerminalContext extends TraitContext {
   reasonCode?: string | null
 }
 
+/**
+ * Context for a recurring timer tick. Unlike the other hooks this is NOT tied to
+ * a request — it fires on a schedule for the node itself, so there is no
+ * `request`. Traits read/mutate their per-node `state` (and run-scoped
+ * `sharedState`) and observe live `nodeState` (utilization, queue depth) to run
+ * control loops, close windows, or sample.
+ */
+export interface TraitTickContext {
+  node: ComponentNode
+  clock: bigint
+  random?: () => number
+  state?: TraitStateStore
+  sharedState?: TraitStateStore
+  nodeState?: NodeState
+}
+
 export type BeforeArrivalDecision =
   | { action: 'continue'; payload?: Record<string, unknown> }
   | { action: 'handled'; latencyUs: bigint; payload?: Record<string, unknown> }
@@ -183,6 +204,16 @@ export interface NodeBehaviourTrait {
    * downstream side effect had completed.
    */
   afterTerminal?: (context: TraitTerminalContext) => Record<string, unknown> | void
+  /**
+   * Recurring timer. When `tickIntervalMs(node)` returns a positive number, the
+   * engine fires `onTick` every that-many ms for the whole run — a node-scoped
+   * periodic callback, off the per-request path and deterministic (fixed
+   * SYSTEM-priority events on the same clock). Use it for control loops
+   * (autoscaling), window-close emission, or periodic sampling. Both must be
+   * present for ticking to start; returning a payload records a trait decision.
+   */
+  tickIntervalMs?: (node: ComponentNode) => number | null | undefined
+  onTick?: (context: TraitTickContext) => Record<string, unknown> | void
 }
 
 export type TraitResolver = (node: ComponentNode) => readonly NodeBehaviourTrait[]
