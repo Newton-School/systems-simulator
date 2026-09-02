@@ -1,5 +1,11 @@
 /** Deterministic V2 state machines shared by traits and scenario tests. */
 export type LogRecord = { offset: number; key: string; appendedAtMs: number; value?: unknown }
+export type LogPartitionSnapshot = {
+  partition: number
+  startOffset: number
+  nextOffset: number
+  retainedRecords: number
+}
 
 export class ReplicatedLog {
   private readonly partitions: LogRecord[][]
@@ -31,7 +37,7 @@ export class ReplicatedLog {
   }
 
   poll(group: string, memberId: string, partition: number, nowMs: number): LogRecord | null {
-    this.expire(nowMs)
+    void nowMs
     const members = this.members.get(group) ?? [memberId]
     if (members[partition % members.length] !== memberId) return null
     const offset = this.offsets.get(`${group}:${partition}`) ?? 0
@@ -52,34 +58,84 @@ export class ReplicatedLog {
     }
     return expired
   }
+
+  partitionSnapshots(): LogPartitionSnapshot[] {
+    return this.partitions.map((records, partition) => ({
+      partition,
+      startOffset: records[0]?.offset ?? 0,
+      nextOffset: records.length === 0 ? 0 : records[records.length - 1]!.offset + 1,
+      retainedRecords: records.length
+    }))
+  }
+
+  committedOffset(group: string, partition: number): number {
+    return this.offsets.get(`${group}:${partition}`) ?? 0
+  }
+
+  groupMembers(group: string): string[] {
+    return [...(this.members.get(group) ?? [])]
+  }
 }
 
 export type ReplicaRole = 'leader' | 'follower' | 'failed'
-export type ReplicaMember = { id: string; role: ReplicaRole; term: number; appliedIndex: number }
+export type ReplicaMember = {
+  id: string
+  role: ReplicaRole
+  term: number
+  appliedIndex: number
+  durableIndex: number
+}
+export type ConsensusProtocol = 'none' | 'raft'
+export type ConflictResolution = 'leader-wins' | 'highest-index-wins'
 
 export class ReplicaCluster {
   private members: ReplicaMember[]
-  constructor(initial: ReplicaMember[]) {
+  constructor(
+    initial: ReplicaMember[],
+    private readonly protocol: ConsensusProtocol = 'raft',
+    private readonly conflictResolution: ConflictResolution = 'leader-wins'
+  ) {
     this.members = initial.map((member) => ({ ...member }))
   }
-  write(requiredAcks: number): { committed: boolean; index: number; acknowledgements: number } {
+  write(requiredAcks: number): {
+    committed: boolean
+    index: number
+    acknowledgements: number
+    leaderId?: string
+    quorumSize: number
+  } {
     const leader = this.members.find((member) => member.role === 'leader')
     const healthy = this.members.filter((member) => member.role !== 'failed')
     if (!leader || healthy.length < requiredAcks)
       return {
         committed: false,
         index: leader?.appliedIndex ?? 0,
-        acknowledgements: healthy.length
+        acknowledgements: healthy.length,
+        leaderId: leader?.id,
+        quorumSize: requiredAcks
       }
     const index = leader.appliedIndex + 1
     healthy.forEach((member) => {
       member.appliedIndex = index
+      member.durableIndex = index
     })
-    return { committed: true, index, acknowledgements: healthy.length }
+    return {
+      committed: true,
+      index,
+      acknowledgements: healthy.length,
+      leaderId: leader.id,
+      quorumSize: requiredAcks
+    }
   }
   fail(memberId: string): void {
     const member = this.members.find((entry) => entry.id === memberId)
     if (member) member.role = 'failed'
+  }
+  recover(memberId: string): void {
+    const member = this.members.find((entry) => entry.id === memberId)
+    if (!member || member.role !== 'failed') return
+    member.role = this.members.some((entry) => entry.role === 'leader') ? 'follower' : 'leader'
+    member.term = Math.max(...this.members.map((entry) => entry.term))
   }
   elect(): ReplicaMember | null {
     const candidate = this.members
@@ -93,6 +149,24 @@ export class ReplicaCluster {
     })
     return { ...candidate, role: 'leader', term }
   }
+  quorumSize(): number {
+    return Math.floor(this.members.length / 2) + 1
+  }
+  healthyCount(): number {
+    return this.members.filter((member) => member.role !== 'failed').length
+  }
+  leader(): ReplicaMember | null {
+    return this.members.find((member) => member.role === 'leader') ?? null
+  }
+  protocolName(): ConsensusProtocol {
+    return this.protocol
+  }
+  conflictPolicy(): ConflictResolution {
+    return this.conflictResolution
+  }
+  hasQuorum(): boolean {
+    return this.healthyCount() >= this.quorumSize()
+  }
   snapshot(): ReplicaMember[] {
     return this.members.map((member) => ({ ...member }))
   }
@@ -101,6 +175,21 @@ export class ReplicaCluster {
 export interface ExternalOutcomeProbe {
   lookup(key: string): 'committed' | 'not-found' | 'unknown'
 }
+
+export type ExternalOutcomeStatus = ReturnType<ExternalOutcomeProbe['lookup']>
+
+export class ExternalOutcomeRegistry implements ExternalOutcomeProbe {
+  private readonly outcomes = new Map<string, ExternalOutcomeStatus>()
+
+  record(key: string, status: ExternalOutcomeStatus): void {
+    this.outcomes.set(key, status)
+  }
+
+  lookup(key: string): ExternalOutcomeStatus {
+    return this.outcomes.get(key) ?? 'unknown'
+  }
+}
+
 export function reconcileExternalOutcome(
   probe: ExternalOutcomeProbe,
   key: string

@@ -15,13 +15,13 @@ const BUNDLE_BUDGETS = [
   {
     prefix: 'simulation.worker-',
     label: 'simulation worker',
-    // Runtime-semantic evidence and stream-broker behavior run inside this worker.
-    maxKb: 370
+    // Runtime-semantic evidence, V2 state machines, and stream lifecycle events run inside this worker.
+    maxKb: 390
   },
   {
     prefix: 'PropertiesPanel-',
     label: 'properties panel lazy chunk',
-    maxKb: 135
+    maxKb: 145
   },
   {
     prefix: 'ResultsTray-',

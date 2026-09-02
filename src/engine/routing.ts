@@ -24,7 +24,10 @@ export interface ResolveRoute {
   edge: EdgeDefinition
 }
 
-export type RouteRejectionReason = 'no_healthy_targets' | 'trait_invalid_reroute'
+export type RouteRejectionReason =
+  | 'no_healthy_targets'
+  | 'trait_invalid_reroute'
+  | 'broker_unavailable'
 
 export interface ResolveTargetOptions {
   clock?: bigint
@@ -36,6 +39,7 @@ export interface ResolveTargetOptions {
    * state; when absent, least-conn degrades to round-robin so it still spreads.
    */
   getInFlight?: (nodeId: string) => number
+  sharedState?: TraitStateStore
   onTraitDecision?: (decision: {
     traitName: string
     nodeId: string
@@ -424,7 +428,8 @@ export class RoutingTable {
         getNode: (nodeId) => this.nodeById.get(nodeId),
         isTargetHealthy: options.isTargetHealthy,
         isEdgeHealthy: options.isEdgeHealthy,
-        state: this.getTraitStateStore(sourceNodeId)
+        state: this.getTraitStateStore(sourceNodeId),
+        sharedState: options.sharedState
       })
       const normalized = this.normalizeFilterRoutesDecision(filtered, result)
       options.onTraitDecision?.({
@@ -475,7 +480,9 @@ export class RoutingTable {
           ? 'no_healthy_targets'
           : decision.rejectionReason === 'trait_invalid_reroute'
             ? 'trait_invalid_reroute'
-            : undefined,
+            : decision.rejectionReason === 'broker_unavailable'
+              ? 'broker_unavailable'
+              : undefined,
       payload: {
         beforeCandidateCount: previousRoutes.length,
         afterCandidateCount: decision.routes.length,

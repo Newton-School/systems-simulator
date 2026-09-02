@@ -35,34 +35,45 @@ export const DOMAIN_SUPPORT_LEDGER: Record<QuestionDomain, SupportLedgerEntry> =
   network: {
     tier: 'guided',
     summary:
-      'Edge latency, packet loss, and some protocol overhead exist, but bandwidth, pool limits, and deep L4/L7 behavior are still partial.',
-    simulates: ['edge latency', 'edge packet loss', 'basic protocol overhead'],
-    deferred: ['bandwidth enforcement', 'connection-pool limits', 'full L4/L7 divergence']
+      'Edge latency, packet loss, protocol overhead, HTTP acknowledgements, session lifecycle markers, and L4-versus-L7 rejection/flow-control behavior are modeled, while bandwidth and pool limits remain simplified.',
+    simulates: [
+      'edge latency',
+      'edge packet loss',
+      'basic protocol overhead',
+      'HTTP acknowledgements',
+      'session lifecycle',
+      'L4/L7 divergence'
+    ],
+    deferred: ['bandwidth enforcement', 'connection-pool limits', 'full transport-stack physics']
   },
   resilience: {
     tier: 'guided',
     summary:
-      'Retries, circuit breakers, health-aware routing, and failure windows are modeled, but replication and failover semantics are still partial.',
+      'Retries, circuit breakers, health-aware routing, failure windows, deterministic replica promotion, and quorum availability are modeled, with physical consensus timing still simplified.',
     simulates: [
       'retry backoff',
       'circuit breaker state',
       'health-aware routing',
-      'status timelines'
+      'status timelines',
+      'replica failover',
+      'quorum availability'
     ],
-    deferred: ['replication lag', 'quorum acknowledgements', 'leader failover semantics']
+    deferred: ['packet-level replication', 'real Raft election timing', 'Byzantine consensus']
   },
   correctness: {
     tier: 'guided',
     summary:
-      'Guarded paths, lock contention, duplicate suppression, and commit-outcome journaling are teachable, but exactly-once, quorum, and linearizability are not proved by runtime.',
+      'Guarded paths, lock contention, duplicate suppression, commit-outcome journaling, modeled external reconciliation, and quorum commit evidence are teachable, but exactly-once and linearizability are not formally proved.',
     simulates: [
       'lock contention',
       'duplicate suppression',
       'commit outcome journal transitions',
-      'guarded write paths'
+      'guarded write paths',
+      'modeled external outcome probes',
+      'quorum commit evidence'
     ],
     inferred: ['topology proxies', 'justification-backed decisions'],
-    deferred: ['exactly-once commit coordination', 'quorum', 'linearizability']
+    deferred: ['exactly-once commit coordination', 'formal linearizability proof']
   },
   cost: {
     tier: 'guided',
@@ -81,7 +92,7 @@ export const COMPONENT_CATEGORY_SUPPORT_LEDGER: Record<ComponentCategory, Suppor
   'network-and-edge': {
     tier: 'guided',
     summary:
-      'Routing and edge effects exist, but edge physics and transport semantics are still incomplete.'
+      'Routing, edge effects, protocol/session markers, and L4-versus-L7 behavior exist; low-level transport physics remains simplified.'
   },
   'storage-and-data': {
     tier: 'first-class',
@@ -90,7 +101,7 @@ export const COMPONENT_CATEGORY_SUPPORT_LEDGER: Record<ComponentCategory, Suppor
   'messaging-and-streaming': {
     tier: 'guided',
     summary:
-      'Queues, fanout, deterministic partition assignment, and one-delivery-per-group routing exist, but offsets, retention, ordering guarantees, and broker replication are still partial.'
+      'Queues, fanout, deterministic partition assignment, one-delivery-per-group routing, offsets, retention expiry, replay reads, group lag, and consumer rebalancing are modeled; physical broker replication remains partial.'
   },
   'orchestration-and-infra': {
     tier: 'presentational-only',
@@ -118,14 +129,14 @@ export const COMPONENT_CATEGORY_SUPPORT_LEDGER: Record<ComponentCategory, Suppor
       'Analytics and ML-adjacent infrastructure is mostly structural today, not deeply modeled physics.'
   },
   'real-time-and-media': {
-    tier: 'presentational-only',
+    tier: 'guided',
     summary:
-      'Realtime and media nodes exist in the catalog, but session, media, and protocol semantics are not yet first-class.'
+      'Realtime nodes can carry session and flow-control semantics, but media encoding, jitter buffers, and codec behavior remain presentational.'
   },
   'external-and-integration': {
-    tier: 'presentational-only',
+    tier: 'guided',
     summary:
-      'External connectors are useful topology anchors, but their provider-specific behavior is not deeply simulated.'
+      'External connectors can participate in modeled authoritative side-effect reconciliation, but live provider APIs and provider-specific consistency are not simulated.'
   },
   'dns-and-certs': {
     tier: 'guided',
@@ -135,7 +146,7 @@ export const COMPONENT_CATEGORY_SUPPORT_LEDGER: Record<ComponentCategory, Suppor
   'consensus-and-coordination': {
     tier: 'guided',
     summary:
-      'Locking and reservation semantics exist, but quorum, consensus, and leadership behavior are not yet first-class.'
+      'Locking, reservations, quorum membership, deterministic leader promotion, and conflict policies are modeled, while full consensus-protocol timing remains simplified.'
   },
   auxiliary: {
     tier: 'guided',
@@ -169,12 +180,12 @@ export const TRAIT_SUPPORT_LEDGER = {
   'messaging.broadcast-fanout': {
     tier: 'guided',
     summary:
-      'One-to-many fanout is modeled, but broker retention, partitions, and offset semantics are still partial.'
+      'One-to-many fanout is modeled for broadcast brokers; stream-specific retention, partitions, and offset semantics live under stream.partitioned-broker.'
   },
   'stream.partitioned-broker': {
-    tier: 'guided',
+    tier: 'first-class',
     summary:
-      'Partition-affine routing and one delivery per configured consumer group are modeled, but offsets, retention, replication, and rebalancing are not.'
+      'Partition-affine routing, one delivery per configured consumer group, offset commits, scheduled retention expiry, replay reads, group lag, rebalancing, and broker availability are modeled; multi-broker replication is not.'
   },
   'queue.ack-and-release': {
     tier: 'guided',
@@ -184,7 +195,7 @@ export const TRAIT_SUPPORT_LEDGER = {
   'coordination.idempotency-dedup': {
     tier: 'guided',
     summary:
-      'Time-window duplicate suppression and commit-outcome journal transitions are modeled, but cross-node consensus and automatic reconciliation are not.'
+      'Time-window duplicate suppression, commit-outcome journal transitions, and modeled authoritative external reconciliation probes are modeled, but live provider I/O and cross-node exactly-once consensus are not.'
   },
   'coordination.lock-lease': {
     tier: 'guided',
@@ -325,7 +336,7 @@ export const CONCEPT_SUPPORT_LEDGER = {
   idempotency: {
     tier: 'guided',
     summary:
-      'Duplicate suppression exists, and the commit journal can expose confirmed versus unknown outcomes, but it does not prove full exactly-once correctness by itself.'
+      'Duplicate suppression, commit journals, and modeled authoritative reconciliation probes expose confirmed versus unknown outcomes, but do not prove full exactly-once correctness by themselves.'
   },
   'lock-contention': {
     tier: 'guided',
@@ -338,34 +349,38 @@ export const CONCEPT_SUPPORT_LEDGER = {
       'Exactly-once can be taught through guarded paths and durable ledgers, but the runtime does not yet prove the guarantee.'
   },
   'l4-vs-l7': {
-    tier: 'structural-only',
-    summary:
-      'The simulator can distinguish some routing shape and config choices, but not the full behavioral teaching surface.'
-  },
-  'consumer-groups': {
     tier: 'guided',
     summary:
-      'One delivery per configured consumer group is modeled, but offsets, independent replay, and group-specific lag are not yet first-class runtime behavior.'
+      'The simulator distinguishes L4 pass-through from L7 content rejection, HTTP acknowledgements, sessions, and streaming flow control; full transport-stack physics remains out of scope.'
+  },
+  'consumer-groups': {
+    tier: 'first-class',
+    summary:
+      'One delivery per configured consumer group, committed offsets, replay reads, rebalancing, and group-specific lag are first-class runtime behavior for stream brokers.'
   },
   'message-ordering': {
-    tier: 'deferred',
-    summary: 'Partition ordering and ordering guarantees are not yet modeled honestly.'
+    tier: 'guided',
+    summary:
+      'Per-partition stream ordering is modeled for broker delivery and replay; global cross-partition ordering is not guaranteed.'
   },
   quorum: {
-    tier: 'deferred',
-    summary: 'Read/write quorum behavior is not yet modeled in the runtime.'
+    tier: 'guided',
+    summary:
+      'Replica quorum acknowledgement and quorum-unavailable evidence are modeled, but formal consensus safety is not proved.'
   },
   consensus: {
-    tier: 'deferred',
-    summary: 'Consensus behavior is not yet modeled in the runtime.'
+    tier: 'guided',
+    summary:
+      'Consensus protocol labels, quorum membership, durable indexes, and deterministic leader promotion are modeled; real election timing and log conflict resolution are simplified.'
   },
   linearizability: {
     tier: 'deferred',
     summary: 'Linearizability is not a first-class runtime or grading surface today.'
   },
   'protocol-semantics': {
-    tier: 'deferred',
-    summary: 'Deep protocol-specific semantics still need dedicated edge and state modeling.'
+    tier: 'guided',
+    summary:
+      'Session lifecycle, HTTP acknowledgement timing, L7 rejection, and streaming flow-control evidence are modeled; packet-level protocol behavior remains simplified.'
   },
   'requirements-first': {
     tier: 'guided',

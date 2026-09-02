@@ -21,6 +21,7 @@ import {
   DELIVERY_TIMELINE_STATES,
   IDEMPOTENCY_TIMELINE_STATES,
   LOCK_TIMELINE_STATES,
+  PROTOCOL_TIMELINE_STATES,
   REQUEST_STATE_TRANSITION_SOURCES,
   REQUEST_TIMELINE_STATES,
   REPLICATION_TIMELINE_STATES,
@@ -30,6 +31,7 @@ import {
   type CommitOutcomeTimelineState,
   type IdempotencyTimelineState,
   type LockTimelineState,
+  type ProtocolTimelineState,
   type RequestStateTransitionSource,
   type RequestTimelineState,
   type ReplicationTimelineState,
@@ -173,6 +175,11 @@ export interface ReplicationStateTransitionMatcher extends RuntimeStateTransitio
   state: ReplicationTimelineState
 }
 
+export interface ProtocolStateTransitionMatcher extends RuntimeStateTransitionMatcherBase {
+  scope: 'protocol'
+  state: ProtocolTimelineState
+}
+
 export interface IdempotencyStateTransitionMatcher extends RuntimeStateTransitionMatcherBase {
   scope: 'idempotency'
   state: IdempotencyTimelineState
@@ -198,6 +205,7 @@ export type RuntimeStateTransitionMatcher =
   | DeliveryStateTransitionMatcher
   | BrokerStateTransitionMatcher
   | ReplicationStateTransitionMatcher
+  | ProtocolStateTransitionMatcher
   | IdempotencyStateTransitionMatcher
   | CommitOutcomeStateTransitionMatcher
   | LockStateTransitionMatcher
@@ -353,6 +361,13 @@ const RuntimeStateTransitionMatcherSchema: z.ZodType<RuntimeStateTransitionMatch
         ...runtimeTransitionMatcherBase,
         scope: z.literal('replication'),
         state: z.enum(REPLICATION_TIMELINE_STATES)
+      })
+      .strict(),
+    z
+      .object({
+        ...runtimeTransitionMatcherBase,
+        scope: z.literal('protocol'),
+        state: z.enum(PROTOCOL_TIMELINE_STATES)
       })
       .strict(),
     z

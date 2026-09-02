@@ -10,9 +10,17 @@ const TYPES = [
 export const protocolSessionTrait: NodeBehaviourTrait = {
   name: 'protocol.session',
   beforeArrival: ({ node, request }) => {
-    const protocol = node.config?.['sessionProtocol'] === 'websocket' ? 'websocket' : 'http'
+    const protocol =
+      node.config?.['sessionProtocol'] === 'websocket'
+        ? 'websocket'
+        : node.config?.['sessionProtocol'] === 'http2'
+          ? 'http2'
+          : node.config?.['sessionProtocol'] === 'tcp'
+            ? 'tcp'
+            : 'http'
     const open = node.config?.['sessionOpen'] !== false
     const window = typeof node.config?.['streamWindow'] === 'number' ? node.config.streamWindow : 1
+    const httpAckMode = node.config?.['httpAckMode'] === 'on-receive' ? 'on-receive' : 'on-response'
     const paths =
       typeof node.config?.['allowedPaths'] === 'string'
         ? node.config.allowedPaths
@@ -27,16 +35,29 @@ export const protocolSessionTrait: NodeBehaviourTrait = {
       paths
     )
     if (result === 'forwarded')
-      return { action: 'continue', payload: { protocolSessionOpen: true } }
+      return {
+        action: 'continue',
+        payload: {
+          protocolSessionOpen: true,
+          protocolHttpAcknowledgement:
+            protocol === 'http' || protocol === 'http2' ? httpAckMode : undefined,
+          metricCounters: {
+            protocolSessionsOpened: 1,
+            ...(protocol === 'http' || protocol === 'http2' ? { protocolHttpAcks: 1 } : {})
+          }
+        }
+      }
     return {
       action: 'rejected',
       reason: result === 'flow-controlled' ? 'stream_flow_controlled' : 'protocol_policy_rejected',
       payload: {
         protocolSessionOpen: open,
+        protocolSessionClosed: !open,
         protocolL7Rejected: result === 'rejected',
         protocolFlowControlled: result === 'flow-controlled',
         metricCounters: {
-          ...(result === 'rejected' ? { protocolL7Rejects: 1 } : { protocolFlowControlled: 1 })
+          ...(result === 'rejected' ? { protocolL7Rejects: 1 } : { protocolFlowControlled: 1 }),
+          ...(!open ? { protocolSessionsClosed: 1 } : {})
         }
       }
     }
@@ -59,7 +80,14 @@ export const protocolSessionCapabilityModule: NodeCapabilityModule = {
             path: 'sim.sessionProtocol',
             type: 'select',
             label: 'Protocol',
-            options: ['http', 'websocket'],
+            options: ['http', 'http2', 'websocket', 'tcp'],
+            altitude: 'advanced'
+          },
+          {
+            path: 'sim.httpAckMode',
+            type: 'select',
+            label: 'HTTP acknowledgement',
+            options: ['on-response', 'on-receive'],
             altitude: 'advanced'
           },
           {
@@ -82,9 +110,19 @@ export const protocolSessionCapabilityModule: NodeCapabilityModule = {
     ]
   },
   defaults: [],
-  metrics: { counters: ['protocolL7Rejects', 'protocolFlowControlled'] },
+  metrics: {
+    counters: [
+      'protocolL7Rejects',
+      'protocolFlowControlled',
+      'protocolSessionsOpened',
+      'protocolSessionsClosed',
+      'protocolHttpAcks'
+    ]
+  },
   honesty: {
-    simulates: ['connection open state, L7 path policy, and WebSocket flow-control rejection'],
+    simulates: [
+      'connection open/closed state, HTTP acknowledgement mode, L4 versus L7 policy distinction, and WebSocket flow-control rejection'
+    ],
     notModeled: ['TCP handshake timing, TLS, HTTP/2 multiplexing, and packet-level retransmission']
   }
 }

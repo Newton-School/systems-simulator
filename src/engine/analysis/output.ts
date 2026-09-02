@@ -180,6 +180,42 @@ export interface RuntimeSemanticsSummary {
   }
 }
 
+export interface StreamBrokerProjection {
+  nodeId: string
+  brokerAvailable: boolean
+  partitions: Array<{
+    partition: number
+    startOffset: number
+    nextOffset: number
+    retainedRecords: number
+  }>
+  groups: Array<{
+    group: string
+    members: string[]
+    committedOffsets: Record<string, number>
+    lag: Record<string, number>
+  }>
+  replayCount: number
+  retentionRemovals: number
+}
+
+export interface ReplicationProjection {
+  clusterId: string
+  protocol: string
+  conflictResolution: string
+  leaderId: string | null
+  quorumSize: number
+  healthyReplicas: number
+  hasQuorum: boolean
+  members: Array<{
+    id: string
+    role: string
+    term: number
+    appliedIndex: number
+    durableIndex: number
+  }>
+}
+
 export interface SimulationOutput {
   summary: SimulationSummary
   perNode: Record<string, PerNodeMetrics>
@@ -224,6 +260,10 @@ export interface SimulationOutput {
   requestOutcomesSampled: boolean
   /** Exact run-level semantics summary computed before any worker-side sampling. */
   runtimeSemanticsSummary: RuntimeSemanticsSummary
+  /** Broker-state projections for stream nodes with partitioned broker semantics enabled. */
+  streamProjection: StreamBrokerProjection[]
+  /** Durable replication cluster projections for storage nodes with replication enabled. */
+  replicationProjection: ReplicationProjection[]
 }
 
 const RUNTIME_DELIVERY_GUARANTEES = [
@@ -250,6 +290,8 @@ export function generateSimulationOutput(
     requestOutcomeTotal?: number
     requestOutcomeBreakdown?: Record<RequestOutcomeFamily, number>
     requestOutcomesSampled?: boolean
+    streamProjection?: StreamBrokerProjection[]
+    replicationProjection?: ReplicationProjection[]
   }
 ): SimulationOutput {
   const summary = metrics.generateSummary(config.simulationDuration)
@@ -294,7 +336,9 @@ export function generateSimulationOutput(
     requestOutcomeBreakdown:
       debugData?.requestOutcomeBreakdown ?? createEmptyRequestOutcomeBreakdown(),
     requestOutcomesSampled: debugData?.requestOutcomesSampled ?? false,
-    runtimeSemanticsSummary
+    runtimeSemanticsSummary,
+    streamProjection: debugData?.streamProjection ?? [],
+    replicationProjection: debugData?.replicationProjection ?? []
   }
 }
 

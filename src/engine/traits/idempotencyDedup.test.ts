@@ -195,4 +195,54 @@ describe('idempotencyDedupTrait', () => {
       payload: { commitOutcomeDecision: 'replay-blocked' }
     })
   })
+
+  it('reconciles unknown outcomes through the modeled authoritative side-effect registry', () => {
+    const state = makeState()
+    const sharedState = makeState()
+    const node = makeNode({
+      commitOutcomeJournal: true,
+      reconcileUnknownOutcomes: true,
+      externalReconciliationMode: 'modeled'
+    })
+    const interruptedRequest = makeRequest('req-1', {
+      idempotencyKey: 'pay-003',
+      externalSideEffectCommitted: true
+    })
+
+    idempotencyDedupTrait.beforeArrival?.({
+      node,
+      request: interruptedRequest,
+      clock: 0n,
+      state,
+      sharedState
+    })
+    idempotencyDedupTrait.afterTerminal?.({
+      node,
+      request: interruptedRequest,
+      clock: 10n,
+      state,
+      sharedState,
+      status: 'timeout',
+      reasonCode: 'deadline_exceeded'
+    })
+
+    const reconciledRetry = idempotencyDedupTrait.beforeArrival?.({
+      node,
+      request: makeRequest('req-2', { idempotencyKey: 'pay-003' }),
+      clock: 20n,
+      state,
+      sharedState
+    })
+
+    expect(reconciledRetry).toMatchObject({
+      action: 'handled',
+      payload: {
+        commitOutcomeDecision: 'commit-confirmed',
+        metricCounters: {
+          idempotencyReconciliations: 1,
+          externalReconciliationProbes: 1
+        }
+      }
+    })
+  })
 })

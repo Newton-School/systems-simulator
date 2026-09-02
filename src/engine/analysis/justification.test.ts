@@ -69,7 +69,12 @@ describe('gradeJustification — graph-consistency gate', () => {
       ctx()
     )
     expect(res.outcome).toBe('passed')
-    expect(res.checks).toEqual({ graphConsistent: true, number: true, tradeoff: true })
+    expect(res.checks).toEqual({
+      graphConsistent: true,
+      substance: true,
+      number: true,
+      tradeoff: true
+    })
   })
 
   it('fails a keyword-stuffed answer that names the WRONG store (not in the graph)', () => {
@@ -114,7 +119,12 @@ describe('gradeJustification — graph-consistency gate', () => {
       ctx()
     )
     expect(res.outcome).toBe('partial')
-    expect(res.checks).toEqual({ graphConsistent: true, number: false, tradeoff: true })
+    expect(res.checks).toEqual({
+      graphConsistent: true,
+      substance: true,
+      number: false,
+      tradeoff: true
+    })
   })
 })
 
@@ -154,9 +164,9 @@ describe('gradeJustifications — point allocation', () => {
       { 'why-db': 40, 'why-cache': 20 }
     )
     expect(batch.pointsPossible).toBe(60)
-    // why-db: partial, graded checks = [number:false, tradeoff:true] → floor(40 * 1/2) = 20
+    // why-db: partial, graded checks = [substance:true, number:false, tradeoff:true] -> floor(40 * 2/3) = 26
     // why-cache: passed → 20
-    expect(batch.pointsEarned).toBe(40)
+    expect(batch.pointsEarned).toBe(46)
     expect(batch.results[0].outcome).toBe('partial')
     expect(batch.results[1].outcome).toBe('passed')
   })

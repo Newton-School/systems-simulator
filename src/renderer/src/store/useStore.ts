@@ -564,7 +564,7 @@ function sortGraphHistoryEntries(
 function buildNodeHistoryEntries(
   beforeNodes: readonly Node[],
   afterNodes: readonly Node[]
-): AtomicGraphHistoryEntry[] | undefined {
+): AtomicGraphHistoryEntry[] {
   const beforeNodeIds = new Set(beforeNodes.map((node) => node.id))
   const afterNodeIds = new Set(afterNodes.map((node) => node.id))
   const removedNodeIds = new Set([...beforeNodeIds].filter((nodeId) => !afterNodeIds.has(nodeId)))
@@ -642,7 +642,7 @@ function buildNodeHistoryEntries(
 function buildEdgeHistoryEntries(
   beforeEdges: readonly Edge[],
   afterEdges: readonly Edge[]
-): AtomicGraphHistoryEntry[] | undefined {
+): AtomicGraphHistoryEntry[] {
   const beforeEdgeIds = new Set(beforeEdges.map((edge) => edge.id))
   const afterEdgeIds = new Set(afterEdges.map((edge) => edge.id))
   const removedEdgeIds = new Set([...beforeEdgeIds].filter((edgeId) => !afterEdgeIds.has(edgeId)))
@@ -704,29 +704,25 @@ function buildEdgeHistoryEntries(
 function buildSetNodesHistoryEntry(
   beforeNodes: readonly Node[],
   afterNodes: readonly Node[]
-): GraphHistoryEntry | null | undefined {
+): GraphHistoryEntry | null {
   const entries = buildNodeHistoryEntries(beforeNodes, afterNodes)
-  return entries === undefined ? undefined : buildCompositeHistoryEntry(entries)
+  return buildCompositeHistoryEntry(entries)
 }
 
 function buildSetEdgesHistoryEntry(
   beforeEdges: readonly Edge[],
   afterEdges: readonly Edge[]
-): GraphHistoryEntry | null | undefined {
+): GraphHistoryEntry | null {
   const entries = buildEdgeHistoryEntries(beforeEdges, afterEdges)
-  return entries === undefined ? undefined : buildCompositeHistoryEntry(entries)
+  return buildCompositeHistoryEntry(entries)
 }
 
 function buildSetGraphHistoryEntry(
   beforeSnapshot: GraphSnapshot,
   afterSnapshot: GraphSnapshot
-): GraphHistoryEntry | null | undefined {
+): GraphHistoryEntry | null {
   const nodeEntries = buildNodeHistoryEntries(beforeSnapshot.nodes, afterSnapshot.nodes)
   const edgeEntries = buildEdgeHistoryEntries(beforeSnapshot.edges, afterSnapshot.edges)
-
-  if (nodeEntries === undefined || edgeEntries === undefined) {
-    return undefined
-  }
 
   return buildCompositeHistoryEntry(sortGraphHistoryEntries([...nodeEntries, ...edgeEntries]))
 }
@@ -843,12 +839,8 @@ function resolveDerivedGraphMutation(
   state: RFState,
   nextSnapshot: GraphSnapshot,
   options: GraphMutationOptions | undefined,
-  entry: GraphHistoryEntry | null | undefined
+  entry: GraphHistoryEntry | null
 ): Pick<RFState, 'graphHistory' | 'graphRevision'> {
-  if (entry === undefined) {
-    return resolveGraphMutation(state, nextSnapshot, options)
-  }
-
   if (entry === null) {
     return resolveGraphMutation(state, nextSnapshot, { ...options, history: 'skip' })
   }

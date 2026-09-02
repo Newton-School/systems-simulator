@@ -1,7 +1,11 @@
 import { msToMicro } from '../core/time'
 import type { ComponentType } from '../core/types'
 import { writeIdempotencyDecision } from '../core/simulationSemantics'
-import { reconcileExternalOutcome } from '../semantics/v2StateMachines'
+import {
+  ExternalOutcomeRegistry,
+  reconcileExternalOutcome,
+  type ExternalOutcomeStatus
+} from '../semantics/v2StateMachines'
 import { SERVICE_TIME_DISTRIBUTION_OVERRIDE_KEY } from './serviceTimeOverride'
 import type { NodeBehaviourTrait, NodeCapabilityModule, TraitStateStore } from './types'
 
@@ -11,6 +15,7 @@ const DEFAULT_KEY_FIELD = 'idempotencyKey'
 const SEEN_KEYS_STATE_KEY = 'idempotencyDedup.seenKeys'
 const COMMIT_OUTCOME_JOURNAL_STATE_KEY = 'idempotencyDedup.commitOutcomeJournal'
 const COMMIT_OUTCOME_ATTACHMENT_KEY = '__commitOutcomeJournalAttachment'
+const EXTERNAL_OUTCOME_REGISTRY_STATE_KEY = 'idempotencyDedup.externalOutcomeRegistry'
 
 type SeenKeyStore = Map<string, bigint>
 type CommitOutcome = 'pending' | 'committed' | 'unknown'
@@ -53,6 +58,10 @@ function reconciliationResult(config: Record<string, unknown> | undefined) {
   return value === 'committed' || value === 'not-found' || value === 'unknown' ? value : 'unknown'
 }
 
+function reconciliationMode(config: Record<string, unknown> | undefined): 'configured' | 'modeled' {
+  return config?.['externalReconciliationMode'] === 'modeled' ? 'modeled' : 'configured'
+}
+
 function lookupLatencyUs(latencyMs: number): bigint {
   return BigInt(Math.max(1, Math.round(latencyMs * 1000)))
 }
@@ -77,6 +86,28 @@ function commitOutcomeJournal(state: TraitStateStore | undefined): CommitOutcome
   const created: CommitOutcomeJournal = new Map()
   state?.set(COMMIT_OUTCOME_JOURNAL_STATE_KEY, created)
   return created
+}
+
+function externalOutcomeRegistry(state: TraitStateStore | undefined): ExternalOutcomeRegistry {
+  const existing = state?.get<ExternalOutcomeRegistry>(EXTERNAL_OUTCOME_REGISTRY_STATE_KEY)
+  if (existing) {
+    return existing
+  }
+
+  const created = new ExternalOutcomeRegistry()
+  state?.set(EXTERNAL_OUTCOME_REGISTRY_STATE_KEY, created)
+  return created
+}
+
+function authoritativeProbeResult(
+  key: string,
+  config: Record<string, unknown> | undefined,
+  sharedState: TraitStateStore | undefined
+): ExternalOutcomeStatus {
+  if (reconciliationMode(config) === 'modeled') {
+    return externalOutcomeRegistry(sharedState).lookup(key)
+  }
+  return reconciliationResult(config)
 }
 
 function readIdempotencyKey(
@@ -136,7 +167,7 @@ function placeholder(field: 'dedupWindowMs' | 'storeLookupMs' | 'dedupKeyField')
 
 export const idempotencyDedupTrait: NodeBehaviourTrait = {
   name: 'coordination.idempotency-dedup',
-  beforeArrival: ({ node, request, clock, state }) => {
+  beforeArrival: ({ node, request, clock, state, sharedState }) => {
     const lookupMs = lookupLatencyMs(node.config)
     const windowMs = dedupWindowMs(node.config)
     const configuredKeyField = keyField(node.config)
@@ -172,7 +203,7 @@ export const idempotencyDedupTrait: NodeBehaviourTrait = {
 
       if (priorOutcome === 'unknown' && reconcileUnknownOutcomes(node.config)) {
         const resolution = reconcileExternalOutcome(
-          { lookup: () => reconciliationResult(node.config) },
+          { lookup: (probeKey) => authoritativeProbeResult(probeKey, node.config, sharedState) },
           key
         )
         if (resolution === 'safe-retry') {
@@ -189,7 +220,11 @@ export const idempotencyDedupTrait: NodeBehaviourTrait = {
               idempotencyDecision: 'recorded',
               idempotencyKey: key,
               commitOutcomeDecision: 'intent-recorded',
-              metricCounters: { idempotencyReconciliations: 1, idempotencySafeRetries: 1 }
+              metricCounters: {
+                idempotencyReconciliations: 1,
+                idempotencySafeRetries: 1,
+                externalReconciliationProbes: 1
+              }
             }
           }
         }
@@ -201,7 +236,10 @@ export const idempotencyDedupTrait: NodeBehaviourTrait = {
             ...duplicatePayload(key, windowMs, lookupMs),
             commitOutcomeDecision:
               resolution === 'commit-confirmed' ? 'commit-confirmed' : 'replay-blocked',
-            metricCounters: { idempotencyReconciliations: 1 }
+            metricCounters: {
+              idempotencyReconciliations: 1,
+              externalReconciliationProbes: 1
+            }
           }
         }
       }
@@ -259,7 +297,7 @@ export const idempotencyDedupTrait: NodeBehaviourTrait = {
       payload: continuePayload('recorded', windowMs, lookupMs, key)
     }
   },
-  afterTerminal: ({ node, request, state, status, reasonCode }) => {
+  afterTerminal: ({ node, request, state, sharedState, status, reasonCode }) => {
     if (!commitOutcomeJournalEnabled(node.config)) {
       return undefined
     }
@@ -278,10 +316,16 @@ export const idempotencyDedupTrait: NodeBehaviourTrait = {
     const journal = commitOutcomeJournal(state)
     if (status === 'success') {
       journal.set(key, 'committed')
+      externalOutcomeRegistry(sharedState).record(key, 'committed')
       return { commitOutcomeDecision: 'commit-confirmed', idempotencyKey: key }
     }
 
     journal.set(key, 'unknown')
+    if (request.metadata.externalSideEffectCommitted === true) {
+      externalOutcomeRegistry(sharedState).record(key, 'committed')
+    } else if (request.metadata.externalSideEffectCommitted === false) {
+      externalOutcomeRegistry(sharedState).record(key, 'not-found')
+    }
     return {
       commitOutcomeDecision: 'outcome-unknown',
       idempotencyKey: key,
@@ -347,6 +391,14 @@ export const idempotencyDedupCapabilityModule: NodeCapabilityModule = {
             why: 'Deterministically resolves a prior unknown outcome as committed before suppressing a replay. Enable only when the external side effect can be queried safely.'
           },
           {
+            path: 'sim.externalReconciliationMode',
+            type: 'select',
+            label: 'Reconciliation source',
+            options: ['modeled', 'configured'],
+            altitude: 'advanced',
+            why: 'Modeled probes read the shared authoritative side-effect registry; configured probes use the scenario-owned fixed result.'
+          },
+          {
             path: 'sim.reconciliationProbeResult',
             type: 'select',
             label: 'Authoritative probe result',
@@ -366,17 +418,15 @@ export const idempotencyDedupCapabilityModule: NodeCapabilityModule = {
       'idempotencyKeysMissing',
       'idempotencyOutcomeUnknown',
       'idempotencyReconciliations',
-      'idempotencySafeRetries'
+      'idempotencySafeRetries',
+      'externalReconciliationProbes'
     ]
   },
   honesty: {
     simulates: [
       'time-window dedup by idempotency key and duplicate short-circuit at the guard',
-      'durable per-key intent, confirmed commit outcome, and explicit unknown-outcome blocking when the commit journal is enabled'
+      'durable per-key intent, confirmed commit outcome, explicit unknown-outcome blocking, and modeled authoritative reconciliation probes when the commit journal is enabled'
     ],
-    notModeled: [
-      'cross-node consensus on dedup state',
-      'external reconciliation I/O; this deterministic policy represents a successful authoritative outcome lookup'
-    ]
+    notModeled: ['cross-node consensus on dedup state', 'live provider/API I/O from the simulator']
   }
 }

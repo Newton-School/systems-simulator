@@ -1,6 +1,8 @@
 import {
   generateSimulationOutput,
+  ReplicationProjection,
   SimulationOutput,
+  StreamBrokerProjection,
   StatusWindow,
   TimeSeriesSnapshot
 } from './analysis/output'
@@ -94,10 +96,23 @@ import {
 } from './traits/healthProber'
 import { resolveTraits } from './traits/resolveTraits'
 import { computeRetryDelayMs, readRetryBackoffConfig } from './traits/retryBackoff'
+import { ReplicaCluster, ReplicatedLog } from './semantics/v2StateMachines'
 import {
   SERVICE_TIME_DISTRIBUTION_OVERRIDE_KEY,
   SERVICE_TIME_LATENCY_PENALTY_MS_KEY
 } from './traits/serviceTimeOverride'
+import {
+  createReplicationCluster,
+  replicationClusterMembers,
+  replicationClusterStateKey,
+  replicationConsensusProtocol
+} from './traits/replication'
+import {
+  readStreamPartitionCount,
+  readStreamRetentionMs,
+  streamBrokerAvailabilityStateKey,
+  streamBrokerLogStateKey
+} from './traits/streamBroker'
 import type {
   BeforeArrivalDecision,
   BeforeRoutingDecision,
@@ -276,7 +291,12 @@ export class SimulationEngine {
           )
         }
       }
+
+      this.initializeReplicationRuntime(normalized)
+      this.initializeStreamBrokerRuntime(normalized, scheduler)
     }
+
+    this.scheduleInitialStreamConsumerRebalances(scheduler)
 
     if (topology.workload) {
       this.workload = new WorkloadGenerator(topology.workload, rng, scheduler, {
@@ -314,6 +334,68 @@ export class SimulationEngine {
       if (fault.duration !== 'permanent' && durationMs > 0) {
         scheduler.schedule(
           createEvent('node-recovery', fault.targetId, '', {}, msToMicro(atMs + durationMs))
+        )
+      }
+    }
+  }
+
+  private initializeStreamBrokerRuntime(node: ComponentNode, scheduler: EventScheduler): void {
+    if (node.type !== 'stream' || node.config?.['streamBrokerEnabled'] !== true) {
+      return
+    }
+
+    const state = this.getSharedTraitStateStore()
+    state.set(
+      streamBrokerLogStateKey(node.id),
+      new ReplicatedLog(readStreamPartitionCount(node.config), readStreamRetentionMs(node.config))
+    )
+    state.set(streamBrokerAvailabilityStateKey(node.id), true)
+
+    const failureAtMs = node.config?.['brokerFailureAtMs']
+    if (typeof failureAtMs === 'number' && Number.isFinite(failureAtMs) && failureAtMs >= 0) {
+      scheduler.schedule(createEvent('broker-failure', node.id, '', {}, msToMicro(failureAtMs)))
+    }
+
+    const recoveryAtMs = node.config?.['brokerRecoveryAtMs']
+    if (typeof recoveryAtMs === 'number' && Number.isFinite(recoveryAtMs) && recoveryAtMs >= 0) {
+      scheduler.schedule(createEvent('broker-recovery', node.id, '', {}, msToMicro(recoveryAtMs)))
+    }
+
+    const replayIntervalMs = this.readStreamReplayIntervalMs(node)
+    if (replayIntervalMs > 0) {
+      scheduler.schedule(createEvent('stream-replay', node.id, '', {}, msToMicro(replayIntervalMs)))
+    }
+  }
+
+  private initializeReplicationRuntime(node: ComponentNode): void {
+    if (node.config?.['replicationEnabled'] !== true) {
+      return
+    }
+
+    const state = this.getSharedTraitStateStore()
+    const key = replicationClusterStateKey(node.id, node.config)
+    if (!state.get<ReplicaCluster>(key)) {
+      state.set(key, createReplicationCluster(node.id, node.config))
+    }
+  }
+
+  private scheduleInitialStreamConsumerRebalances(scheduler: EventScheduler): void {
+    for (const node of this.nodeDefinitionsById.values()) {
+      if (node.type !== 'stream' || node.config?.['streamBrokerEnabled'] !== true) {
+        continue
+      }
+      if (node.config?.['consumerGroupMode'] !== true) {
+        continue
+      }
+      for (const [group, members] of this.streamConsumerGroupsForBroker(node.id, false)) {
+        scheduler.schedule(
+          createEvent(
+            'consumer-group-rebalance',
+            node.id,
+            '',
+            { consumerGroup: group, members },
+            0n
+          )
         )
       }
     }
@@ -553,6 +635,21 @@ export class SimulationEngine {
         break
       case 'health-check':
         this.handleHealthProbe(event)
+        break
+      case 'stream-retention-expire':
+        this.handleStreamRetentionExpire(event)
+        break
+      case 'stream-replay':
+        this.handleStreamReplay(event)
+        break
+      case 'consumer-group-rebalance':
+        this.handleConsumerGroupRebalance(event)
+        break
+      case 'broker-failure':
+        this.handleBrokerFailure(event)
+        break
+      case 'broker-recovery':
+        this.handleBrokerRecovery(event)
         break
       default:
         // Other event types are integrated in later tickets.
@@ -1251,6 +1348,11 @@ export class SimulationEngine {
       })
     }
     this.recordSimulationEvent(event, this.createNodeSnapshot(event.nodeId))
+    this.updateReplicationClustersForNodeStatus(event.nodeId, false)
+    if (this.isStreamBrokerNode(event.nodeId)) {
+      this.setStreamBrokerAvailability(event.nodeId, false, 'node-failure')
+    }
+    this.rebalanceStreamConsumersAffectedBy(event.nodeId)
   }
 
   private handleNodeRecovery(event: SimulationEvent): void {
@@ -1282,6 +1384,132 @@ export class SimulationEngine {
       open.endUs = this.clock
     }
     this.recordSimulationEvent(event, this.createNodeSnapshot(event.nodeId))
+    this.updateReplicationClustersForNodeStatus(event.nodeId, true)
+    if (this.isStreamBrokerNode(event.nodeId)) {
+      this.setStreamBrokerAvailability(event.nodeId, true, 'node-recovery')
+    }
+    this.rebalanceStreamConsumersAffectedBy(event.nodeId)
+  }
+
+  private handleStreamRetentionExpire(event: SimulationEvent): void {
+    const broker = this.getStreamBrokerLog(event.nodeId)
+    if (!broker) {
+      return
+    }
+
+    const expiredRecords = broker.expire(microToMs(this.clock))
+    const payload = {
+      streamRetentionExpired: expiredRecords > 0,
+      expiredRecords,
+      metricCounters: expiredRecords > 0 ? { streamRetentionExpired: expiredRecords } : {}
+    }
+    this.recordTraitPayloadMetrics(event.nodeId, payload)
+    this.recordCanonicalEvent({
+      timestampUs: this.clock,
+      type: 'stream-retention-expired',
+      priority: event.priority,
+      nodeId: event.nodeId,
+      payload
+    })
+  }
+
+  private handleStreamReplay(event: SimulationEvent): void {
+    const broker = this.getStreamBrokerLog(event.nodeId)
+    const node = this.nodeDefinitionsById.get(event.nodeId)
+    if (!broker || !node) {
+      return
+    }
+
+    let replayCount = 0
+    const replays: Array<{
+      consumerGroup: string
+      memberId: string
+      partition: number
+      offset: number
+    }> = []
+    const available = this.isStreamBrokerAvailable(event.nodeId)
+    if (available) {
+      for (const [group, members] of this.streamConsumerGroupsForBroker(event.nodeId, true)) {
+        for (const partition of broker.partitionSnapshots()) {
+          for (const memberId of members) {
+            const record = broker.poll(group, memberId, partition.partition, microToMs(this.clock))
+            if (!record) {
+              continue
+            }
+            replayCount++
+            replays.push({
+              consumerGroup: group,
+              memberId,
+              partition: partition.partition,
+              offset: record.offset
+            })
+            break
+          }
+        }
+      }
+    }
+
+    const payload = {
+      streamBrokerAvailable: available,
+      replayCount,
+      replays,
+      metricCounters: {
+        ...(replayCount > 0 ? { streamReplayReads: replayCount } : {}),
+        ...(!available ? { streamBrokerUnavailable: 1 } : {})
+      }
+    }
+    this.recordTraitPayloadMetrics(event.nodeId, payload)
+    this.recordCanonicalEvent({
+      timestampUs: this.clock,
+      type: 'stream-replayed',
+      priority: event.priority,
+      nodeId: event.nodeId,
+      payload
+    })
+
+    const replayIntervalMs = this.readStreamReplayIntervalMs(node)
+    if (replayIntervalMs > 0) {
+      const nextAt = this.clock + msToMicro(replayIntervalMs)
+      if (nextAt <= this.simulationDurationUs) {
+        this.eventQueue.insert(createEvent('stream-replay', event.nodeId, '', {}, nextAt))
+      }
+    }
+  }
+
+  private handleConsumerGroupRebalance(event: SimulationEvent): void {
+    const broker = this.getStreamBrokerLog(event.nodeId)
+    if (!broker) {
+      return
+    }
+
+    const group =
+      typeof event.data.consumerGroup === 'string' ? event.data.consumerGroup : 'default'
+    const members = Array.isArray(event.data.members)
+      ? event.data.members.filter((member): member is string => typeof member === 'string')
+      : []
+    broker.rebalance(group, members)
+    const payload = {
+      consumerGroup: group,
+      members,
+      memberCount: members.length,
+      metricCounters: { streamConsumerRebalances: 1 }
+    }
+    this.recordTraitPayloadMetrics(event.nodeId, payload)
+    this.recordCanonicalEvent({
+      timestampUs: this.clock,
+      type: 'consumer-group-rebalanced',
+      priority: event.priority,
+      nodeId: event.nodeId,
+      payload
+    })
+  }
+
+  private handleBrokerFailure(event: SimulationEvent): void {
+    this.setStreamBrokerAvailability(event.nodeId, false, 'broker-failure')
+  }
+
+  private handleBrokerRecovery(event: SimulationEvent): void {
+    this.setStreamBrokerAvailability(event.nodeId, true, 'broker-recovery')
   }
 
   /** Finalize failure intervals (ms): windows still open at cutoff close at the run horizon. */
@@ -1292,6 +1520,216 @@ export class SimulationEngine {
       startMs: microToMs(w.startUs),
       endMs: microToMs(w.endUs ?? this.simulationDurationUs)
     }))
+  }
+
+  private isStreamBrokerNode(nodeId: string): boolean {
+    const node = this.nodeDefinitionsById.get(nodeId)
+    return node?.type === 'stream' && node.config?.['streamBrokerEnabled'] === true
+  }
+
+  private updateReplicationClustersForNodeStatus(nodeId: string, recovered: boolean): void {
+    const seenClusterKeys = new Set<string>()
+    for (const node of this.nodeDefinitionsById.values()) {
+      if (node.config?.['replicationEnabled'] !== true) {
+        continue
+      }
+      const members = replicationClusterMembers(node.id, node.config)
+      if (!members.some((member) => member.id === nodeId)) {
+        continue
+      }
+      const key = replicationClusterStateKey(node.id, node.config)
+      if (seenClusterKeys.has(key)) {
+        continue
+      }
+      seenClusterKeys.add(key)
+      const cluster =
+        this.getSharedTraitStateStore().get<ReplicaCluster>(key) ??
+        createReplicationCluster(node.id, node.config)
+      this.getSharedTraitStateStore().set(key, cluster)
+      if (recovered) {
+        cluster.recover(nodeId)
+        if (!cluster.leader()) {
+          cluster.elect()
+        }
+      } else {
+        cluster.fail(nodeId)
+        cluster.elect()
+      }
+    }
+  }
+
+  private getStreamBrokerLog(nodeId: string): ReplicatedLog | undefined {
+    return this.getSharedTraitStateStore().get<ReplicatedLog>(streamBrokerLogStateKey(nodeId))
+  }
+
+  private isStreamBrokerAvailable(nodeId: string): boolean {
+    return (
+      this.getSharedTraitStateStore().get<boolean>(streamBrokerAvailabilityStateKey(nodeId)) !==
+      false
+    )
+  }
+
+  private setStreamBrokerAvailability(nodeId: string, available: boolean, reason: string): void {
+    if (!this.isStreamBrokerNode(nodeId)) {
+      return
+    }
+
+    this.getSharedTraitStateStore().set(streamBrokerAvailabilityStateKey(nodeId), available)
+    const payload = {
+      streamBrokerAvailable: available,
+      reason,
+      metricCounters: available ? { streamBrokerRecoveries: 1 } : { streamBrokerFailures: 1 }
+    }
+    this.recordTraitPayloadMetrics(nodeId, payload)
+    this.recordCanonicalEvent({
+      timestampUs: this.clock,
+      type: available ? 'broker-recovered' : 'broker-failed',
+      priority: EventPriority.SYSTEM,
+      nodeId,
+      reasonCode: reason,
+      payload
+    })
+  }
+
+  private readStreamReplayIntervalMs(node: ComponentNode): number {
+    const raw = node.config?.['streamReplayIntervalMs']
+    return typeof raw === 'number' && Number.isFinite(raw) && raw > 0 ? raw : 0
+  }
+
+  private streamConsumerGroupsForBroker(
+    brokerNodeId: string,
+    onlyAvailable: boolean
+  ): Map<string, string[]> {
+    const groups = new Map<string, string[]>()
+    for (const edge of this.routing.getOutgoingEdges(brokerNodeId)) {
+      const consumer = this.nodeDefinitionsById.get(edge.target)
+      if (!consumer) {
+        continue
+      }
+      if (onlyAvailable && !this.isNodeHealthyInstant(consumer.id)) {
+        continue
+      }
+      const configuredGroup = consumer.config?.['consumerGroup']
+      const group =
+        typeof configuredGroup === 'string' && configuredGroup.trim()
+          ? configuredGroup.trim()
+          : consumer.id
+      groups.set(group, [...(groups.get(group) ?? []), consumer.id].sort())
+    }
+    return groups
+  }
+
+  private rebalanceStreamConsumersAffectedBy(changedNodeId: string): void {
+    for (const node of this.nodeDefinitionsById.values()) {
+      if (
+        node.type !== 'stream' ||
+        node.config?.['streamBrokerEnabled'] !== true ||
+        node.config?.['consumerGroupMode'] !== true
+      ) {
+        continue
+      }
+
+      const outgoing = this.routing.getOutgoingEdges(node.id)
+      if (!outgoing.some((edge) => edge.target === changedNodeId)) {
+        continue
+      }
+
+      for (const [group, members] of this.streamConsumerGroupsForBroker(node.id, true)) {
+        this.handleConsumerGroupRebalance(
+          createEvent(
+            'consumer-group-rebalance',
+            node.id,
+            '',
+            { consumerGroup: group, members },
+            this.clock
+          )
+        )
+      }
+    }
+  }
+
+  private buildStreamProjection(): StreamBrokerProjection[] {
+    const projections: StreamBrokerProjection[] = []
+    const perNode = Object.fromEntries(
+      this.metrics.getPerNodeMetrics(this.topology.global.simulationDuration)
+    )
+
+    for (const node of this.nodeDefinitionsById.values()) {
+      if (node.type !== 'stream' || node.config?.['streamBrokerEnabled'] !== true) {
+        continue
+      }
+      const broker = this.getStreamBrokerLog(node.id)
+      if (!broker) {
+        continue
+      }
+
+      const partitions = broker.partitionSnapshots()
+      const groups = [...this.streamConsumerGroupsForBroker(node.id, false)].map(
+        ([group, members]) => {
+          const committedOffsets: Record<string, number> = {}
+          const lag: Record<string, number> = {}
+          for (const partition of partitions) {
+            const key = String(partition.partition)
+            const committed = broker.committedOffset(group, partition.partition)
+            committedOffsets[key] = committed
+            lag[key] = Math.max(
+              0,
+              partition.nextOffset - Math.max(partition.startOffset, committed)
+            )
+          }
+          return {
+            group,
+            members: broker.groupMembers(group).length > 0 ? broker.groupMembers(group) : members,
+            committedOffsets,
+            lag
+          }
+        }
+      )
+      const counters = perNode[node.id]?.traitCounters ?? {}
+      projections.push({
+        nodeId: node.id,
+        brokerAvailable: this.isStreamBrokerAvailable(node.id),
+        partitions,
+        groups,
+        replayCount: counters.streamReplayReads ?? 0,
+        retentionRemovals: counters.streamRetentionExpired ?? 0
+      })
+    }
+
+    return projections
+  }
+
+  private buildReplicationProjection(): ReplicationProjection[] {
+    const projections: ReplicationProjection[] = []
+    const seenClusterKeys = new Set<string>()
+
+    for (const node of this.nodeDefinitionsById.values()) {
+      if (node.config?.['replicationEnabled'] !== true) {
+        continue
+      }
+
+      const clusterId = replicationClusterStateKey(node.id, node.config)
+      if (seenClusterKeys.has(clusterId)) {
+        continue
+      }
+      seenClusterKeys.add(clusterId)
+
+      const cluster =
+        this.getSharedTraitStateStore().get<ReplicaCluster>(clusterId) ??
+        createReplicationCluster(node.id, node.config)
+      projections.push({
+        clusterId,
+        protocol: replicationConsensusProtocol(node.config),
+        conflictResolution: cluster.conflictPolicy(),
+        leaderId: cluster.leader()?.id ?? null,
+        quorumSize: cluster.quorumSize(),
+        healthyReplicas: cluster.healthyCount(),
+        hasQuorum: cluster.hasQuorum(),
+        members: cluster.snapshot().map((member) => ({ ...member }))
+      })
+    }
+
+    return projections
   }
 
   /**
@@ -2201,7 +2639,9 @@ export class SimulationEngine {
         requestOutcomes: this.buildRequestOutcomes(),
         requestOutcomeTotal: this.requestOutcomeTotal,
         requestOutcomeBreakdown: this.buildRequestOutcomeBreakdown(),
-        requestOutcomesSampled: this.requestOutcomeTotal > DEFAULT_MAX_RETAINED_REQUEST_OUTCOMES
+        requestOutcomesSampled: this.requestOutcomeTotal > DEFAULT_MAX_RETAINED_REQUEST_OUTCOMES,
+        streamProjection: this.buildStreamProjection(),
+        replicationProjection: this.buildReplicationProjection()
       }
     )
 
@@ -2414,6 +2854,7 @@ export class SimulationEngine {
       isTargetHealthy: (nodeId) => this.isNodeHealthy(nodeId),
       isEdgeHealthy: (edge) => this.isEdgeHealthy(edge),
       getInFlight: (nodeId) => this.nodes.get(nodeId)?.getState().totalInSystem ?? 0,
+      sharedState: this.getSharedTraitStateStore(),
       onTraitDecision: (decision) => {
         this.recordTraitPayloadMetrics(decision.nodeId, decision.payload)
         this.recordTraitDecision(decision.nodeId, request, decision.traitName, decision.hook, {
@@ -2809,6 +3250,7 @@ export class SimulationEngine {
         ...(decision.action === 'rejected' ? { reason: decision.reason } : {}),
         ...(decision.payload ?? {})
       })
+      this.maybeScheduleStreamRetentionEvent(nodeId, decision.payload)
 
       if (decision.action !== 'continue') {
         return decision
@@ -2816,6 +3258,19 @@ export class SimulationEngine {
     }
 
     return { action: 'continue' }
+  }
+
+  private maybeScheduleStreamRetentionEvent(
+    nodeId: string,
+    payload: Record<string, unknown> | undefined
+  ): void {
+    if (!payload || typeof payload.streamRetentionDeadlineMs !== 'number') {
+      return
+    }
+    const deadlineUs = msToMicro(payload.streamRetentionDeadlineMs)
+    if (deadlineUs <= this.simulationDurationUs) {
+      this.eventQueue.insert(createEvent('stream-retention-expire', nodeId, '', {}, deadlineUs))
+    }
   }
 
   private runBeforeRoutingTraits(nodeId: string, request: Request): BeforeRoutingDecision {

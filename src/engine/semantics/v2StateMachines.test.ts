@@ -19,9 +19,9 @@ describe('V2 state machines', () => {
   })
   it('commits only with quorum and promotes a deterministic leader', () => {
     const cluster = new ReplicaCluster([
-      { id: 'a', role: 'leader', term: 1, appliedIndex: 0 },
-      { id: 'b', role: 'follower', term: 1, appliedIndex: 0 },
-      { id: 'c', role: 'follower', term: 1, appliedIndex: 0 }
+      { id: 'a', role: 'leader', term: 1, appliedIndex: 0, durableIndex: 0 },
+      { id: 'b', role: 'follower', term: 1, appliedIndex: 0, durableIndex: 0 },
+      { id: 'c', role: 'follower', term: 1, appliedIndex: 0, durableIndex: 0 }
     ])
     expect(cluster.write(2).committed).toBe(true)
     cluster.fail('a')

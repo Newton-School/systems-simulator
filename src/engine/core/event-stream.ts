@@ -17,7 +17,12 @@ export const CANONICAL_EVENT_TYPES = [
   'node-recovered',
   'health-probed',
   'circuit-breaker-open',
-  'circuit-breaker-close'
+  'circuit-breaker-close',
+  'stream-retention-expired',
+  'stream-replayed',
+  'consumer-group-rebalanced',
+  'broker-failed',
+  'broker-recovered'
 ] as const
 
 export type CanonicalEventType = (typeof CANONICAL_EVENT_TYPES)[number]
@@ -268,6 +273,16 @@ export function toCanonicalEventType(type: EventType): CanonicalEventType | null
       return 'circuit-breaker-open'
     case 'circuit-breaker-close':
       return 'circuit-breaker-close'
+    case 'stream-retention-expire':
+      return 'stream-retention-expired'
+    case 'stream-replay':
+      return 'stream-replayed'
+    case 'consumer-group-rebalance':
+      return 'consumer-group-rebalanced'
+    case 'broker-failure':
+      return 'broker-failed'
+    case 'broker-recovery':
+      return 'broker-recovered'
     default:
       return null
   }
@@ -323,6 +338,8 @@ function deriveDebugStatus(type: CanonicalEventType): DebugEventStatus {
       return 'rejected'
     case 'node-failed':
       return 'failure'
+    case 'broker-failed':
+      return 'failure'
     case 'circuit-breaker-open':
       return 'failure'
     default:
@@ -374,6 +391,16 @@ function buildDebugMessage(record: CanonicalEventRecord): string {
       return `circuit breaker opened at ${record.nodeId ?? 'unknown'}`
     case 'circuit-breaker-close':
       return `circuit breaker closed at ${record.nodeId ?? 'unknown'}`
+    case 'stream-retention-expired':
+      return `stream retention expired records at ${record.nodeId ?? 'unknown'}`
+    case 'stream-replayed':
+      return `stream replay read committed offset at ${record.nodeId ?? 'unknown'}`
+    case 'consumer-group-rebalanced':
+      return `consumer group rebalanced at ${record.nodeId ?? 'unknown'}`
+    case 'broker-failed':
+      return `broker ${record.nodeId ?? 'unknown'} failed${reasonSuffix}`
+    case 'broker-recovered':
+      return `broker ${record.nodeId ?? 'unknown'} recovered`
   }
 }
 

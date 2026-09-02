@@ -922,17 +922,14 @@ export const QuestionPanel = () => {
 
             {budget && liveTopology && <BudgetMeter budget={budget} topology={liveTopology} />}
 
-            {/* V1: the justification feature is hidden. The current grader is a
-               rigid deterministic keyword/number/tradeoff matcher (not an LLM),
-               which produces confusing "inconsistent" feedback. We will redesign
-               this UX for V2. The section is force-disabled here and `justify` is
-               also stripped from the question files, so nothing renders. */}
+            {/* Justification is evaluated against graph consistency plus fair,
+               explainable prose checks before optional AI grading is used. */}
             {SHOW_JUSTIFICATION && activeQuestion.justify && activeQuestion.justify.length > 0 && (
               <section className="space-y-2">
                 <h3 className={SECTION_TITLE}>Justify your design</h3>
                 <p className="text-[11px] leading-relaxed text-nss-muted">
-                  Reference the component you actually placed, cite a number from the question, and
-                  state a tradeoff. Your answer is evaluated by AI for semantic correctness.
+                  Reference the component you actually placed, give a concrete reason, cite a
+                  question number when required, and state the tradeoff.
                 </p>
                 <div className="space-y-3">
                   {activeQuestion.justify.map((prompt) => {

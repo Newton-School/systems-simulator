@@ -5,19 +5,37 @@ import type { NodeBehaviourTrait, NodeCapabilityModule, TraitStateStore } from '
 export const STREAM_BROKER_COMPONENT_TYPES = ['stream'] as const satisfies readonly ComponentType[]
 
 const DEFAULT_PARTITION_KEY_FIELD = 'partitionKey'
-const LOG_STATE_KEY = 'streamBroker.log'
+const STREAM_LOG_STATE_PREFIX = 'streamBroker.log'
+const STREAM_BROKER_AVAILABLE_PREFIX = 'streamBroker.available'
 
-function log(node: { config?: Record<string, unknown> }, state: TraitStateStore | undefined) {
-  const existing = state?.get<ReplicatedLog>(LOG_STATE_KEY)
+export function streamBrokerLogStateKey(nodeId: string): string {
+  return `${STREAM_LOG_STATE_PREFIX}:${nodeId}`
+}
+
+export function streamBrokerAvailabilityStateKey(nodeId: string): string {
+  return `${STREAM_BROKER_AVAILABLE_PREFIX}:${nodeId}`
+}
+
+export function readStreamPartitionCount(config: Record<string, unknown> | undefined): number {
+  return partitionCount(config)
+}
+
+export function readStreamRetentionMs(config: Record<string, unknown> | undefined): number {
+  const configuredRetention = config?.['retentionMs']
+  return typeof configuredRetention === 'number' && configuredRetention >= 0
+    ? configuredRetention
+    : 86_400_000
+}
+
+function log(
+  node: { id: string; config?: Record<string, unknown> },
+  state: TraitStateStore | undefined
+) {
+  const key = streamBrokerLogStateKey(node.id)
+  const existing = state?.get<ReplicatedLog>(key)
   if (existing) return existing
-  const configuredRetention = node.config?.['retentionMs']
-  const created = new ReplicatedLog(
-    partitionCount(node.config),
-    typeof configuredRetention === 'number' && configuredRetention >= 0
-      ? configuredRetention
-      : 86_400_000
-  )
-  state?.set(LOG_STATE_KEY, created)
+  const created = new ReplicatedLog(partitionCount(node.config), readStreamRetentionMs(node.config))
+  state?.set(key, created)
   return created
 }
 
@@ -47,18 +65,29 @@ function hash(value: string): number {
  */
 export const streamBrokerTrait: NodeBehaviourTrait = {
   name: 'stream.partitioned-broker',
-  beforeArrival: ({ node, request, state, clock }) => {
+  beforeArrival: ({ node, request, state, sharedState, clock }) => {
     if (node.config?.['streamBrokerEnabled'] !== true) return { action: 'continue' }
+    const runtimeState = sharedState ?? state
+    if (runtimeState?.get<boolean>(streamBrokerAvailabilityStateKey(node.id)) === false) {
+      return {
+        action: 'rejected',
+        reason: 'broker_unavailable',
+        payload: {
+          streamBrokerAvailable: false,
+          metricCounters: { streamBrokerUnavailable: 1 }
+        }
+      }
+    }
     const keyField = partitionKeyField(node.config)
     const rawKey = request.metadata[keyField]
     const key =
       typeof rawKey === 'string' || typeof rawKey === 'number' ? String(rawKey) : request.id
-    const broker = log(node, state)
+    const broker = log(node, runtimeState)
     const nowMs = Number(clock / 1000n)
-    const expired = broker.expire(nowMs)
     const appended = broker.append(key, nowMs)
     const partition = appended.partition
     const nextOffset = appended.offset
+    const retentionDeadlineMs = nowMs + readStreamRetentionMs(node.config)
     request.metadata.__streamPartition = partition
     request.metadata.__streamOffset = nextOffset
     return {
@@ -69,17 +98,28 @@ export const streamBrokerTrait: NodeBehaviourTrait = {
         streamPartition: partition,
         streamOffset: nextOffset,
         partitionKey: key,
-        streamRetentionExpired: expired > 0,
+        streamRetentionDeadlineMs: retentionDeadlineMs,
         metricCounters: {
-          streamAppends: 1,
-          ...(expired > 0 ? { streamRetentionExpired: expired } : {})
+          streamAppends: 1
         }
       }
     }
   },
-  filterRoutes: ({ node, request, candidates, getNode }) => {
+  filterRoutes: ({ node, request, candidates, getNode, state, sharedState }) => {
     if (node.config?.['streamBrokerEnabled'] !== true || candidates.length <= 1) {
       return { routes: candidates }
+    }
+    const runtimeState = sharedState ?? state
+    if (runtimeState?.get<boolean>(streamBrokerAvailabilityStateKey(node.id)) === false) {
+      return {
+        routes: [],
+        decision: 'broker-unavailable',
+        rejectionReason: 'broker_unavailable',
+        payload: {
+          streamBrokerAvailable: false,
+          metricCounters: { streamBrokerUnavailable: 1 }
+        }
+      }
     }
     const partition = request.metadata.__streamPartition
     if (typeof partition !== 'number') return { routes: candidates }
@@ -124,7 +164,7 @@ export const streamBrokerTrait: NodeBehaviourTrait = {
       }
     }
   },
-  afterTerminal: ({ node, request, state, status }) => {
+  afterTerminal: ({ node, request, state, sharedState, status }) => {
     if (node.config?.['streamBrokerEnabled'] !== true || status !== 'success') return undefined
     const partition = request.metadata.__streamPartition
     const offset = request.metadata.__streamOffset
@@ -134,7 +174,7 @@ export const streamBrokerTrait: NodeBehaviourTrait = {
       Array.isArray(groups) && groups.every((value) => typeof value === 'string')
         ? groups
         : ['default']
-    const broker = log(node, state)
+    const broker = log(node, sharedState ?? state)
     for (const group of consumerGroups) {
       broker.commit(group, partition, offset)
     }
@@ -198,6 +238,39 @@ export const streamBrokerCapabilityModule: NodeCapabilityModule = {
             why: 'Records older than this are expired before subsequent appends.'
           },
           {
+            path: 'sim.streamReplayIntervalMs',
+            type: 'input',
+            label: 'Replay interval',
+            unit: 'ms',
+            inputType: 'number',
+            min: 0,
+            altitude: 'advanced',
+            optional: true,
+            why: 'Schedules deterministic replay reads from each consumer group committed offset.'
+          },
+          {
+            path: 'sim.brokerFailureAtMs',
+            type: 'input',
+            label: 'Broker failure at',
+            unit: 'ms',
+            inputType: 'number',
+            min: 0,
+            altitude: 'advanced',
+            optional: true,
+            why: 'Pauses stream appends and partition delivery from this broker at a deterministic time.'
+          },
+          {
+            path: 'sim.brokerRecoveryAtMs',
+            type: 'input',
+            label: 'Broker recovery at',
+            unit: 'ms',
+            inputType: 'number',
+            min: 0,
+            altitude: 'advanced',
+            optional: true,
+            why: 'Resumes stream appends and partition delivery after a scheduled broker failure.'
+          },
+          {
             path: 'sim.consumerGroupMode',
             type: 'boolean',
             label: 'Consumer groups',
@@ -215,13 +288,18 @@ export const streamBrokerCapabilityModule: NodeCapabilityModule = {
       'streamPartitionRoutes',
       'streamGroupDeliveries',
       'streamOffsetCommits',
-      'streamRetentionExpired'
+      'streamRetentionExpired',
+      'streamReplayReads',
+      'streamConsumerRebalances',
+      'streamBrokerFailures',
+      'streamBrokerRecoveries',
+      'streamBrokerUnavailable'
     ]
   },
   honesty: {
     simulates: [
-      'asynchronous producer acknowledgement, deterministic partition-affine routing, one delivery per configured consumer group, and successful per-group offset commits'
+      'asynchronous producer acknowledgement, deterministic partition-affine routing, one delivery per configured consumer group, successful per-group offset commits, retention expiry, replay from committed offsets, consumer-group rebalancing, and broker availability'
     ],
-    notModeled: ['broker replication and rebalancing']
+    notModeled: ['multi-broker replication across physical machines']
   }
 }

@@ -83,7 +83,9 @@ export const BROKER_TIMELINE_STATES = [
   'partition-assigned',
   'group-delivered',
   'offset-committed',
-  'retention-expired'
+  'retention-expired',
+  'broker-unavailable',
+  'broker-recovered'
 ] as const
 
 export type BrokerTimelineState = (typeof BROKER_TIMELINE_STATES)[number]
@@ -97,7 +99,13 @@ export const REPLICATION_TIMELINE_STATES = [
   'failover-in-progress'
 ] as const
 export type ReplicationTimelineState = (typeof REPLICATION_TIMELINE_STATES)[number]
-export const PROTOCOL_TIMELINE_STATES = ['session-open', 'l7-rejected', 'flow-controlled'] as const
+export const PROTOCOL_TIMELINE_STATES = [
+  'session-open',
+  'session-closed',
+  'http-acknowledged',
+  'l7-rejected',
+  'flow-controlled'
+] as const
 export type ProtocolTimelineState = (typeof PROTOCOL_TIMELINE_STATES)[number]
 
 export const IDEMPOTENCY_TIMELINE_STATES = ['recorded', 'deduped', 'key-missing'] as const
@@ -405,8 +413,25 @@ export function deriveTraitStateTransitions(
       detail: 'Expired records were removed by retention.'
     })
   }
+  if (payload.streamBrokerAvailable === false) {
+    transitions.push({
+      scope: 'broker',
+      state: 'broker-unavailable',
+      detail: 'Broker availability blocked stream append or delivery.'
+    })
+  } else if (payload.streamBrokerAvailable === true) {
+    transitions.push({
+      scope: 'broker',
+      state: 'broker-recovered',
+      detail: 'Broker availability resumed stream append or delivery.'
+    })
+  }
   if (payload.replicationWriteAck === 'quorum')
     transitions.push({ scope: 'replication', state: 'quorum-committed' })
+  if (payload.replicationQuorumUnavailable === true)
+    transitions.push({ scope: 'replication', state: 'quorum-unavailable' })
+  if (payload.replicationFailoverInProgress === true)
+    transitions.push({ scope: 'replication', state: 'failover-in-progress' })
   if (payload.replicationRead === 'replica')
     transitions.push({ scope: 'replication', state: 'replica-read' })
   if (typeof payload.replicationLagMs === 'number' && payload.replicationLagMs > 0)
@@ -458,6 +483,14 @@ export function deriveTraitStateTransitions(
   }
   if (payload.protocolSessionOpen === true)
     transitions.push({ scope: 'protocol', state: 'session-open' })
+  if (payload.protocolSessionClosed === true)
+    transitions.push({ scope: 'protocol', state: 'session-closed' })
+  if (typeof payload.protocolHttpAcknowledgement === 'string')
+    transitions.push({
+      scope: 'protocol',
+      state: 'http-acknowledged',
+      detail: payload.protocolHttpAcknowledgement
+    })
   if (payload.protocolL7Rejected === true)
     transitions.push({ scope: 'protocol', state: 'l7-rejected' })
   if (payload.protocolFlowControlled === true)

@@ -195,12 +195,40 @@ function validateDomains(pkg: QuestionPackage, out: AuthoringDiagnostic[]): void
   const hasForbidUnjustified = (pkg.semanticCriteria ?? []).some(
     (c) => c.kind === 'forbidUnjustified'
   )
-  // Storage-domain questions grade the store choice via `storageFit` OR the
-  // fan-out shape via `fanout` — both are data-domain criteria.
-  const hasDataCriterion = (pkg.semanticCriteria ?? []).some(
-    (c) => c.kind === 'storageFit' || c.kind === 'fanout'
-  )
   const hasJustify = (pkg.justify ?? []).length > 0
+  const hasRuntimeScope = (scopes: readonly string[]) =>
+    (pkg.semanticCriteria ?? []).some((c) => {
+      if (c.kind === 'stateTransition') {
+        return scopes.includes(c.match.scope)
+      }
+      if (c.kind === 'stateSequence') {
+        return c.sequence.some((step) => scopes.includes(step.scope))
+      }
+      return false
+    })
+  // Storage-domain questions grade the store choice, data fan-out shape, or
+  // stream broker runtime evidence; all are data-domain criteria.
+  const hasDataCriterion = (pkg.semanticCriteria ?? []).some(
+    (c) =>
+      c.kind === 'storageFit' ||
+      c.kind === 'fanout' ||
+      ((c.kind === 'stateTransition' || c.kind === 'stateSequence') &&
+        (c.kind === 'stateTransition'
+          ? c.match.scope === 'broker' || c.match.scope === 'replication'
+          : c.sequence.some((step) => step.scope === 'broker' || step.scope === 'replication')))
+  )
+  const hasCorrectnessShapeCriterion = (pkg.semanticCriteria ?? []).some(
+    (c) => c.kind === 'guardedPath' || c.kind === 'forbidUnjustified' || c.kind === 'storageFit'
+  )
+  const hasCorrectnessRuntimeCriterion = hasRuntimeScope([
+    'idempotency',
+    'commit-outcome',
+    'lock',
+    'reservation',
+    'replication'
+  ])
+  const hasCorrectnessCriterion =
+    hasJustify || hasCorrectnessShapeCriterion || hasCorrectnessRuntimeCriterion
 
   for (const domain of seen) {
     const support = getDomainSupport(domain)
@@ -229,16 +257,16 @@ function validateDomains(pkg: QuestionPackage, out: AuthoringDiagnostic[]): void
           out.push(
             warn(
               'domains.mismatch',
-              "domain 'storage' expects a `storageFit` (store choice) or `fanout` (broadcast) semantic criterion."
+              "domain 'storage' expects a `storageFit`, `fanout`, stream-broker, or replication runtime semantic criterion."
             )
           )
         break
       case 'correctness':
-        if (!hasJustify)
+        if (!hasCorrectnessCriterion)
           out.push(
             warn(
               'domains.mismatch',
-              "domain 'correctness' is carried by topology + justification; expected a `justify` prompt."
+              "domain 'correctness' expects a `justify` prompt or runtime evidence from idempotency, commit-outcome, lock, reservation, or replication semantics."
             )
           )
         break

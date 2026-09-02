@@ -83,6 +83,8 @@ export interface JustificationResult {
   checks: {
     /** Did the answer reference the component actually in the graph? (the gate) */
     graphConsistent?: boolean
+    /** Does the answer contain enough prose to evaluate rather than just tokens? */
+    substance?: boolean
     number?: boolean
     tradeoff?: boolean
   }
@@ -116,6 +118,10 @@ function normalize(text: string): string {
 function containsAny(haystack: string, needles: readonly string[]): boolean {
   const lower = haystack.toLowerCase()
   return needles.some((needle) => needle.length > 0 && lower.includes(needle.toLowerCase()))
+}
+
+function meaningfulTokenCount(text: string): number {
+  return (text.toLowerCase().match(/[a-z0-9]+(?:-[a-z0-9]+)?/g) ?? []).length
 }
 
 /**
@@ -155,6 +161,14 @@ function citesAScaleNumber(text: string, scaleNumbers: readonly number[]): boole
       return Math.abs(a - s) / Math.abs(s) <= 0.005
     })
   )
+}
+
+function missingJustificationDetails(checks: JustificationResult['checks']): string | undefined {
+  const missing: string[] = []
+  if (checks.substance === false) missing.push('add a concrete reason')
+  if (checks.number === false) missing.push('cite a question number')
+  if (checks.tradeoff === false) missing.push('state a tradeoff')
+  return missing.length > 0 ? `Missing: ${missing.join(', ')}.` : undefined
 }
 
 /** An answer that is empty or merely echoes the decision prompt is a non-answer. */
@@ -211,9 +225,12 @@ export function gradeJustification(
     }
   }
 
-  // 2 & 3. Graded credit: number-citation and tradeoff.
-  const checks: JustificationResult['checks'] = { graphConsistent }
-  const required: boolean[] = []
+  // 2, 3 & 4. Graded credit: answer substance, number-citation, and tradeoff.
+  const checks: JustificationResult['checks'] = {
+    graphConsistent,
+    substance: meaningfulTokenCount(text) >= 4
+  }
+  const required: boolean[] = [checks.substance]
 
   if (prompt.requires.number) {
     checks.number = citesAScaleNumber(text, ctx.scaleNumbers)
@@ -232,7 +249,14 @@ export function gradeJustification(
   const outcome: JustificationOutcome =
     required.length === 0 || met === required.length ? 'passed' : met === 0 ? 'failed' : 'partial'
 
-  return { promptId: prompt.id, outcome, pointsEarned: 0, pointsPossible, checks }
+  return {
+    promptId: prompt.id,
+    outcome,
+    pointsEarned: 0,
+    pointsPossible,
+    checks,
+    detail: outcome === 'passed' ? undefined : missingJustificationDetails(checks)
+  }
 }
 
 export interface JustificationBatchResult {
@@ -266,7 +290,7 @@ export function gradeJustifications(
     if (result.outcome === 'passed') {
       earned = points
     } else if (result.outcome === 'partial') {
-      const graded = [result.checks.number, result.checks.tradeoff].filter(
+      const graded = [result.checks.substance, result.checks.number, result.checks.tradeoff].filter(
         (v) => v !== undefined
       ) as boolean[]
       const met = graded.filter(Boolean).length

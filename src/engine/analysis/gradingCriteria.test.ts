@@ -94,6 +94,17 @@ describe('parseSemanticCriterion', () => {
         source: 'trait',
         nodeType: 'event-broker' as never
       }
+    },
+    {
+      id: 'http-ack',
+      kind: 'stateTransition',
+      points: 4,
+      match: {
+        scope: 'protocol',
+        state: 'http-acknowledged',
+        source: 'trait',
+        nodeType: 'api-gateway'
+      }
     }
   ]
 
