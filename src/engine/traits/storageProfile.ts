@@ -93,10 +93,20 @@ function asPositiveNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null
 }
 
+function isKeyValueStore(componentType: ComponentType, config?: Record<string, unknown>): boolean {
+  return (
+    componentType === 'kv-store' ||
+    (componentType === 'nosql-db' && config?.['dataModel'] === 'key-value')
+  )
+}
+
 function defaultStorageLatencyMs(
   componentType: ComponentType,
-  operation: StorageOperation
+  operation: StorageOperation,
+  config?: Record<string, unknown>
 ): number {
+  if (isKeyValueStore(componentType, config))
+    return DEFAULT_STORAGE_PROFILE_MS['kv-store'][operation]
   const profile =
     DEFAULT_STORAGE_PROFILE_MS[componentType as keyof typeof DEFAULT_STORAGE_PROFILE_MS]
   return profile?.[operation] ?? DEFAULT_STORAGE_PROFILE_MS['relational-db'][operation]
@@ -109,7 +119,7 @@ function configuredStorageLatencyMs(
 ): number {
   return (
     asPositiveNumber(config?.[STORAGE_OPERATION_FIELDS[operation]]) ??
-    defaultStorageLatencyMs(componentType, operation)
+    defaultStorageLatencyMs(componentType, operation, config)
   )
 }
 
@@ -226,6 +236,22 @@ export const storageProfileCapabilityModule: NodeCapabilityModule = {
   hooks: storageProfileTrait,
   config: {
     sections: [
+      {
+        id: 'data-model',
+        title: 'Data Model',
+        note: 'Choose the persistent NoSQL access model. Key-value is a NoSQL database profile, not a separate top-level datastore node.',
+        noteTone: 'info',
+        fields: [
+          {
+            path: 'sim.dataModel',
+            type: 'select',
+            label: 'NoSQL model',
+            options: ['document', 'key-value', 'wide-column'],
+            visible: (data) => data.componentType === 'nosql-db',
+            why: 'Selects the access-pattern profile. Key-value optimizes point reads/writes and makes scans and ad-hoc queries expensive.'
+          }
+        ]
+      },
       {
         id: 'storage-profile',
         title: 'Storage Profile',

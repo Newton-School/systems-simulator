@@ -7,11 +7,22 @@ import {
 } from '../semantics/v2StateMachines'
 import { SERVICE_TIME_DISTRIBUTION_OVERRIDE_KEY } from './serviceTimeOverride'
 import type { NodeBehaviourTrait, NodeCapabilityModule, TraitStateStore } from './types'
+import type { CanvasNodeDataV2 } from '../catalog/nodeSpecTypes'
 
 export const REPLICATION_COMPONENT_TYPES = [
   'relational-db',
   'nosql-db'
 ] as const satisfies readonly ComponentType[]
+
+function isReplicationEnabled(data: CanvasNodeDataV2): boolean {
+  return data.sim?.replicationEnabled === true
+}
+
+function roleOptions(data: CanvasNodeDataV2): readonly string[] {
+  return data.sim?.replicationMode === 'leader-follower'
+    ? ['leader', 'follower']
+    : ['primary', 'replica']
+}
 
 function positive(value: unknown, fallback: number): number {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : fallback
@@ -112,7 +123,9 @@ export const replicationTrait: NodeBehaviourTrait = {
       }
     }
 
-    const role = node.config?.['replicationRole'] === 'replica' ? 'replica' : 'primary'
+    const configuredRole = node.config?.['replicationRole']
+    const role =
+      configuredRole === 'replica' || configuredRole === 'follower' ? 'replica' : 'primary'
     const lagMs = positive(node.config?.['replicationLagMs'], 0)
     const ackPolicy = node.config?.['writeAckPolicy'] === 'quorum' ? 'quorum' : 'primary'
     if (request.type === 'read' && role === 'replica') {
@@ -201,8 +214,28 @@ export const replicationCapabilityModule: NodeCapabilityModule = {
           {
             path: 'sim.replicationEnabled',
             type: 'boolean',
-            label: 'Replication model',
-            altitude: 'advanced'
+            label: 'Enable replication',
+            altitude: 'primary',
+            why: 'Turns this standalone SQL or NoSQL database into a replicated datastore member.'
+          },
+          {
+            path: 'sim.replicationMode',
+            type: 'select',
+            label: 'Replication topology',
+            options: ['primary-replica', 'leader-follower'],
+            visible: isReplicationEnabled,
+            altitude: 'primary',
+            why: 'Primary/replica is the general single-writer database pattern; leader/follower is for elected-leader replication.'
+          },
+          {
+            path: 'sim.replicationRole',
+            type: 'select',
+            label: (data) =>
+              data.sim?.replicationMode === 'leader-follower' ? 'Cluster role' : 'Database role',
+            options: roleOptions,
+            visible: isReplicationEnabled,
+            altitude: 'primary',
+            why: 'Replicas and followers reject writes and can serve stale reads; the primary or leader accepts writes.'
           },
           {
             path: 'sim.replicationLagMs',
@@ -211,6 +244,7 @@ export const replicationCapabilityModule: NodeCapabilityModule = {
             label: 'Replica lag',
             unit: 'ms',
             min: 0,
+            visible: isReplicationEnabled,
             altitude: 'advanced'
           },
           {
@@ -218,6 +252,7 @@ export const replicationCapabilityModule: NodeCapabilityModule = {
             type: 'select',
             label: 'Write acknowledgement',
             options: ['primary', 'quorum'],
+            visible: isReplicationEnabled,
             altitude: 'advanced'
           },
           {
@@ -227,6 +262,7 @@ export const replicationCapabilityModule: NodeCapabilityModule = {
             label: 'Failover window',
             unit: 'ms',
             min: 0,
+            visible: isReplicationEnabled,
             altitude: 'advanced'
           },
           {
@@ -235,6 +271,7 @@ export const replicationCapabilityModule: NodeCapabilityModule = {
             inputType: 'text',
             label: 'Replica members',
             altitude: 'advanced',
+            visible: isReplicationEnabled,
             placeholder: 'db-a, db-b, db-c',
             why: 'Defines deterministic membership for quorum and leader-promotion simulation.'
           },
@@ -244,6 +281,7 @@ export const replicationCapabilityModule: NodeCapabilityModule = {
             label: 'Consensus protocol',
             options: ['raft', 'none'],
             altitude: 'advanced',
+            visible: isReplicationEnabled,
             why: 'Controls whether the cluster represents an elected-log protocol or an unsafe replication boundary.'
           },
           {
@@ -252,6 +290,7 @@ export const replicationCapabilityModule: NodeCapabilityModule = {
             label: 'Conflict resolution',
             options: ['leader-wins', 'highest-index-wins'],
             altitude: 'advanced',
+            visible: isReplicationEnabled,
             why: 'Documents how divergent durable replica state is resolved in modeled conflict scenarios.'
           }
         ]

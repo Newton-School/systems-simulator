@@ -47,14 +47,29 @@ export interface RecoverResult {
 
 export class GGcKNode {
   private readonly id: string
-  private readonly maxWorkers: number
-  private readonly maxCapacity: number
+  // Mutable so an autoscaler (scheduler trait) can resize effective concurrency
+  // mid-run via `resizeConcurrency`. Utilization stays honest because the
+  // denominator is the capacity-time integral, not a single final worker count.
+  private maxWorkers: number
+  private maxCapacity: number
   /** How `maxWorkers` was derived (e.g. "effective c = 3 × 8 = 24") — for inline UI provenance. */
   readonly concurrencyProvenance: string = ''
   /** Rejection reason when the node is at K: 'oom' if RAM-bound, else 'capacity_exceeded'. */
   private readonly capacityRejectReason: 'capacity_exceeded' | 'oom' = 'capacity_exceeded'
   /** Instance compute-speed multiplier on service time (< 1 faster, > 1 slower). */
   private readonly serviceMultiplier: number = 1
+  /**
+   * Two-tier compute-contention (compute-contention-two-tier-model.md). The
+   * `cpuBoundFraction` of each request's service time contends for physical
+   * cores; the rest multiplexes freely. Physical cores are updated explicitly
+   * on autoscale, rather than
+   * inferred from the worker ceiling: a scale-down can gracefully drain workers
+   * above the new ceiling without pretending that the removed cores still exist.
+   * Both are 0/harmless for legacy nodes
+   * (fraction 0 ⇒ every branch below is a no-op ⇒ guaranteed zero regression).
+   */
+  private readonly cpuBoundFraction: number = 0
+  private physicalCoreCapacity: number = 1
   private readonly serviceDistribution: DistributionConfig
   private readonly discipline: 'fifo' | 'lifo' | 'priority' | 'wfq'
 
@@ -83,6 +98,25 @@ export class GGcKNode {
    * cadence undersamples and a snapshot-average would lie.
    */
   private busyAreaUs = 0n
+  /**
+   * Time-weighted CAPACITY area — the integral ∫ maxWorkers dt (worker·µs) over
+   * the same window as `busyAreaUs`. Utilization = busyArea ÷ capacityArea, which
+   * stays correct even when `maxWorkers` changes mid-run (autoscaling). For a
+   * fixed-capacity node this equals `maxWorkers × duration`, so it's identical to
+   * the old `busyArea ÷ (duration × workers)` — no regression.
+   */
+  private capacityAreaUs = 0n
+  /**
+   * Time-weighted CPU-busy and core-capacity integrals (core·µs), the honest
+   * denominator/numerator for CPU utilization under the two-tier model. `cpuInUse
+   * = min(activeWorkers × cpuBoundFraction, physicalCores)` is the mean-field
+   * count of requests on-core at any instant; `physicalCores` is the ceiling.
+   * Headline utilization is cpuBusy÷coreArea for instance-backed nodes. Both stay
+   * 0 when `cpuBoundFraction === 0` ⇒ legacy nodes retain worker occupancy. Float accumulators: JS IEEE-754
+   * math is deterministic, and utilization is a reported ratio, not event-ordering.
+   */
+  private cpuBusyAreaUs = 0
+  private coreAreaUs = 0
   private lastAccrualUs = 0n
 
   private metrics: NodeMetrics = {
@@ -108,7 +142,9 @@ export class GGcKNode {
       effectiveC: workers,
       effectiveK: capacity,
       provenance,
-      admissionBoundBy
+      admissionBoundBy,
+      physicalCores,
+      cpuBoundFraction
     } = deriveNodeConcurrency(config)
     const { discipline } = config.queue
     if (!Number.isInteger(workers) || workers < 1) {
@@ -135,6 +171,8 @@ export class GGcKNode {
     this.concurrencyProvenance = provenance
     this.capacityRejectReason = admissionBoundBy === 'ram' ? 'oom' : 'capacity_exceeded'
     this.serviceMultiplier = serviceTimeMultiplier(config)
+    this.cpuBoundFraction = cpuBoundFraction
+    this.physicalCoreCapacity = physicalCores
     this.discipline = discipline
     this.serviceDistribution = config.processing?.distribution ?? { type: 'constant', value: 10 }
     this.distributions = distributions
@@ -436,9 +474,22 @@ export class GGcKNode {
       status: this.status,
       activeWorkers: this.activeWorkers,
       queueLength: this.queue.length,
-      utilization: this.activeWorkers / this.maxWorkers,
+      // Instance-backed nodes report CPU occupancy as the sole utilization meaning.
+      // Legacy nodes have no CPU tier and retain the historical worker occupancy.
+      utilization: this.instantUtilization(),
       totalInSystem: this.inSystem()
     }
+  }
+
+  /** Instantaneous CPU occupancy, with worker occupancy retained for legacy nodes. */
+  private instantUtilization(): number {
+    const workerUtil = this.maxWorkers > 0 ? this.activeWorkers / this.maxWorkers : 0
+    if (this.cpuBoundFraction <= 0) {
+      return Math.min(1, workerUtil)
+    }
+    const cores = this.physicalCores()
+    const cpuUtil = Math.min(this.activeWorkers * this.cpuBoundFraction, cores) / cores
+    return Math.min(1, cpuUtil)
   }
 
   getMetrics(): NodeMetrics {
@@ -455,8 +506,21 @@ export class GGcKNode {
     if (now <= this.lastAccrualUs) {
       return
     }
-    this.busyAreaUs += BigInt(this.activeWorkers) * (now - this.lastAccrualUs)
+    const dt = now - this.lastAccrualUs
+    this.busyAreaUs += BigInt(this.activeWorkers) * dt
+    this.capacityAreaUs += BigInt(this.maxWorkers) * dt
+    if (this.cpuBoundFraction > 0) {
+      const cores = this.physicalCores()
+      const dtN = Number(dt)
+      this.cpuBusyAreaUs += Math.min(this.activeWorkers * this.cpuBoundFraction, cores) * dtN
+      this.coreAreaUs += cores * dtN
+    }
     this.lastAccrualUs = now
+  }
+
+  /** Physical cores backing the node now, independently of graceful worker drain. */
+  private physicalCores(): number {
+    return this.physicalCoreCapacity
   }
 
   /** Close the busy-area integral at the run horizon. Idempotent. */
@@ -464,9 +528,62 @@ export class GGcKNode {
     this.accrueBusy(nowUs)
   }
 
-  /** ∫ activeWorkers dt (worker·µs) — divide by (duration × maxWorkers) for utilization. */
+  /** ∫ activeWorkers dt (worker·µs) — divide by `getCapacityAreaUs()` for utilization. */
   getBusyAreaUs(): bigint {
     return this.busyAreaUs
+  }
+
+  /** ∫ maxWorkers dt (worker·µs) — the honest utilization denominator across resizes. */
+  getCapacityAreaUs(): bigint {
+    return this.capacityAreaUs
+  }
+
+  /** Current effective worker ceiling (post any autoscale resizes). */
+  getMaxWorkers(): number {
+    return this.maxWorkers
+  }
+
+  /** ∫ min(activeWorkers×cpuBoundFraction, physicalCores) dt (core·µs). 0 if no CPU tier. */
+  getCpuBusyAreaUs(): number {
+    return this.cpuBusyAreaUs
+  }
+
+  /** ∫ physicalCores dt (core·µs) — the CPU-utilization denominator. 0 if no CPU tier. */
+  getCoreAreaUs(): number {
+    return this.coreAreaUs
+  }
+
+  /**
+   * Autoscale: change effective concurrency mid-run. Accrues the busy/capacity
+   * integrals at the OLD ceiling first, then raises/lowers them — but never below
+   * what is currently in use (`activeWorkers` / `inSystem`), so in-flight work is
+   * never evicted (graceful drain; the target is reached on a later resize once
+   * usage falls). When the worker ceiling grows, immediately pumps queued work.
+   */
+  resizeConcurrency(
+    effectiveC: number,
+    effectiveK: number,
+    now: bigint,
+    physicalCores?: number
+  ): { started: Request[] } {
+    this.accrueBusy(now)
+    if (physicalCores !== undefined && this.cpuBoundFraction > 0) {
+      this.physicalCoreCapacity = Math.max(1, physicalCores)
+    }
+    this.maxWorkers = Math.max(1, Math.round(effectiveC), this.activeWorkers)
+    this.maxCapacity = Math.max(1, Math.round(effectiveK), this.inSystem())
+
+    const started: Request[] = []
+    while (this.activeWorkers < this.maxWorkers && this.queue.length > 0) {
+      const next = this.dequeue()
+      if (!next) {
+        break
+      }
+      this.startProcessing(next, now)
+      started.push(next)
+    }
+    this.updateStatus()
+    return { started }
   }
 
   /**
@@ -517,9 +634,25 @@ export class GGcKNode {
     }
     // Instance compute speed scales the base service time (faster hardware → lower
     // latency) before any degraded-mode penalty.
-    let serviceTimeMs =
-      Math.max(0, rawServiceTimeMs) * this.serviceMultiplier +
-      readServiceTimeLatencyPenaltyMs(request)
+    let computeTimeMs = Math.max(0, rawServiceTimeMs) * this.serviceMultiplier
+
+    // Two-tier compute contention: the cpuBoundFraction of compute time contends
+    // for physical cores. When more requests are computing than there are cores,
+    // the CPU part stretches by that factor; the I/O part multiplexes freely.
+    // `activeWorkers` already includes THIS request (startProcessing incremented
+    // it), so the request contends with itself + peers — a dequeue-time mean-field
+    // approximation (spec §7). No-op when cpuBoundFraction === 0 (legacy/pure-I/O)
+    // and when demand ≤ cores (light load, and all cpu-bound nodes where c = cores).
+    if (this.cpuBoundFraction > 0) {
+      const f = this.cpuBoundFraction
+      const cpuDemand = this.activeWorkers * f
+      const cpuSlowdown = Math.max(1, cpuDemand / this.physicalCores())
+      computeTimeMs = computeTimeMs * (1 - f + f * cpuSlowdown)
+    }
+
+    // The additive latency penalty (geo/external/crypto traits) is external wait,
+    // not local core work — it is not subject to CPU contention.
+    let serviceTimeMs = computeTimeMs + readServiceTimeLatencyPenaltyMs(request)
 
     // Degraded mode: a `fraction` of requests take `serviceTimeMultiplier`× as
     // long. Decided at service start; already-scheduled completions are untouched.

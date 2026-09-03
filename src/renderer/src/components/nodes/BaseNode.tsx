@@ -1,5 +1,5 @@
 import React, { memo, useState, useCallback, useMemo } from 'react'
-import { Anchor, Lock } from 'lucide-react'
+import { Anchor, AlertTriangle, Lock } from 'lucide-react'
 import UniversalHandle from '@renderer/components/ui/UniversalHandle'
 import useStore from '@renderer/store/useStore'
 import { NODE_OFFSETS, NODE_POSITIONS } from './nodeConstants'
@@ -51,6 +51,14 @@ const BaseNode = ({
   const isScaffoldLocked = isScaffoldNode && !canEditScaffoldNodes
   const showScaffoldBadge = isScaffoldNode && (isScaffoldLocked || showScaffoldSource)
 
+  // Single-point-of-failure marker from the most recent run (structural analysis).
+  const spofReason = useStore((s) =>
+    id
+      ? (s.lastRunOutput?.singlePointsOfFailure?.find((f) => f.nodeId === id)?.reason ?? null)
+      : null
+  )
+  const isSpof = spofReason !== null
+
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault()
     setIsMenuOpen(true)
@@ -91,7 +99,19 @@ const BaseNode = ({
   }
 
   return (
-    <div onContextMenu={handleContextMenu} className={containerClassName ?? containerClasses}>
+    <div
+      onContextMenu={handleContextMenu}
+      className={`${containerClassName ?? containerClasses}${isSpof ? ' ring-2 ring-nss-danger/70' : ''}`}
+    >
+      {isSpof && (
+        <div
+          className="absolute -top-2 -right-2 z-10 flex items-center gap-1 rounded-full border border-nss-primary bg-nss-primary px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-white shadow"
+          title={`Single point of failure. ${spofReason}`}
+        >
+          <AlertTriangle size={9} />
+          SPOF
+        </div>
+      )}
       {showScaffoldBadge && (
         <div
           className={`absolute -top-2 -left-2 z-10 flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide shadow ${

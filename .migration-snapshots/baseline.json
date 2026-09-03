@@ -1,0 +1,1893 @@
+{
+  "version": "1",
+  "generatedAt": "2026-09-03T10:52:55.965Z",
+  "cases": [
+    {
+      "questionId": "async-sla",
+      "kind": "reference",
+      "passed": true,
+      "tests": [
+        {
+          "id": "topology.structural.has-queue-777z1",
+          "name": "An async queue separates ingest from processing",
+          "passed": true
+        },
+        {
+          "id": "topology.structural.has-workers-l2dy8l",
+          "name": "Scalable workers process the queue",
+          "passed": true
+        },
+        {
+          "id": "topology.structural.single-source-16tmdi1",
+          "name": "Exactly one traffic source",
+          "passed": true
+        },
+        {
+          "id": "topology.constraint.max-node-count-ugrzyu",
+          "name": "Keep node count within 12",
+          "passed": true
+        },
+        {
+          "id": "topology.semantic.ingest-through-queue-1wjbfnn",
+          "name": "Jobs must enter the queue before they reach workers",
+          "passed": true
+        },
+        {
+          "id": "case.spike-1g4aplh.execution.execution-1jr2ecx",
+          "name": "Case spike execution completed",
+          "passed": true
+        },
+        {
+          "id": "case.spike-1g4aplh.simulation.sla-1ipz3pt",
+          "name": "p99 job completion under 15 s",
+          "passed": true
+        },
+        {
+          "id": "case.spike-1g4aplh.invariant.no-invariants-wznwyc",
+          "name": "No invariant violations",
+          "passed": true
+        }
+      ],
+      "runs": [
+        {
+          "caseId": "spike",
+          "throughput": 6003.36,
+          "errorRate": 0,
+          "p99": 19.84,
+          "perNode": {
+            "client": {
+              "utilization": 0,
+              "p99": 0
+            },
+            "svc": {
+              "utilization": 0.0436362203125,
+              "p99": 0.932
+            },
+            "q": {
+              "utilization": 0.046918356770833336,
+              "p99": 1.004
+            },
+            "worker": {
+              "utilization": 0.08726251302083333,
+              "p99": 1.864
+            },
+            "db": {
+              "utilization": 0.3752045104166667,
+              "p99": 16.064
+            }
+          }
+        }
+      ]
+    },
+    {
+      "questionId": "async-sla",
+      "kind": "gamed",
+      "passed": false,
+      "tests": [
+        {
+          "id": "topology.structural.has-queue-777z1",
+          "name": "An async queue separates ingest from processing",
+          "passed": false
+        },
+        {
+          "id": "topology.structural.has-workers-l2dy8l",
+          "name": "Scalable workers process the queue",
+          "passed": false
+        },
+        {
+          "id": "topology.structural.single-source-16tmdi1",
+          "name": "Exactly one traffic source",
+          "passed": true
+        },
+        {
+          "id": "case.spike-1g4aplh.execution.execution-1jr2ecx",
+          "name": "Case spike execution completed",
+          "passed": false
+        },
+        {
+          "id": "case.spike-1g4aplh.simulation.sla-1ipz3pt",
+          "name": "p99 job completion under 15 s",
+          "passed": false
+        },
+        {
+          "id": "case.spike-1g4aplh.invariant.no-invariants-wznwyc",
+          "name": "No invariant violations",
+          "passed": false
+        }
+      ],
+      "runs": []
+    },
+    {
+      "questionId": "cache-placement",
+      "kind": "reference",
+      "passed": true,
+      "tests": [
+        {
+          "id": "topology.structural.has-lb-1oz2ivk",
+          "name": "A load balancer fronts the system",
+          "passed": true
+        },
+        {
+          "id": "topology.structural.single-source-16tmdi1",
+          "name": "Exactly one traffic source",
+          "passed": true
+        },
+        {
+          "id": "topology.constraint.max-node-count-ugrzyu",
+          "name": "Keep node count within 10",
+          "passed": true
+        },
+        {
+          "id": "topology.semantic.cache-between-1vj3ot4",
+          "name": "Cache sits between the service and the database, not before the load balancer",
+          "passed": true
+        },
+        {
+          "id": "case.peak-1et639u.execution.execution-1jr2ecx",
+          "name": "Case peak execution completed",
+          "passed": true
+        },
+        {
+          "id": "case.peak-1et639u.simulation.p99-184icht",
+          "name": "p99 under 120 ms",
+          "passed": true
+        },
+        {
+          "id": "case.peak-1et639u.invariant.no-invariants-wznwyc",
+          "name": "No invariant violations",
+          "passed": true
+        }
+      ],
+      "runs": [
+        {
+          "caseId": "peak",
+          "throughput": 1999.52,
+          "errorRate": 0,
+          "p99": 32.384,
+          "perNode": {
+            "client": {
+              "utilization": 0,
+              "p99": 0
+            },
+            "lb": {
+              "utilization": 0.031249216666666666,
+              "p99": 1.004
+            },
+            "svc": {
+              "utilization": 0.058119775,
+              "p99": 1.864
+            },
+            "cache": {
+              "utilization": 0.0029916666666666668,
+              "p99": 1.004
+            },
+            "db": {
+              "utilization": 0.7898313333333333,
+              "p99": 42.752
+            }
+          }
+        }
+      ]
+    },
+    {
+      "questionId": "cache-placement",
+      "kind": "gamed",
+      "passed": false,
+      "tests": [
+        {
+          "id": "topology.structural.has-lb-1oz2ivk",
+          "name": "A load balancer fronts the system",
+          "passed": true
+        },
+        {
+          "id": "topology.structural.single-source-16tmdi1",
+          "name": "Exactly one traffic source",
+          "passed": true
+        },
+        {
+          "id": "topology.constraint.max-node-count-ugrzyu",
+          "name": "Keep node count within 10",
+          "passed": true
+        },
+        {
+          "id": "topology.semantic.cache-between-1vj3ot4",
+          "name": "Cache sits between the service and the database, not before the load balancer",
+          "passed": false
+        },
+        {
+          "id": "case.peak-1et639u.execution.execution-1jr2ecx",
+          "name": "Case peak execution completed",
+          "passed": true
+        },
+        {
+          "id": "case.peak-1et639u.simulation.p99-184icht",
+          "name": "p99 under 120 ms",
+          "passed": false
+        },
+        {
+          "id": "case.peak-1et639u.invariant.no-invariants-wznwyc",
+          "name": "No invariant violations",
+          "passed": true
+        }
+      ],
+      "runs": [
+        {
+          "caseId": "peak",
+          "throughput": 0,
+          "errorRate": 1,
+          "p99": 1003.52,
+          "perNode": {
+            "client": {
+              "utilization": 0,
+              "p99": 0
+            },
+            "lb": {
+              "utilization": 0.031249216666666666,
+              "p99": 1.004
+            },
+            "svc": {
+              "utilization": 0.058119772916666666,
+              "p99": 1.864
+            },
+            "db": {
+              "utilization": 0.9998294166666667,
+              "p99": 1003.52
+            }
+          }
+        }
+      ]
+    },
+    {
+      "questionId": "cargo-cult-cdn",
+      "kind": "reference",
+      "passed": true,
+      "tests": [
+        {
+          "id": "topology.structural.single-source-16tmdi1",
+          "name": "Exactly one traffic source",
+          "passed": true
+        },
+        {
+          "id": "topology.constraint.max-node-count-ugrzyu",
+          "name": "Keep node count within 10",
+          "passed": true
+        },
+        {
+          "id": "topology.semantic.cdn-justified-192yd5w",
+          "name": "CDN must be absent, or supported by a valid justification",
+          "passed": true
+        },
+        {
+          "id": "case.baseline-1bps56q.execution.execution-1jr2ecx",
+          "name": "Case baseline execution completed",
+          "passed": true
+        },
+        {
+          "id": "case.baseline-1bps56q.invariant.no-invariants-wznwyc",
+          "name": "No invariant violations",
+          "passed": true
+        }
+      ],
+      "runs": [
+        {
+          "caseId": "baseline",
+          "throughput": 999.8,
+          "errorRate": 0,
+          "p99": 5.92,
+          "perNode": {
+            "client": {
+              "utilization": 0,
+              "p99": 0
+            },
+            "svc": {
+              "utilization": 0.014531025,
+              "p99": 0.932
+            },
+            "db": {
+              "utilization": 0.031246422916666666,
+              "p99": 4.016
+            }
+          }
+        }
+      ]
+    },
+    {
+      "questionId": "cargo-cult-cdn",
+      "kind": "gamed",
+      "passed": false,
+      "tests": [
+        {
+          "id": "topology.structural.single-source-16tmdi1",
+          "name": "Exactly one traffic source",
+          "passed": true
+        },
+        {
+          "id": "topology.constraint.max-node-count-ugrzyu",
+          "name": "Keep node count within 10",
+          "passed": true
+        },
+        {
+          "id": "topology.semantic.cdn-justified-192yd5w",
+          "name": "CDN must be absent, or supported by a valid justification",
+          "passed": false
+        },
+        {
+          "id": "case.baseline-1bps56q.execution.execution-1jr2ecx",
+          "name": "Case baseline execution completed",
+          "passed": true
+        },
+        {
+          "id": "case.baseline-1bps56q.invariant.no-invariants-wznwyc",
+          "name": "No invariant violations",
+          "passed": true
+        }
+      ],
+      "runs": [
+        {
+          "caseId": "baseline",
+          "throughput": 999.72,
+          "errorRate": 0,
+          "p99": 7.456,
+          "perNode": {
+            "client": {
+              "utilization": 0,
+              "p99": 0
+            },
+            "cdn": {
+              "utilization": 0.015624738541666667,
+              "p99": 1.004
+            },
+            "svc": {
+              "utilization": 0.01453028125,
+              "p99": 0.932
+            },
+            "db": {
+              "utilization": 0.031244858333333334,
+              "p99": 4.016
+            }
+          }
+        }
+      ]
+    },
+    {
+      "questionId": "external-reconciliation-v2",
+      "kind": "reference",
+      "passed": true,
+      "tests": [
+        {
+          "id": "topology.structural.has-idempotency-guard-1n9nkiz",
+          "name": "An idempotency manager guards the external side-effect path",
+          "passed": true
+        },
+        {
+          "id": "topology.constraint.max-node-count-ugrzyu",
+          "name": "Keep node count within 6",
+          "passed": true
+        },
+        {
+          "id": "topology.semantic.runtime-outcome-unknown-di5ah9",
+          "name": "Runtime evidence shows the first interrupted payment becomes outcome-unknown",
+          "passed": true
+        },
+        {
+          "id": "topology.semantic.runtime-reconciled-confirmed-yysg16",
+          "name": "Runtime evidence shows a retry is handled after authoritative reconciliation confirms the side effect",
+          "passed": true
+        },
+        {
+          "id": "case.timed-out-payment-retry-obd6v5.execution.execution-1jr2ecx",
+          "name": "Case timed-out-payment-retry execution completed",
+          "passed": true
+        },
+        {
+          "id": "case.timed-out-payment-retry-obd6v5.invariant.no-invariants-wznwyc",
+          "name": "No invariant violations",
+          "passed": true
+        }
+      ],
+      "runs": [
+        {
+          "caseId": "timed-out-payment-retry",
+          "throughput": 3,
+          "errorRate": 0.25,
+          "p99": 0.205,
+          "perNode": {
+            "payments-api": {
+              "utilization": 0,
+              "p99": 0
+            },
+            "idempotency": {
+              "utilization": 0.00001,
+              "p99": 0.1005
+            },
+            "payment-gateway": {
+              "utilization": 0,
+              "p99": 0
+            }
+          }
+        }
+      ]
+    },
+    {
+      "questionId": "external-reconciliation-v2",
+      "kind": "gamed",
+      "passed": false,
+      "tests": [
+        {
+          "id": "topology.structural.has-idempotency-guard-1n9nkiz",
+          "name": "An idempotency manager guards the external side-effect path",
+          "passed": true
+        },
+        {
+          "id": "topology.constraint.max-node-count-ugrzyu",
+          "name": "Keep node count within 6",
+          "passed": true
+        },
+        {
+          "id": "topology.semantic.runtime-outcome-unknown-di5ah9",
+          "name": "Runtime evidence shows the first interrupted payment becomes outcome-unknown",
+          "passed": true
+        },
+        {
+          "id": "topology.semantic.runtime-reconciled-confirmed-yysg16",
+          "name": "Runtime evidence shows a retry is handled after authoritative reconciliation confirms the side effect",
+          "passed": false
+        },
+        {
+          "id": "case.timed-out-payment-retry-obd6v5.execution.execution-1jr2ecx",
+          "name": "Case timed-out-payment-retry execution completed",
+          "passed": true
+        },
+        {
+          "id": "case.timed-out-payment-retry-obd6v5.invariant.no-invariants-wznwyc",
+          "name": "No invariant violations",
+          "passed": true
+        }
+      ],
+      "runs": [
+        {
+          "caseId": "timed-out-payment-retry",
+          "throughput": 0,
+          "errorRate": 1,
+          "p99": null,
+          "perNode": {
+            "payments-api": {
+              "utilization": 0,
+              "p99": 0
+            },
+            "idempotency": {
+              "utilization": 0.00001,
+              "p99": 0.1005
+            },
+            "payment-gateway": {
+              "utilization": 0,
+              "p99": 0
+            }
+          }
+        }
+      ]
+    },
+    {
+      "questionId": "flash-sale-booking",
+      "kind": "reference",
+      "passed": true,
+      "tests": [
+        {
+          "id": "topology.structural.single-source-16tmdi1",
+          "name": "Exactly one traffic source",
+          "passed": true
+        },
+        {
+          "id": "topology.structural.has-reservation-authority-2eb2rc",
+          "name": "A reservation authority must commit seats atomically",
+          "passed": true
+        },
+        {
+          "id": "topology.structural.reservation-feeds-ledger-1gfa2lp",
+          "name": "Reserved bookings must be persisted to the durable ledger",
+          "passed": true
+        },
+        {
+          "id": "topology.constraint.max-node-count-ugrzyu",
+          "name": "Keep node count within 12",
+          "passed": true
+        },
+        {
+          "id": "topology.semantic.booking-passes-through-reservation-6wlszt",
+          "name": "Every booking must reach the ledger only through the reservation authority",
+          "passed": true
+        },
+        {
+          "id": "topology.semantic.ledger-is-transactional-1cer3s7",
+          "name": "Seat inventory is contended, money-adjacent state needing a transactional store",
+          "passed": true
+        },
+        {
+          "id": "case.on-sale-burst-dk5r0n.execution.execution-1jr2ecx",
+          "name": "Case on-sale-burst execution completed",
+          "passed": true
+        },
+        {
+          "id": "case.on-sale-burst-dk5r0n.simulation.no-double-book-1cs6hfu",
+          "name": "No seat is committed by more than one reservation authority",
+          "passed": true
+        },
+        {
+          "id": "case.on-sale-burst-dk5r0n.simulation.burst-error-rate-m9youn",
+          "name": "Booking error rate stays under 5% during the burst",
+          "passed": true
+        }
+      ],
+      "runs": [
+        {
+          "caseId": "on-sale-burst",
+          "throughput": 1199.6,
+          "errorRate": 0,
+          "p99": 5.024,
+          "perNode": {
+            "client": {
+              "utilization": 0,
+              "p99": 0
+            },
+            "svc": {
+              "utilization": 0.030007953125,
+              "p99": 2.008
+            },
+            "reservation": {
+              "utilization": 0.0003125,
+              "p99": 2.008
+            },
+            "ledger": {
+              "utilization": 0.00125,
+              "p99": 0
+            }
+          }
+        }
+      ]
+    },
+    {
+      "questionId": "flash-sale-booking",
+      "kind": "gamed",
+      "passed": false,
+      "tests": [
+        {
+          "id": "topology.structural.single-source-16tmdi1",
+          "name": "Exactly one traffic source",
+          "passed": true
+        },
+        {
+          "id": "topology.structural.has-reservation-authority-2eb2rc",
+          "name": "A reservation authority must commit seats atomically",
+          "passed": true
+        },
+        {
+          "id": "topology.structural.reservation-feeds-ledger-1gfa2lp",
+          "name": "Reserved bookings must be persisted to the durable ledger",
+          "passed": true
+        },
+        {
+          "id": "topology.constraint.max-node-count-ugrzyu",
+          "name": "Keep node count within 12",
+          "passed": true
+        },
+        {
+          "id": "topology.semantic.booking-passes-through-reservation-6wlszt",
+          "name": "Every booking must reach the ledger only through the reservation authority",
+          "passed": true
+        },
+        {
+          "id": "topology.semantic.ledger-is-transactional-1cer3s7",
+          "name": "Seat inventory is contended, money-adjacent state needing a transactional store",
+          "passed": true
+        },
+        {
+          "id": "case.on-sale-burst-dk5r0n.execution.execution-1jr2ecx",
+          "name": "Case on-sale-burst execution completed",
+          "passed": true
+        },
+        {
+          "id": "case.on-sale-burst-dk5r0n.simulation.no-double-book-1cs6hfu",
+          "name": "No seat is committed by more than one reservation authority",
+          "passed": false
+        },
+        {
+          "id": "case.on-sale-burst-dk5r0n.simulation.burst-error-rate-m9youn",
+          "name": "Booking error rate stays under 5% during the burst",
+          "passed": true
+        }
+      ],
+      "runs": [
+        {
+          "caseId": "on-sale-burst",
+          "throughput": 1199.6,
+          "errorRate": 0,
+          "p99": 5.024,
+          "perNode": {
+            "client": {
+              "utilization": 0,
+              "p99": 0
+            },
+            "svc": {
+              "utilization": 0.030007953125,
+              "p99": 2.008
+            },
+            "reservation-a": {
+              "utilization": 0.0003125,
+              "p99": 2.008
+            },
+            "reservation-b": {
+              "utilization": 0.0003125,
+              "p99": 2.008
+            },
+            "ledger": {
+              "utilization": 0.0025,
+              "p99": 0
+            }
+          }
+        }
+      ]
+    },
+    {
+      "questionId": "messaging-fanout",
+      "kind": "reference",
+      "passed": true,
+      "tests": [
+        {
+          "id": "topology.structural.has-broker-1tp1ekv",
+          "name": "A broadcast broker is present",
+          "passed": true
+        },
+        {
+          "id": "topology.structural.single-source-16tmdi1",
+          "name": "Exactly one producer",
+          "passed": true
+        },
+        {
+          "id": "topology.constraint.max-node-count-ugrzyu",
+          "name": "Keep node count within 10",
+          "passed": true
+        },
+        {
+          "id": "topology.semantic.fanout-lx656u",
+          "name": "A broker fans out to 3 or more independent consumers; a single queue is wrong",
+          "passed": true
+        },
+        {
+          "id": "case.baseline-1bps56q.execution.execution-1jr2ecx",
+          "name": "Case baseline execution completed",
+          "passed": true
+        },
+        {
+          "id": "case.baseline-1bps56q.invariant.no-invariants-wznwyc",
+          "name": "No invariant violations",
+          "passed": true
+        }
+      ],
+      "runs": [
+        {
+          "caseId": "baseline",
+          "throughput": 2999.52,
+          "errorRate": 0,
+          "p99": 4.384,
+          "perNode": {
+            "client": {
+              "utilization": 0,
+              "p99": 0
+            },
+            "svc": {
+              "utilization": 0.014531025,
+              "p99": 0.932
+            },
+            "broker": {
+              "utilization": 0.015623992708333333,
+              "p99": 1.004
+            },
+            "c1": {
+              "utilization": 0.01452960625,
+              "p99": 0.932
+            },
+            "c2": {
+              "utilization": 0.01452960625,
+              "p99": 0.932
+            },
+            "c3": {
+              "utilization": 0.01452960625,
+              "p99": 0.932
+            }
+          }
+        }
+      ]
+    },
+    {
+      "questionId": "messaging-fanout",
+      "kind": "gamed",
+      "passed": false,
+      "tests": [
+        {
+          "id": "topology.structural.has-broker-1tp1ekv",
+          "name": "A broadcast broker is present",
+          "passed": true
+        },
+        {
+          "id": "topology.structural.single-source-16tmdi1",
+          "name": "Exactly one producer",
+          "passed": true
+        },
+        {
+          "id": "topology.constraint.max-node-count-ugrzyu",
+          "name": "Keep node count within 10",
+          "passed": true
+        },
+        {
+          "id": "topology.semantic.fanout-lx656u",
+          "name": "A broker fans out to 3 or more independent consumers; a single queue is wrong",
+          "passed": false
+        },
+        {
+          "id": "case.baseline-1bps56q.execution.execution-1jr2ecx",
+          "name": "Case baseline execution completed",
+          "passed": true
+        },
+        {
+          "id": "case.baseline-1bps56q.invariant.no-invariants-wznwyc",
+          "name": "No invariant violations",
+          "passed": true
+        }
+      ],
+      "runs": [
+        {
+          "caseId": "baseline",
+          "throughput": 4999.52,
+          "errorRate": 0,
+          "p99": 2.928,
+          "perNode": {
+            "client": {
+              "utilization": 0,
+              "p99": 0
+            },
+            "svc": {
+              "utilization": 0.014531025,
+              "p99": 0.932
+            },
+            "broker": {
+              "utilization": 0.015623992708333333,
+              "p99": 1.004
+            },
+            "q": {
+              "utilization": 0.015623992708333333,
+              "p99": 1.004
+            },
+            "c1": {
+              "utilization": 0.01452960625,
+              "p99": 0.932
+            },
+            "c2": {
+              "utilization": 0.01452960625,
+              "p99": 0.932
+            },
+            "c3": {
+              "utilization": 0.01452960625,
+              "p99": 0.932
+            }
+          }
+        }
+      ]
+    },
+    {
+      "questionId": "news-feed",
+      "kind": "reference",
+      "passed": true,
+      "tests": [
+        {
+          "id": "topology.structural.single-source-16tmdi1",
+          "name": "Exactly one traffic source",
+          "passed": true
+        },
+        {
+          "id": "topology.constraint.max-node-count-ugrzyu",
+          "name": "Keep node count within 14",
+          "passed": true
+        },
+        {
+          "id": "topology.semantic.fanout-timelines-1hg1pzn",
+          "name": "A broker fans posts out to independent timeline builders",
+          "passed": true
+        },
+        {
+          "id": "topology.semantic.feed-store-fit-1h6kb7n",
+          "name": "Timeline reads are direct lookups by user",
+          "passed": true
+        },
+        {
+          "id": "case.peak-1et639u.execution.execution-1jr2ecx",
+          "name": "Case peak execution completed",
+          "passed": true
+        },
+        {
+          "id": "case.peak-1et639u.simulation.p99-184icht",
+          "name": "feed p99 under 200 ms",
+          "passed": true
+        },
+        {
+          "id": "case.peak-1et639u.invariant.no-invariants-wznwyc",
+          "name": "No invariant violations",
+          "passed": true
+        }
+      ],
+      "runs": [
+        {
+          "caseId": "peak",
+          "throughput": 3063.88,
+          "errorRate": 0,
+          "p99": 7.136,
+          "perNode": {
+            "client": {
+              "utilization": 0,
+              "p99": 0
+            },
+            "lb": {
+              "utilization": 0.046920611979166665,
+              "p99": 1.004
+            },
+            "svc": {
+              "utilization": 0.0872666953125,
+              "p99": 1.864
+            },
+            "cache": {
+              "utilization": 0.0045895833333333335,
+              "p99": 1.004
+            },
+            "kv": {
+              "utilization": 0.18357051666666666,
+              "p99": 1.832
+            },
+            "broker": {
+              "utilization": 0.0009588541666666667,
+              "p99": 1.004
+            },
+            "tb1": {
+              "utilization": 0.000891734375,
+              "p99": 0.932
+            },
+            "tb2": {
+              "utilization": 0.000891734375,
+              "p99": 0.932
+            }
+          }
+        }
+      ]
+    },
+    {
+      "questionId": "news-feed",
+      "kind": "gamed",
+      "passed": false,
+      "tests": [
+        {
+          "id": "topology.structural.single-source-16tmdi1",
+          "name": "Exactly one traffic source",
+          "passed": true
+        },
+        {
+          "id": "topology.constraint.max-node-count-ugrzyu",
+          "name": "Keep node count within 14",
+          "passed": true
+        },
+        {
+          "id": "topology.semantic.fanout-timelines-1hg1pzn",
+          "name": "A broker fans posts out to independent timeline builders",
+          "passed": true
+        },
+        {
+          "id": "topology.semantic.feed-store-fit-1h6kb7n",
+          "name": "Timeline reads are direct lookups by user",
+          "passed": true
+        },
+        {
+          "id": "case.peak-1et639u.execution.execution-1jr2ecx",
+          "name": "Case peak execution completed",
+          "passed": true
+        },
+        {
+          "id": "case.peak-1et639u.simulation.p99-184icht",
+          "name": "feed p99 under 200 ms",
+          "passed": false
+        },
+        {
+          "id": "case.peak-1et639u.invariant.no-invariants-wznwyc",
+          "name": "No invariant violations",
+          "passed": true
+        }
+      ],
+      "runs": [
+        {
+          "caseId": "peak",
+          "throughput": 234.64,
+          "errorRate": 0.9052112789852145,
+          "p99": 1003.52,
+          "perNode": {
+            "client": {
+              "utilization": 0,
+              "p99": 0
+            },
+            "lb": {
+              "utilization": 0.046920611979166665,
+              "p99": 1.004
+            },
+            "svc": {
+              "utilization": 0.0872666953125,
+              "p99": 1.864
+            },
+            "kv": {
+              "utilization": 0.9998487166666666,
+              "p99": 1003.52
+            },
+            "broker": {
+              "utilization": 0.0009426817708333334,
+              "p99": 1.004
+            },
+            "tb1": {
+              "utilization": 0.000876234375,
+              "p99": 0.932
+            },
+            "tb2": {
+              "utilization": 0.000876234375,
+              "p99": 0.932
+            }
+          }
+        }
+      ]
+    },
+    {
+      "questionId": "protocol-v2-session",
+      "kind": "reference",
+      "passed": true,
+      "tests": [
+        {
+          "id": "topology.structural.has-l7-gateway-ofiy88",
+          "name": "An API gateway is present on the edge path",
+          "passed": true
+        },
+        {
+          "id": "topology.constraint.max-node-count-ugrzyu",
+          "name": "Keep node count within 6",
+          "passed": true
+        },
+        {
+          "id": "topology.semantic.runtime-session-open-1uzymi5",
+          "name": "Runtime evidence shows the gateway opened a protocol session",
+          "passed": true
+        },
+        {
+          "id": "topology.semantic.runtime-http-ack-kkykcy",
+          "name": "Runtime evidence shows HTTP acknowledgement semantics at the gateway",
+          "passed": true
+        },
+        {
+          "id": "case.allowed-order-request-1kasjlm.execution.execution-1jr2ecx",
+          "name": "Case allowed-order-request execution completed",
+          "passed": true
+        },
+        {
+          "id": "case.allowed-order-request-1kasjlm.invariant.no-invariants-wznwyc",
+          "name": "No invariant violations",
+          "passed": true
+        }
+      ],
+      "runs": [
+        {
+          "caseId": "allowed-order-request",
+          "throughput": 2,
+          "errorRate": 0,
+          "p99": 2.896,
+          "perNode": {
+            "client": {
+              "utilization": 0,
+              "p99": 0
+            },
+            "edge-gateway": {
+              "utilization": 0.0001,
+              "p99": 0.502
+            },
+            "orders-service": {
+              "utilization": 0.0002,
+              "p99": 1.004
+            }
+          }
+        }
+      ]
+    },
+    {
+      "questionId": "protocol-v2-session",
+      "kind": "gamed",
+      "passed": false,
+      "tests": [
+        {
+          "id": "topology.structural.has-l7-gateway-ofiy88",
+          "name": "An API gateway is present on the edge path",
+          "passed": true
+        },
+        {
+          "id": "topology.constraint.max-node-count-ugrzyu",
+          "name": "Keep node count within 6",
+          "passed": true
+        },
+        {
+          "id": "topology.semantic.runtime-session-open-1uzymi5",
+          "name": "Runtime evidence shows the gateway opened a protocol session",
+          "passed": false
+        },
+        {
+          "id": "topology.semantic.runtime-http-ack-kkykcy",
+          "name": "Runtime evidence shows HTTP acknowledgement semantics at the gateway",
+          "passed": false
+        },
+        {
+          "id": "case.allowed-order-request-1kasjlm.execution.execution-1jr2ecx",
+          "name": "Case allowed-order-request execution completed",
+          "passed": true
+        },
+        {
+          "id": "case.allowed-order-request-1kasjlm.invariant.no-invariants-wznwyc",
+          "name": "No invariant violations",
+          "passed": true
+        }
+      ],
+      "runs": [
+        {
+          "caseId": "allowed-order-request",
+          "throughput": 0,
+          "errorRate": 1,
+          "p99": null,
+          "perNode": {
+            "client": {
+              "utilization": 0,
+              "p99": 0
+            },
+            "edge-gateway": {
+              "utilization": 0,
+              "p99": 0
+            },
+            "orders-service": {
+              "utilization": 0,
+              "p99": 0
+            }
+          }
+        }
+      ]
+    },
+    {
+      "questionId": "replication-v2-quorum",
+      "kind": "reference",
+      "passed": true,
+      "tests": [
+        {
+          "id": "topology.structural.has-replicated-store-15ktbxf",
+          "name": "A durable relational write store is present",
+          "passed": true
+        },
+        {
+          "id": "topology.constraint.max-node-count-ugrzyu",
+          "name": "Keep node count within 6",
+          "passed": true
+        },
+        {
+          "id": "topology.semantic.runtime-quorum-commit-eukv1r",
+          "name": "Runtime evidence shows the replicated store commits by quorum acknowledgement",
+          "passed": true
+        },
+        {
+          "id": "case.quorum-write-8ner9m.execution.execution-1jr2ecx",
+          "name": "Case quorum-write execution completed",
+          "passed": true
+        },
+        {
+          "id": "case.quorum-write-8ner9m.invariant.no-invariants-wznwyc",
+          "name": "No invariant violations",
+          "passed": true
+        }
+      ],
+      "runs": [
+        {
+          "caseId": "quorum-write",
+          "throughput": 0,
+          "errorRate": 0,
+          "p99": null,
+          "perNode": {
+            "orders-api": {
+              "utilization": 0,
+              "p99": 0
+            },
+            "orders-db": {
+              "utilization": 0.09796,
+              "p99": 0
+            }
+          }
+        }
+      ]
+    },
+    {
+      "questionId": "replication-v2-quorum",
+      "kind": "gamed",
+      "passed": false,
+      "tests": [
+        {
+          "id": "topology.structural.has-replicated-store-15ktbxf",
+          "name": "A durable relational write store is present",
+          "passed": true
+        },
+        {
+          "id": "topology.constraint.max-node-count-ugrzyu",
+          "name": "Keep node count within 6",
+          "passed": true
+        },
+        {
+          "id": "topology.semantic.runtime-quorum-commit-eukv1r",
+          "name": "Runtime evidence shows the replicated store commits by quorum acknowledgement",
+          "passed": false
+        },
+        {
+          "id": "case.quorum-write-8ner9m.execution.execution-1jr2ecx",
+          "name": "Case quorum-write execution completed",
+          "passed": true
+        },
+        {
+          "id": "case.quorum-write-8ner9m.invariant.no-invariants-wznwyc",
+          "name": "No invariant violations",
+          "passed": true
+        }
+      ],
+      "runs": [
+        {
+          "caseId": "quorum-write",
+          "throughput": 0,
+          "errorRate": 0,
+          "p99": null,
+          "perNode": {
+            "orders-api": {
+              "utilization": 0,
+              "p99": 0
+            },
+            "orders-db": {
+              "utilization": 0.09796,
+              "p99": 0
+            }
+          }
+        }
+      ]
+    },
+    {
+      "questionId": "ride-hailing",
+      "kind": "reference",
+      "passed": true,
+      "tests": [
+        {
+          "id": "topology.structural.has-payment-db-vopp35",
+          "name": "A strongly consistent database for payments",
+          "passed": true
+        },
+        {
+          "id": "topology.structural.single-source-16tmdi1",
+          "name": "Exactly one traffic source",
+          "passed": true
+        },
+        {
+          "id": "topology.constraint.max-node-count-ugrzyu",
+          "name": "Keep node count within 16",
+          "passed": true
+        },
+        {
+          "id": "topology.semantic.pay-fits-relational-16mibpm",
+          "name": "Payment is transactional-relational (ACID), not KV",
+          "passed": true
+        },
+        {
+          "id": "topology.semantic.geo-hot-path-1w146c",
+          "name": "Nearby-driver matching uses a cache/index, not the payment database",
+          "passed": true
+        },
+        {
+          "id": "case.peak-1et639u.execution.execution-1jr2ecx",
+          "name": "Case peak execution completed",
+          "passed": true
+        },
+        {
+          "id": "case.peak-1et639u.simulation.match-latency-6rjxbx",
+          "name": "p99 match under 3 s",
+          "passed": true
+        },
+        {
+          "id": "case.peak-1et639u.invariant.no-invariants-wznwyc",
+          "name": "No invariant violations",
+          "passed": true
+        }
+      ],
+      "runs": [
+        {
+          "caseId": "peak",
+          "throughput": 3002.08,
+          "errorRate": 0,
+          "p99": 20.352,
+          "perNode": {
+            "client": {
+              "utilization": 0,
+              "p99": 0
+            },
+            "lb": {
+              "utilization": 0.0469206140625,
+              "p99": 1.004
+            },
+            "svc": {
+              "utilization": 0.0872667015625,
+              "p99": 1.864
+            },
+            "cache": {
+              "utilization": 0.0037989583333333334,
+              "p99": 1.004
+            },
+            "db": {
+              "utilization": 0.09082132421875,
+              "p99": 16.064
+            }
+          }
+        }
+      ]
+    },
+    {
+      "questionId": "ride-hailing",
+      "kind": "gamed",
+      "passed": false,
+      "tests": [
+        {
+          "id": "topology.structural.has-payment-db-vopp35",
+          "name": "A strongly consistent database for payments",
+          "passed": true
+        },
+        {
+          "id": "topology.structural.single-source-16tmdi1",
+          "name": "Exactly one traffic source",
+          "passed": true
+        },
+        {
+          "id": "topology.constraint.max-node-count-ugrzyu",
+          "name": "Keep node count within 16",
+          "passed": true
+        },
+        {
+          "id": "topology.semantic.pay-fits-relational-16mibpm",
+          "name": "Payment is transactional-relational (ACID), not KV",
+          "passed": false
+        },
+        {
+          "id": "topology.semantic.geo-hot-path-1w146c",
+          "name": "Nearby-driver matching uses a cache/index, not the payment database",
+          "passed": false
+        },
+        {
+          "id": "case.peak-1et639u.execution.execution-1jr2ecx",
+          "name": "Case peak execution completed",
+          "passed": true
+        },
+        {
+          "id": "case.peak-1et639u.simulation.match-latency-6rjxbx",
+          "name": "p99 match under 3 s",
+          "passed": true
+        },
+        {
+          "id": "case.peak-1et639u.invariant.no-invariants-wznwyc",
+          "name": "No invariant violations",
+          "passed": true
+        }
+      ],
+      "runs": [
+        {
+          "caseId": "peak",
+          "throughput": 3001.88,
+          "errorRate": 0,
+          "p99": 20.352,
+          "perNode": {
+            "client": {
+              "utilization": 0,
+              "p99": 0
+            },
+            "lb": {
+              "utilization": 0.046920613020833335,
+              "p99": 1.004
+            },
+            "svc": {
+              "utilization": 0.08726670364583333,
+              "p99": 1.864
+            },
+            "kv": {
+              "utilization": 0.0375791546875,
+              "p99": 1.004
+            },
+            "db": {
+              "utilization": 0.07466026979166666,
+              "p99": 16.064
+            }
+          }
+        }
+      ]
+    },
+    {
+      "questionId": "sensor-store",
+      "kind": "reference",
+      "passed": true,
+      "tests": [
+        {
+          "id": "topology.structural.single-source-16tmdi1",
+          "name": "Exactly one traffic source",
+          "passed": true
+        },
+        {
+          "id": "topology.constraint.max-node-count-ugrzyu",
+          "name": "Keep node count within 10",
+          "passed": true
+        },
+        {
+          "id": "topology.semantic.store-fits-time-series-15w35x",
+          "name": "200K writes/s time-series data should use wide-column, time-series, or suitable NoSQL storage - not relational",
+          "passed": true
+        },
+        {
+          "id": "case.ingest-icp70t.execution.execution-1jr2ecx",
+          "name": "Case ingest execution completed",
+          "passed": true
+        },
+        {
+          "id": "case.ingest-icp70t.simulation.throughput-fuf8u7",
+          "name": "Sustains write throughput",
+          "passed": true
+        },
+        {
+          "id": "case.ingest-icp70t.invariant.no-invariants-wznwyc",
+          "name": "No invariant violations",
+          "passed": true
+        }
+      ],
+      "runs": [
+        {
+          "caseId": "ingest",
+          "throughput": 3001.48,
+          "errorRate": 0,
+          "p99": 12.992,
+          "perNode": {
+            "client": {
+              "utilization": 0,
+              "p99": 0
+            },
+            "svc": {
+              "utilization": 0.0436362296875,
+              "p99": 0.932
+            },
+            "tsdb": {
+              "utilization": 0.25203459401041667,
+              "p99": 10.944
+            }
+          }
+        }
+      ]
+    },
+    {
+      "questionId": "sensor-store",
+      "kind": "gamed",
+      "passed": false,
+      "tests": [
+        {
+          "id": "topology.structural.single-source-16tmdi1",
+          "name": "Exactly one traffic source",
+          "passed": true
+        },
+        {
+          "id": "topology.constraint.max-node-count-ugrzyu",
+          "name": "Keep node count within 10",
+          "passed": true
+        },
+        {
+          "id": "topology.semantic.store-fits-time-series-15w35x",
+          "name": "200K writes/s time-series data should use wide-column, time-series, or suitable NoSQL storage - not relational",
+          "passed": false
+        },
+        {
+          "id": "case.ingest-icp70t.execution.execution-1jr2ecx",
+          "name": "Case ingest execution completed",
+          "passed": true
+        },
+        {
+          "id": "case.ingest-icp70t.simulation.throughput-fuf8u7",
+          "name": "Sustains write throughput",
+          "passed": false
+        },
+        {
+          "id": "case.ingest-icp70t.invariant.no-invariants-wznwyc",
+          "name": "No invariant violations",
+          "passed": true
+        }
+      ],
+      "runs": [
+        {
+          "caseId": "ingest",
+          "throughput": 0,
+          "errorRate": 1,
+          "p99": 1003.52,
+          "perNode": {
+            "client": {
+              "utilization": 0,
+              "p99": 0
+            },
+            "svc": {
+              "utilization": 0.0436362296875,
+              "p99": 0.932
+            },
+            "db": {
+              "utilization": 0.9999299833333334,
+              "p99": 1003.52
+            }
+          }
+        }
+      ]
+    },
+    {
+      "questionId": "stream-v2-lifecycle",
+      "kind": "reference",
+      "passed": true,
+      "tests": [
+        {
+          "id": "topology.structural.has-stream-aoku4y",
+          "name": "A partitioned stream broker is present",
+          "passed": true
+        },
+        {
+          "id": "topology.constraint.max-node-count-ugrzyu",
+          "name": "Keep node count within 8",
+          "passed": true
+        },
+        {
+          "id": "topology.semantic.runtime-partition-assigned-cgwuxr",
+          "name": "Runtime evidence shows records are assigned to stream partitions",
+          "passed": true
+        },
+        {
+          "id": "topology.semantic.runtime-group-delivered-unpdkw",
+          "name": "Runtime evidence shows delivery to named consumer groups",
+          "passed": true
+        },
+        {
+          "id": "topology.semantic.runtime-offset-committed-ax2kwy",
+          "name": "Runtime evidence shows offsets commit after successful consumers",
+          "passed": true
+        },
+        {
+          "id": "case.baseline-1bps56q.execution.execution-1jr2ecx",
+          "name": "Case baseline execution completed",
+          "passed": true
+        },
+        {
+          "id": "case.baseline-1bps56q.invariant.no-invariants-wznwyc",
+          "name": "No invariant violations",
+          "passed": true
+        }
+      ],
+      "runs": [
+        {
+          "caseId": "baseline",
+          "throughput": 1500,
+          "errorRate": 0,
+          "p99": 1.4,
+          "perNode": {
+            "orders-api": {
+              "utilization": 0,
+              "p99": 0
+            },
+            "orders-stream": {
+              "utilization": 0.0005,
+              "p99": 0.201
+            },
+            "search-indexer": {
+              "utilization": 0.005,
+              "p99": 1.004
+            },
+            "email-worker": {
+              "utilization": 0.005,
+              "p99": 1.004
+            }
+          }
+        }
+      ]
+    },
+    {
+      "questionId": "stream-v2-lifecycle",
+      "kind": "gamed",
+      "passed": false,
+      "tests": [
+        {
+          "id": "topology.structural.has-stream-aoku4y",
+          "name": "A partitioned stream broker is present",
+          "passed": true
+        },
+        {
+          "id": "topology.constraint.max-node-count-ugrzyu",
+          "name": "Keep node count within 8",
+          "passed": true
+        },
+        {
+          "id": "topology.semantic.runtime-partition-assigned-cgwuxr",
+          "name": "Runtime evidence shows records are assigned to stream partitions",
+          "passed": false
+        },
+        {
+          "id": "topology.semantic.runtime-group-delivered-unpdkw",
+          "name": "Runtime evidence shows delivery to named consumer groups",
+          "passed": false
+        },
+        {
+          "id": "topology.semantic.runtime-offset-committed-ax2kwy",
+          "name": "Runtime evidence shows offsets commit after successful consumers",
+          "passed": false
+        },
+        {
+          "id": "case.baseline-1bps56q.execution.execution-1jr2ecx",
+          "name": "Case baseline execution completed",
+          "passed": true
+        },
+        {
+          "id": "case.baseline-1bps56q.invariant.no-invariants-wznwyc",
+          "name": "No invariant violations",
+          "passed": true
+        }
+      ],
+      "runs": [
+        {
+          "caseId": "baseline",
+          "throughput": 500,
+          "errorRate": 0,
+          "p99": 1.608,
+          "perNode": {
+            "orders-api": {
+              "utilization": 0,
+              "p99": 0
+            },
+            "orders-stream": {
+              "utilization": 0.0005,
+              "p99": 0.201
+            },
+            "shared-worker": {
+              "utilization": 0.0025,
+              "p99": 1.004
+            }
+          }
+        }
+      ]
+    },
+    {
+      "questionId": "url-shortener",
+      "kind": "reference",
+      "passed": true,
+      "tests": [
+        {
+          "id": "topology.structural.single-source-16tmdi1",
+          "name": "Exactly one traffic source",
+          "passed": true
+        },
+        {
+          "id": "topology.constraint.max-node-count-ugrzyu",
+          "name": "Keep node count within 12",
+          "passed": true
+        },
+        {
+          "id": "topology.semantic.store-fits-point-lookup-1l93bnf",
+          "name": "Short-code lookup is a direct lookup by key",
+          "passed": true
+        },
+        {
+          "id": "case.peak-1et639u.execution.execution-1jr2ecx",
+          "name": "Case peak execution completed",
+          "passed": true
+        },
+        {
+          "id": "case.peak-1et639u.simulation.p99-184icht",
+          "name": "p99 under 100 ms",
+          "passed": true
+        },
+        {
+          "id": "case.peak-1et639u.invariant.no-invariants-wznwyc",
+          "name": "No invariant violations",
+          "passed": true
+        }
+      ],
+      "runs": [
+        {
+          "caseId": "peak",
+          "throughput": 1999.56,
+          "errorRate": 0,
+          "p99": 7.136,
+          "perNode": {
+            "client": {
+              "utilization": 0,
+              "p99": 0
+            },
+            "lb": {
+              "utilization": 0.031249216666666666,
+              "p99": 1.004
+            },
+            "svc": {
+              "utilization": 0.058119775,
+              "p99": 1.864
+            },
+            "cache": {
+              "utilization": 0.0031104864583333335,
+              "p99": 1.004
+            },
+            "store": {
+              "utilization": 0.1488147,
+              "p99": 2.512
+            }
+          }
+        }
+      ]
+    },
+    {
+      "questionId": "url-shortener",
+      "kind": "gamed",
+      "passed": false,
+      "tests": [
+        {
+          "id": "topology.structural.single-source-16tmdi1",
+          "name": "Exactly one traffic source",
+          "passed": true
+        },
+        {
+          "id": "topology.constraint.max-node-count-ugrzyu",
+          "name": "Keep node count within 12",
+          "passed": true
+        },
+        {
+          "id": "topology.semantic.store-fits-point-lookup-1l93bnf",
+          "name": "Short-code lookup is a direct lookup by key",
+          "passed": true
+        },
+        {
+          "id": "case.peak-1et639u.execution.execution-1jr2ecx",
+          "name": "Case peak execution completed",
+          "passed": true
+        },
+        {
+          "id": "case.peak-1et639u.simulation.p99-184icht",
+          "name": "p99 under 100 ms",
+          "passed": false
+        },
+        {
+          "id": "case.peak-1et639u.invariant.no-invariants-wznwyc",
+          "name": "No invariant violations",
+          "passed": true
+        }
+      ],
+      "runs": [
+        {
+          "caseId": "peak",
+          "throughput": 1119.64,
+          "errorRate": 0.30024249393765157,
+          "p99": 1003.52,
+          "perNode": {
+            "client": {
+              "utilization": 0,
+              "p99": 0
+            },
+            "lb": {
+              "utilization": 0.031249216666666666,
+              "p99": 1.004
+            },
+            "svc": {
+              "utilization": 0.058119775,
+              "p99": 1.864
+            },
+            "store": {
+              "utilization": 0.9998461333333334,
+              "p99": 1003.52
+            }
+          }
+        }
+      ]
+    },
+    {
+      "questionId": "web-crawler",
+      "kind": "reference",
+      "passed": true,
+      "tests": [
+        {
+          "id": "topology.structural.has-frontier-16d0k2z",
+          "name": "A frontier (crawl) queue",
+          "passed": true
+        },
+        {
+          "id": "topology.structural.has-dedup-huflou",
+          "name": "A dedup index",
+          "passed": true
+        },
+        {
+          "id": "topology.structural.single-source-16tmdi1",
+          "name": "Exactly one seed source",
+          "passed": true
+        },
+        {
+          "id": "topology.constraint.max-node-count-ugrzyu",
+          "name": "Keep node count within 16",
+          "passed": true
+        },
+        {
+          "id": "topology.semantic.enqueue-through-dedup-1ypjci4",
+          "name": "URLs pass the dedup index before the frontier queue",
+          "passed": true
+        },
+        {
+          "id": "topology.semantic.crawl-pipeline-9qjtzl",
+          "name": "Ordered pipeline frontier -> fetchers -> processors",
+          "passed": true
+        },
+        {
+          "id": "case.steady-18m5kb7.execution.execution-1jr2ecx",
+          "name": "Case steady execution completed",
+          "passed": true
+        },
+        {
+          "id": "case.steady-18m5kb7.simulation.throughput-fuf8u7",
+          "name": "aggregate throughput sustained",
+          "passed": true
+        },
+        {
+          "id": "case.steady-18m5kb7.invariant.no-invariants-wznwyc",
+          "name": "No invariant violations",
+          "passed": true
+        }
+      ],
+      "runs": [
+        {
+          "caseId": "steady",
+          "throughput": 3267.64,
+          "errorRate": 0.3954233612835903,
+          "p99": 1003.52,
+          "perNode": {
+            "client": {
+              "utilization": 0,
+              "p99": 0
+            },
+            "seed": {
+              "utilization": 0.0436362078125,
+              "p99": 0.932
+            },
+            "dedup": {
+              "utilization": 0.09383509947916667,
+              "p99": 2.008
+            },
+            "frontier": {
+              "utilization": 0.046914396354166665,
+              "p99": 1.004
+            },
+            "fetch": {
+              "utilization": 0.0436282234375,
+              "p99": 0.932
+            },
+            "proc": {
+              "utilization": 0.04362614375,
+              "p99": 0.932
+            },
+            "store": {
+              "utilization": 0.99935415,
+              "p99": 1003.52
+            }
+          }
+        }
+      ]
+    },
+    {
+      "questionId": "web-crawler",
+      "kind": "gamed",
+      "passed": false,
+      "tests": [
+        {
+          "id": "topology.structural.has-frontier-16d0k2z",
+          "name": "A frontier (crawl) queue",
+          "passed": true
+        },
+        {
+          "id": "topology.structural.has-dedup-huflou",
+          "name": "A dedup index",
+          "passed": true
+        },
+        {
+          "id": "topology.structural.single-source-16tmdi1",
+          "name": "Exactly one seed source",
+          "passed": true
+        },
+        {
+          "id": "topology.constraint.max-node-count-ugrzyu",
+          "name": "Keep node count within 16",
+          "passed": true
+        },
+        {
+          "id": "topology.semantic.enqueue-through-dedup-1ypjci4",
+          "name": "URLs pass the dedup index before the frontier queue",
+          "passed": false
+        },
+        {
+          "id": "topology.semantic.crawl-pipeline-9qjtzl",
+          "name": "Ordered pipeline frontier -> fetchers -> processors",
+          "passed": true
+        },
+        {
+          "id": "case.steady-18m5kb7.execution.execution-1jr2ecx",
+          "name": "Case steady execution completed",
+          "passed": true
+        },
+        {
+          "id": "case.steady-18m5kb7.simulation.throughput-fuf8u7",
+          "name": "aggregate throughput sustained",
+          "passed": true
+        },
+        {
+          "id": "case.steady-18m5kb7.invariant.no-invariants-wznwyc",
+          "name": "No invariant violations",
+          "passed": true
+        }
+      ],
+      "runs": [
+        {
+          "caseId": "steady",
+          "throughput": 6005.2,
+          "errorRate": 0.444477335800185,
+          "p99": 1003.52,
+          "perNode": {
+            "client": {
+              "utilization": 0,
+              "p99": 0
+            },
+            "seed": {
+              "utilization": 0.0436362078125,
+              "p99": 0.932
+            },
+            "dedup": {
+              "utilization": 0.09383509947916667,
+              "p99": 2.008
+            },
+            "frontier": {
+              "utilization": 0.093832728125,
+              "p99": 1.004
+            },
+            "fetch": {
+              "utilization": 0.0872601265625,
+              "p99": 0.932
+            },
+            "proc": {
+              "utilization": 0.08725593125,
+              "p99": 0.932
+            },
+            "store": {
+              "utilization": 0.99957615,
+              "p99": 1003.52
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

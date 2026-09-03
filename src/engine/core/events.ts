@@ -29,6 +29,7 @@ export type EventType =
   | 'consumer-group-rebalance'
   | 'broker-failure'
   | 'broker-recovery'
+  | 'trait-tick'
 
 /**
  * Priorities for tie-breaking when two events share the same timestamp.
@@ -207,6 +208,7 @@ function getDefaultPriority(type: EventType): number {
     case 'consumer-group-rebalance':
     case 'broker-failure':
     case 'broker-recovery':
+    case 'trait-tick':
       return EventPriority.SYSTEM
 
     default: {

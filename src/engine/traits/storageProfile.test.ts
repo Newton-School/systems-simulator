@@ -77,6 +77,20 @@ describe('storageProfileTrait', () => {
     })
   })
 
+  it('applies the same profile when key-value is selected on a NoSQL database', () => {
+    const request = makeRequest('read')
+    const decision = storageProfileTrait.beforeArrival?.({
+      node: makeNode('nosql-db', { dataModel: 'key-value' }),
+      request,
+      clock: 0n
+    })
+
+    expect(decision).toMatchObject({
+      action: 'continue',
+      payload: expect.objectContaining({ storageOperation: 'read', storageLatencyMs: 1 })
+    })
+  })
+
   it('respects authored per-operation overrides', () => {
     const request = makeRequest('publish-event')
     const node = makeNode('time-series-db', { storageIngestMs: 2.5 })

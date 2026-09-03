@@ -3,15 +3,20 @@ import type { ComponentType } from '../core/types'
 import type { NodeBehaviourTrait, NodeCapabilityModule } from './types'
 
 export const READ_ONLY_COMPONENT_TYPES = [
-  'relational-db'
+  'relational-db',
+  'nosql-db'
 ] as const satisfies readonly ComponentType[]
 
 function isReadReplica(config: Record<string, unknown> | undefined): boolean {
-  return config?.['replicationRole'] === 'replica'
+  return config?.['replicationRole'] === 'replica' || config?.['replicationRole'] === 'follower'
 }
 
 function isReadReplicaNode(data: CanvasNodeDataV2): boolean {
-  return data.sim?.replicationRole === 'replica' || data.templateId === 'read-replica'
+  return (
+    data.sim?.replicationRole === 'replica' ||
+    data.sim?.replicationRole === 'follower' ||
+    data.templateId === 'read-replica'
+  )
 }
 
 /**

@@ -246,11 +246,12 @@ export function getIdentityChip(
   if (typeof data.sim?.cacheHitRate === 'number') {
     return { label: 'Cache', value: `hit ${Math.round(data.sim.cacheHitRate * 100)}%` }
   }
-  // replicationRole is only resolved onto data.sim at serialize/run time
-  // (componentSpecs.ts derives it from templateId) - check templateId too so
-  // the identity chip is honest before the first run, not just after.
-  if (data.sim?.replicationRole === 'replica' || data.templateId === 'read-replica') {
-    return { label: 'Role', value: 'read-only replica' }
+  if (data.sim?.replicationEnabled === true) {
+    const role = data.sim.replicationRole ?? 'primary'
+    return {
+      label: 'Role',
+      value: role === 'replica' || role === 'follower' ? `read-only ${role}` : role
+    }
   }
   // AckAndReleaseTrait has no config knob - it's unconditionally active on
   // every Message Queue - so it needs an explicit declaration or it never
@@ -465,18 +466,6 @@ function formatLatencyMetric(value: number | null | undefined): string {
   return value === null || value === undefined ? 'N/A' : `${value.toFixed(2)}ms`
 }
 
-function formatWorkerUsage(activeWorkers: number, workers: number): string {
-  if (workers <= 1) {
-    return activeWorkers.toFixed(2)
-  }
-
-  return activeWorkers.toFixed(1)
-}
-
-function formatWorkerLimit(workers: number): string {
-  return `/ ${workers} worker${workers === 1 ? '' : 's'} avg`
-}
-
 function stripClickHint(text: string): string {
   return text.replace(/\s*· click for detail$/, '')
 }
@@ -645,28 +634,20 @@ export function getLensCard(
 ): LensCardData | null {
   switch (lens) {
     case 'saturation': {
-      // Workers are DERIVED from the instance now — the saturation denominator must
-      // be the effective concurrency the node actually ran with, not queue.workers.
-      const workers = deriveNodeConcurrency({
-        type: data.componentType,
-        queue: data.sim?.queue,
-        resources: data.sim?.resources
-      } as unknown as ComponentNode).effectiveC
-      if (!workers || metrics.utilization === undefined) {
+      if (metrics.utilization === undefined) {
         return null
       }
       const utilization = metrics.utilization
-      const activeWorkers = Math.min(workers, (utilization / 100) * workers)
       const capacity = deriveCapacityStatus({
         utilization,
         queueDepth: metrics.queueDepth,
-        workers,
+        workers: 1,
         utilizationUnit: 'percent'
       })
       const tone: NodeHealthStatus = capacity.level === 'headroom' ? 'healthy' : 'degraded'
       return {
-        value: formatWorkerUsage(activeWorkers, workers),
-        limit: formatWorkerLimit(workers),
+        value: `${utilization.toFixed(1)}%`,
+        limit: 'CPU utilization',
         glyph: capacity.level === 'headroom' ? '✓' : '⚠',
         why: `${capacity.utilizationPercent.toFixed(1)}% average utilization - ${capacity.label.toLowerCase()} · click for detail`,
         tone,
@@ -674,8 +655,8 @@ export function getLensCard(
           'Explain saturation lens status',
           tone === 'healthy' ? 'Saturation: headroom' : 'Saturation: pressure building',
           tone === 'healthy'
-            ? `✓ means this node kept enough worker headroom under the Saturation lens. ${capacity.utilizationPercent.toFixed(1)}% average utilization and ${capacity.label.toLowerCase()}.`
-            : `⚠ means this node is running warm or queueing under the Saturation lens. ${capacity.utilizationPercent.toFixed(1)}% average utilization and ${capacity.label.toLowerCase()}.`
+            ? `✓ means this node kept CPU headroom under the Saturation lens. ${capacity.utilizationPercent.toFixed(1)}% average utilization and ${capacity.label.toLowerCase()}.`
+            : `⚠ means this node is running warm or queueing under the Saturation lens. ${capacity.utilizationPercent.toFixed(1)}% average CPU utilization and ${capacity.label.toLowerCase()}.`
         )
       }
     }

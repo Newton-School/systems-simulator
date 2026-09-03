@@ -29,6 +29,15 @@ export const CPU_WORKERS_PER_VCPU = 1
  * io-bound datastores get real concurrency without an infinite free dial.
  */
 export const IO_WORKERS_PER_VCPU = 32
+/**
+ * When an author explicitly flips a normally cpu-bound component to the io-bound
+ * execution profile, we need a locked nonzero CPU fraction that matches that
+ * profile. Keeping the type-default 1.0 while also deriving io-bound `c` would
+ * be internally contradictory and creates fake saturation in migrated/bank
+ * topologies. This low fraction models a thin orchestration layer until the
+ * author picks a more specific io-bound component type.
+ */
+export const IO_BOUND_OVERRIDE_CPU_FRACTION = 0.1
 
 /** Servers-per-vCPU for a workload kind. */
 export function workersPerVcpu(workloadKind: WorkloadKind): number {
@@ -52,6 +61,30 @@ export function effectivePerfFactor(perfFactor: number, workloadKind: WorkloadKi
 }
 
 /**
+ * Resolve the contention fraction so it stays consistent with the execution
+ * profile that derived `effectiveC`.
+ *
+ * - Matching default profile: use the per-type sourced fraction.
+ * - cpu-bound override on an io-bound type: all service time contends for cores.
+ * - io-bound override on a cpu-bound type: use a locked low fraction rather than
+ *   the type's cpu-bound 1.0, which would otherwise pair io-bound concurrency
+ *   with cpu-bound contention and falsely pin the node.
+ */
+export function effectiveCpuBoundFraction(
+  defaultCpuBoundFraction: number,
+  defaultWorkloadKind: WorkloadKind,
+  workloadKind: WorkloadKind
+): number {
+  if (workloadKind === defaultWorkloadKind) {
+    return defaultCpuBoundFraction
+  }
+  if (workloadKind === 'cpu-bound') {
+    return 1
+  }
+  return IO_BOUND_OVERRIDE_CPU_FRACTION
+}
+
+/**
  * Service-time multiplier from a node's instance/workload (≤ 1 speeds up, > 1 slows
  * down). Legacy nodes (no instance model) are unaffected (1.0). Multiply a node's
  * authored service time by this to get the instance-adjusted latency.
@@ -72,6 +105,21 @@ export interface DerivedConcurrency {
   effectiveK: number
   /** Derived workers per instance (`vcpu × workersPerVcpu`) — read-only display. */
   workersPerInstance: number
+  /**
+   * Physical CPU cores backing this node (`totalVcpu × instanceCount`). For an
+   * io-bound node this is `effectiveC ÷ IO_WORKERS_PER_VCPU` (128 workers, 4
+   * cores); for cpu-bound it equals `effectiveC`. The ceiling the CPU-bound
+   * fraction of concurrent work contends for — see the two-tier compute-contention
+   * model (compute-contention-two-tier-model.md). Legacy nodes: equals effectiveC.
+   */
+  physicalCores: number
+  /**
+   * Fraction of a request's service time that is CPU-bound work contending for
+   * `physicalCores` (vs I/O wait that multiplexes freely). Sourced per component
+   * type (resourceDefaults.ts). 0 for legacy nodes ⇒ the two-tier model is a
+   * no-op (guaranteed zero regression).
+   */
+  cpuBoundFraction: number
   /**
    * Which constraint binds admission `K`. Instance nodes are RAM-bound (a full node
    * is `oom`); legacy/queue-only nodes are `backlog` (`queue_full`).
@@ -100,6 +148,8 @@ export function deriveNodeConcurrency(config: ComponentNode): DerivedConcurrency
       effectiveC: queueWorkers,
       effectiveK: queueCapacity,
       workersPerInstance: queueWorkers,
+      physicalCores: queueWorkers,
+      cpuBoundFraction: 0, // legacy nodes: two-tier model is a no-op
       admissionBoundBy: 'backlog',
       provenance: `c = ${queueWorkers} workers`
     }
@@ -110,6 +160,11 @@ export function deriveNodeConcurrency(config: ComponentNode): DerivedConcurrency
   const workloadKind = resources?.workloadKind ?? defaults.workloadKind
   const instanceType = resources?.instanceType ?? defaults.instanceType
   const spec = INSTANCE_CATALOG[instanceType]
+  const cpuBoundFraction = effectiveCpuBoundFraction(
+    defaults.cpuBoundFraction,
+    defaults.workloadKind,
+    workloadKind
+  )
 
   // Concurrency is DERIVED from the hardware, not authored.
   const perVcpu = workersPerVcpu(workloadKind)
@@ -130,6 +185,8 @@ export function deriveNodeConcurrency(config: ComponentNode): DerivedConcurrency
     effectiveC,
     effectiveK,
     workersPerInstance,
+    physicalCores: spec.vcpu * instanceCount,
+    cpuBoundFraction,
     admissionBoundBy: 'ram',
     provenance
   }

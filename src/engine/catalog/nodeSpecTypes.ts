@@ -61,6 +61,9 @@ export interface NodeSimulationConfig {
   cacheHitRate?: number
   cacheHitLatencyMs?: number
   ttlSeconds?: number
+  cacheEngine?: 'redis' | 'memcached'
+  cacheStrategy?: 'cache-aside' | 'read-through' | 'write-through' | 'write-behind'
+  dataModel?: 'document' | 'key-value' | 'wide-column'
   routingRules?: ContentRoutingRule[]
   maxTokens?: number
   refillRatePerSecond?: number
@@ -85,7 +88,16 @@ export interface NodeSimulationConfig {
     recoveryTimeout: number
     halfOpenRequests: number
   }
-  replicationRole?: 'primary' | 'replica'
+  replicationEnabled?: boolean
+  replicationMode?: 'primary-replica' | 'leader-follower'
+  replicationRole?: 'primary' | 'replica' | 'leader' | 'follower'
+  replicationLagMs?: number
+  writeAckPolicy?: 'primary' | 'quorum'
+  failoverUntilMs?: number
+  replicaMembers?: string
+  consensusProtocol?: 'raft' | 'none'
+  conflictResolution?: 'leader-wins' | 'highest-index-wins'
+  shardCount?: number
   readLatency?: DistributionConfig
   writeLatency?: DistributionConfig
   /**
@@ -178,6 +190,8 @@ export interface PaletteTemplate {
   seed?: LegacySeedMetrics
   routingStrategy?: RoutingStrategy
   asyncBoundary?: boolean
+  /** Template-level configuration layered on top of type defaults at creation. */
+  simDefaults?: Partial<NodeSimulationConfig>
 }
 
 export interface SerializeContext {

@@ -29,9 +29,27 @@ export function loadDisplaySettings(): DisplaySettings {
 
   try {
     const parsed = JSON.parse(persisted) as Partial<DisplaySettings>
+    const componentLibraryMode =
+      parsed.componentLibraryMode === 'all' || parsed.componentLibraryMode === 'default'
+        ? parsed.componentLibraryMode
+        : DEFAULT_DISPLAY_SETTINGS.componentLibraryMode
+    const hiddenComponentLibraryTemplateIds = Array.isArray(
+      parsed.hiddenComponentLibraryTemplateIds
+    )
+      ? [
+          ...new Set(
+            parsed.hiddenComponentLibraryTemplateIds.filter(
+              (id): id is string => typeof id === 'string'
+            )
+          )
+        ]
+      : DEFAULT_DISPLAY_SETTINGS.hiddenComponentLibraryTemplateIds
+
     return {
       ...DEFAULT_DISPLAY_SETTINGS,
       ...parsed,
+      componentLibraryMode,
+      hiddenComponentLibraryTemplateIds,
       theme:
         parsed.theme === 'light' || parsed.theme === 'dark'
           ? parsed.theme

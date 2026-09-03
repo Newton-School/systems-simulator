@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import useStore from '../../store/useStore'
 import { CATALOG_CONFIG } from '../../config/catalogConfig'
 import { PALETTE_TEMPLATES } from '../../../../engine/catalog/paletteTemplates'
+import { isComponentLibraryItemVisible } from '../../config/componentLibraryVisibility'
 import { LibraryItem } from './LibraryItem'
 
 export type ComponentLibraryFilter = 'all' | 'common'
@@ -15,38 +16,7 @@ const COMMON_IDS = new Set([
   'auth-service',
   'primary-db',
   'redis-cache',
-  'message-queue',
-  'read-replica'
-])
-
-/**
- * V1 palette allowlist. We ship only the node types the V1 question bank actually
- * exercises - ones with real, simulatable behavior whose config nuances are
- * covered. Every other catalog node is HIDDEN from the library (not deleted) until
- * its behavior is fleshed out in a later version. Set to `null` to reveal the full
- * catalog again.
- *
- * NOTE: these are engine `componentType` values, resolved per catalog item via
- * `PALETTE_TEMPLATES[item.id].componentType`. Do NOT match against `item.type` -
- * that is the renderer node type (serviceNode/computeNode/...), not the component
- * type, and matching it here empties the whole library.
- * This only hides nodes from the drag-in library; loading a topology JSON that
- * references any node type still works.
- */
-const V1_PALETTE_NODE_TYPES: ReadonlySet<string> | null = new Set([
-  'api-endpoint',
-  'load-balancer',
-  'cdn',
-  'microservice',
-  'batch-worker',
-  'queue',
-  'message-broker',
-  'in-memory-cache',
-  'kv-store',
-  'nosql-db',
-  'relational-db',
-  'time-series-db',
-  'object-storage'
+  'message-queue'
 ])
 
 const FILTERS: readonly ComponentLibraryFilter[] = ['common', 'all']
@@ -64,6 +34,10 @@ export function ComponentLibrarySidebarPanel({
 }): React.JSX.Element {
   const editPaletteList = useStore((state) => state.environmentProfile.capabilities.editPaletteList)
   const activeQuestion = useStore((state) => state.activeQuestion)
+  const componentLibraryMode = useStore((state) => state.displaySettings.componentLibraryMode)
+  const hiddenComponentLibraryTemplateIds = useStore(
+    (state) => state.displaySettings.hiddenComponentLibraryTemplateIds
+  )
   const allowedPalette = useMemo(
     () => (editPaletteList === null ? null : new Set(editPaletteList)),
     [editPaletteList]
@@ -97,9 +71,11 @@ export function ComponentLibrarySidebarPanel({
         const matchesPalette =
           allowedPalette === null || allowedPalette.has(item.type) || allowedPalette.has(item.id)
         const componentType = PALETTE_TEMPLATES[item.id]?.componentType
-        const matchesV1 =
-          V1_PALETTE_NODE_TYPES === null ||
-          (componentType !== undefined && V1_PALETTE_NODE_TYPES.has(componentType))
+        const matchesLibraryVisibility = isComponentLibraryItemVisible({
+          templateId: item.id,
+          mode: componentLibraryMode,
+          hiddenTemplateIds: hiddenComponentLibraryTemplateIds
+        })
         const matchesQuestionAllowlist =
           questionAllowedNodeTypes === null ||
           (componentType !== undefined && questionAllowedNodeTypes.has(componentType))
@@ -112,13 +88,21 @@ export function ComponentLibrarySidebarPanel({
           matchesFilter &&
           matchesSearch &&
           matchesPalette &&
-          matchesV1 &&
+          matchesLibraryVisibility &&
           matchesQuestionAllowlist &&
           matchesQuestionDenylist
         )
       })
     })).filter((category) => category.items.length > 0)
-  }, [allowedPalette, filter, query, questionAllowedNodeTypes, questionForbiddenNodeTypes])
+  }, [
+    allowedPalette,
+    componentLibraryMode,
+    filter,
+    hiddenComponentLibraryTemplateIds,
+    query,
+    questionAllowedNodeTypes,
+    questionForbiddenNodeTypes
+  ])
 
   return (
     <>

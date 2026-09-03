@@ -6,7 +6,9 @@ import { registerIpcHandlers } from './ipcHandlers'
 import {
   callLlmGradeAPI,
   resolveProviderConfig,
-  type LlmGradeRequest
+  type LlmGradeRequest,
+  type LlmProviderConfig,
+  type LlmProviderId
 } from '../engine/analysis/llmGrader'
 
 function createWindow(): void {
@@ -212,12 +214,48 @@ app.whenReady().then(() => {
 
   // ── LLM justification grading (provider-agnostic proxy) ──────────────────
   // The API key lives exclusively in the main process; the renderer never sees
-  // it. The provider (Gemini / Claude / OpenAI) and key are resolved from the
-  // process environment — see `resolveProviderConfig`. If no usable key is
-  // configured, the renderer falls back to deterministic grading silently.
-  const llmConfig = resolveProviderConfig(process.env)
+  // it. Settings-provided credentials are session-only and override environment
+  // configuration for the lifetime of this app process.
+  const environmentLlmConfig = resolveProviderConfig(process.env)
+  let sessionLlmConfig: LlmProviderConfig | null = null
+
+  const activeLlmConfig = (): LlmProviderConfig | null => sessionLlmConfig ?? environmentLlmConfig
+
+  ipcMain.handle('llm:getGradingConfig', () => {
+    const config = activeLlmConfig()
+    return config
+      ? {
+          configured: true,
+          providerId: config.providerId,
+          source: sessionLlmConfig ? 'session' : 'environment'
+        }
+      : { configured: false }
+  })
+
+  ipcMain.handle('llm:setGradingConfig', (_event, payload: unknown) => {
+    const value = payload as { providerId?: unknown; apiKey?: unknown }
+    const providerId = value?.providerId
+    const apiKey = typeof value?.apiKey === 'string' ? value.apiKey.trim() : ''
+
+    if (providerId !== 'gemini' && providerId !== 'anthropic' && providerId !== 'openai') {
+      return { error: 'Choose a supported LLM provider.' }
+    }
+    if (!apiKey) return { error: 'Enter an API key.' }
+
+    sessionLlmConfig = { providerId: providerId as LlmProviderId, apiKey }
+    return { ok: true, providerId, source: 'session' }
+  })
+
+  ipcMain.handle('llm:clearSessionGradingConfig', () => {
+    sessionLlmConfig = null
+    const config = activeLlmConfig()
+    return config
+      ? { configured: true, providerId: config.providerId, source: 'environment' }
+      : { configured: false }
+  })
 
   ipcMain.handle('llm:gradeJustification', async (_event, payload: LlmGradeRequest) => {
+    const llmConfig = activeLlmConfig()
     if (!llmConfig) {
       return { error: 'No LLM grading provider configured.' }
     }

@@ -7,6 +7,7 @@ import {
   TimeSeriesSnapshot
 } from './analysis/output'
 import { evaluateInvariantViolations } from './analysis/invariants'
+import { detectSinglePointsOfFailure } from './analysis/singlePointOfFailure'
 import { replayEventStream } from './analysis/replay'
 import {
   AdmissionDecision,
@@ -288,6 +289,27 @@ export class SimulationEngine {
           }
           scheduler.schedule(
             createEvent('health-check', node.id, '', {}, msToMicro(proberConfig.checkIntervalMs))
+          )
+        }
+      }
+
+      // Recurring-timer traits (onTick): schedule the first tick; the handler
+      // re-arms it each fire, and the event-loop time bound stops it past the
+      // simulation end. Deterministic — fixed SYSTEM-priority events on the clock.
+      for (const trait of this.traitsByNodeId.get(node.id) ?? []) {
+        if (!trait.onTick || !trait.tickIntervalMs) {
+          continue
+        }
+        const intervalMs = trait.tickIntervalMs(normalized)
+        if (typeof intervalMs === 'number' && Number.isFinite(intervalMs) && intervalMs > 0) {
+          scheduler.schedule(
+            createEvent(
+              'trait-tick',
+              node.id,
+              '',
+              { traitName: trait.name, intervalMs },
+              msToMicro(intervalMs)
+            )
           )
         }
       }
@@ -635,6 +657,9 @@ export class SimulationEngine {
         break
       case 'health-check':
         this.handleHealthProbe(event)
+        break
+      case 'trait-tick':
+        this.handleTraitTick(event)
         break
       case 'stream-retention-expire':
         this.handleStreamRetentionExpire(event)
@@ -2611,7 +2636,14 @@ export class SimulationEngine {
     for (const [nodeId, node] of this.nodes) {
       node.finalizeUtilization(horizonUs)
       const workers = this.nodeLimitsById.get(nodeId)?.workers ?? 1
-      this.metrics.recordNodeBusyTime(nodeId, node.getBusyAreaUs(), workers)
+      this.metrics.recordNodeBusyTime(
+        nodeId,
+        node.getBusyAreaUs(),
+        workers,
+        node.getCapacityAreaUs(),
+        node.getCpuBusyAreaUs(),
+        node.getCoreAreaUs()
+      )
     }
 
     const eventStream = this.getEventStream()
@@ -2647,7 +2679,8 @@ export class SimulationEngine {
 
     return {
       ...output,
-      invariantViolations: evaluateInvariantViolations(this.topology.invariants, output)
+      invariantViolations: evaluateInvariantViolations(this.topology.invariants, output),
+      singlePointsOfFailure: detectSinglePointsOfFailure(this.topology)
     }
   }
 
@@ -2803,6 +2836,85 @@ export class SimulationEngine {
 
     this.nodeUnhealthyUntilUs.delete(nodeId)
     return true
+  }
+
+  private handleTraitTick(event: SimulationEvent): void {
+    const traitName = typeof event.data['traitName'] === 'string' ? event.data['traitName'] : null
+    const intervalMs =
+      typeof event.data['intervalMs'] === 'number' ? event.data['intervalMs'] : null
+    if (!traitName || intervalMs === null || intervalMs <= 0) {
+      return
+    }
+
+    const node = this.nodeDefinitionsById.get(event.nodeId)
+    const trait = (this.traitsByNodeId.get(event.nodeId) ?? []).find((t) => t.name === traitName)
+    if (node && trait?.onTick) {
+      const payload = trait.onTick({
+        node,
+        clock: this.clock,
+        random: () => this.distributions.random(),
+        state: this.getTraitStateStore(event.nodeId),
+        sharedState: this.getSharedTraitStateStore(),
+        nodeState: this.nodes.get(event.nodeId)?.getState()
+      })
+      if (payload) {
+        // Surface any metricCounters the tick emitted (the generic counter path);
+        // ticks are request-less, so we don't record a request-scoped decision.
+        this.recordTraitPayloadMetrics(event.nodeId, payload)
+        // A control-loop tick may request an autoscale: resize the node's
+        // effective concurrency to the requested instance count.
+        if (typeof payload['scaleInstancesTo'] === 'number') {
+          this.applyNodeScale(event.nodeId, payload['scaleInstancesTo'])
+        }
+      }
+    }
+
+    // Re-arm. The event-loop time bound (peek > simulationDurationUs) halts this
+    // once the next tick lands past the run's end, so it can't loop forever.
+    this.eventQueue.insert(
+      createEvent(
+        'trait-tick',
+        event.nodeId,
+        '',
+        { traitName, intervalMs },
+        this.clock + msToMicro(intervalMs)
+      )
+    )
+  }
+
+  /**
+   * Autoscale a node to a new instance count mid-run: recompute its derived
+   * effective c/K for that many instances and resize the queue node. Graceful —
+   * the node never drops below in-flight usage — and utilization stays honest
+   * because the node integrates a capacity-time area, not a fixed worker count.
+   */
+  private applyNodeScale(nodeId: string, instanceCount: number): void {
+    const def = this.nodeDefinitionsById.get(nodeId)
+    const node = this.nodes.get(nodeId)
+    if (!def || !node) {
+      return
+    }
+    const instances = Math.max(1, Math.round(instanceCount))
+    const rescaled: ComponentNode = {
+      ...def,
+      resources: { ...(def.resources ?? {}), instanceCount: instances }
+    }
+    const { effectiveC, effectiveK, physicalCores } = deriveNodeConcurrency(rescaled)
+    const { started } = node.resizeConcurrency(effectiveC, effectiveK, this.clock, physicalCores)
+    this.nodeLimitsById.set(nodeId, { workers: effectiveC, capacity: effectiveK })
+
+    for (const resumed of started) {
+      this.markNodePhaseServiceStart(resumed, nodeId, this.clock)
+      this.recordCanonicalEvent({
+        timestampUs: this.clock,
+        type: 'processing-started',
+        priority: EventPriority.PROCESSING,
+        requestId: resumed.id,
+        nodeId,
+        payload: { request: resumed },
+        nodeSnapshot: this.createNodeSnapshot(nodeId)
+      })
+    }
   }
 
   private handleHealthProbe(event: SimulationEvent): void {

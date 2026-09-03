@@ -241,7 +241,7 @@ describe('component spec validation copy', () => {
         'Write latency must be a valid distribution.',
         'Read latency must be greater than 0 ms.',
         'Write latency must be greater than 0 ms.',
-        'Replication role must be either Primary or Replica.',
+        'Replication role must be Primary, Replica, Leader, or Follower.',
         'Routing rule 1 uses an unsupported match field. Choose Type, Method, Path, Host.',
         'Routing rule 1 needs a match value.',
         'Routing rule 1 needs a target node.',

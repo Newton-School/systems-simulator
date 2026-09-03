@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   deriveNodeConcurrency,
   IO_WORKERS_PER_VCPU,
+  IO_BOUND_OVERRIDE_CPU_FRACTION,
+  effectiveCpuBoundFraction,
   effectivePerfFactor,
   serviceTimeMultiplier
 } from '../resourceDerivation'
@@ -82,6 +84,26 @@ describe('deriveNodeConcurrency', () => {
       )
       expect(three.effectiveC).toBe(one.effectiveC * 3)
     })
+
+    it('uses a locked low contention fraction when a cpu-bound type is authored io-bound', () => {
+      const d = deriveNodeConcurrency(
+        node({
+          resources: { instanceType: 'c5.large', instanceCount: 1, workloadKind: 'io-bound' }
+        })
+      )
+      expect(d.effectiveC).toBe(2 * IO_WORKERS_PER_VCPU)
+      expect(d.cpuBoundFraction).toBe(IO_BOUND_OVERRIDE_CPU_FRACTION)
+    })
+
+    it('treats a cpu-bound override on an io-bound type as fully on-core work', () => {
+      const d = deriveNodeConcurrency({
+        ...node({}),
+        type: 'relational-db',
+        resources: { instanceType: 'm5.xlarge', instanceCount: 1, workloadKind: 'cpu-bound' }
+      })
+      expect(d.effectiveC).toBe(4)
+      expect(d.cpuBoundFraction).toBe(1)
+    })
   })
 
   describe('derived admission K (from RAM)', () => {
@@ -130,6 +152,14 @@ describe('deriveNodeConcurrency', () => {
 
     it('serviceTimeMultiplier: legacy (no instance model) is unaffected', () => {
       expect(serviceTimeMultiplier(node({}))).toBe(1)
+    })
+
+    it('effectiveCpuBoundFraction stays aligned with the authored workloadKind', () => {
+      expect(effectiveCpuBoundFraction(1, 'cpu-bound', 'io-bound')).toBe(
+        IO_BOUND_OVERRIDE_CPU_FRACTION
+      )
+      expect(effectiveCpuBoundFraction(0.35, 'io-bound', 'cpu-bound')).toBe(1)
+      expect(effectiveCpuBoundFraction(0.5, 'io-bound', 'io-bound')).toBe(0.5)
     })
   })
 

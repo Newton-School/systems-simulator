@@ -16,6 +16,7 @@ export type RuntimeMetricLens = 'traffic' | 'saturation' | 'latency' | 'errors' 
 export type MetricLens = PreRunMetricLens | RuntimeMetricLens
 export type LatencyLensPercentile = 'p50' | 'p95' | 'p99'
 export type ResultsTabId = 'overview' | 'bottlenecks' | 'nodes' | 'traffic'
+export type ComponentLibraryMode = 'default' | 'all'
 
 export interface DisplaySettings {
   theme: ThemeMode
@@ -23,6 +24,10 @@ export interface DisplaySettings {
   latencyLensPercentile: LatencyLensPercentile
   autoOpenSimulationTray: boolean
   defaultResultsTab: ResultsTabId
+  /** Controls the library baseline; per-item hiding is applied on top. */
+  componentLibraryMode: ComponentLibraryMode
+  /** Palette template ids explicitly hidden by the user. */
+  hiddenComponentLibraryTemplateIds: string[]
 }
 
 export interface NodeSimulationMetrics {
@@ -152,7 +157,9 @@ export const DEFAULT_DISPLAY_SETTINGS: DisplaySettings = {
   defaultMetricLens: 'concurrency',
   latencyLensPercentile: 'p95',
   autoOpenSimulationTray: true,
-  defaultResultsTab: 'overview'
+  defaultResultsTab: 'overview',
+  componentLibraryMode: 'default',
+  hiddenComponentLibraryTemplateIds: []
 }
 
 export function normalizeScenarioState(value: unknown): ScenarioState {

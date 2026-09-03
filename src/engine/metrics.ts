@@ -286,7 +286,13 @@ interface InternalNodeMetrics {
   finalInSystem: number
   /** ∫ activeWorkers dt (worker·µs) from the node — the utilization source of truth. */
   busyAreaUs: bigint
-  /** Worker count, for the utilization denominator. */
+  /** ∫ maxWorkers dt (worker·µs) — the utilization denominator, correct across autoscale resizes. */
+  capacityAreaUs: bigint
+  /** ∫ min(activeWorkers×cpuBoundFraction, cores) dt (core·µs) — CPU-busy integral (two-tier). 0 if no CPU tier. */
+  cpuBusyAreaUs: number
+  /** ∫ physicalCores dt (core·µs) — CPU-utilization denominator. 0 if no CPU tier. */
+  coreAreaUs: number
+  /** Final worker count, for display and the fixed-capacity fallback. */
   workers: number
   /** Streaming inter-arrival gap stats (post-warmup) → arrivalCV. */
   arrivalGaps: GapStats
@@ -616,10 +622,20 @@ export class MetricsCollector {
    * Record a node's finalized busy-area integral (worker·µs) and worker count —
    * the single source of truth for utilization. Called once at run end.
    */
-  recordNodeBusyTime(nodeId: string, busyAreaUs: bigint, workers: number): void {
+  recordNodeBusyTime(
+    nodeId: string,
+    busyAreaUs: bigint,
+    workers: number,
+    capacityAreaUs: bigint,
+    cpuBusyAreaUs = 0,
+    coreAreaUs = 0
+  ): void {
     const node = this.ensureNodeMetrics(nodeId)
     node.busyAreaUs = busyAreaUs
     node.workers = workers
+    node.capacityAreaUs = capacityAreaUs
+    node.cpuBusyAreaUs = cpuBusyAreaUs
+    node.coreAreaUs = coreAreaUs
   }
 
   /**
@@ -798,17 +814,20 @@ export class MetricsCollector {
         peakQueueLength: metrics?.peakQueueLength ?? 0,
         peakInSystem: metrics?.peakInSystem ?? 0,
         finalInSystem: metrics?.finalInSystem ?? 0,
-        // Time-weighted busy fraction: ∫activeWorkers dt / (duration × workers).
-        utilization:
-          metrics && metrics.workers > 0 && durationMs > 0
-            ? Math.min(
-                1,
-                Math.max(
-                  0,
-                  Number(metrics.busyAreaUs) / (Number(msToMicro(durationMs)) * metrics.workers)
-                )
-              )
-            : 0,
+        // Instance-backed nodes use the time-weighted CPU busy fraction. Legacy
+        // nodes retain the worker-pool fraction because they have no CPU tier.
+        utilization: (() => {
+          if (!metrics) return 0
+          const denom =
+            metrics.capacityAreaUs > 0n
+              ? Number(metrics.capacityAreaUs)
+              : durationMs > 0 && metrics.workers > 0
+                ? Number(msToMicro(durationMs)) * metrics.workers
+                : 0
+          const workerUtil = denom > 0 ? Number(metrics.busyAreaUs) / denom : 0
+          const cpuUtil = metrics.coreAreaUs > 0 ? metrics.cpuBusyAreaUs / metrics.coreAreaUs : 0
+          return Math.min(1, Math.max(0, metrics.coreAreaUs > 0 ? cpuUtil : workerUtil))
+        })(),
         throughput: durationSec > 0 ? pwProcessed / durationSec : 0,
         errorRate,
         availability: 1 - errorRate,
@@ -1235,6 +1254,9 @@ export class MetricsCollector {
       peakInSystem: 0,
       finalInSystem: 0,
       busyAreaUs: 0n,
+      capacityAreaUs: 0n,
+      cpuBusyAreaUs: 0,
+      coreAreaUs: 0,
       arrivalGaps: newGapStats(),
       workers: 0,
       cacheHits: 0,

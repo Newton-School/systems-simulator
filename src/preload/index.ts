@@ -52,7 +52,14 @@ const api = {
     ipcRenderer.invoke('llm:gradeJustification', request).catch((error) => {
       console.error('Error in gradeJustification:', error)
       return { error: String(error) }
-    })
+    }),
+
+  getLlmGradingConfig: () => ipcRenderer.invoke('llm:getGradingConfig'),
+
+  setLlmGradingConfig: (providerId: 'gemini' | 'anthropic' | 'openai', apiKey: string) =>
+    ipcRenderer.invoke('llm:setGradingConfig', { providerId, apiKey }),
+
+  clearSessionLlmGradingConfig: () => ipcRenderer.invoke('llm:clearSessionGradingConfig')
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to

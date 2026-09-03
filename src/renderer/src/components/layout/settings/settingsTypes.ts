@@ -1,6 +1,6 @@
 import type { EnvironmentProfile } from '../../../../../engine/analysis/environmentProfile'
 
-export type SettingsTabId = 'environments' | 'simulation' | 'display'
+export type SettingsTabId = 'environments' | 'simulation' | 'library' | 'llm-grading' | 'display'
 
 export interface SettingsTabDef {
   id: SettingsTabId
@@ -10,6 +10,8 @@ export interface SettingsTabDef {
 export const SETTINGS_TABS: SettingsTabDef[] = [
   { id: 'environments', label: 'Environments' },
   { id: 'simulation', label: 'Simulation' },
+  { id: 'library', label: 'Component library' },
+  { id: 'llm-grading', label: 'LLM grading' },
   { id: 'display', label: 'Display' }
 ]
 

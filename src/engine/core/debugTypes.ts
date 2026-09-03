@@ -105,7 +105,8 @@ const STATUS_BY_EVENT_TYPE: Record<EventType, DebugEvent['status']> = {
   'stream-replay': 'info',
   'consumer-group-rebalance': 'info',
   'broker-failure': 'danger',
-  'broker-recovery': 'success'
+  'broker-recovery': 'success',
+  'trait-tick': 'info'
 }
 
 const LIFECYCLE_EVENT_RANK: Partial<Record<EventType, number>> = {
@@ -220,6 +221,8 @@ function formatEventMessage(
       return `Broker failed: ${nodeLabel}`
     case 'broker-recovery':
       return `Broker recovered: ${nodeLabel}`
+    case 'trait-tick':
+      return `Timer tick at ${nodeLabel}`
     default: {
       const exhaustiveCheck: never = event.type
       return exhaustiveCheck

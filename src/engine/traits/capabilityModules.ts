@@ -11,6 +11,18 @@ import { consumerLagCapabilityModule } from './consumerLag'
 import { dnsRoutingPolicyCapabilityModule } from './dnsRoutingPolicy'
 import { healthAwareRoutingCapabilityModule } from './healthAwareRouting'
 import { idempotencyDedupCapabilityModule } from './idempotencyDedup'
+import { geoLatencyCapabilityModule } from './geoLatency'
+import { externalLatencyCapabilityModule } from './externalLatency'
+import { tieredRetrievalCapabilityModule } from './tieredRetrieval'
+import { cryptoCostCapabilityModule } from './cryptoCost'
+import { tokenCostCapabilityModule } from './tokenCost'
+import { inspectionCostCapabilityModule } from './inspectionCost'
+import { capacityLimitCapabilityModule } from './capacityLimit'
+import { batchingCapabilityModule } from './batching'
+import { logReplayCapabilityModule } from './logReplay'
+import { windowingCapabilityModule } from './windowing'
+import { fanoutQueryCapabilityModule } from './fanoutQuery'
+import { autoscalerCapabilityModule } from './autoscaler'
 import { lockLeaseCapabilityModule } from './lockLease'
 import { reservationStoreCapabilityModule } from './reservationStore'
 import { keyBasedRoutingCapabilityModule } from './keyBasedRouting'
@@ -432,9 +444,12 @@ const RESOURCES_FIELDS: readonly ConfigField[] = [
   {
     path: 'sim.resources.instanceCount',
     type: 'input',
-    label: 'Instances',
+    label: (data) =>
+      data.componentType === 'relational-db' || data.componentType === 'nosql-db'
+        ? 'Node instances'
+        : 'Service instances',
     unit: 'count',
-    why: 'How many instances run. Scales concurrency, memory, and cost together (horizontal scale).'
+    why: 'Scales request-serving capacity, memory, and cost. For databases, this does not create read replicas or shards; configure replication or partitioning separately.'
   },
   {
     path: 'sim.resources.pricingModel',
@@ -471,13 +486,14 @@ const RESOURCES_MODULE: NodeCapabilityModule = {
   defaults: [],
   honesty: {
     simulates: [
-      'physical allocation: instance type × count → effective concurrency (vCPU-capped), admission limit (RAM-bound), and provisioned cost'
+      'physical allocation: instance type × count → effective concurrency (vCPU-capped), admission limit (RAM-bound), provisioned cost, and CPU contention for the sourced CPU-bound fraction of service time'
     ],
     notModeled: [
       'reserved-commitment semantics',
       'spot interruption behavior',
       'autoscaling',
-      'per-region hardware availability'
+      'per-region hardware availability',
+      'rescheduling in-flight CPU work when concurrency changes, NUMA/cache effects, or hyperthreading beyond the vCPU count'
     ]
   }
 }
@@ -875,7 +891,19 @@ export const TRAIT_CAPABILITY_MODULES: readonly NodeCapabilityModule[] = [
   lockLeaseCapabilityModule,
   reservationStoreCapabilityModule,
   memoryPressureCapabilityModule,
-  ackAndReleaseCapabilityModule
+  ackAndReleaseCapabilityModule,
+  geoLatencyCapabilityModule,
+  externalLatencyCapabilityModule,
+  tieredRetrievalCapabilityModule,
+  cryptoCostCapabilityModule,
+  tokenCostCapabilityModule,
+  inspectionCostCapabilityModule,
+  capacityLimitCapabilityModule,
+  batchingCapabilityModule,
+  logReplayCapabilityModule,
+  windowingCapabilityModule,
+  fanoutQueryCapabilityModule,
+  autoscalerCapabilityModule
 ]
 
 // Panel section order = this array order (see renderer `getNodeConfigSections`).

@@ -171,9 +171,10 @@ const INFO_BY_ID: Record<string, LibraryItemInfo> = {
     config: ['latency overhead', 'retry policy', 'timeout']
   },
   'primary-db': {
-    represents: 'The main transactional database that stores authoritative application data.',
+    represents:
+      'A relational (SQL) database. Enable replication to assign this node a primary/replica or leader/follower role.',
     realWorld: 'PostgreSQL, MySQL, Aurora, Cloud SQL.',
-    config: ['service time', 'queue capacity', 'availability target']
+    config: ['read/write latency', 'replication role', 'availability target']
   },
   'read-replica': {
     represents: 'A read-only copy of a database used to scale read traffic away from the primary.',
@@ -181,9 +182,10 @@ const INFO_BY_ID: Record<string, LibraryItemInfo> = {
     config: ['replication lag', 'read latency', 'node health']
   },
   'redis-cache': {
-    represents: 'An in-memory store used to return frequently used data with very low latency.',
+    represents:
+      'A distributed in-memory cache used to return frequently used data with very low latency.',
     realWorld: 'Redis, Memcached, ElastiCache.',
-    config: ['hit ratio', 'latency', 'capacity']
+    config: ['engine', 'cache strategy', 'hit ratio', 'latency']
   },
   'message-queue': {
     represents: 'Buffers work between producers and consumers so processing can happen later.',
@@ -247,7 +249,8 @@ const INFO_BY_ID: Record<string, LibraryItemInfo> = {
     config: ['object throughput', 'partitioning', 'scan latency']
   },
   'kv-store': {
-    represents: 'Stores and retrieves values by key for fast lookups and simple state.',
+    represents:
+      'Legacy key-value palette entry. Create a NoSQL DB and select the key-value data model instead.',
     realWorld: 'DynamoDB KV table, Redis KV, RocksDB service.',
     config: ['read/write latency', 'capacity', 'TTL']
   },
