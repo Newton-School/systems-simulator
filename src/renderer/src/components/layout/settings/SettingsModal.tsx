@@ -3,6 +3,8 @@ import { X } from 'lucide-react'
 import { EnvironmentsTab } from './EnvironmentsTab'
 import { SimulationTab } from './SimulationTab'
 import { DisplayTab } from './DisplayTab'
+import { ComponentLibraryTab } from './ComponentLibraryTab'
+import { LlmGradingTab } from './LlmGradingTab'
 import { SETTINGS_TABS, type SettingsTabId } from './settingsTypes'
 
 /**
@@ -74,6 +76,8 @@ export function SettingsModal({ onClose }: { onClose: () => void }): React.JSX.E
           <div className="flex-1 overflow-y-auto custom-scrollbar px-5 py-3">
             {tab === 'environments' && <EnvironmentsTab />}
             {tab === 'simulation' && <SimulationTab />}
+            {tab === 'library' && <ComponentLibraryTab />}
+            {tab === 'llm-grading' && <LlmGradingTab />}
             {tab === 'display' && <DisplayTab />}
           </div>
         </div>

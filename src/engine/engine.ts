@@ -2640,7 +2640,9 @@ export class SimulationEngine {
         nodeId,
         node.getBusyAreaUs(),
         workers,
-        node.getCapacityAreaUs()
+        node.getCapacityAreaUs(),
+        node.getCpuBusyAreaUs(),
+        node.getCoreAreaUs()
       )
     }
 
@@ -2897,8 +2899,8 @@ export class SimulationEngine {
       ...def,
       resources: { ...(def.resources ?? {}), instanceCount: instances }
     }
-    const { effectiveC, effectiveK } = deriveNodeConcurrency(rescaled)
-    const { started } = node.resizeConcurrency(effectiveC, effectiveK, this.clock)
+    const { effectiveC, effectiveK, physicalCores } = deriveNodeConcurrency(rescaled)
+    const { started } = node.resizeConcurrency(effectiveC, effectiveK, this.clock, physicalCores)
     this.nodeLimitsById.set(nodeId, { workers: effectiveC, capacity: effectiveK })
 
     for (const resumed of started) {

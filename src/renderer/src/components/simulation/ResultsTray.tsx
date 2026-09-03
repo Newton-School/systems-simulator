@@ -3867,7 +3867,7 @@ function ComponentDrilldown({
               />
               <TimelineChart
                 title="Utilization"
-                subtitle="Observed worker utilization snapshots for this node."
+                subtitle="Observed CPU utilization snapshots for instance-backed nodes."
                 totalDurationMs={output.simulationDuration}
                 warmupDurationMs={output.warmupDuration}
                 statusWindows={statusWindows}

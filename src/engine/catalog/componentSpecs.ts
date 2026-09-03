@@ -369,6 +369,27 @@ function buildRuntimeNode(
     config.ttlSeconds = Math.max(0, data.sim.ttlSeconds)
   }
 
+  if (data.sim?.cacheEngine === 'redis' || data.sim?.cacheEngine === 'memcached') {
+    config.cacheEngine = data.sim.cacheEngine
+  }
+
+  if (
+    data.sim?.cacheStrategy === 'cache-aside' ||
+    data.sim?.cacheStrategy === 'read-through' ||
+    data.sim?.cacheStrategy === 'write-through' ||
+    data.sim?.cacheStrategy === 'write-behind'
+  ) {
+    config.cacheStrategy = data.sim.cacheStrategy
+  }
+
+  if (
+    data.sim?.dataModel === 'document' ||
+    data.sim?.dataModel === 'key-value' ||
+    data.sim?.dataModel === 'wide-column'
+  ) {
+    config.dataModel = data.sim.dataModel
+  }
+
   if (Array.isArray(data.sim?.routingRules) && data.sim.routingRules.length > 0) {
     config.routingRules = data.sim.routingRules
   }
@@ -446,12 +467,30 @@ function buildRuntimeNode(
     config.circuitBreaker = resilience.circuitBreaker
   }
 
-  if (spec.componentType === 'relational-db') {
-    // "Primary DB" and "Read Replica" share this component type — the
-    // template chosen from the palette is the one truthful signal of role,
-    // since it's fixed at creation time (unlike a freely renamable label).
+  if (
+    (spec.componentType === 'relational-db' || spec.componentType === 'nosql-db') &&
+    data.sim?.replicationEnabled === true
+  ) {
+    config.replicationEnabled = true
+    config.replicationMode = data.sim.replicationMode ?? 'primary-replica'
     config.replicationRole =
       data.sim?.replicationRole ?? (data.templateId === 'read-replica' ? 'replica' : 'primary')
+    for (const field of ['replicationLagMs', 'failoverUntilMs'] as const) {
+      const value = data.sim?.[field]
+      if (typeof value === 'number' && Number.isFinite(value) && value >= 0) config[field] = value
+    }
+    if (data.sim?.writeAckPolicy) config.writeAckPolicy = data.sim.writeAckPolicy
+    if (data.sim?.replicaMembers?.trim()) config.replicaMembers = data.sim.replicaMembers.trim()
+    if (data.sim?.consensusProtocol) config.consensusProtocol = data.sim.consensusProtocol
+    if (data.sim?.conflictResolution) config.conflictResolution = data.sim.conflictResolution
+  }
+
+  if (
+    typeof data.sim?.shardCount === 'number' &&
+    Number.isInteger(data.sim.shardCount) &&
+    data.sim.shardCount > 1
+  ) {
+    config.shardCount = data.sim.shardCount
   }
 
   if (data.sim?.readLatency) {
@@ -712,9 +751,11 @@ function validateSimulationNode(data: CanvasNodeDataV2): string[] {
   if (
     data.sim?.replicationRole !== undefined &&
     data.sim.replicationRole !== 'primary' &&
-    data.sim.replicationRole !== 'replica'
+    data.sim.replicationRole !== 'replica' &&
+    data.sim.replicationRole !== 'leader' &&
+    data.sim.replicationRole !== 'follower'
   ) {
-    errors.push('Replication role must be either Primary or Replica.')
+    errors.push('Replication role must be Primary, Replica, Leader, or Follower.')
   }
 
   if (

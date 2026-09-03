@@ -95,7 +95,6 @@ export const CATALOG_CONFIG: CatalogCategory[] = [
     title: 'Data Stores',
     items: getItems([
       'primary-db',
-      'read-replica',
       'redis-cache',
       'nosql-db',
       'object-storage',
@@ -104,8 +103,7 @@ export const CATALOG_CONFIG: CatalogCategory[] = [
       'graph-db',
       'vector-db',
       'data-warehouse',
-      'data-lake',
-      'kv-store'
+      'data-lake'
     ])
   },
   {

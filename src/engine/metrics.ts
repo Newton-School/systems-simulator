@@ -288,6 +288,10 @@ interface InternalNodeMetrics {
   busyAreaUs: bigint
   /** ∫ maxWorkers dt (worker·µs) — the utilization denominator, correct across autoscale resizes. */
   capacityAreaUs: bigint
+  /** ∫ min(activeWorkers×cpuBoundFraction, cores) dt (core·µs) — CPU-busy integral (two-tier). 0 if no CPU tier. */
+  cpuBusyAreaUs: number
+  /** ∫ physicalCores dt (core·µs) — CPU-utilization denominator. 0 if no CPU tier. */
+  coreAreaUs: number
   /** Final worker count, for display and the fixed-capacity fallback. */
   workers: number
   /** Streaming inter-arrival gap stats (post-warmup) → arrivalCV. */
@@ -622,12 +626,16 @@ export class MetricsCollector {
     nodeId: string,
     busyAreaUs: bigint,
     workers: number,
-    capacityAreaUs: bigint
+    capacityAreaUs: bigint,
+    cpuBusyAreaUs = 0,
+    coreAreaUs = 0
   ): void {
     const node = this.ensureNodeMetrics(nodeId)
     node.busyAreaUs = busyAreaUs
     node.workers = workers
     node.capacityAreaUs = capacityAreaUs
+    node.cpuBusyAreaUs = cpuBusyAreaUs
+    node.coreAreaUs = coreAreaUs
   }
 
   /**
@@ -806,10 +814,8 @@ export class MetricsCollector {
         peakQueueLength: metrics?.peakQueueLength ?? 0,
         peakInSystem: metrics?.peakInSystem ?? 0,
         finalInSystem: metrics?.finalInSystem ?? 0,
-        // Time-weighted busy fraction: ∫activeWorkers dt ÷ ∫maxWorkers dt. The
-        // capacity integral is the denominator so utilization stays correct when
-        // an autoscaler resizes workers mid-run; it falls back to duration×workers
-        // for older records where the capacity area was not accrued.
+        // Instance-backed nodes use the time-weighted CPU busy fraction. Legacy
+        // nodes retain the worker-pool fraction because they have no CPU tier.
         utilization: (() => {
           if (!metrics) return 0
           const denom =
@@ -818,8 +824,9 @@ export class MetricsCollector {
               : durationMs > 0 && metrics.workers > 0
                 ? Number(msToMicro(durationMs)) * metrics.workers
                 : 0
-          if (denom <= 0) return 0
-          return Math.min(1, Math.max(0, Number(metrics.busyAreaUs) / denom))
+          const workerUtil = denom > 0 ? Number(metrics.busyAreaUs) / denom : 0
+          const cpuUtil = metrics.coreAreaUs > 0 ? metrics.cpuBusyAreaUs / metrics.coreAreaUs : 0
+          return Math.min(1, Math.max(0, metrics.coreAreaUs > 0 ? cpuUtil : workerUtil))
         })(),
         throughput: durationSec > 0 ? pwProcessed / durationSec : 0,
         errorRate,
@@ -1248,6 +1255,8 @@ export class MetricsCollector {
       finalInSystem: 0,
       busyAreaUs: 0n,
       capacityAreaUs: 0n,
+      cpuBusyAreaUs: 0,
+      coreAreaUs: 0,
       arrivalGaps: newGapStats(),
       workers: 0,
       cacheHits: 0,

@@ -444,9 +444,12 @@ const RESOURCES_FIELDS: readonly ConfigField[] = [
   {
     path: 'sim.resources.instanceCount',
     type: 'input',
-    label: 'Instances',
+    label: (data) =>
+      data.componentType === 'relational-db' || data.componentType === 'nosql-db'
+        ? 'Node instances'
+        : 'Service instances',
     unit: 'count',
-    why: 'How many instances run. Scales concurrency, memory, and cost together (horizontal scale).'
+    why: 'Scales request-serving capacity, memory, and cost. For databases, this does not create read replicas or shards; configure replication or partitioning separately.'
   },
   {
     path: 'sim.resources.pricingModel',
@@ -483,13 +486,14 @@ const RESOURCES_MODULE: NodeCapabilityModule = {
   defaults: [],
   honesty: {
     simulates: [
-      'physical allocation: instance type × count → effective concurrency (vCPU-capped), admission limit (RAM-bound), and provisioned cost'
+      'physical allocation: instance type × count → effective concurrency (vCPU-capped), admission limit (RAM-bound), provisioned cost, and CPU contention for the sourced CPU-bound fraction of service time'
     ],
     notModeled: [
       'reserved-commitment semantics',
       'spot interruption behavior',
       'autoscaling',
-      'per-region hardware availability'
+      'per-region hardware availability',
+      'rescheduling in-flight CPU work when concurrency changes, NUMA/cache effects, or hyperthreading beyond the vCPU count'
     ]
   }
 }

@@ -51,7 +51,7 @@ function createCanvasData(template: PaletteTemplate): CanvasNodeDataV2 {
     routingStrategy: template.routingStrategy,
     sim:
       template.serializable && spec && template.profile !== 'source'
-        ? spec.createDefaultSimulationConfig(template.seed)
+        ? { ...spec.createDefaultSimulationConfig(template.seed), ...template.simDefaults }
         : undefined,
     source: template.profile === 'source' ? createSourceConfig(template.seed) : undefined,
     ui: template.seed?.overloadPreview ? { overloadPreview: true } : undefined
@@ -160,7 +160,7 @@ export const PALETTE_TEMPLATES: Record<string, PaletteTemplate> = {
     profile: 'datastore',
     rendererType: 'serviceNode',
     iconKey: 'database',
-    label: 'Primary DB',
+    label: 'SQL DB',
     subLabel: 'Relational SQL',
     serializable: true,
     seed: { throughput: 2400, load: 60, queueDepth: 25 }
@@ -173,10 +173,11 @@ export const PALETTE_TEMPLATES: Record<string, PaletteTemplate> = {
     profile: 'datastore',
     rendererType: 'serviceNode',
     iconKey: 'server',
-    label: 'Redis Cache',
-    subLabel: 'In-memory key/val',
+    label: 'Distributed Cache',
+    subLabel: 'Redis / Memcached',
     serializable: true,
-    seed: { throughput: 5000, load: 15, queueDepth: 4 }
+    seed: { throughput: 5000, load: 15, queueDepth: 4 },
+    simDefaults: { cacheEngine: 'redis', cacheStrategy: 'cache-aside' }
   },
   'load-balancer': {
     id: 'load-balancer',
@@ -554,9 +555,10 @@ export const PALETTE_TEMPLATES: Record<string, PaletteTemplate> = {
     rendererType: 'serviceNode',
     iconKey: 'nosql',
     label: 'NoSQL DB',
-    subLabel: 'DynamoDB / MongoDB',
+    subLabel: 'Document / Key-value / Wide-column',
     serializable: true,
-    seed: { throughput: 5000, load: 30, queueDepth: 12 }
+    seed: { throughput: 5000, load: 30, queueDepth: 12 },
+    simDefaults: { dataModel: 'document' }
   },
   'read-replica': {
     id: 'read-replica',
@@ -569,7 +571,12 @@ export const PALETTE_TEMPLATES: Record<string, PaletteTemplate> = {
     label: 'Read Replica',
     subLabel: 'SQL Read Replica',
     serializable: true,
-    seed: { throughput: 2000, load: 40, queueDepth: 10 }
+    seed: { throughput: 2000, load: 40, queueDepth: 10 },
+    simDefaults: {
+      replicationEnabled: true,
+      replicationMode: 'primary-replica',
+      replicationRole: 'replica'
+    }
   },
   'object-storage': {
     id: 'object-storage',
@@ -664,16 +671,17 @@ export const PALETTE_TEMPLATES: Record<string, PaletteTemplate> = {
   },
   'kv-store': {
     id: 'kv-store',
-    componentType: 'kv-store',
+    componentType: 'nosql-db',
     category: 'storage-and-data',
     structuralRole: 'storage',
     profile: 'datastore',
     rendererType: 'serviceNode',
     iconKey: 'kv-store',
-    label: 'KV Store',
-    subLabel: 'Low-latency Key/Value',
+    label: 'NoSQL DB',
+    subLabel: 'Key-value model',
     serializable: true,
-    seed: { throughput: 15000, load: 16, queueDepth: 4 }
+    seed: { throughput: 15000, load: 16, queueDepth: 4 },
+    simDefaults: { dataModel: 'key-value' }
   },
   'push-notification-service': {
     id: 'push-notification-service',

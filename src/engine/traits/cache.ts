@@ -99,8 +99,26 @@ export const cacheCapabilityModule: NodeCapabilityModule = {
       {
         id: 'caching',
         title: 'Caching',
-        note: 'Empty cache hit rate means this node behaves as a pass-through cache and the results-view cache panel stays hidden. Try it: 0.9 = warm cache (~90% hits), 0.5 = half served locally, 1.0 = every request a hit; leave empty to disable. After a run, select this node to see the resulting hit/miss split. Cache hit latency only applies to hits. TTL is shown for topology intent, but the current simulator does not model expiry over time.',
+        note: 'Redis is a richer distributed cache with optional replication; Memcached is a simpler client-sharded, ephemeral cache that scales by adding memory nodes. Both use the same hit/miss model here. TTL is topology intent only; expiry and eviction are not simulated.',
         fields: [
+          {
+            path: 'sim.cacheEngine',
+            type: 'select',
+            label: 'Cache engine',
+            options: ['redis', 'memcached'],
+            visible: (data) => data.componentType === 'in-memory-cache',
+            why: 'Redis supports richer data structures and replication; Memcached trades those features for simpler client-side horizontal scaling.'
+          },
+          {
+            path: 'sim.cacheStrategy',
+            type: 'select',
+            label: 'Cache strategy',
+            options: ['cache-aside', 'read-through', 'write-through', 'write-behind'],
+            visible: (data) => data.componentType === 'in-memory-cache',
+            altitude: 'advanced',
+            accuracy: 'not-simulated',
+            why: 'Documents the consistency and write-path strategy. Hit/miss behavior is modeled independently.'
+          },
           {
             path: 'sim.cacheHitRate',
             type: 'input',

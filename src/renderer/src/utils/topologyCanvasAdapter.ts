@@ -56,7 +56,7 @@ function asDistribution(value: unknown): DistributionConfig | undefined {
 function pickTemplateForNode(node: ComponentNode): PaletteTemplate | null {
   if (node.type === 'relational-db') {
     const replicationRole = asString(node.config?.['replicationRole'])
-    if (replicationRole === 'replica') {
+    if (replicationRole === 'replica' || replicationRole === 'follower') {
       return PALETTE_TEMPLATES['read-replica']
     }
     return PALETTE_TEMPLATES['primary-db']
@@ -183,6 +183,59 @@ function overlaySimulationConfig(
 
   if (asNumber(config['ttlSeconds']) !== undefined) {
     sim.ttlSeconds = asNumber(config['ttlSeconds'])
+  }
+
+  if (config['cacheEngine'] === 'redis' || config['cacheEngine'] === 'memcached') {
+    sim.cacheEngine = config['cacheEngine']
+  }
+  if (
+    config['cacheStrategy'] === 'cache-aside' ||
+    config['cacheStrategy'] === 'read-through' ||
+    config['cacheStrategy'] === 'write-through' ||
+    config['cacheStrategy'] === 'write-behind'
+  ) {
+    sim.cacheStrategy = config['cacheStrategy']
+  }
+  if (
+    config['dataModel'] === 'document' ||
+    config['dataModel'] === 'key-value' ||
+    config['dataModel'] === 'wide-column'
+  ) {
+    sim.dataModel = config['dataModel']
+  }
+  if (asBoolean(config['replicationEnabled']) !== undefined) {
+    sim.replicationEnabled = asBoolean(config['replicationEnabled'])
+  }
+  if (
+    config['replicationMode'] === 'primary-replica' ||
+    config['replicationMode'] === 'leader-follower'
+  ) {
+    sim.replicationMode = config['replicationMode']
+  }
+  if (
+    config['replicationRole'] === 'primary' ||
+    config['replicationRole'] === 'replica' ||
+    config['replicationRole'] === 'leader' ||
+    config['replicationRole'] === 'follower'
+  ) {
+    sim.replicationRole = config['replicationRole']
+  }
+  for (const field of ['replicationLagMs', 'failoverUntilMs', 'shardCount'] as const) {
+    const value = asNumber(config[field])
+    if (value !== undefined) sim[field] = value
+  }
+  if (config['writeAckPolicy'] === 'primary' || config['writeAckPolicy'] === 'quorum') {
+    sim.writeAckPolicy = config['writeAckPolicy']
+  }
+  if (asString(config['replicaMembers'])) sim.replicaMembers = asString(config['replicaMembers'])
+  if (config['consensusProtocol'] === 'raft' || config['consensusProtocol'] === 'none') {
+    sim.consensusProtocol = config['consensusProtocol']
+  }
+  if (
+    config['conflictResolution'] === 'leader-wins' ||
+    config['conflictResolution'] === 'highest-index-wins'
+  ) {
+    sim.conflictResolution = config['conflictResolution']
   }
 
   if (Array.isArray(config['routingRules'])) {

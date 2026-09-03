@@ -72,9 +72,9 @@ export const fanoutQueryCapabilityModule: NodeCapabilityModule = {
   config: {
     sections: [
       {
-        id: 'fanout-query',
-        title: 'Scatter-Gather',
-        note: 'A query fans out to N shards and waits for the slowest, so latency is the max of N per-shard samples and grows with shard count. Models the tail, not the parallel dispatch.',
+        id: 'partitioning',
+        title: 'Partitioning',
+        note: 'Add shards to increase write and data capacity. Shards are not replicas: replicas improve availability/read capacity, while sharding splits data and can increase scatter-gather tail latency.',
         noteTone: 'info',
         fields: [
           {
