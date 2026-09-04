@@ -2,7 +2,7 @@ import { dirname, resolve } from 'node:path'
 import type { ServerResponse } from 'node:http'
 import { fileURLToPath } from 'node:url'
 import react from '@vitejs/plugin-react'
-import { defineConfig, loadEnv, type PluginOption, type ViteDevServer } from 'vite'
+import { defineConfig, loadEnv, type PluginOption } from 'vite'
 import {
   callLlmGradeAPI,
   resolveProviderConfig,
