@@ -30,8 +30,11 @@ function bounds(config: Record<string, unknown> | undefined): { min: number; max
 
 /**
  * Horizontal autoscaler — a control loop on the `onTick` recurring timer. Every
- * `autoscaleCooldownMs` it samples the node's live utilization and steps the
- * instance count toward a target band, bounded by min/max. The engine applies
+ * `autoscaleCooldownMs` it samples the node's live utilization — which under the
+ * two-tier model is the CPU-inclusive headline (`max(worker, CPU)` occupancy), so
+ * a compute-heavy node that pins its cores while its worker pool looks idle now
+ * correctly triggers scale-out — and steps the instance count toward a target
+ * band, bounded by min/max. The engine applies
  * the new instance count by resizing the node's effective concurrency
  * (`scaleInstancesTo`), so capacity genuinely follows demand — with the
  * reaction lag of one cooldown, the real autoscaling tradeoff. Scaling still
@@ -126,7 +129,7 @@ export const autoscalerCapabilityModule: NodeCapabilityModule = {
             step: 0.05,
             altitude: 'primary',
             placeholder: `Default ${DEFAULT_TARGET_UTILIZATION}`,
-            why: 'Scale up above this; scale down well below it (hysteresis avoids flapping).'
+            why: 'Scale up above this; scale down well below it (hysteresis avoids flapping). Utilization is CPU-inclusive: a core-pinned node scales out even if its worker pool looks idle.'
           },
           {
             path: 'sim.autoscaleCooldownMs',

@@ -21,6 +21,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -39,6 +41,9 @@ jobs:
 
       - name: Run type check
         run: npm run typecheck
+
+      - name: Validate question bank (reference passes / gamed fails)
+        run: npm run validate:question-bank
 
       - name: Run dual-target builds
         run: npm run build:all

@@ -27,6 +27,8 @@
     "postinstall": "node scripts/postinstall.mjs",
     "check:web-bundle-budget": "node scripts/check-web-bundle-budget.mjs",
     "validate:question-bank": "tsx scripts/validate-question-dir.ts ns-simulator-docs/examples/question-bank/*",
+    "migration:snapshot": "tsx scripts/compute-contention-migration.ts snapshot",
+    "migration:diff": "tsx scripts/compute-contention-migration.ts diff",
     "test": "vitest run --root .",
     "test:perf": "RUN_PERF_TESTS=true vitest run --root .",
     "simulate": "tsx src/cli/index.ts",

@@ -79,6 +79,25 @@ const SHOW_JUSTIFICATION = true
 
 /** Debounce delay (ms) for live LLM grading as the student types. */
 const LLM_GRADE_DEBOUNCE_MS = 1500
+const LOCAL_LLM_GRADING_PATH = '/api/llm/grade-justification'
+
+async function gradeJustificationWithLlm(
+  request: LlmGradeRequest
+): Promise<{ ok?: boolean; data?: LlmGradeResponse; error?: string }> {
+  if (typeof window.nssimulator?.gradeJustification === 'function') {
+    return window.nssimulator.gradeJustification(request)
+  }
+  if (!import.meta.env.DEV) {
+    return { error: 'LLM grading is unavailable.' }
+  }
+
+  const response = await fetch(LOCAL_LLM_GRADING_PATH, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request)
+  })
+  return response.json() as Promise<{ ok?: boolean; data?: LlmGradeResponse; error?: string }>
+}
 
 type PendingRun = {
   kind: 'dry-run' | 'submit'
@@ -424,8 +443,9 @@ export const QuestionPanel = () => {
     // Immediately show deterministic grades while the LLM call is pending
     setJustifyGrades(gradeDeterministic())
 
-    // Check if LLM grading IPC is available (Electron only)
-    const llmAvailable = typeof window.nssimulator?.gradeJustification === 'function'
+    // Electron uses IPC; the browser can use the local Vite proxy in development.
+    const llmAvailable =
+      typeof window.nssimulator?.gradeJustification === 'function' || import.meta.env.DEV
     if (!llmAvailable) return
 
     // Debounce the LLM call
@@ -459,7 +479,7 @@ export const QuestionPanel = () => {
             actualComponentType: boundType,
             scaleNumbers
           }
-          const ipcResult = await window.nssimulator!.gradeJustification(request)
+          const ipcResult = await gradeJustificationWithLlm(request)
           if (ipcResult.ok && ipcResult.data) {
             llmGrades[prompt.id] = mapLlmResponseToResult(
               prompt.id,
