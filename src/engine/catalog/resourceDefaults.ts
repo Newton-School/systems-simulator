@@ -509,17 +509,22 @@ export function buildDefaultResources(type: ComponentType): ResourceConfig {
 }
 
 /**
- * Build an instance-model `resources` block that reproduces a node's authored
- * (workers, capacity) exactly, so the simulation stays byte-identical while the
- * node becomes instance-backed and cost-computable (the Slice-0 "wrap"):
- *   - workloadKind 'io-bound' → no vCPU cap, so effectiveC = workersPerInstance = workers.
- *   - queueSlots = capacity − workers → effectiveK = min(capacity, memCeiling).
- *   - perRequestMemMb sized so memCeiling ≥ 2× capacity → RAM never binds.
+ * Build an instance-model `resources` block for a node migrated from a raw
+ * authored `(workers, capacity)` queue. Under derive-and-lock, concurrency is a
+ * CONSEQUENCE of the hardware, not an authored number: `effectiveC` is derived as
+ * `vcpu × workersPerVcpu(kind) × instanceCount` and `effectiveK` from RAM — the
+ * authored `workers`/`capacity` do NOT survive as such. So this wrap only:
+ *   - picks the type's default `instanceType` (which, with io-bound, fixes c), and
+ *   - sizes `perRequestMemMb` so the RAM-derived K ≥ 2× the old capacity → RAM
+ *     never becomes the binding limit for a node that used to admit `capacity`.
+ * It intentionally does NOT emit `workersPerInstance`/`queueSlots`: those are
+ * derived-and-shown-read-only (see resourceDerivation.ts), so authoring them here
+ * would be dead, misleading data that contradicts the actual derived concurrency.
  * Shared by the canvas serializer and the question-fixture generator.
  */
 export function buildReproducingResources(
   type: ComponentType,
-  workers: number,
+  _workers: number,
   capacity: number
 ): ResourceConfig {
   const instanceType = getResourceDefaults(type).instanceType
@@ -528,8 +533,6 @@ export function buildReproducingResources(
     instanceType,
     instanceCount: 1,
     workloadKind: 'io-bound',
-    workersPerInstance: workers,
-    queueSlots: Math.max(0, capacity - workers),
     perRequestMemMb: totalRamMb / (Math.max(1, capacity) * 2)
   }
 }

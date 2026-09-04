@@ -23,8 +23,16 @@ export function LlmGradingTab(): React.JSX.Element {
   const [isSaving, setIsSaving] = useState(false)
 
   const reloadStatus = async (): Promise<void> => {
-    if (typeof window.nssimulator?.getLlmGradingConfig !== 'function') return
-    const nextStatus = await window.nssimulator.getLlmGradingConfig()
+    const nextStatus =
+      typeof window.nssimulator?.getLlmGradingConfig === 'function'
+        ? await window.nssimulator.getLlmGradingConfig()
+        : import.meta.env.DEV
+          ? await fetch('/api/llm/grading-status')
+              .then(async (response) => (response.ok ? response.json() : { configured: false }))
+              .then((value) => ({ ...value, source: 'local-development' as const }))
+              .catch(() => ({ configured: false, source: 'local-development' as const }))
+          : null
+    if (!nextStatus) return
     setStatus(nextStatus)
     if (nextStatus.providerId) setProviderId(nextStatus.providerId)
   }
@@ -57,7 +65,7 @@ export function LlmGradingTab(): React.JSX.Element {
 
   const electronAvailable = typeof window.nssimulator?.setLlmGradingConfig === 'function'
   const configuredDescription = status?.configured
-    ? `${providerLabel(status.providerId)} is configured from ${status.source === 'session' ? 'this app session' : 'environment variables'}.`
+    ? `${providerLabel(status.providerId)} is configured from ${status.source === 'session' ? 'this app session' : status.source === 'local-development' ? 'your local development environment' : 'environment variables'}.`
     : 'No LLM key is configured. Justifications use deterministic grading only.'
 
   return (
@@ -68,9 +76,7 @@ export function LlmGradingTab(): React.JSX.Element {
           Justification grading
         </div>
         <p className="mt-1 text-[11px] leading-relaxed text-nss-muted">
-          Add a provider key to test semantic LLM grading. The key is retained only in the Electron
-          main process for this app session and is never saved to a scenario or local display
-          settings.
+          Test semantic LLM grading without saving a key to a scenario or display settings.
         </p>
       </div>
 
@@ -85,8 +91,9 @@ export function LlmGradingTab(): React.JSX.Element {
 
       {!electronAvailable ? (
         <p className="rounded-md border border-nss-border bg-nss-surface p-3 text-[11px] leading-relaxed text-nss-muted">
-          API-key entry is available in the Electron app. The browser build continues to use
-          deterministic justification grading.
+          {import.meta.env.DEV
+            ? 'Browser development uses the local Vite proxy. Set a provider key in .env.local or your shell, then restart npm run dev. The key stays in the Vite server and is never sent to the browser.'
+            : 'The browser production build uses deterministic justification grading until the hosted grading API is available.'}
         </p>
       ) : (
         <div className="space-y-3">

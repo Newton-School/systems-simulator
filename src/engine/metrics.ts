@@ -163,7 +163,20 @@ export interface PerNodeMetrics {
   peakQueueLength: number
   peakInSystem: number
   finalInSystem: number
+  /**
+   * Headline utilization of the BINDING resource: physical-CPU occupancy for
+   * instance-backed nodes (two-tier model), worker-pool occupancy for legacy
+   * nodes. See `workerUtilization` for the always-worker-pool secondary view.
+   */
   utilization: number
+  /**
+   * Secondary diagnostic: worker-pool occupancy (∫activeWorkers ÷ ∫maxWorkers),
+   * always the connection/thread-slot view regardless of tier. For legacy and
+   * cpu-bound nodes it equals `utilization`; for a compute-heavy io-bound node it
+   * reads LOWER than the CPU-bound headline — the gap is exactly the two-tier
+   * insight (workers look idle while cores are pinned).
+   */
+  workerUtilization: number
   throughput: number
   errorRate: number
   availability: number
@@ -767,6 +780,27 @@ export class MetricsCollector {
       const cacheMisses = metrics?.cacheMisses ?? 0
       const cacheHitRatio = cacheHits + cacheMisses > 0 ? cacheHits / (cacheHits + cacheMisses) : 0
 
+      // Two-tier utilization: `worker` is worker-pool occupancy (∫activeWorkers ÷
+      // ∫maxWorkers, the legacy denominator with a fallback for old records);
+      // `headline` is CPU occupancy for instance-backed nodes (coreArea > 0) and
+      // worker occupancy for legacy nodes. Both clamped to [0,1].
+      const nodeUtilization = ((): { headline: number; worker: number } => {
+        if (!metrics) return { headline: 0, worker: 0 }
+        const denom =
+          metrics.capacityAreaUs > 0n
+            ? Number(metrics.capacityAreaUs)
+            : durationMs > 0 && metrics.workers > 0
+              ? Number(msToMicro(durationMs)) * metrics.workers
+              : 0
+        const workerUtil =
+          denom > 0 ? Math.min(1, Math.max(0, Number(metrics.busyAreaUs) / denom)) : 0
+        const cpuUtil =
+          metrics.coreAreaUs > 0
+            ? Math.min(1, Math.max(0, metrics.cpuBusyAreaUs / metrics.coreAreaUs))
+            : 0
+        return { headline: metrics.coreAreaUs > 0 ? cpuUtil : workerUtil, worker: workerUtil }
+      })()
+
       // Post-warmup W: sojourn time averaged over spans whose arrivalTime is post-warmup
       const pwProcessed = metrics?.postWarmupProcessed ?? 0
       const postWarmupAvgTimeInSystem =
@@ -816,18 +850,8 @@ export class MetricsCollector {
         finalInSystem: metrics?.finalInSystem ?? 0,
         // Instance-backed nodes use the time-weighted CPU busy fraction. Legacy
         // nodes retain the worker-pool fraction because they have no CPU tier.
-        utilization: (() => {
-          if (!metrics) return 0
-          const denom =
-            metrics.capacityAreaUs > 0n
-              ? Number(metrics.capacityAreaUs)
-              : durationMs > 0 && metrics.workers > 0
-                ? Number(msToMicro(durationMs)) * metrics.workers
-                : 0
-          const workerUtil = denom > 0 ? Number(metrics.busyAreaUs) / denom : 0
-          const cpuUtil = metrics.coreAreaUs > 0 ? metrics.cpuBusyAreaUs / metrics.coreAreaUs : 0
-          return Math.min(1, Math.max(0, metrics.coreAreaUs > 0 ? cpuUtil : workerUtil))
-        })(),
+        utilization: nodeUtilization.headline,
+        workerUtilization: nodeUtilization.worker,
         throughput: durationSec > 0 ? pwProcessed / durationSec : 0,
         errorRate,
         availability: 1 - errorRate,

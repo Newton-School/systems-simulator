@@ -18,7 +18,7 @@ interface NsSimulatorApi {
 interface LlmGradingConfigStatus {
   configured?: boolean
   providerId?: 'gemini' | 'anthropic' | 'openai'
-  source?: 'session' | 'environment'
+  source?: 'session' | 'environment' | 'local-development'
   error?: string
   ok?: boolean
 }
