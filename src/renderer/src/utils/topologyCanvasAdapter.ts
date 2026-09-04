@@ -13,6 +13,7 @@ import type {
   PaletteTemplate,
   RoutingStrategy
 } from '../../../engine/catalog/nodeSpecTypes'
+import { isCustomNodeDefinition } from '../../../engine/catalog/customDefinitions'
 import type { EdgeSimulationData, ScenarioState } from '@renderer/types/ui'
 import { DEFAULT_SCENARIO_STATE } from '@renderer/types/ui'
 import type { NestedFileData, NestedNode } from './nodeTransformers'
@@ -365,6 +366,10 @@ function convertNode(
 
   const data = instantiateTemplate(template.id)
   data.label = node.label
+
+  if (isCustomNodeDefinition(node.config?.['customDefinition'])) {
+    data.customDefinition = structuredClone(node.config?.['customDefinition'])
+  }
 
   const routingStrategy = asRoutingStrategy(node.config?.['routingStrategy'])
   if (routingStrategy) {

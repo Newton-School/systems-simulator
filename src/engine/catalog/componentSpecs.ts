@@ -21,6 +21,7 @@ import {
   DEFAULT_RETRY_MULTIPLIER
 } from '../traits/retryBackoff'
 import { asDistributionConfig } from '../traits/serviceTimeOverride'
+import { isCustomNodeDefinition, templateForDefinition } from './customDefinitions'
 import {
   nonNegativeNumber,
   oneOf,
@@ -341,6 +342,10 @@ function buildRuntimeNode(
     config.routingStrategy = data.routingStrategy
   }
 
+  if (data.customDefinition) {
+    config.customDefinition = structuredClone(data.customDefinition)
+  }
+
   if (data.sim?.securityPolicy) {
     const blockRate = clamp(data.sim.securityPolicy.blockRate ?? 0, 0, 1)
     const droppedPackets = clamp(data.sim.securityPolicy.droppedPackets ?? 0, 0, 1)
@@ -587,6 +592,30 @@ function buildRuntimeNode(
 
 function validateSimulationNode(data: CanvasNodeDataV2): string[] {
   const errors: string[] = []
+  if (data.customDefinition) {
+    if (!isCustomNodeDefinition(data.customDefinition)) {
+      errors.push('Custom definition is invalid.')
+    } else {
+      const template = templateForDefinition(data.customDefinition)
+      if (template.componentType !== data.componentType) {
+        errors.push(`Custom definition requires ${template.label}, not ${data.componentType}.`)
+      }
+      if (
+        data.customDefinition.kind === 'service' &&
+        data.customDefinition.runtimeTemplate !== 'long-running-service'
+      ) {
+        errors.push('Services must use the long-running service runtime template.')
+      }
+      if (
+        data.customDefinition.operations.some(
+          (operation) =>
+            !operation.id.trim() || !operation.requestType.trim() || !operation.responseType.trim()
+        )
+      ) {
+        errors.push('Each custom operation needs an id, request type, and response type.')
+      }
+    }
+  }
   const queue = data.sim?.queue
   const processing = data.sim?.processing
   const queueLabels = queueFieldLabels(data.componentType)

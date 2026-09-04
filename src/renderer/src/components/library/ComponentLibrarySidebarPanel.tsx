@@ -4,6 +4,7 @@ import { CATALOG_CONFIG } from '../../config/catalogConfig'
 import { PALETTE_TEMPLATES } from '../../../../engine/catalog/paletteTemplates'
 import { isComponentLibraryItemVisible } from '../../config/componentLibraryVisibility'
 import { LibraryItem } from './LibraryItem'
+import { CustomDefinitionCreator } from './CustomDefinitionCreator'
 
 export type ComponentLibraryFilter = 'all' | 'common'
 
@@ -106,6 +107,7 @@ export function ComponentLibrarySidebarPanel({
 
   return (
     <>
+      <CustomDefinitionCreator />
       <div className="shrink-0 space-y-3 border-b border-nss-border p-4 pb-3">
         <h2 className="text-xs font-bold uppercase tracking-widest text-nss-muted">
           Component Library

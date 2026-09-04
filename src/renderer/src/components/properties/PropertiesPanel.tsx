@@ -38,6 +38,7 @@ import type { CanvasNodeDataV2 } from '../../../../engine/catalog/nodeSpecTypes'
 import useStore, { type EdgeFlowState } from '../../store/useStore'
 import { PropertiesHeader } from './PropertiesHeader'
 import { PropertiesForm } from './PropertiesForm'
+import { CustomDefinitionSection } from './CustomDefinitionSection'
 import { NodeMetricsDetail, SourceNodeMetricsDetail } from './NodeMetricsDetail'
 import { MetricItem } from './MetricItem'
 import type { EdgePropertiesPanelValue } from '../ui/EdgePropertiesPanel'
@@ -1592,13 +1593,23 @@ export const PropertiesPanel = ({ results = null }: { results?: SimulationOutput
               />
             )
           ) : (
-            <PropertiesForm
-              nodeId={selectedNode.id}
-              data={data}
-              onUpdate={handleUpdate}
-              resourcesLocked={!canEditResources}
-              executionProfileEnabled={canEditExecutionProfile}
-            />
+            <>
+              {data.customDefinition ? (
+                <CustomDefinitionSection
+                  definition={data.customDefinition}
+                  onChange={(customDefinition) =>
+                    updateNodeData(selectedNode.id, { customDefinition })
+                  }
+                />
+              ) : null}
+              <PropertiesForm
+                nodeId={selectedNode.id}
+                data={data}
+                onUpdate={handleUpdate}
+                resourcesLocked={!canEditResources}
+                executionProfileEnabled={canEditExecutionProfile}
+              />
+            </>
           )}
         </div>
       </div>

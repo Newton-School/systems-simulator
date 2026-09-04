@@ -8,6 +8,7 @@ import type {
   WorkloadProfile
 } from '../core/types'
 import type { ContentRoutingRule } from '../traits/contentRouting'
+import type { CustomNodeDefinition } from './customDefinitions'
 
 export type StructuralRole = 'source' | 'processor' | 'storage' | 'router' | 'sink' | 'composite'
 
@@ -152,6 +153,8 @@ export interface CanvasNodeDataV2 {
   routingStrategy?: RoutingStrategy
   sim?: NodeSimulationConfig
   source?: SourceConfig
+  /** Learner-authored HLD contract. Runtime behavior still comes from componentType traits. */
+  customDefinition?: CustomNodeDefinition
   ui?: CanvasNodeUiState
 }
 
