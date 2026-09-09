@@ -10,6 +10,7 @@ export type RuntimeTemplateId =
   | 'external-dependency'
   | 'relational-datastore'
   | 'object-store'
+  | 'distributed-cache'
   | 'message-queue'
   | 'event-stream'
   | 'request-source'
@@ -56,6 +57,7 @@ export type TraitPackId =
   | 'retry-timeout'
   | 'rate-limiting'
   | 'external-dependency'
+  | 'cache'
 
 export type FieldClass = 'info' | 'contract' | 'runtime'
 
@@ -260,6 +262,18 @@ export const RUNTIME_TEMPLATES: Record<RuntimeTemplateId, RuntimeTemplateDefinit
     simulates: ['object get/put latency', 'throughput ceiling'],
     notModeled: ['storage-class tiering', 'consistency edge cases']
   },
+  'distributed-cache': {
+    id: 'distributed-cache',
+    label: 'Distributed cache',
+    nodeClass: 'storage',
+    componentType: 'in-memory-cache',
+    paletteTemplateId: 'redis-cache',
+    allowedDefinitionKinds: ['custom-node'],
+    capabilities: ['read-data', 'write-data', 'cache-data'],
+    traitPacks: ['cache', 'capacity', 'workload-profile'],
+    simulates: ['cache hit/miss split (serve locally vs forward)', 'hit latency'],
+    notModeled: ['TTL expiry', 'eviction policy']
+  },
   'message-queue': {
     id: 'message-queue',
     label: 'Message queue',
@@ -379,6 +393,7 @@ export function applyDefinitionTraits(
   const retry = valuesForTrait(traits, 'retry-timeout')
   const rateLimit = valuesForTrait(traits, 'rate-limiting')
   const external = valuesForTrait(traits, 'external-dependency')
+  const cache = valuesForTrait(traits, 'cache')
 
   const resources = { ...(data.sim.resources ?? {}) }
   if (capacity.workloadKind === 'cpu-bound' || capacity.workloadKind === 'io-bound') {
@@ -437,6 +452,15 @@ export function applyDefinitionTraits(
   if (errorRate !== undefined) {
     data.sim.nodeErrorRate = Math.min(1, Math.max(0, errorRate / 100))
   }
+
+  const cacheHitRate = safeNumber(cache.cacheHitRate)
+  if (cacheHitRate !== undefined) {
+    data.sim.cacheHitRate = Math.min(1, Math.max(0, cacheHitRate))
+  }
+  const cacheHitLatencyMs = safeNumber(cache.cacheHitLatencyMs)
+  if (cacheHitLatencyMs !== undefined) {
+    data.sim.cacheHitLatencyMs = Math.max(0, cacheHitLatencyMs)
+  }
 }
 
 /**
@@ -479,7 +503,8 @@ export function createDefaultTraits(runtimeTemplate: RuntimeTemplateId): CustomT
       traitId === 'capacity' ||
       traitId === 'workload-profile' ||
       (runtimeTemplate === 'serverless-function' && traitId === 'serverless-lifecycle') ||
-      (runtimeTemplate === 'external-dependency' && traitId === 'external-dependency'),
+      (runtimeTemplate === 'external-dependency' && traitId === 'external-dependency') ||
+      (runtimeTemplate === 'distributed-cache' && traitId === 'cache'),
     values: {},
     fieldClasses: {}
   }))

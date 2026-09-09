@@ -88,6 +88,38 @@ describe('custom node definitions', () => {
     weights.forEach((weight) => expect(weight).toBeCloseTo(1 / 3))
   })
 
+  it('maps the cache trait pack onto sim.cacheHitRate / cacheHitLatencyMs', () => {
+    const data = instantiateTemplate('redis-cache')
+    applyDefinitionTraits(data, {
+      kind: 'custom-node',
+      runtimeTemplate: 'distributed-cache',
+      nodeClass: 'storage',
+      operations: [],
+      traits: [
+        {
+          traitId: 'cache',
+          enabled: true,
+          values: { cacheHitRate: 0.95, cacheHitLatencyMs: 0.2 }
+        }
+      ]
+    })
+    expect(data.sim?.cacheHitRate).toBeCloseTo(0.95)
+    expect(data.sim?.cacheHitLatencyMs).toBeCloseTo(0.2)
+  })
+
+  it('does not apply a disabled cache trait', () => {
+    const data = instantiateTemplate('redis-cache')
+    const before = data.sim?.cacheHitRate
+    applyDefinitionTraits(data, {
+      kind: 'custom-node',
+      runtimeTemplate: 'distributed-cache',
+      nodeClass: 'storage',
+      operations: [],
+      traits: [{ traitId: 'cache', enabled: false, values: { cacheHitRate: 0.1 } }]
+    })
+    expect(data.sim?.cacheHitRate).toBe(before)
+  })
+
   it('rejects a runtime template attached to the wrong component type', () => {
     const data = instantiateTemplate('backend-server')
     data.customDefinition = {

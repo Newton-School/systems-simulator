@@ -1,4 +1,4 @@
-import { Plus, Trash2 } from 'lucide-react'
+import { AlertTriangle, Plus, Trash2 } from 'lucide-react'
 import type {
   CustomDependencyIntent,
   CustomNodeDefinition
@@ -9,12 +9,15 @@ import {
   DEPENDENCY_TARGET_ROLES,
   RUNTIME_TEMPLATES
 } from '../../../../engine/catalog/customDefinitions'
+import type { ContractReconciliationFinding } from '../../../../engine/catalog/contractReconciliation'
 
 export function CustomDefinitionSection({
   definition,
+  contractFindings = [],
   onChange
 }: {
   definition: CustomNodeDefinition
+  contractFindings?: ContractReconciliationFinding[]
   onChange: (definition: CustomNodeDefinition) => void
 }): React.JSX.Element {
   const template = RUNTIME_TEMPLATES[definition.runtimeTemplate]
@@ -60,6 +63,25 @@ export function CustomDefinitionSection({
           {definition.kind === 'service' ? 'Service' : 'Custom'}
         </span>
       </div>
+      {contractFindings.length > 0 ? (
+        <div className="mb-3 rounded-md border border-amber-500/40 bg-amber-500/10 p-2">
+          <div className="mb-1 flex items-center gap-1.5 text-[11px] font-semibold text-amber-700 dark:text-amber-300">
+            <AlertTriangle size={12} />
+            Declared but not wired
+          </div>
+          <ul className="space-y-1 text-[10px] leading-snug text-amber-800 dark:text-amber-200">
+            {contractFindings.map((finding) => (
+              <li key={`${finding.operationId}-${finding.target}-${finding.action}`}>
+                {finding.message}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-1 text-[9px] italic leading-snug text-nss-muted">
+            Advisory only — the declared contract is documentation and does not affect the
+            simulation or grading. Wire the edge on the canvas if the dependency is real.
+          </p>
+        </div>
+      ) : null}
       <label className="mb-3 block text-[11px] text-nss-muted">
         Description
         <textarea

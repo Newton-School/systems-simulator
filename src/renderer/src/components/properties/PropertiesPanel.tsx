@@ -36,6 +36,8 @@ import type { AnyNodeData, EdgeSimulationData, NodeSimulationMetrics } from '@re
 import { useNodeMetrics } from '@renderer/hooks/useNodeMetrics'
 import type { CanvasNodeDataV2 } from '../../../../engine/catalog/nodeSpecTypes'
 import { applyDefinitionTraits } from '../../../../engine/catalog/customDefinitions'
+import { reconcileContractWithGraph } from '../../../../engine/catalog/contractReconciliation'
+import type { ComponentType } from '../../../../engine/core/types'
 import useStore, { type EdgeFlowState } from '../../store/useStore'
 import { PropertiesHeader } from './PropertiesHeader'
 import { PropertiesForm } from './PropertiesForm'
@@ -1421,6 +1423,25 @@ export const PropertiesPanel = ({ results = null }: { results?: SimulationOutput
   const selectedNode = nodes.find((node) => node.selected)
   const selectedEdge = edges.find((edge) => edge.selected)
   const selectedNodeId = selectedNode?.id
+
+  // Advisory contract ⇄ graph reconciliation for the selected custom-definition node
+  // (spec §21). Feedback only — never affects grading.
+  const contractFindings = useMemo(() => {
+    const definition = (selectedNode?.data as Partial<CanvasNodeDataV2> | undefined)
+      ?.customDefinition
+    if (!selectedNodeId || !definition) return []
+    const componentTypeByNodeId = new Map<string, ComponentType>()
+    for (const node of nodes) {
+      const type = (node.data as Partial<CanvasNodeDataV2> | undefined)?.componentType
+      if (type) componentTypeByNodeId.set(node.id, type)
+    }
+    return reconcileContractWithGraph({
+      definition,
+      nodeId: selectedNodeId,
+      edges: edges.map((edge) => ({ source: edge.source, target: edge.target })),
+      componentTypeByNodeId
+    })
+  }, [selectedNode, selectedNodeId, nodes, edges])
   const selectedNodeLocked = Boolean(
     selectedNodeId &&
     scaffoldNodeIds.includes(selectedNodeId) &&
@@ -1598,6 +1619,7 @@ export const PropertiesPanel = ({ results = null }: { results?: SimulationOutput
               {data.customDefinition ? (
                 <CustomDefinitionSection
                   definition={data.customDefinition}
+                  contractFindings={contractFindings}
                   onChange={(customDefinition) => {
                     // Keep the stored definition and live sim.* in sync (honesty
                     // contract §0.2 rule 4): re-project runtime traits whenever the

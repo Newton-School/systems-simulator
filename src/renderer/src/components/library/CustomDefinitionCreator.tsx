@@ -70,7 +70,8 @@ const TRAIT_LABELS: Record<TraitPackId, string> = {
   'serverless-lifecycle': 'Serverless lifecycle',
   'retry-timeout': 'Retry and timeout',
   'rate-limiting': 'Rate limiting',
-  'external-dependency': 'External dependency'
+  'external-dependency': 'External dependency',
+  cache: 'Cache'
 }
 
 const CAPABILITY_LABELS: Record<CapabilityId, string> = {
@@ -1292,6 +1293,51 @@ function DefinitionBuilderModal({
                                   className="mt-1 w-full rounded border border-nss-border bg-nss-input-bg px-2 py-1 text-xs text-nss-text"
                                 />
                               </label>
+                            ) : null}
+                            {trait.traitId === 'cache' ? (
+                              <>
+                                <label className="text-[10px] font-semibold text-nss-muted">
+                                  Cache hit rate (0–1)
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    max={1}
+                                    step={0.05}
+                                    value={(values.cacheHitRate as number | undefined) ?? 0.9}
+                                    onChange={(event) =>
+                                      setTraits((current) =>
+                                        updateTraitValue(
+                                          current,
+                                          trait.traitId,
+                                          'cacheHitRate',
+                                          Number(event.target.value)
+                                        )
+                                      )
+                                    }
+                                    className="mt-1 w-full rounded border border-nss-border bg-nss-input-bg px-2 py-1 text-xs text-nss-text"
+                                  />
+                                </label>
+                                <label className="text-[10px] font-semibold text-nss-muted">
+                                  Cache hit latency ms
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    step={0.1}
+                                    value={(values.cacheHitLatencyMs as number | undefined) ?? 0.5}
+                                    onChange={(event) =>
+                                      setTraits((current) =>
+                                        updateTraitValue(
+                                          current,
+                                          trait.traitId,
+                                          'cacheHitLatencyMs',
+                                          Number(event.target.value)
+                                        )
+                                      )
+                                    }
+                                    className="mt-1 w-full rounded border border-nss-border bg-nss-input-bg px-2 py-1 text-xs text-nss-text"
+                                  />
+                                </label>
+                              </>
                             ) : null}
                           </div>
                         ) : null}
