@@ -139,6 +139,18 @@ const INFO_BY_ID: Record<string, LibraryItemInfo> = {
     realWorld: 'Node.js/Java/Go service on VM, container, or pod.',
     config: ['workers', 'queue capacity', 'processing latency']
   },
+  'connection-server': {
+    represents:
+      'A stateful front-door that holds millions of persistent WebSocket/TCP connections. Its capacity is measured in concurrent held connections, not RPS — it saturates and refuses new connections past its ceiling.',
+    realWorld: 'WebSocket gateway / chat connection server; the Google Docs WS layer.',
+    config: ['max connections per instance', 'offered connections', 'heartbeat interval']
+  },
+  'id-generator': {
+    represents:
+      'A coordination service that hands out unique, increasing IDs. On the hot write path with a concentrated keyspace it shows counter contention; off the hot path (pre-allocated blocks) it stays idle.',
+    realWorld: 'DB sequence, ZooKeeper sequence, Snowflake service, or an ID-range allocator.',
+    config: ['kind (DB seq / ZooKeeper / Snowflake / range)', 'allocation mode', 'block size']
+  },
   'lambda-function': {
     represents: 'A short-lived function that runs only when triggered by an event or request.',
     realWorld: 'AWS Lambda, Cloud Functions, Azure Functions.',

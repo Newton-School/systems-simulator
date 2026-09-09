@@ -54,6 +54,38 @@ export interface NodeSimulationConfig {
     timeout: number
   }
   nodeErrorRate?: number
+  /**
+   * ID / sequence generator allocation model. When present (seeded by the
+   * `id-generator` palette node), the processing service time is derived from it:
+   * `block` allocation serves most requests from an in-memory range (near-instant) and
+   * only pays a coordination hit once per block, while `central` pays the coordination
+   * cost on every request — the difference that decides whether the allocator is a
+   * bottleneck under a write spike. See `idAllocation.ts`.
+   */
+  /**
+   * Connection-tier capacity (seeded by the `connection-server` palette node). Concurrent
+   * held connections are a capacity dimension distinct from RPS — a WebSocket server holds
+   * N long-lived sessions and saturates at a ceiling. The engine derives fleet capacity,
+   * utilization, refused connections, and required instances from this. See
+   * `connectionCapacity.ts` and `specs/connection-tier-capacity.md`.
+   */
+  connection?: {
+    /** Concurrent held connections one instance can sustain (e.g. 65000). */
+    maxConnectionsPerInstance: number
+    /** Steady-state offered concurrent connections this tier must hold. */
+    offeredConnections: number
+    /** Keepalive interval; implies background load = offeredConnections / (interval/1000) rps. */
+    heartbeatIntervalMs?: number
+    sessionProtocol?: 'websocket' | 'tcp' | 'http2'
+  }
+  idAllocation?: {
+    /** Which real generator this models. `snowflake` is decentralized (local, no
+     * coordination); the others are central-capable and honor `mode`. */
+    kind: 'db-sequence' | 'zookeeper' | 'snowflake' | 'range-allocator'
+    mode: 'block' | 'central'
+    /** IDs handed out per coordination round-trip in `block` mode (ignored for `central`). */
+    blockSize: number
+  }
   securityPolicy?: {
     blockRate?: number
     droppedPackets?: number

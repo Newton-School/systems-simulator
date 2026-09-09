@@ -58,6 +58,7 @@ export type TraitPackId =
   | 'rate-limiting'
   | 'external-dependency'
   | 'cache'
+  | 'arrival'
 
 export type FieldClass = 'info' | 'contract' | 'runtime'
 
@@ -306,11 +307,11 @@ export const RUNTIME_TEMPLATES: Record<RuntimeTemplateId, RuntimeTemplateDefinit
     paletteTemplateId: 'input-source',
     allowedDefinitionKinds: ['custom-node'],
     capabilities: ['accept-requests', 'route-requests'],
-    traitPacks: ['workload-profile'],
+    traitPacks: ['arrival'],
     // Unlike every other template, this one's operations are NOT documentation-only:
     // their request types + weights become the emitted request mix consumed by the
-    // engine (sim.source.requestDistribution).
-    simulates: ['request arrival mix', 'per-operation traffic share'],
+    // engine (sim.source.requestDistribution). The `arrival` pack sets the rate/pattern.
+    simulates: ['request arrival rate & pattern', 'per-operation traffic share'],
     notModeled: ['downstream application logic']
   }
 }
@@ -383,8 +384,10 @@ export function applyDefinitionTraits(
   definition: CustomNodeDefinition
 ): void {
   // Source-role nodes (e.g. request-source) may have no `sim` block, but their
-  // operations still project into the request mix — run that regardless.
+  // operations still project into the request mix, and the arrival pack sets the
+  // rate/pattern — run both regardless.
   projectOperationsToRequestMix(data, definition)
+  projectArrivalToSource(data, definition)
   if (!data.sim) return
   const traits = definition.traits ?? []
   const capacity = valuesForTrait(traits, 'capacity')
@@ -416,6 +419,17 @@ export function applyDefinitionTraits(
     data.sim.processing = {
       distribution: { type: 'constant', value: serviceTimeMs },
       timeout: data.sim.processing?.timeout ?? Math.max(100, serviceTimeMs * 40)
+    }
+  }
+
+  // External-dependency latency: the defining knob of a third-party call. Maps to the
+  // node's own service time (how long the external call takes to return). Set before
+  // the retry block so a configured timeout still wins on top.
+  const externalLatencyMs = safeNumber(external.latencyMs)
+  if (externalLatencyMs !== undefined && externalLatencyMs > 0) {
+    data.sim.processing = {
+      distribution: { type: 'constant', value: externalLatencyMs },
+      timeout: data.sim.processing?.timeout ?? Math.max(100, externalLatencyMs * 40)
     }
   }
 
@@ -470,6 +484,35 @@ export function applyDefinitionTraits(
  * Weights are normalized to sum to 1.0; an omitted weight counts as an equal share.
  * No-op for every non-source node, where operations stay documentation-only.
  */
+/** Arrival patterns whose sub-config is pre-seeded on a source, so selecting them from
+ * the builder is safe (fine-tuning the sub-config stays post-placement). */
+const ARRIVAL_PATTERNS = ['constant', 'poisson', 'bursty', 'diurnal', 'spike', 'sawtooth'] as const
+
+/**
+ * For source-role nodes only, the `arrival` pack sets the emission rate and pattern —
+ * the defining knobs of a source — onto `sim.source.defaultWorkload` (which the engine
+ * consumes). No-op for every non-source node.
+ */
+function projectArrivalToSource(data: CanvasNodeDataV2, definition: CustomNodeDefinition): void {
+  if (!data.source) return
+  const arrival = valuesForTrait(definition.traits ?? [], 'arrival')
+  const next = { ...data.source.defaultWorkload }
+  let changed = false
+
+  const baseRps = safeNumber(arrival.baseRps)
+  if (baseRps !== undefined && baseRps > 0) {
+    next.baseRps = baseRps
+    changed = true
+  }
+  const pattern = arrival.pattern
+  if (typeof pattern === 'string' && (ARRIVAL_PATTERNS as readonly string[]).includes(pattern)) {
+    next.pattern = pattern as (typeof ARRIVAL_PATTERNS)[number]
+    changed = true
+  }
+
+  if (changed) data.source = { ...data.source, defaultWorkload: next }
+}
+
 function projectOperationsToRequestMix(
   data: CanvasNodeDataV2,
   definition: CustomNodeDefinition
@@ -504,7 +547,8 @@ export function createDefaultTraits(runtimeTemplate: RuntimeTemplateId): CustomT
       traitId === 'workload-profile' ||
       (runtimeTemplate === 'serverless-function' && traitId === 'serverless-lifecycle') ||
       (runtimeTemplate === 'external-dependency' && traitId === 'external-dependency') ||
-      (runtimeTemplate === 'distributed-cache' && traitId === 'cache'),
+      (runtimeTemplate === 'distributed-cache' && traitId === 'cache') ||
+      (runtimeTemplate === 'request-source' && traitId === 'arrival'),
     values: {},
     fieldClasses: {}
   }))

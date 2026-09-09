@@ -42,6 +42,8 @@ import useStore, { type EdgeFlowState } from '../../store/useStore'
 import { PropertiesHeader } from './PropertiesHeader'
 import { PropertiesForm } from './PropertiesForm'
 import { CustomDefinitionSection } from './CustomDefinitionSection'
+import { IdAllocationSection } from './IdAllocationSection'
+import { ConnectionCapacitySection } from './ConnectionCapacitySection'
 import { NodeMetricsDetail, SourceNodeMetricsDetail } from './NodeMetricsDetail'
 import { MetricItem } from './MetricItem'
 import type { EdgePropertiesPanelValue } from '../ui/EdgePropertiesPanel'
@@ -1616,6 +1618,35 @@ export const PropertiesPanel = ({ results = null }: { results?: SimulationOutput
             )
           ) : (
             <>
+              {data.sim?.connection ? (
+                <ConnectionCapacitySection
+                  connection={data.sim.connection}
+                  instanceCount={data.sim.resources?.instanceCount ?? 1}
+                  onChange={(connection) => {
+                    const nextSim = structuredClone(data.sim) as NonNullable<
+                      CanvasNodeDataV2['sim']
+                    >
+                    nextSim.connection = connection
+                    updateNodeData(selectedNode.id, { sim: nextSim })
+                  }}
+                />
+              ) : null}
+              {data.sim?.idAllocation ? (
+                <IdAllocationSection
+                  idAllocation={data.sim.idAllocation}
+                  onChange={({ idAllocation, distribution }) => {
+                    const nextSim = structuredClone(data.sim) as NonNullable<
+                      CanvasNodeDataV2['sim']
+                    >
+                    nextSim.idAllocation = idAllocation
+                    nextSim.processing = {
+                      distribution,
+                      timeout: nextSim.processing?.timeout ?? 1000
+                    }
+                    updateNodeData(selectedNode.id, { sim: nextSim })
+                  }}
+                />
+              ) : null}
               {data.customDefinition ? (
                 <CustomDefinitionSection
                   definition={data.customDefinition}

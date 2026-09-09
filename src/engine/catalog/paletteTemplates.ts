@@ -1,4 +1,5 @@
 import { getComponentSpec } from './componentSpecs'
+import { deriveIdAllocationDistribution } from './idAllocation'
 import type { CanvasNodeDataV2, PaletteTemplate, SourceConfig } from './nodeSpecTypes'
 
 const DEFAULT_REQUEST_TYPE = 'default'
@@ -71,6 +72,35 @@ export const PALETTE_TEMPLATES: Record<string, PaletteTemplate> = {
     subLabel: 'Long-running Process',
     serializable: true,
     seed: { throughput: 1000, load: 45, queueDepth: 12 }
+  },
+  'id-generator': {
+    id: 'id-generator',
+    componentType: 'microservice',
+    category: 'compute',
+    structuralRole: 'processor',
+    profile: 'compute-service',
+    rendererType: 'computeNode',
+    iconKey: 'id-generator',
+    label: 'ID Generator',
+    subLabel: 'Sequence · Counter',
+    serializable: true,
+    // A small stateful coordination service (DB sequence / ZooKeeper / Snowflake /
+    // range allocator). Simulated as a microservice whose service time is *derived*
+    // from its allocation model (idAllocation → processing.distribution): block/range
+    // allocation is near-instant with an occasional coordination hit, a central counter
+    // pays coordination on every request. Defaults to a range allocator (block 1000).
+    seed: { throughput: 20000, load: 5, queueDepth: 2, meanServiceMs: 1 },
+    simDefaults: {
+      idAllocation: { kind: 'range-allocator', mode: 'block', blockSize: 1000 },
+      processing: {
+        distribution: deriveIdAllocationDistribution({
+          kind: 'range-allocator',
+          mode: 'block',
+          blockSize: 1000
+        }),
+        timeout: 1000
+      }
+    }
   },
   'lambda-function': {
     id: 'lambda-function',
@@ -487,6 +517,30 @@ export const PALETTE_TEMPLATES: Record<string, PaletteTemplate> = {
     subLabel: 'Request Router',
     serializable: true,
     seed: { throughput: 8000, load: 20, queueDepth: 10 }
+  },
+  'connection-server': {
+    id: 'connection-server',
+    componentType: 'api-gateway',
+    category: 'network-and-edge',
+    structuralRole: 'router',
+    profile: 'router',
+    rendererType: 'serviceNode',
+    iconKey: 'connection-server',
+    label: 'Connection Server',
+    subLabel: 'WebSocket · Stateful',
+    serializable: true,
+    // A stateful WS/connection front-door (Chat connection servers, Docs WS layer).
+    // Backed by api-gateway (already carries the protocol.session trait); the new
+    // dimension is `connection` capacity — concurrent held sessions, distinct from RPS.
+    seed: { throughput: 8000, load: 20, queueDepth: 10 },
+    simDefaults: {
+      connection: {
+        maxConnectionsPerInstance: 65000,
+        offeredConnections: 100000,
+        heartbeatIntervalMs: 30000,
+        sessionProtocol: 'websocket'
+      }
+    }
   },
   'message-queue': {
     id: 'message-queue',

@@ -3,7 +3,8 @@ import { PALETTE_TEMPLATES } from '../../../engine/catalog/paletteTemplates'
 const DEFAULT_VISIBLE_TEMPLATE_IDS: ReadonlySet<string> = new Set([
   'generic-service',
   'my-service',
-  'custom-node-builder'
+  'custom-node-builder',
+  'connection-server'
 ])
 
 /**

@@ -71,7 +71,8 @@ const TRAIT_LABELS: Record<TraitPackId, string> = {
   'retry-timeout': 'Retry and timeout',
   'rate-limiting': 'Rate limiting',
   'external-dependency': 'External dependency',
-  cache: 'Cache'
+  cache: 'Cache',
+  arrival: 'Arrival'
 }
 
 const CAPABILITY_LABELS: Record<CapabilityId, string> = {
@@ -1273,26 +1274,47 @@ function DefinitionBuilderModal({
                               </label>
                             ) : null}
                             {trait.traitId === 'external-dependency' ? (
-                              <label className="text-[10px] font-semibold text-nss-muted">
-                                Error rate percent
-                                <input
-                                  type="number"
-                                  min={0}
-                                  max={100}
-                                  value={(values.errorRate as number | undefined) ?? 1}
-                                  onChange={(event) =>
-                                    setTraits((current) =>
-                                      updateTraitValue(
-                                        current,
-                                        trait.traitId,
-                                        'errorRate',
-                                        Number(event.target.value)
+                              <>
+                                <label className="text-[10px] font-semibold text-nss-muted">
+                                  Latency ms
+                                  <input
+                                    type="number"
+                                    min={1}
+                                    value={(values.latencyMs as number | undefined) ?? 100}
+                                    onChange={(event) =>
+                                      setTraits((current) =>
+                                        updateTraitValue(
+                                          current,
+                                          trait.traitId,
+                                          'latencyMs',
+                                          Number(event.target.value)
+                                        )
                                       )
-                                    )
-                                  }
-                                  className="mt-1 w-full rounded border border-nss-border bg-nss-input-bg px-2 py-1 text-xs text-nss-text"
-                                />
-                              </label>
+                                    }
+                                    className="mt-1 w-full rounded border border-nss-border bg-nss-input-bg px-2 py-1 text-xs text-nss-text"
+                                  />
+                                </label>
+                                <label className="text-[10px] font-semibold text-nss-muted">
+                                  Error rate percent
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    max={100}
+                                    value={(values.errorRate as number | undefined) ?? 1}
+                                    onChange={(event) =>
+                                      setTraits((current) =>
+                                        updateTraitValue(
+                                          current,
+                                          trait.traitId,
+                                          'errorRate',
+                                          Number(event.target.value)
+                                        )
+                                      )
+                                    }
+                                    className="mt-1 w-full rounded border border-nss-border bg-nss-input-bg px-2 py-1 text-xs text-nss-text"
+                                  />
+                                </label>
+                              </>
                             ) : null}
                             {trait.traitId === 'cache' ? (
                               <>
@@ -1336,6 +1358,53 @@ function DefinitionBuilderModal({
                                     }
                                     className="mt-1 w-full rounded border border-nss-border bg-nss-input-bg px-2 py-1 text-xs text-nss-text"
                                   />
+                                </label>
+                              </>
+                            ) : null}
+                            {trait.traitId === 'arrival' ? (
+                              <>
+                                <label className="text-[10px] font-semibold text-nss-muted">
+                                  Base RPS
+                                  <input
+                                    type="number"
+                                    min={1}
+                                    value={(values.baseRps as number | undefined) ?? 100}
+                                    onChange={(event) =>
+                                      setTraits((current) =>
+                                        updateTraitValue(
+                                          current,
+                                          trait.traitId,
+                                          'baseRps',
+                                          Number(event.target.value)
+                                        )
+                                      )
+                                    }
+                                    className="mt-1 w-full rounded border border-nss-border bg-nss-input-bg px-2 py-1 text-xs text-nss-text"
+                                  />
+                                </label>
+                                <label className="text-[10px] font-semibold text-nss-muted">
+                                  Arrival pattern
+                                  <select
+                                    value={(values.pattern as string | undefined) ?? 'constant'}
+                                    onChange={(event) =>
+                                      setTraits((current) =>
+                                        updateTraitValue(
+                                          current,
+                                          trait.traitId,
+                                          'pattern',
+                                          event.target.value
+                                        )
+                                      )
+                                    }
+                                    className="mt-1 w-full rounded border border-nss-border bg-nss-input-bg px-2 py-1 text-xs text-nss-text"
+                                  >
+                                    <option value="constant">Constant</option>
+                                    <option value="poisson">Poisson</option>
+                                    <option value="bursty">Bursty</option>
+                                    <option value="diurnal">Diurnal</option>
+                                    <option value="spike">Spike</option>
+                                    <option value="sawtooth">Sawtooth</option>
+                                  </select>
                                 </label>
                               </>
                             ) : null}

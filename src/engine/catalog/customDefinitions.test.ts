@@ -120,6 +120,53 @@ describe('custom node definitions', () => {
     expect(data.sim?.cacheHitRate).toBe(before)
   })
 
+  it('maps external-dependency latency onto the node service time', () => {
+    const data = instantiateTemplate('external-service')
+    applyDefinitionTraits(data, {
+      kind: 'custom-node',
+      runtimeTemplate: 'external-dependency',
+      nodeClass: 'external',
+      operations: [],
+      traits: [
+        {
+          traitId: 'external-dependency',
+          enabled: true,
+          values: { latencyMs: 250, errorRate: 2 }
+        }
+      ]
+    })
+    expect(data.sim?.processing?.distribution).toEqual({ type: 'constant', value: 250 })
+    expect(data.sim?.nodeErrorRate).toBeCloseTo(0.02)
+  })
+
+  it('maps the arrival pack onto the source rate and pattern', () => {
+    const data = instantiateTemplate('input-source')
+    expect(data.source).toBeDefined()
+    applyDefinitionTraits(data, {
+      kind: 'custom-node',
+      runtimeTemplate: 'request-source',
+      nodeClass: 'network',
+      operations: [],
+      traits: [{ traitId: 'arrival', enabled: true, values: { baseRps: 2000, pattern: 'poisson' } }]
+    })
+    expect(data.source?.defaultWorkload.baseRps).toBe(2000)
+    expect(data.source?.defaultWorkload.pattern).toBe('poisson')
+  })
+
+  it('ignores an unknown arrival pattern but still applies the rate', () => {
+    const data = instantiateTemplate('input-source')
+    const patternBefore = data.source?.defaultWorkload.pattern
+    applyDefinitionTraits(data, {
+      kind: 'custom-node',
+      runtimeTemplate: 'request-source',
+      nodeClass: 'network',
+      operations: [],
+      traits: [{ traitId: 'arrival', enabled: true, values: { baseRps: 50, pattern: 'nonsense' } }]
+    })
+    expect(data.source?.defaultWorkload.baseRps).toBe(50)
+    expect(data.source?.defaultWorkload.pattern).toBe(patternBefore)
+  })
+
   it('rejects a runtime template attached to the wrong component type', () => {
     const data = instantiateTemplate('backend-server')
     data.customDefinition = {
