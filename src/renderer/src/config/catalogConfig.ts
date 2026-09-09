@@ -119,7 +119,13 @@ export const CATALOG_CONFIG: CatalogCategory[] = [
   {
     id: 'templates',
     title: 'Templates',
-    items: getItems(['generic-service', 'my-service', 'input-source', 'output-sink'])
+    items: getItems([
+      'generic-service',
+      'my-service',
+      'custom-node-builder',
+      'input-source',
+      'output-sink'
+    ])
   },
   {
     id: 'ai-agents',

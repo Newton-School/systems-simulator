@@ -114,6 +114,7 @@ const ICON_BY_TEMPLATE: Record<string, LucideIcon> = {
   'safety-observability-mesh': ShieldCheck,
   'generic-service': Box,
   'my-service': Server,
+  'custom-node-builder': Settings,
   'input-source': Navigation,
   'output-sink': ExternalLink,
   'external-service': ExternalLink,

@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { getComponentSpec } from './componentSpecs'
 import { instantiateTemplate } from './paletteTemplates'
-import { RUNTIME_TEMPLATES, serviceRecipe } from './customDefinitions'
+import {
+  applyDefinitionTraits,
+  defaultCustomNodeOperations,
+  defaultServiceOperations,
+  RUNTIME_TEMPLATES,
+  type CustomNodeDefinition
+} from './customDefinitions'
 
 describe('custom node definitions', () => {
   it('maps each supported runtime template to an existing palette component', () => {
@@ -17,8 +23,9 @@ describe('custom node definitions', () => {
     data.customDefinition = {
       kind: 'service',
       runtimeTemplate: 'long-running-service',
+      name: 'URL Shortener',
       description: 'Creates and resolves short URLs.',
-      operations: serviceRecipe('url-shortener')
+      operations: defaultServiceOperations()
     }
 
     const spec = getComponentSpec('microservice')
@@ -33,12 +40,60 @@ describe('custom node definitions', () => {
     expect(serialized?.config?.customDefinition).toEqual(data.customDefinition)
   })
 
+  it('projects request-source operations into the source request mix with normalized weights', () => {
+    const data = instantiateTemplate('input-source')
+    expect(data.source).toBeDefined()
+
+    const definition: CustomNodeDefinition = {
+      kind: 'custom-node',
+      runtimeTemplate: 'request-source',
+      nodeClass: 'network',
+      operations: [
+        { id: 'read', requestType: 'resolve', responseType: 'ok', weight: 3, dependencies: [] },
+        { id: 'write', requestType: 'create', responseType: 'ok', weight: 1, dependencies: [] }
+      ]
+    }
+
+    applyDefinitionTraits(data, definition)
+    const mix = data.source?.requestDistribution ?? []
+    expect(mix.map((entry) => entry.type)).toEqual(['resolve', 'create'])
+    expect(mix.map((entry) => entry.weight)).toEqual([0.75, 0.25])
+    expect(mix.reduce((sum, entry) => sum + entry.weight, 0)).toBeCloseTo(1)
+  })
+
+  it('leaves non-source nodes untouched by the request-mix projection', () => {
+    const data = instantiateTemplate('backend-server')
+    expect(data.source).toBeUndefined()
+    applyDefinitionTraits(data, {
+      kind: 'service',
+      runtimeTemplate: 'long-running-service',
+      operations: defaultServiceOperations()
+    })
+    expect(data.source).toBeUndefined()
+  })
+
+  it('defaults to an equal split when operation weights are omitted', () => {
+    const data = instantiateTemplate('input-source')
+    applyDefinitionTraits(data, {
+      kind: 'custom-node',
+      runtimeTemplate: 'request-source',
+      operations: [
+        { id: 'a', requestType: 'a', responseType: 'ok', dependencies: [] },
+        { id: 'b', requestType: 'b', responseType: 'ok', dependencies: [] },
+        { id: 'c', requestType: 'c', responseType: 'ok', dependencies: [] }
+      ]
+    })
+    const weights = (data.source?.requestDistribution ?? []).map((entry) => entry.weight)
+    expect(weights).toHaveLength(3)
+    weights.forEach((weight) => expect(weight).toBeCloseTo(1 / 3))
+  })
+
   it('rejects a runtime template attached to the wrong component type', () => {
     const data = instantiateTemplate('backend-server')
     data.customDefinition = {
       kind: 'custom-node',
       runtimeTemplate: 'serverless-function',
-      operations: serviceRecipe('blank')
+      operations: defaultCustomNodeOperations()
     }
 
     expect(getComponentSpec('microservice')?.validateCanvas(data)).toContain(

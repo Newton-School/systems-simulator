@@ -35,6 +35,7 @@ import type { FieldPath } from '@renderer/config/fieldConfig'
 import type { AnyNodeData, EdgeSimulationData, NodeSimulationMetrics } from '@renderer/types/ui'
 import { useNodeMetrics } from '@renderer/hooks/useNodeMetrics'
 import type { CanvasNodeDataV2 } from '../../../../engine/catalog/nodeSpecTypes'
+import { applyDefinitionTraits } from '../../../../engine/catalog/customDefinitions'
 import useStore, { type EdgeFlowState } from '../../store/useStore'
 import { PropertiesHeader } from './PropertiesHeader'
 import { PropertiesForm } from './PropertiesForm'
@@ -1597,9 +1598,20 @@ export const PropertiesPanel = ({ results = null }: { results?: SimulationOutput
               {data.customDefinition ? (
                 <CustomDefinitionSection
                   definition={data.customDefinition}
-                  onChange={(customDefinition) =>
-                    updateNodeData(selectedNode.id, { customDefinition })
-                  }
+                  onChange={(customDefinition) => {
+                    // Keep the stored definition and live sim.* in sync (honesty
+                    // contract §0.2 rule 4): re-project runtime traits whenever the
+                    // definition changes so they never drift apart.
+                    const nextData = structuredClone({
+                      ...data,
+                      customDefinition
+                    }) as CanvasNodeDataV2
+                    applyDefinitionTraits(nextData, customDefinition)
+                    updateNodeData(selectedNode.id, {
+                      customDefinition,
+                      sim: nextData.sim
+                    })
+                  }}
                 />
               ) : null}
               <PropertiesForm

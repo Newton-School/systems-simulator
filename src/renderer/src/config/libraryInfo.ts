@@ -290,14 +290,22 @@ const INFO_BY_ID: Record<string, LibraryItemInfo> = {
     config: ['block rate', 'audit latency', 'alert threshold']
   },
   'generic-service': {
-    represents: 'A flexible placeholder when the exact service type is not important yet.',
-    realWorld: 'Any internal service.',
-    config: DEFAULT_CONFIG
+    represents:
+      'Opens the Service Builder so you can define an application service from interface, dependency, runtime, and trait blocks.',
+    realWorld: 'Any team-owned service you need to model for the current architecture.',
+    config: ['name', 'operations', 'dependencies', 'runtime traits']
   },
   'my-service': {
-    represents: 'A custom service owned by your system that you can configure for the scenario.',
-    realWorld: 'Any team-owned application component.',
-    config: DEFAULT_CONFIG
+    represents: 'Opens saved service definitions that can be reused, placed, or forked.',
+    realWorld: 'Previously created service templates for your system.',
+    config: ['saved definitions', 'reuse', 'place on canvas']
+  },
+  'custom-node-builder': {
+    represents:
+      'Opens the Custom Node Builder for creating a missing component from a class, runtime template, capabilities, and traits.',
+    realWorld:
+      'Lambda-style handler, partner API, worker, webhook receiver, or another missing component.',
+    config: ['node class', 'runtime template', 'capabilities', 'traits']
   },
   'vpc-region': {
     represents: 'A top-level cloud network area where resources are grouped by region.',

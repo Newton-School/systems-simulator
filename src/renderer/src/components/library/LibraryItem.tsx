@@ -4,6 +4,8 @@ import { HoverTooltip } from '../ui/Tooltip'
 
 interface LibraryItemProps {
   item: CatalogItem
+  onActivate?: (item: CatalogItem) => void
+  draggableItem?: boolean
 }
 
 function LibraryItemTooltipContent({ item }: LibraryItemProps) {
@@ -53,11 +55,15 @@ function LibraryItemTooltipContent({ item }: LibraryItemProps) {
   )
 }
 
-export const LibraryItem = ({ item }: LibraryItemProps) => {
+export const LibraryItem = ({ item, onActivate, draggableItem = true }: LibraryItemProps) => {
   const { icon: Icon, label, color, type, templateId } = item
   const { bg, text } = color
 
   const onDragStart = (event: React.DragEvent) => {
+    if (!draggableItem) {
+      event.preventDefault()
+      return
+    }
     event.dataTransfer.setData('application/reactflow/type', type)
     event.dataTransfer.setData('application/reactflow/template-id', templateId)
     event.dataTransfer.effectAllowed = 'move'
@@ -67,19 +73,31 @@ export const LibraryItem = ({ item }: LibraryItemProps) => {
     <HoverTooltip content={<LibraryItemTooltipContent item={item} />}>
       {(triggerProps) => (
         <div
-          draggable
+          draggable={draggableItem}
           {...triggerProps}
+          role={onActivate ? 'button' : undefined}
+          tabIndex={onActivate ? 0 : undefined}
+          onClick={() => onActivate?.(item)}
+          onKeyDown={(event) => {
+            if (!onActivate) return
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault()
+              onActivate(item)
+            }
+          }}
           onDragStart={(event) => {
             triggerProps.onDragStart()
             onDragStart(event)
           }}
-          className="
+          className={`
             group relative flex flex-col items-center gap-1.5 p-1.5 rounded-lg
-            cursor-grab active:cursor-grabbing select-none
+            select-none
             bg-transparent hover:bg-nss-surface
             border border-transparent hover:border-nss-border
             transition-all duration-200
-          "
+            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nss-primary/50
+            ${draggableItem ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'}
+          `}
         >
           {/* Icon tile */}
           <div

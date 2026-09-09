@@ -57,7 +57,8 @@ const BaseNode = ({
       ? (s.lastRunOutput?.singlePointsOfFailure?.find((f) => f.nodeId === id)?.reason ?? null)
       : null
   )
-  const isSpof = spofReason !== null
+  const showSpofBadges = useStore((s) => s.displaySettings.showSpofBadges)
+  const isSpof = showSpofBadges && spofReason !== null
 
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault()

@@ -803,6 +803,17 @@ export const PALETTE_TEMPLATES: Record<string, PaletteTemplate> = {
     serializable: true,
     seed: { throughput: 1000, load: 10, queueDepth: 6 }
   },
+  'custom-node-builder': {
+    id: 'custom-node-builder',
+    category: 'auxiliary',
+    structuralRole: 'composite',
+    profile: 'composite',
+    rendererType: 'serviceNode',
+    iconKey: 'custom-node-builder',
+    label: 'Custom Node',
+    subLabel: 'Build Missing Component',
+    serializable: false
+  },
   'input-source': {
     id: 'input-source',
     componentType: 'api-endpoint',

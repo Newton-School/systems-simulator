@@ -3,7 +3,12 @@ import type {
   CustomDependencyIntent,
   CustomNodeDefinition
 } from '../../../../engine/catalog/customDefinitions'
-import { RUNTIME_TEMPLATES } from '../../../../engine/catalog/customDefinitions'
+import {
+  DEPENDENCY_ACTIONS,
+  DEPENDENCY_CONDITIONS,
+  DEPENDENCY_TARGET_ROLES,
+  RUNTIME_TEMPLATES
+} from '../../../../engine/catalog/customDefinitions'
 
 export function CustomDefinitionSection({
   definition,
@@ -46,8 +51,9 @@ export function CustomDefinitionSection({
             {definition.kind === 'service' ? 'Service contract' : 'Custom node contract'}
           </h3>
           <p className="mt-0.5 text-[10px] leading-snug text-nss-muted">
-            Runtime: {template.label}. Interface fields validate the HLD; template traits below
-            control simulation behavior.
+            Runtime: {template.label}. Operations and dependencies below are documentation for the
+            HLD contract — they do not change the simulation. Runtime behavior is tuned in the
+            Resources, Processing, and other sections below.
           </p>
         </div>
         <span className="shrink-0 rounded border border-nss-border px-1.5 py-0.5 text-[10px] text-nss-muted">
@@ -65,10 +71,7 @@ export function CustomDefinitionSection({
       </label>
       <div className="space-y-2">
         {definition.operations.map((operation, index) => (
-          <div
-            key={`${operation.id}-${index}`}
-            className="rounded border border-nss-border bg-nss-panel p-2"
-          >
+          <div key={index} className="rounded border border-nss-border bg-nss-panel p-2">
             <div className="mb-2 flex items-center justify-between">
               <span className="text-[10px] font-semibold uppercase tracking-wide text-nss-muted">
                 Operation {index + 1}
@@ -90,23 +93,20 @@ export function CustomDefinitionSection({
             </div>
             <div className="grid grid-cols-2 gap-2">
               <label className="text-[10px] text-nss-muted">
-                Request type
+                Request name
                 <input
                   value={operation.requestType}
-                  onChange={(event) =>
-                    updateOperation(index, {
-                      requestType: event.target.value,
-                      id: event.target.value.replace(/[^a-z0-9-]/gi, '-').toLowerCase()
-                    })
-                  }
+                  onChange={(event) => updateOperation(index, { requestType: event.target.value })}
+                  placeholder="e.g. resolve-short-url"
                   className="mt-1 w-full rounded border border-nss-border bg-nss-input-bg px-2 py-1 text-xs text-nss-text"
                 />
               </label>
               <label className="text-[10px] text-nss-muted">
-                Response type
+                Response name
                 <input
                   value={operation.responseType}
                   onChange={(event) => updateOperation(index, { responseType: event.target.value })}
+                  placeholder="e.g. redirect"
                   className="mt-1 w-full rounded border border-nss-border bg-nss-input-bg px-2 py-1 text-xs text-nss-text"
                 />
               </label>
@@ -122,7 +122,14 @@ export function CustomDefinitionSection({
                     updateOperation(index, {
                       dependencies: [
                         ...operation.dependencies,
-                        { target: 'Dependency', action: 'invoke', condition: 'always' }
+                        {
+                          target: 'Dependency',
+                          targetRole: 'service',
+                          action: 'invoke',
+                          callMode: 'sync',
+                          required: true,
+                          condition: 'always'
+                        }
                       ]
                     })
                   }
@@ -133,46 +140,98 @@ export function CustomDefinitionSection({
               </div>
               <div className="space-y-1.5">
                 {operation.dependencies.map((dependency, dependencyIndex) => (
-                  <div key={`${dependency.target}-${dependencyIndex}`} className="flex gap-1">
-                    <input
-                      aria-label={`Dependency target for ${operation.id}`}
-                      value={dependency.target}
-                      onChange={(event) =>
-                        updateDependency(index, dependencyIndex, { target: event.target.value })
-                      }
-                      placeholder="Target node"
-                      className="min-w-0 flex-1 rounded border border-nss-border bg-nss-input-bg px-2 py-1 text-[10px] text-nss-text"
-                    />
-                    <select
-                      aria-label={`Dependency action for ${operation.id}`}
-                      value={dependency.action}
-                      onChange={(event) =>
-                        updateDependency(index, dependencyIndex, {
-                          action: event.target.value as CustomDependencyIntent['action']
-                        })
-                      }
-                      className="rounded border border-nss-border bg-nss-input-bg px-1 py-1 text-[10px] text-nss-text"
-                    >
-                      <option value="read">Read</option>
-                      <option value="write">Write</option>
-                      <option value="invoke">Invoke</option>
-                      <option value="publish">Publish</option>
-                      <option value="enqueue">Enqueue</option>
-                    </select>
-                    <button
-                      type="button"
-                      aria-label={`Remove dependency ${dependency.target}`}
-                      onClick={() =>
-                        updateOperation(index, {
-                          dependencies: operation.dependencies.filter(
-                            (_, current) => current !== dependencyIndex
-                          )
-                        })
-                      }
-                      className="px-1 text-nss-muted hover:text-nss-danger"
-                    >
-                      <Trash2 size={12} />
-                    </button>
+                  <div
+                    key={dependencyIndex}
+                    className="rounded border border-nss-border bg-nss-surface/40 p-1.5"
+                  >
+                    <div className="flex gap-1">
+                      <input
+                        aria-label={`Dependency target for ${operation.id}`}
+                        value={dependency.target}
+                        onChange={(event) =>
+                          updateDependency(index, dependencyIndex, { target: event.target.value })
+                        }
+                        placeholder="Target node"
+                        className="min-w-0 flex-1 rounded border border-nss-border bg-nss-input-bg px-2 py-1 text-[10px] text-nss-text"
+                      />
+                      <button
+                        type="button"
+                        aria-label={`Remove dependency ${dependency.target}`}
+                        onClick={() =>
+                          updateOperation(index, {
+                            dependencies: operation.dependencies.filter(
+                              (_, current) => current !== dependencyIndex
+                            )
+                          })
+                        }
+                        className="px-1 text-nss-muted hover:text-nss-danger"
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    </div>
+                    <div className="mt-1 grid grid-cols-2 gap-1">
+                      <select
+                        aria-label={`Dependency role for ${operation.id}`}
+                        value={dependency.targetRole ?? 'service'}
+                        onChange={(event) =>
+                          updateDependency(index, dependencyIndex, {
+                            targetRole: event.target.value as CustomDependencyIntent['targetRole']
+                          })
+                        }
+                        className="rounded border border-nss-border bg-nss-input-bg px-1 py-1 text-[10px] text-nss-text"
+                      >
+                        {DEPENDENCY_TARGET_ROLES.map((role) => (
+                          <option key={role.id} value={role.id}>
+                            {role.label}
+                          </option>
+                        ))}
+                      </select>
+                      <select
+                        aria-label={`Dependency action for ${operation.id}`}
+                        value={dependency.action}
+                        onChange={(event) =>
+                          updateDependency(index, dependencyIndex, {
+                            action: event.target.value as CustomDependencyIntent['action']
+                          })
+                        }
+                        className="rounded border border-nss-border bg-nss-input-bg px-1 py-1 text-[10px] text-nss-text"
+                      >
+                        {DEPENDENCY_ACTIONS.map((action) => (
+                          <option key={action.id} value={action.id}>
+                            {action.label}
+                          </option>
+                        ))}
+                      </select>
+                      <select
+                        aria-label={`Dependency call mode for ${operation.id}`}
+                        value={dependency.callMode ?? 'sync'}
+                        onChange={(event) =>
+                          updateDependency(index, dependencyIndex, {
+                            callMode: event.target.value as CustomDependencyIntent['callMode']
+                          })
+                        }
+                        className="rounded border border-nss-border bg-nss-input-bg px-1 py-1 text-[10px] text-nss-text"
+                      >
+                        <option value="sync">Sync</option>
+                        <option value="async">Async</option>
+                      </select>
+                      <select
+                        aria-label={`Dependency condition for ${operation.id}`}
+                        value={dependency.condition ?? 'always'}
+                        onChange={(event) =>
+                          updateDependency(index, dependencyIndex, {
+                            condition: event.target.value as CustomDependencyIntent['condition']
+                          })
+                        }
+                        className="rounded border border-nss-border bg-nss-input-bg px-1 py-1 text-[10px] text-nss-text"
+                      >
+                        {DEPENDENCY_CONDITIONS.map((condition) => (
+                          <option key={condition.id} value={condition.id}>
+                            {condition.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
                 ))}
               </div>

@@ -601,18 +601,21 @@ function validateSimulationNode(data: CanvasNodeDataV2): string[] {
         errors.push(`Custom definition requires ${template.label}, not ${data.componentType}.`)
       }
       if (
-        data.customDefinition.kind === 'service' &&
-        data.customDefinition.runtimeTemplate !== 'long-running-service'
-      ) {
-        errors.push('Services must use the long-running service runtime template.')
-      }
-      if (
         data.customDefinition.operations.some(
           (operation) =>
             !operation.id.trim() || !operation.requestType.trim() || !operation.responseType.trim()
         )
       ) {
         errors.push('Each custom operation needs an id, request type, and response type.')
+      }
+      if (
+        data.customDefinition.operations.some((operation) =>
+          operation.dependencies.some(
+            (dependency) => !dependency.target.trim() || !dependency.action.trim()
+          )
+        )
+      ) {
+        errors.push('Each custom dependency needs a target and action.')
       }
     }
   }
