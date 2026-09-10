@@ -141,6 +141,13 @@ export const EDGE_PROPERTY_HELP = {
     summary: 'Probability that the link itself rejects the request independent of packet loss.',
     simulationEffect:
       'Produces an immediate edge-level failure before the request arrives at the target node.'
+  },
+  fanoutFactor: {
+    title: 'Fan-out factor',
+    summary:
+      'Amplification: each request delivered over this edge fans out to this many recipients (e.g. one post → N follower feed writes). Leave empty or 1 for no amplification.',
+    simulationEffect:
+      'The target genuinely receives N× the load — the write storm — so it can saturate. Use an asynchronous edge so the caller does not block on all N deliveries. The extra writes are counted as fanoutAmplifiedWrites on the source.'
   }
 } satisfies Record<string, EdgeHelpEntry>
 

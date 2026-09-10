@@ -66,7 +66,7 @@ import {
   NodeFailureSpec,
   parseFailureSpec
 } from './nodes/failure'
-import { RoutingTable } from './routing'
+import { RoutingTable, type ResolveRoute } from './routing'
 import { MinHeap } from './scheduler/min-heap'
 import { Distributions } from './stochastic/distribution'
 import { createRandom } from './stochastic/random'
@@ -200,6 +200,8 @@ export class SimulationEngine {
   private eventsProcessed = 0
   private edgeFlowSequence = 0
   private forkCounter = 0
+  /** Safety ceiling on how many deliveries one fan-out edge expands into per event. */
+  private static readonly MAX_FANOUT_PER_EDGE = 5000
   private running = false
   private paused = false
   private pendingInFlightMetricsFlushed = false
@@ -714,7 +716,7 @@ export class SimulationEngine {
       return
     }
 
-    const routes = routeResult.routes
+    const routes = this.expandFanoutRoutes(routeResult.routes, sourceNodeId)
     if (routes.length === 0) {
       if (this.nodes.has(sourceNodeId)) {
         this.eventQueue.insert(
@@ -1085,7 +1087,7 @@ export class SimulationEngine {
       return
     }
 
-    const routes = routeResult.routes
+    const routes = this.expandFanoutRoutes(routeResult.routes, event.nodeId)
     if (routes.length === 0) {
       this.maybeRecordCircuitBreakerOutcomeAtNode(event.nodeId, request, true)
       this.eventQueue.insert(
@@ -1987,6 +1989,48 @@ export class SimulationEngine {
       }
     )
     return timeline
+  }
+
+  /**
+   * Fan-out amplification (GAP 2): expand any route whose edge declares a
+   * `fanoutFactor > 1` into that many copies of the route, so the existing
+   * per-route fork machinery generates N branch deliveries to the target. This is
+   * the honest write-storm model — the downstream node genuinely receives N× the
+   * load and can saturate. The extra deliveries are recorded on the source node as
+   * `fanoutAmplifiedWrites` so the amplification is measurable/gradable.
+   */
+  private expandFanoutRoutes(routes: ResolveRoute[], sourceNodeId: string): ResolveRoute[] {
+    let amplified = 0
+    let hasFanout = false
+    for (const route of routes) {
+      const factor = route.edge.fanoutFactor
+      if (typeof factor === 'number' && Number.isFinite(factor) && factor > 1) {
+        hasFanout = true
+        break
+      }
+    }
+    if (!hasFanout) {
+      return routes
+    }
+
+    const expanded: ResolveRoute[] = []
+    for (const route of routes) {
+      const factor = route.edge.fanoutFactor
+      const copies =
+        typeof factor === 'number' && Number.isFinite(factor) && factor > 1
+          ? Math.min(Math.round(factor), SimulationEngine.MAX_FANOUT_PER_EDGE)
+          : 1
+      for (let i = 0; i < copies; i++) {
+        expanded.push(route)
+      }
+      if (copies > 1) {
+        amplified += copies - 1
+      }
+    }
+    if (amplified > 0) {
+      this.metrics.recordNodeTraitCounters(sourceNodeId, { fanoutAmplifiedWrites: amplified })
+    }
+    return expanded
   }
 
   private prepareRequestsForRoutes(request: Request, routeCount: number): Request[] {

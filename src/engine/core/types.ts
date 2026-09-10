@@ -387,6 +387,13 @@ export interface EdgeDefinition {
   errorRate: number
   weight?: number // relative weight for weighted routing
   condition?: string // JS expression string for conditional edges
+  /**
+   * Fan-out amplification: each request delivered over this edge is amplified into
+   * this many recipient deliveries (e.g. a fan-out-on-write post → N follower feed
+   * writes). Undefined or ≤1 means no amplification. Models the write storm — the
+   * downstream target genuinely receives N× the load and can saturate.
+   */
+  fanoutFactor?: number
 
   // React Flow metadata
   sourceHandle?: string

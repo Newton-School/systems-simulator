@@ -413,7 +413,8 @@ function edgeDataFromTopology(edge: EdgeDefinition): EdgeSimulationData {
     maxConcurrentRequests: edge.maxConcurrentRequests,
     packetLossRate: edge.packetLossRate * 100,
     errorRate: edge.errorRate * 100,
-    condition: edge.condition
+    condition: edge.condition,
+    fanoutFactor: edge.fanoutFactor
   }
 }
 

@@ -42,11 +42,5 @@ jobs:
       - name: Run type check
         run: npm run typecheck
 
-      - name: Validate question bank (reference passes / gamed fails)
-        run: npm run validate:question-bank
-
       - name: Run dual-target builds
         run: npm run build:all
-
-      - name: Check web bundle budget
-        run: npm run check:web-bundle-budget

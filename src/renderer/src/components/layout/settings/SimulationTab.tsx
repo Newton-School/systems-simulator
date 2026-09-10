@@ -6,6 +6,8 @@ import { mergeWorkloadDefaults } from '@renderer/utils/workloadDefaults'
 import type { FaultTargetOption, ScenarioState, SourceNodeOption } from '@renderer/types/ui'
 import {
   buildFault,
+  DEFAULT_DEGRADED_FRACTION,
+  DEFAULT_DEGRADED_SERVICE_MULTIPLIER,
   FAILURE_MODE_OPTIONS,
   PATTERN_OPTIONS,
   readFault,
@@ -94,7 +96,14 @@ export function SimulationTab(): React.JSX.Element {
   const faultEnabled = Boolean(currentFault)
   const fault: SimpleFault = currentFault
     ? readFault(currentFault)
-    : { targetId: faultTargets[0]?.id ?? '', atS: 5, durationS: 10, mode: 'blackhole' }
+    : {
+        targetId: faultTargets[0]?.id ?? '',
+        atS: 5,
+        durationS: 10,
+        mode: 'blackhole',
+        degradedFraction: DEFAULT_DEGRADED_FRACTION,
+        degradedServiceMultiplier: DEFAULT_DEGRADED_SERVICE_MULTIPLIER
+      }
 
   const setGlobalField = (
     key: keyof ScenarioState['global'],
@@ -122,7 +131,14 @@ export function SimulationTab(): React.JSX.Element {
     updateScenario((current) => {
       const base = current.faults?.[0]
         ? readFault(current.faults[0])
-        : { targetId: faultTargets[0]?.id ?? '', atS: 5, durationS: 10, mode: 'blackhole' as const }
+        : {
+            targetId: faultTargets[0]?.id ?? '',
+            atS: 5,
+            durationS: 10,
+            mode: 'blackhole' as const,
+            degradedFraction: DEFAULT_DEGRADED_FRACTION,
+            degradedServiceMultiplier: DEFAULT_DEGRADED_SERVICE_MULTIPLIER
+          }
       const next = { ...base, ...patch }
       return { ...current, faults: next.targetId ? [buildFault(next)] : [] }
     })
@@ -142,7 +158,9 @@ export function SimulationTab(): React.JSX.Element {
                 targetId: target,
                 atS: fault.atS,
                 durationS: fault.durationS,
-                mode: fault.mode
+                mode: fault.mode,
+                degradedFraction: fault.degradedFraction,
+                degradedServiceMultiplier: fault.degradedServiceMultiplier
               })
             ]
           }
@@ -286,6 +304,34 @@ export function SimulationTab(): React.JSX.Element {
               onChange={(value) => patchFault({ mode: value })}
             />
           </SettingRow>
+
+          {fault.mode === 'degraded' && (
+            <>
+              <SettingRow
+                label="Degraded share"
+                hint="Fraction of requests hit by the slowdown while the fault is active (0–1)."
+              >
+                <NumberField
+                  value={fault.degradedFraction}
+                  min={0}
+                  step={0.05}
+                  onChange={(value) => patchFault({ degradedFraction: Math.min(1, value) })}
+                />
+              </SettingRow>
+
+              <SettingRow
+                label="Slowdown factor"
+                hint="Service-time multiplier applied to the affected share (e.g. 10 = 10× slower)."
+              >
+                <NumberField
+                  value={fault.degradedServiceMultiplier}
+                  min={1}
+                  suffix="×"
+                  onChange={(value) => patchFault({ degradedServiceMultiplier: value })}
+                />
+              </SettingRow>
+            </>
+          )}
 
           <SettingRow label="Fail at" hint="Simulated second when the failure begins.">
             <NumberField

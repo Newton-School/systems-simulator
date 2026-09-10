@@ -81,6 +81,11 @@ export interface EdgeSimulationData {
   packetLossRate?: number
   errorRate?: number
   condition?: string
+  /**
+   * Fan-out amplification: each request over this edge is delivered to this many
+   * recipients (e.g. a post → N follower feed writes). ≤1 or empty = no amplification.
+   */
+  fanoutFactor?: number
 }
 
 export type NodeType = RendererNodeType

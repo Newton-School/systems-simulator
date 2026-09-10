@@ -19,22 +19,40 @@ export const PATTERN_OPTIONS: Array<{ value: WorkloadPattern; label: string }> =
   { value: 'sawtooth', label: 'Sawtooth' }
 ]
 
+/** Defaults for the degraded-mode parameters when a fault first switches to it. */
+export const DEFAULT_DEGRADED_FRACTION = 0.3
+export const DEFAULT_DEGRADED_SERVICE_MULTIPLIER = 10
+
 export interface SimpleFault {
   targetId: string
   atS: number
   durationS: number
   mode: FailureMode
+  /** degraded only: share of requests hit by the slowdown [0, 1]. */
+  degradedFraction: number
+  /** degraded only: service-time multiplier applied to the affected share. */
+  degradedServiceMultiplier: number
 }
 
 export function readFault(fault: FaultSpec): SimpleFault {
   const params = (fault.params ?? {}) as Record<string, unknown>
   const num = (v: unknown): number => (typeof v === 'number' && v >= 0 ? v : 0)
   const mode = typeof params.mode === 'string' ? (params.mode as FailureMode) : 'blackhole'
+  const degradation = (params.degradation ?? {}) as Record<string, unknown>
   return {
     targetId: fault.targetId,
     atS: Math.round(num(params.atMs) / 1000),
     durationS: Math.round(num(params.durationMs) / 1000),
-    mode
+    mode,
+    degradedFraction:
+      typeof degradation.fraction === 'number' && degradation.fraction >= 0
+        ? degradation.fraction
+        : DEFAULT_DEGRADED_FRACTION,
+    degradedServiceMultiplier:
+      typeof degradation.serviceTimeMultiplier === 'number' &&
+      degradation.serviceTimeMultiplier >= 0
+        ? degradation.serviceTimeMultiplier
+        : DEFAULT_DEGRADED_SERVICE_MULTIPLIER
   }
 }
 
@@ -51,7 +69,12 @@ export function buildFault(simple: SimpleFault): FaultSpec {
       inFlightPolicy: 'hang',
       recoveryPolicy: 'reset',
       ...(simple.mode === 'degraded'
-        ? { degradation: { fraction: 0.3, serviceTimeMultiplier: 10 } }
+        ? {
+            degradation: {
+              fraction: Math.max(0, Math.min(1, simple.degradedFraction)),
+              serviceTimeMultiplier: Math.max(0, simple.degradedServiceMultiplier)
+            }
+          }
         : {})
     }
   }

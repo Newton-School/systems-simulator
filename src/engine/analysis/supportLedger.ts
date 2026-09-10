@@ -182,6 +182,11 @@ export const TRAIT_SUPPORT_LEDGER = {
     summary:
       'One-to-many fanout is modeled for broadcast brokers; stream-specific retention, partitions, and offset semantics live under stream.partitioned-broker.'
   },
+  'routing.fanout-amplification': {
+    tier: 'guided',
+    summary:
+      'An edge `fanoutFactor` amplifies each delivery into N recipient writes (e.g. one post → N follower feed writes), so the target genuinely receives N× load and can saturate; the amplification factor is a configured constant, not derived from a live subscriber/follower set.'
+  },
   'stream.partitioned-broker': {
     tier: 'first-class',
     summary:

@@ -306,7 +306,12 @@ function serializeEdge(
       typeof edgeData.condition === 'string' && edgeData.condition.trim().length > 0
         ? edgeData.condition.trim()
         : undefined,
-    weight: asPositiveNumber(edgeData.weight) ?? undefined
+    weight: asPositiveNumber(edgeData.weight) ?? undefined,
+    fanoutFactor:
+      asPositiveNumber(edgeData.fanoutFactor) !== undefined &&
+      (asPositiveNumber(edgeData.fanoutFactor) as number) > 1
+        ? Math.round(asPositiveNumber(edgeData.fanoutFactor) as number)
+        : undefined
   }
 }
 
@@ -329,7 +334,8 @@ function neutralizeConnectorEdge(edge: EdgeDefinition): EdgeDefinition {
     bandwidth: Number.MAX_SAFE_INTEGER,
     maxConcurrentRequests: Number.MAX_SAFE_INTEGER,
     packetLossRate: 0,
-    errorRate: 0
+    errorRate: 0,
+    fanoutFactor: undefined
   }
 }
 
