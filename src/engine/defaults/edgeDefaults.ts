@@ -134,8 +134,10 @@ function isReplicaLink(
   return (
     isDatabase(getType(sourceNode)) &&
     isDatabase(getType(targetNode)) &&
-    sourceNode?.sim?.replicationRole === 'primary' &&
-    targetNode?.sim?.replicationRole === 'replica'
+    (sourceNode?.sim?.replicationRole === 'leader' ||
+      sourceNode?.sim?.replicationRole === 'primary') &&
+    (targetNode?.sim?.replicationRole === 'follower' ||
+      targetNode?.sim?.replicationRole === 'replica')
   )
 }
 

@@ -1,5 +1,34 @@
 import { describe, expect, it } from 'vitest'
-import { buildLatencyLensCard, getIdentityChip, getLensCard } from './nodePresentation'
+import type { AnyNodeData } from '@renderer/types/ui'
+import {
+  buildLatencyLensCard,
+  getIdentityChip,
+  getLensCard,
+  isBroadcastFanoutData
+} from './nodePresentation'
+
+describe('isBroadcastFanoutData', () => {
+  it('is true for broadcast broker component types', () => {
+    expect(isBroadcastFanoutData({ componentType: 'pub-sub' } as AnyNodeData)).toBe(true)
+    expect(isBroadcastFanoutData({ componentType: 'event-bus' } as AnyNodeData)).toBe(true)
+    expect(isBroadcastFanoutData({ componentType: 'message-broker' } as AnyNodeData)).toBe(true)
+  })
+
+  it('is true when routing strategy is explicitly broadcast', () => {
+    expect(
+      isBroadcastFanoutData({
+        componentType: 'load-balancer-l7',
+        routingStrategy: 'broadcast'
+      } as AnyNodeData)
+    ).toBe(true)
+  })
+
+  it('is false for load balancers and datastores', () => {
+    expect(isBroadcastFanoutData({ componentType: 'load-balancer-l7' } as AnyNodeData)).toBe(false)
+    expect(isBroadcastFanoutData({ componentType: 'relational-db' } as AnyNodeData)).toBe(false)
+    expect(isBroadcastFanoutData({} as AnyNodeData)).toBe(false)
+  })
+})
 
 const EMPTY_LATENCY = {
   p50: null,

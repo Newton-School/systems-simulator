@@ -122,7 +122,7 @@ export interface NodeSimulationConfig {
     halfOpenRequests: number
   }
   replicationEnabled?: boolean
-  replicationMode?: 'primary-replica' | 'leader-follower'
+  /** Back-compat accepts primary/replica; the UI now offers only leader/follower. */
   replicationRole?: 'primary' | 'replica' | 'leader' | 'follower'
   replicationLagMs?: number
   writeAckPolicy?: 'primary' | 'quorum'

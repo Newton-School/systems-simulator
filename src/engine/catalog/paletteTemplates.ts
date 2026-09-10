@@ -628,8 +628,7 @@ export const PALETTE_TEMPLATES: Record<string, PaletteTemplate> = {
     seed: { throughput: 2000, load: 40, queueDepth: 10 },
     simDefaults: {
       replicationEnabled: true,
-      replicationMode: 'primary-replica',
-      replicationRole: 'replica'
+      replicationRole: 'follower'
     }
   },
   'object-storage': {

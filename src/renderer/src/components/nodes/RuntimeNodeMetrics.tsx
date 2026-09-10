@@ -6,6 +6,8 @@ type RuntimeNodeMetricsProps = {
   rejected?: number
   timedOut?: number
   className?: string
+  /** Broadcast broker: "completed" is subscriber deliveries (fan-out), not requests. */
+  isBroadcastFanout?: boolean
 }
 
 function fmtCount(value?: number): string {
@@ -17,14 +19,15 @@ export function RuntimeNodeMetrics({
   completed,
   rejected,
   timedOut,
-  className = 'grid grid-cols-2 gap-4'
+  className = 'grid grid-cols-2 gap-4',
+  isBroadcastFanout = false
 }: RuntimeNodeMetricsProps) {
   const hasFailures = (rejected ?? 0) > 0 || (timedOut ?? 0) > 0
 
   return (
     <div className={className}>
       <NodeMetricCell
-        label="Completed / Received"
+        label={isBroadcastFanout ? 'Deliveries / Received' : 'Completed / Received'}
         value={`${fmtCount(completed)} / ${fmtCount(arrived)}`}
       />
       <NodeMetricCell

@@ -477,9 +477,8 @@ function buildRuntimeNode(
     data.sim?.replicationEnabled === true
   ) {
     config.replicationEnabled = true
-    config.replicationMode = data.sim.replicationMode ?? 'primary-replica'
     config.replicationRole =
-      data.sim?.replicationRole ?? (data.templateId === 'read-replica' ? 'replica' : 'primary')
+      data.sim?.replicationRole ?? (data.templateId === 'read-replica' ? 'follower' : 'leader')
     for (const field of ['replicationLagMs', 'failoverUntilMs'] as const) {
       const value = data.sim?.[field]
       if (typeof value === 'number' && Number.isFinite(value) && value >= 0) config[field] = value

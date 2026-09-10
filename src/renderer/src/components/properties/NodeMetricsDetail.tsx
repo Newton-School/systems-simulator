@@ -27,6 +27,15 @@ interface NodeMetricsDetailProps {
    * have to infer from a per-node cache panel.
    */
   downstreamSplit?: { targetLabel: string; count: number; share: number }[]
+  /**
+   * True when this node is a broadcast fan-out broker (pub/sub, event bus, message
+   * broker) rather than a load balancer. For fan-out, one received message is
+   * *replicated* to every subscriber, so "Completed" counts subscriber deliveries
+   * (not unique requests) and the downstream split is 100%-per-subscriber
+   * replication, not a routing share. Relabels the panel accordingly so deliveries
+   * are never conflated with unique messages.
+   */
+  isBroadcastFanout?: boolean
 }
 
 function latencyMetricItem(value: number | null | undefined): {
@@ -105,8 +114,15 @@ export const SourceNodeMetricsDetail = ({
 export const NodeMetricsDetail = ({
   metrics,
   configuredCacheHitRate,
-  downstreamSplit
+  downstreamSplit,
+  isBroadcastFanout = false
 }: NodeMetricsDetailProps) => {
+  // Fan-out amplification: for a broadcast broker, one received message is
+  // replicated to every subscriber, so processed = deliveries, not unique requests.
+  const messagesReceived = metrics.postWarmupArrived ?? 0
+  const subscriberDeliveries = metrics.postWarmupProcessed ?? 0
+  const amplification =
+    isBroadcastFanout && messagesReceived > 0 ? subscriberDeliveries / messagesReceived : 0
   const rejectionEntries = Object.entries(metrics.rejectionsByReason ?? {}).sort(
     (a, b) => b[1] - a[1]
   )
@@ -154,10 +170,29 @@ export const NodeMetricsDetail = ({
     <div className="space-y-6">
       <Section title="Throughput">
         <div className="grid grid-cols-2 gap-4">
-          <MetricItem label="Throughput" value={metrics.throughput} unit="req/s" />
+          <MetricItem
+            label="Throughput"
+            value={metrics.throughput}
+            unit={isBroadcastFanout ? 'deliveries/s' : 'req/s'}
+          />
           <MetricItem label="Utilization" value={metrics.utilization} unit="%" />
-          <MetricItem label="Arrived" value={metrics.postWarmupArrived} unit="req" />
-          <MetricItem label="Completed" value={metrics.postWarmupProcessed} unit="req" />
+          <MetricItem
+            label={isBroadcastFanout ? 'Messages received' : 'Arrived'}
+            value={metrics.postWarmupArrived}
+            unit={isBroadcastFanout ? 'msg' : 'req'}
+          />
+          <MetricItem
+            label={isBroadcastFanout ? 'Subscriber deliveries' : 'Completed'}
+            value={metrics.postWarmupProcessed}
+            unit={isBroadcastFanout ? 'deliveries' : 'req'}
+          />
+          {isBroadcastFanout && amplification > 0 && (
+            <MetricItem
+              label="Delivery amplification"
+              value={Number(amplification.toFixed(amplification % 1 === 0 ? 0 : 1))}
+              unit="×"
+            />
+          )}
           <MetricItem
             label="In Flight"
             value={metrics.postWarmupInFlight}
@@ -180,16 +215,16 @@ export const NodeMetricsDetail = ({
       </Section>
 
       {downstreamSplit && downstreamSplit.length > 0 && (
-        <Section title="Downstream Routing Split">
+        <Section title={isBroadcastFanout ? 'Subscriber Deliveries' : 'Downstream Routing Split'}>
           <div className="space-y-2">
             {downstreamSplit.map((row) => (
               <div key={row.targetLabel} className="space-y-1">
                 <div className="flex items-center justify-between text-xs">
                   <span className="text-nss-text">{row.targetLabel}</span>
                   <span className="font-semibold text-nss-text tabular-nums">
-                    {(row.share * 100).toFixed(1)}%
+                    {(row.share * 100).toFixed(isBroadcastFanout ? 0 : 1)}%
                     <span className="ml-1 text-nss-muted font-normal">
-                      ({row.count.toLocaleString()} req)
+                      ({row.count.toLocaleString()} {isBroadcastFanout ? 'deliveries' : 'req'})
                     </span>
                   </span>
                 </div>
@@ -203,9 +238,9 @@ export const NodeMetricsDetail = ({
             ))}
           </div>
           <p className="mt-3 text-xs text-nss-muted">
-            Share of this node&apos;s outbound requests routed to each target. For a cache-aside
-            path this is the real hit/miss split - cache hits and misses are modelled as which
-            backend the request is routed to.
+            {isBroadcastFanout
+              ? 'Fan-out replication: each subscriber receives 100% of published messages — these are message deliveries, not a routing share. One received message becomes one delivery per subscriber.'
+              : "Share of this node's outbound requests routed to each target. For a cache-aside path this is the real hit/miss split - cache hits and misses are modelled as which backend the request is routed to."}
           </p>
         </Section>
       )}

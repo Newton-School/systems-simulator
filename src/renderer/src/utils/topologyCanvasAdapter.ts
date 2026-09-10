@@ -208,12 +208,6 @@ function overlaySimulationConfig(
     sim.replicationEnabled = asBoolean(config['replicationEnabled'])
   }
   if (
-    config['replicationMode'] === 'primary-replica' ||
-    config['replicationMode'] === 'leader-follower'
-  ) {
-    sim.replicationMode = config['replicationMode']
-  }
-  if (
     config['replicationRole'] === 'primary' ||
     config['replicationRole'] === 'replica' ||
     config['replicationRole'] === 'leader' ||

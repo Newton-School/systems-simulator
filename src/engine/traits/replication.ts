@@ -18,11 +18,7 @@ function isReplicationEnabled(data: CanvasNodeDataV2): boolean {
   return data.sim?.replicationEnabled === true
 }
 
-function roleOptions(data: CanvasNodeDataV2): readonly string[] {
-  return data.sim?.replicationMode === 'leader-follower'
-    ? ['leader', 'follower']
-    : ['primary', 'replica']
-}
+const ROLE_OPTIONS = ['leader', 'follower'] as const
 
 function positive(value: unknown, fallback: number): number {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : fallback
@@ -219,23 +215,13 @@ export const replicationCapabilityModule: NodeCapabilityModule = {
             why: 'Turns this standalone SQL or NoSQL database into a replicated datastore member.'
           },
           {
-            path: 'sim.replicationMode',
-            type: 'select',
-            label: 'Replication topology',
-            options: ['primary-replica', 'leader-follower'],
-            visible: isReplicationEnabled,
-            altitude: 'primary',
-            why: 'Primary/replica is the general single-writer database pattern; leader/follower is for elected-leader replication.'
-          },
-          {
             path: 'sim.replicationRole',
             type: 'select',
-            label: (data) =>
-              data.sim?.replicationMode === 'leader-follower' ? 'Cluster role' : 'Database role',
-            options: roleOptions,
+            label: 'Database role',
+            options: ROLE_OPTIONS,
             visible: isReplicationEnabled,
             altitude: 'primary',
-            why: 'Replicas and followers reject writes and can serve stale reads; the primary or leader accepts writes.'
+            why: 'Followers reject writes and can serve stale reads; the leader accepts writes and is the one promoted on failover.'
           },
           {
             path: 'sim.replicationLagMs',

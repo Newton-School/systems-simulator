@@ -37,6 +37,7 @@ import { useNodeMetrics } from '@renderer/hooks/useNodeMetrics'
 import type { CanvasNodeDataV2 } from '../../../../engine/catalog/nodeSpecTypes'
 import { applyDefinitionTraits } from '../../../../engine/catalog/customDefinitions'
 import { reconcileContractWithGraph } from '../../../../engine/catalog/contractReconciliation'
+import { BROADCAST_FANOUT_COMPONENT_TYPES } from '../../../../engine/traits/broadcastFanout'
 import type { ComponentType } from '../../../../engine/core/types'
 import useStore, { type EdgeFlowState } from '../../store/useStore'
 import { PropertiesHeader } from './PropertiesHeader'
@@ -1560,22 +1561,35 @@ export const PropertiesPanel = ({ results = null }: { results?: SimulationOutput
     // traffic reaching each target *is* the routing outcome - the honest source of
     // truth for cache-aside hit/miss, DNS weighting, sharding, etc. Surface it so
     // the split is visible instead of being inferred from a misleading node panel.
+    // A broadcast fan-out broker (pub/sub, event bus, message broker) replicates each
+    // received message to every subscriber. Its downstream "split" is therefore 100%
+    // per subscriber (replication), not a routing share — and its outbound counts are
+    // deliveries, not unique requests. Detect it so the results panel labels honestly.
+    const selectedComponentType = (data as { componentType?: ComponentType }).componentType
+    const isBroadcastFanout =
+      (selectedComponentType !== undefined &&
+        (BROADCAST_FANOUT_COMPONENT_TYPES as readonly string[]).includes(selectedComponentType)) ||
+      (data as { routingStrategy?: string }).routingStrategy === 'broadcast'
+
     const selectedOutboundEdges = edges.filter((edge) => edge.source === selectedNode.id)
     const downstreamSplit =
       selectedOutboundEdges.length > 1
         ? (() => {
+            // Post-warmup counts, to match the rest of the (post-warmup) panel — never
+            // mix the full-run window (totalAttempted) into this view.
             const rows = selectedOutboundEdges.map((edge) => ({
               targetLabel:
                 (nodes.find((n) => n.id === edge.target)?.data as { label?: string } | undefined)
                   ?.label ?? edge.target,
-              count: edgeFlowById[edge.id]?.totalAttempted ?? 0
+              count: edgeFlowById[edge.id]?.totalPostWarmupAttempted ?? 0
             }))
             const total = rows.reduce((sum, row) => sum + row.count, 0)
-            return total > 0
-              ? rows
-                  .map((row) => ({ ...row, share: row.count / total }))
-                  .sort((a, b) => b.share - a.share)
-              : undefined
+            if (total <= 0) return undefined
+            // Broadcast: each subscriber receives 100% of published messages (share = 1);
+            // load balancing / cache-aside: share is the fraction of outbound traffic.
+            return rows
+              .map((row) => ({ ...row, share: isBroadcastFanout ? 1 : row.count / total }))
+              .sort((a, b) => b.count - a.count)
           })()
         : undefined
 
@@ -1614,6 +1628,7 @@ export const PropertiesPanel = ({ results = null }: { results?: SimulationOutput
                 metrics={metrics}
                 configuredCacheHitRate={data.sim?.cacheHitRate}
                 downstreamSplit={downstreamSplit}
+                isBroadcastFanout={isBroadcastFanout}
               />
             )
           ) : (
