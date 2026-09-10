@@ -21,6 +21,7 @@ import {
   DEFAULT_RETRY_MULTIPLIER
 } from '../traits/retryBackoff'
 import { asDistributionConfig } from '../traits/serviceTimeOverride'
+import { isCustomNodeDefinition, templateForDefinition } from './customDefinitions'
 import {
   nonNegativeNumber,
   oneOf,
@@ -341,6 +342,10 @@ function buildRuntimeNode(
     config.routingStrategy = data.routingStrategy
   }
 
+  if (data.customDefinition) {
+    config.customDefinition = structuredClone(data.customDefinition)
+  }
+
   if (data.sim?.securityPolicy) {
     const blockRate = clamp(data.sim.securityPolicy.blockRate ?? 0, 0, 1)
     const droppedPackets = clamp(data.sim.securityPolicy.droppedPackets ?? 0, 0, 1)
@@ -472,9 +477,8 @@ function buildRuntimeNode(
     data.sim?.replicationEnabled === true
   ) {
     config.replicationEnabled = true
-    config.replicationMode = data.sim.replicationMode ?? 'primary-replica'
     config.replicationRole =
-      data.sim?.replicationRole ?? (data.templateId === 'read-replica' ? 'replica' : 'primary')
+      data.sim?.replicationRole ?? (data.templateId === 'read-replica' ? 'follower' : 'leader')
     for (const field of ['replicationLagMs', 'failoverUntilMs'] as const) {
       const value = data.sim?.[field]
       if (typeof value === 'number' && Number.isFinite(value) && value >= 0) config[field] = value
@@ -587,6 +591,33 @@ function buildRuntimeNode(
 
 function validateSimulationNode(data: CanvasNodeDataV2): string[] {
   const errors: string[] = []
+  if (data.customDefinition) {
+    if (!isCustomNodeDefinition(data.customDefinition)) {
+      errors.push('Custom definition is invalid.')
+    } else {
+      const template = templateForDefinition(data.customDefinition)
+      if (template.componentType !== data.componentType) {
+        errors.push(`Custom definition requires ${template.label}, not ${data.componentType}.`)
+      }
+      if (
+        data.customDefinition.operations.some(
+          (operation) =>
+            !operation.id.trim() || !operation.requestType.trim() || !operation.responseType.trim()
+        )
+      ) {
+        errors.push('Each custom operation needs an id, request type, and response type.')
+      }
+      if (
+        data.customDefinition.operations.some((operation) =>
+          operation.dependencies.some(
+            (dependency) => !dependency.target.trim() || !dependency.action.trim()
+          )
+        )
+      ) {
+        errors.push('Each custom dependency needs a target and action.')
+      }
+    }
+  }
   const queue = data.sim?.queue
   const processing = data.sim?.processing
   const queueLabels = queueFieldLabels(data.componentType)

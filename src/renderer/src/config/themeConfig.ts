@@ -116,6 +116,11 @@ export const THEME_CONFIG: Record<string, ColorTheme> = {
     text: 'text-slate-600'
   },
   'my-service': { bg: 'bg-blue-500', border: 'border-blue-600', text: 'text-blue-600' },
+  'custom-node-builder': {
+    bg: 'bg-emerald-500',
+    border: 'border-emerald-600',
+    text: 'text-emerald-600'
+  },
   sharding: { bg: 'bg-purple-500', border: 'border-purple-600', text: 'text-purple-600' },
   hashing: { bg: 'bg-amber-500', border: 'border-amber-600', text: 'text-amber-600' },
   'shard-node': { bg: 'bg-cyan-500', border: 'border-cyan-600', text: 'text-cyan-600' },

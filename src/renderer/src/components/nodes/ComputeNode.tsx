@@ -18,7 +18,8 @@ import {
   getLensCard,
   getPreRunMetric,
   isPreRunMetricLens,
-  isRuntimeNodeInactive
+  isRuntimeNodeInactive,
+  isBroadcastFanoutData
 } from './nodePresentation'
 
 const ComputeNode = ({ id, data, selected }: NodeProps<ComputeNodeData>) => {
@@ -133,6 +134,7 @@ const ComputeNode = ({ id, data, selected }: NodeProps<ComputeNodeData>) => {
               identityClassName="min-w-0"
               runtimeClassName="grid grid-cols-2 gap-3"
               preRunClassName="grid grid-cols-1 gap-3"
+              isBroadcastFanout={isBroadcastFanoutData(data)}
             />
           </div>
         </>

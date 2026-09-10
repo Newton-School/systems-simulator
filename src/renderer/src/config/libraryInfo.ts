@@ -139,6 +139,18 @@ const INFO_BY_ID: Record<string, LibraryItemInfo> = {
     realWorld: 'Node.js/Java/Go service on VM, container, or pod.',
     config: ['workers', 'queue capacity', 'processing latency']
   },
+  'connection-server': {
+    represents:
+      'A stateful front-door that holds millions of persistent WebSocket/TCP connections. Its capacity is measured in concurrent held connections, not RPS — it saturates and refuses new connections past its ceiling.',
+    realWorld: 'WebSocket gateway / chat connection server; the Google Docs WS layer.',
+    config: ['max connections per instance', 'offered connections', 'heartbeat interval']
+  },
+  'id-generator': {
+    represents:
+      'A coordination service that hands out unique, increasing IDs. On the hot write path with a concentrated keyspace it shows counter contention; off the hot path (pre-allocated blocks) it stays idle.',
+    realWorld: 'DB sequence, ZooKeeper sequence, Snowflake service, or an ID-range allocator.',
+    config: ['kind (DB seq / ZooKeeper / Snowflake / range)', 'allocation mode', 'block size']
+  },
   'lambda-function': {
     represents: 'A short-lived function that runs only when triggered by an event or request.',
     realWorld: 'AWS Lambda, Cloud Functions, Azure Functions.',
@@ -290,14 +302,22 @@ const INFO_BY_ID: Record<string, LibraryItemInfo> = {
     config: ['block rate', 'audit latency', 'alert threshold']
   },
   'generic-service': {
-    represents: 'A flexible placeholder when the exact service type is not important yet.',
-    realWorld: 'Any internal service.',
-    config: DEFAULT_CONFIG
+    represents:
+      'Opens the Service Builder so you can define an application service from interface, dependency, runtime, and trait blocks.',
+    realWorld: 'Any team-owned service you need to model for the current architecture.',
+    config: ['name', 'operations', 'dependencies', 'runtime traits']
   },
   'my-service': {
-    represents: 'A custom service owned by your system that you can configure for the scenario.',
-    realWorld: 'Any team-owned application component.',
-    config: DEFAULT_CONFIG
+    represents: 'Opens saved service definitions that can be reused, placed, or forked.',
+    realWorld: 'Previously created service templates for your system.',
+    config: ['saved definitions', 'reuse', 'place on canvas']
+  },
+  'custom-node-builder': {
+    represents:
+      'Opens the Custom Node Builder for creating a missing component from a class, runtime template, capabilities, and traits.',
+    realWorld:
+      'Lambda-style handler, partner API, worker, webhook receiver, or another missing component.',
+    config: ['node class', 'runtime template', 'capabilities', 'traits']
   },
   'vpc-region': {
     represents: 'A top-level cloud network area where resources are grouped by region.',

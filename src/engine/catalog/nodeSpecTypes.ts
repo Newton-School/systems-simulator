@@ -8,6 +8,7 @@ import type {
   WorkloadProfile
 } from '../core/types'
 import type { ContentRoutingRule } from '../traits/contentRouting'
+import type { CustomNodeDefinition } from './customDefinitions'
 
 export type StructuralRole = 'source' | 'processor' | 'storage' | 'router' | 'sink' | 'composite'
 
@@ -53,6 +54,38 @@ export interface NodeSimulationConfig {
     timeout: number
   }
   nodeErrorRate?: number
+  /**
+   * ID / sequence generator allocation model. When present (seeded by the
+   * `id-generator` palette node), the processing service time is derived from it:
+   * `block` allocation serves most requests from an in-memory range (near-instant) and
+   * only pays a coordination hit once per block, while `central` pays the coordination
+   * cost on every request — the difference that decides whether the allocator is a
+   * bottleneck under a write spike. See `idAllocation.ts`.
+   */
+  /**
+   * Connection-tier capacity (seeded by the `connection-server` palette node). Concurrent
+   * held connections are a capacity dimension distinct from RPS — a WebSocket server holds
+   * N long-lived sessions and saturates at a ceiling. The engine derives fleet capacity,
+   * utilization, refused connections, and required instances from this. See
+   * `connectionCapacity.ts` and `specs/connection-tier-capacity.md`.
+   */
+  connection?: {
+    /** Concurrent held connections one instance can sustain (e.g. 65000). */
+    maxConnectionsPerInstance: number
+    /** Steady-state offered concurrent connections this tier must hold. */
+    offeredConnections: number
+    /** Keepalive interval; implies background load = offeredConnections / (interval/1000) rps. */
+    heartbeatIntervalMs?: number
+    sessionProtocol?: 'websocket' | 'tcp' | 'http2'
+  }
+  idAllocation?: {
+    /** Which real generator this models. `snowflake` is decentralized (local, no
+     * coordination); the others are central-capable and honor `mode`. */
+    kind: 'db-sequence' | 'zookeeper' | 'snowflake' | 'range-allocator'
+    mode: 'block' | 'central'
+    /** IDs handed out per coordination round-trip in `block` mode (ignored for `central`). */
+    blockSize: number
+  }
   securityPolicy?: {
     blockRate?: number
     droppedPackets?: number
@@ -89,7 +122,7 @@ export interface NodeSimulationConfig {
     halfOpenRequests: number
   }
   replicationEnabled?: boolean
-  replicationMode?: 'primary-replica' | 'leader-follower'
+  /** Back-compat accepts primary/replica; the UI now offers only leader/follower. */
   replicationRole?: 'primary' | 'replica' | 'leader' | 'follower'
   replicationLagMs?: number
   writeAckPolicy?: 'primary' | 'quorum'
@@ -152,6 +185,8 @@ export interface CanvasNodeDataV2 {
   routingStrategy?: RoutingStrategy
   sim?: NodeSimulationConfig
   source?: SourceConfig
+  /** Learner-authored HLD contract. Runtime behavior still comes from componentType traits. */
+  customDefinition?: CustomNodeDefinition
   ui?: CanvasNodeUiState
 }
 

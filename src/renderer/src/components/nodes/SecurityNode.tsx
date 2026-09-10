@@ -18,7 +18,8 @@ import {
   getLensCard,
   getPreRunMetric,
   isPreRunMetricLens,
-  isRuntimeNodeInactive
+  isRuntimeNodeInactive,
+  isBroadcastFanoutData
 } from './nodePresentation'
 
 const SecurityNode = ({ id, data, selected }: NodeProps<SecurityNodeData>) => {
@@ -118,6 +119,7 @@ const SecurityNode = ({ id, data, selected }: NodeProps<SecurityNodeData>) => {
               lensCard={lensCard}
               identityChip={identityChip}
               preRunMetric={preRunMetric}
+              isBroadcastFanout={isBroadcastFanoutData(data)}
             />
           </div>
         </div>

@@ -523,6 +523,27 @@ export const EdgePropertiesPanel = ({
               </div>
             </div>
 
+            <div className="space-y-1">
+              <FieldLabel label="Fan-out factor" help={EDGE_PROPERTY_HELP.fanoutFactor} />
+              <input
+                type="number"
+                min={1}
+                step={1}
+                placeholder="1 (no amplification)"
+                value={value.fanoutFactor ?? ''}
+                onChange={(e) => {
+                  const parsed = Number(e.target.value)
+                  onChange({
+                    fanoutFactor:
+                      e.target.value.trim() === '' || !Number.isFinite(parsed) || parsed <= 1
+                        ? undefined
+                        : Math.round(parsed)
+                  })
+                }}
+                className={CONTROL_CLASS}
+              />
+            </div>
+
             {!isLatencyAuto && (
               <div className="rounded border border-nss-border bg-nss-surface px-2 py-2 text-[10px] leading-relaxed text-nss-muted">
                 {latencySummary}

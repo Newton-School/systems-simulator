@@ -53,6 +53,7 @@ export const CATALOG_CONFIG: CatalogCategory[] = [
     title: 'Network',
     items: getItems([
       'api-gateway',
+      'connection-server',
       'load-balancer',
       'load-balancer-l4',
       'load-balancer-l7',
@@ -80,6 +81,7 @@ export const CATALOG_CONFIG: CatalogCategory[] = [
       'lambda-function',
       'async-worker',
       'cron-job',
+      'id-generator',
       'auth-service',
       'search-service',
       'sidecar-proxy'
@@ -119,7 +121,13 @@ export const CATALOG_CONFIG: CatalogCategory[] = [
   {
     id: 'templates',
     title: 'Templates',
-    items: getItems(['generic-service', 'my-service', 'input-source', 'output-sink'])
+    items: getItems([
+      'generic-service',
+      'my-service',
+      'custom-node-builder',
+      'input-source',
+      'output-sink'
+    ])
   },
   {
     id: 'ai-agents',

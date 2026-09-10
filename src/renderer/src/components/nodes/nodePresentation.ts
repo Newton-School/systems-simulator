@@ -23,6 +23,7 @@ import {
   isSourceComponentData
 } from '../../../../engine/catalog/sourceNodeSemantics'
 import { ACK_AND_RELEASE_COMPONENT_TYPES } from '../../../../engine/traits/ackAndRelease'
+import { BROADCAST_FANOUT_COMPONENT_TYPES } from '../../../../engine/traits/broadcastFanout'
 import { HEALTH_AWARE_COMPONENT_TYPES } from '../../../../engine/traits/healthAwareRouting'
 import { getInstanceCount, type ComponentNode } from '../../../../engine/core/types'
 import { deriveNodeConcurrency } from '../../../../engine/nodes/resourceDerivation'
@@ -220,6 +221,20 @@ export function isRuntimeNodeInactive(hasRuntime: boolean, active?: boolean): bo
   return hasRuntime && active === false
 }
 
+/**
+ * A broadcast fan-out broker (pub/sub, event bus, message broker) replicates each
+ * received message to every subscriber, so its "completed" count is subscriber
+ * *deliveries*, not unique requests. Callers relabel the runtime card accordingly.
+ */
+export function isBroadcastFanoutData(data: AnyNodeData): boolean {
+  const componentType = (data as { componentType?: string }).componentType
+  return (
+    (componentType !== undefined &&
+      (BROADCAST_FANOUT_COMPONENT_TYPES as readonly string[]).includes(componentType)) ||
+    (data as { routingStrategy?: string }).routingStrategy === 'broadcast'
+  )
+}
+
 export interface IdentityChip {
   label: string
   value: string
@@ -247,7 +262,7 @@ export function getIdentityChip(
     return { label: 'Cache', value: `hit ${Math.round(data.sim.cacheHitRate * 100)}%` }
   }
   if (data.sim?.replicationEnabled === true) {
-    const role = data.sim.replicationRole ?? 'primary'
+    const role = data.sim.replicationRole ?? 'leader'
     return {
       label: 'Role',
       value: role === 'replica' || role === 'follower' ? `read-only ${role}` : role

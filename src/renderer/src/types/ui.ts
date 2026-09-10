@@ -28,6 +28,8 @@ export interface DisplaySettings {
   componentLibraryMode: ComponentLibraryMode
   /** Palette template ids explicitly hidden by the user. */
   hiddenComponentLibraryTemplateIds: string[]
+  /** When false, the SPOF badge and danger ring are hidden on canvas nodes. */
+  showSpofBadges: boolean
 }
 
 export interface NodeSimulationMetrics {
@@ -79,6 +81,11 @@ export interface EdgeSimulationData {
   packetLossRate?: number
   errorRate?: number
   condition?: string
+  /**
+   * Fan-out amplification: each request over this edge is delivered to this many
+   * recipients (e.g. a post → N follower feed writes). ≤1 or empty = no amplification.
+   */
+  fanoutFactor?: number
 }
 
 export type NodeType = RendererNodeType
@@ -159,7 +166,8 @@ export const DEFAULT_DISPLAY_SETTINGS: DisplaySettings = {
   autoOpenSimulationTray: true,
   defaultResultsTab: 'overview',
   componentLibraryMode: 'default',
-  hiddenComponentLibraryTemplateIds: []
+  hiddenComponentLibraryTemplateIds: [],
+  showSpofBadges: true
 }
 
 export function normalizeScenarioState(value: unknown): ScenarioState {

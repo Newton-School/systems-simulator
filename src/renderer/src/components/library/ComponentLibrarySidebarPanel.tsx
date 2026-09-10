@@ -1,9 +1,11 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import useStore from '../../store/useStore'
 import { CATALOG_CONFIG } from '../../config/catalogConfig'
 import { PALETTE_TEMPLATES } from '../../../../engine/catalog/paletteTemplates'
 import { isComponentLibraryItemVisible } from '../../config/componentLibraryVisibility'
 import { LibraryItem } from './LibraryItem'
+import { CustomDefinitionCreator, type DefinitionBuilderMode } from './CustomDefinitionCreator'
+import type { CatalogItem } from '@renderer/types/ui'
 
 export type ComponentLibraryFilter = 'all' | 'common'
 
@@ -20,6 +22,11 @@ const COMMON_IDS = new Set([
 ])
 
 const FILTERS: readonly ComponentLibraryFilter[] = ['common', 'all']
+const BUILDER_TEMPLATE_MODES: Readonly<Record<string, DefinitionBuilderMode>> = {
+  'generic-service': 'service',
+  'my-service': 'my-service',
+  'custom-node-builder': 'custom-node'
+}
 
 export function ComponentLibrarySidebarPanel({
   query,
@@ -32,6 +39,7 @@ export function ComponentLibrarySidebarPanel({
   onQueryChange: (value: string) => void
   onFilterChange: (value: ComponentLibraryFilter) => void
 }): React.JSX.Element {
+  const [builderMode, setBuilderMode] = useState<DefinitionBuilderMode | null>(null)
   const editPaletteList = useStore((state) => state.environmentProfile.capabilities.editPaletteList)
   const activeQuestion = useStore((state) => state.activeQuestion)
   const componentLibraryMode = useStore((state) => state.displaySettings.componentLibraryMode)
@@ -104,8 +112,16 @@ export function ComponentLibrarySidebarPanel({
     questionForbiddenNodeTypes
   ])
 
+  const handleBuilderActivate = (item: CatalogItem): void => {
+    const mode = BUILDER_TEMPLATE_MODES[item.templateId]
+    if (mode) setBuilderMode(mode)
+  }
+
   return (
     <>
+      {builderMode ? (
+        <CustomDefinitionCreator mode={builderMode} onClose={() => setBuilderMode(null)} />
+      ) : null}
       <div className="shrink-0 space-y-3 border-b border-nss-border p-4 pb-3">
         <h2 className="text-xs font-bold uppercase tracking-widest text-nss-muted">
           Component Library
@@ -157,9 +173,17 @@ export function ComponentLibrarySidebarPanel({
                 {category.title}
               </h3>
               <div className="grid grid-cols-1 gap-1 sm:grid-cols-2 lg:grid-cols-3">
-                {category.items.map((item) => (
-                  <LibraryItem key={item.id} item={item} />
-                ))}
+                {category.items.map((item) => {
+                  const builderModeForItem = BUILDER_TEMPLATE_MODES[item.templateId]
+                  return (
+                    <LibraryItem
+                      key={item.id}
+                      item={item}
+                      draggableItem={!builderModeForItem}
+                      onActivate={builderModeForItem ? handleBuilderActivate : undefined}
+                    />
+                  )
+                })}
               </div>
             </div>
           ))

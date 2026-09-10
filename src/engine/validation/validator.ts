@@ -854,12 +854,15 @@ export const validateTopology = (
     const replicationRole = node.config?.['replicationRole']
     if (
       replicationRole !== undefined &&
+      replicationRole !== 'leader' &&
+      replicationRole !== 'follower' &&
+      // Back-compat: older topologies used primary/replica for the same roles.
       replicationRole !== 'primary' &&
       replicationRole !== 'replica'
     ) {
       errors.push({
         path: `nodes[${index}].config.replicationRole`,
-        message: 'Replication role must be either Primary or Replica.'
+        message: 'Replication role must be either Leader or Follower.'
       })
     }
 

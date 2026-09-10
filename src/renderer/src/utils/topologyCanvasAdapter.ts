@@ -13,6 +13,7 @@ import type {
   PaletteTemplate,
   RoutingStrategy
 } from '../../../engine/catalog/nodeSpecTypes'
+import { isCustomNodeDefinition } from '../../../engine/catalog/customDefinitions'
 import type { EdgeSimulationData, ScenarioState } from '@renderer/types/ui'
 import { DEFAULT_SCENARIO_STATE } from '@renderer/types/ui'
 import type { NestedFileData, NestedNode } from './nodeTransformers'
@@ -207,12 +208,6 @@ function overlaySimulationConfig(
     sim.replicationEnabled = asBoolean(config['replicationEnabled'])
   }
   if (
-    config['replicationMode'] === 'primary-replica' ||
-    config['replicationMode'] === 'leader-follower'
-  ) {
-    sim.replicationMode = config['replicationMode']
-  }
-  if (
     config['replicationRole'] === 'primary' ||
     config['replicationRole'] === 'replica' ||
     config['replicationRole'] === 'leader' ||
@@ -366,6 +361,10 @@ function convertNode(
   const data = instantiateTemplate(template.id)
   data.label = node.label
 
+  if (isCustomNodeDefinition(node.config?.['customDefinition'])) {
+    data.customDefinition = structuredClone(node.config?.['customDefinition'])
+  }
+
   const routingStrategy = asRoutingStrategy(node.config?.['routingStrategy'])
   if (routingStrategy) {
     data.routingStrategy = routingStrategy
@@ -408,7 +407,8 @@ function edgeDataFromTopology(edge: EdgeDefinition): EdgeSimulationData {
     maxConcurrentRequests: edge.maxConcurrentRequests,
     packetLossRate: edge.packetLossRate * 100,
     errorRate: edge.errorRate * 100,
-    condition: edge.condition
+    condition: edge.condition,
+    fanoutFactor: edge.fanoutFactor
   }
 }
 

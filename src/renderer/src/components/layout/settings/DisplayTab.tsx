@@ -79,6 +79,18 @@ export function DisplayTab(): React.JSX.Element {
         />
       </SettingRow>
 
+      <SettingRow
+        label="Single point of failure badges"
+        hint="When on, nodes flagged as a single point of failure by the last run show the SPOF badge and a red ring on the canvas."
+      >
+        <Toggle
+          checked={displaySettings.showSpofBadges}
+          onChange={(showSpofBadges) =>
+            updateDisplaySettings((current) => ({ ...current, showSpofBadges }))
+          }
+        />
+      </SettingRow>
+
       <SectionLabel>Results</SectionLabel>
 
       <SettingRow

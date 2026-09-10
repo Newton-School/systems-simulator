@@ -35,9 +35,16 @@ import type { FieldPath } from '@renderer/config/fieldConfig'
 import type { AnyNodeData, EdgeSimulationData, NodeSimulationMetrics } from '@renderer/types/ui'
 import { useNodeMetrics } from '@renderer/hooks/useNodeMetrics'
 import type { CanvasNodeDataV2 } from '../../../../engine/catalog/nodeSpecTypes'
+import { applyDefinitionTraits } from '../../../../engine/catalog/customDefinitions'
+import { reconcileContractWithGraph } from '../../../../engine/catalog/contractReconciliation'
+import { BROADCAST_FANOUT_COMPONENT_TYPES } from '../../../../engine/traits/broadcastFanout'
+import type { ComponentType } from '../../../../engine/core/types'
 import useStore, { type EdgeFlowState } from '../../store/useStore'
 import { PropertiesHeader } from './PropertiesHeader'
 import { PropertiesForm } from './PropertiesForm'
+import { CustomDefinitionSection } from './CustomDefinitionSection'
+import { IdAllocationSection } from './IdAllocationSection'
+import { ConnectionCapacitySection } from './ConnectionCapacitySection'
 import { NodeMetricsDetail, SourceNodeMetricsDetail } from './NodeMetricsDetail'
 import { MetricItem } from './MetricItem'
 import type { EdgePropertiesPanelValue } from '../ui/EdgePropertiesPanel'
@@ -1419,6 +1426,25 @@ export const PropertiesPanel = ({ results = null }: { results?: SimulationOutput
   const selectedNode = nodes.find((node) => node.selected)
   const selectedEdge = edges.find((edge) => edge.selected)
   const selectedNodeId = selectedNode?.id
+
+  // Advisory contract ⇄ graph reconciliation for the selected custom-definition node
+  // (spec §21). Feedback only — never affects grading.
+  const contractFindings = useMemo(() => {
+    const definition = (selectedNode?.data as Partial<CanvasNodeDataV2> | undefined)
+      ?.customDefinition
+    if (!selectedNodeId || !definition) return []
+    const componentTypeByNodeId = new Map<string, ComponentType>()
+    for (const node of nodes) {
+      const type = (node.data as Partial<CanvasNodeDataV2> | undefined)?.componentType
+      if (type) componentTypeByNodeId.set(node.id, type)
+    }
+    return reconcileContractWithGraph({
+      definition,
+      nodeId: selectedNodeId,
+      edges: edges.map((edge) => ({ source: edge.source, target: edge.target })),
+      componentTypeByNodeId
+    })
+  }, [selectedNode, selectedNodeId, nodes, edges])
   const selectedNodeLocked = Boolean(
     selectedNodeId &&
     scaffoldNodeIds.includes(selectedNodeId) &&
@@ -1535,22 +1561,35 @@ export const PropertiesPanel = ({ results = null }: { results?: SimulationOutput
     // traffic reaching each target *is* the routing outcome - the honest source of
     // truth for cache-aside hit/miss, DNS weighting, sharding, etc. Surface it so
     // the split is visible instead of being inferred from a misleading node panel.
+    // A broadcast fan-out broker (pub/sub, event bus, message broker) replicates each
+    // received message to every subscriber. Its downstream "split" is therefore 100%
+    // per subscriber (replication), not a routing share — and its outbound counts are
+    // deliveries, not unique requests. Detect it so the results panel labels honestly.
+    const selectedComponentType = (data as { componentType?: ComponentType }).componentType
+    const isBroadcastFanout =
+      (selectedComponentType !== undefined &&
+        (BROADCAST_FANOUT_COMPONENT_TYPES as readonly string[]).includes(selectedComponentType)) ||
+      (data as { routingStrategy?: string }).routingStrategy === 'broadcast'
+
     const selectedOutboundEdges = edges.filter((edge) => edge.source === selectedNode.id)
     const downstreamSplit =
       selectedOutboundEdges.length > 1
         ? (() => {
+            // Post-warmup counts, to match the rest of the (post-warmup) panel — never
+            // mix the full-run window (totalAttempted) into this view.
             const rows = selectedOutboundEdges.map((edge) => ({
               targetLabel:
                 (nodes.find((n) => n.id === edge.target)?.data as { label?: string } | undefined)
                   ?.label ?? edge.target,
-              count: edgeFlowById[edge.id]?.totalAttempted ?? 0
+              count: edgeFlowById[edge.id]?.totalPostWarmupAttempted ?? 0
             }))
             const total = rows.reduce((sum, row) => sum + row.count, 0)
-            return total > 0
-              ? rows
-                  .map((row) => ({ ...row, share: row.count / total }))
-                  .sort((a, b) => b.share - a.share)
-              : undefined
+            if (total <= 0) return undefined
+            // Broadcast: each subscriber receives 100% of published messages (share = 1);
+            // load balancing / cache-aside: share is the fraction of outbound traffic.
+            return rows
+              .map((row) => ({ ...row, share: isBroadcastFanout ? 1 : row.count / total }))
+              .sort((a, b) => b.count - a.count)
           })()
         : undefined
 
@@ -1589,16 +1628,68 @@ export const PropertiesPanel = ({ results = null }: { results?: SimulationOutput
                 metrics={metrics}
                 configuredCacheHitRate={data.sim?.cacheHitRate}
                 downstreamSplit={downstreamSplit}
+                isBroadcastFanout={isBroadcastFanout}
               />
             )
           ) : (
-            <PropertiesForm
-              nodeId={selectedNode.id}
-              data={data}
-              onUpdate={handleUpdate}
-              resourcesLocked={!canEditResources}
-              executionProfileEnabled={canEditExecutionProfile}
-            />
+            <>
+              {data.sim?.connection ? (
+                <ConnectionCapacitySection
+                  connection={data.sim.connection}
+                  instanceCount={data.sim.resources?.instanceCount ?? 1}
+                  onChange={(connection) => {
+                    const nextSim = structuredClone(data.sim) as NonNullable<
+                      CanvasNodeDataV2['sim']
+                    >
+                    nextSim.connection = connection
+                    updateNodeData(selectedNode.id, { sim: nextSim })
+                  }}
+                />
+              ) : null}
+              {data.sim?.idAllocation ? (
+                <IdAllocationSection
+                  idAllocation={data.sim.idAllocation}
+                  onChange={({ idAllocation, distribution }) => {
+                    const nextSim = structuredClone(data.sim) as NonNullable<
+                      CanvasNodeDataV2['sim']
+                    >
+                    nextSim.idAllocation = idAllocation
+                    nextSim.processing = {
+                      distribution,
+                      timeout: nextSim.processing?.timeout ?? 1000
+                    }
+                    updateNodeData(selectedNode.id, { sim: nextSim })
+                  }}
+                />
+              ) : null}
+              {data.customDefinition ? (
+                <CustomDefinitionSection
+                  definition={data.customDefinition}
+                  contractFindings={contractFindings}
+                  onChange={(customDefinition) => {
+                    // Keep the stored definition and live sim.* in sync (honesty
+                    // contract §0.2 rule 4): re-project runtime traits whenever the
+                    // definition changes so they never drift apart.
+                    const nextData = structuredClone({
+                      ...data,
+                      customDefinition
+                    }) as CanvasNodeDataV2
+                    applyDefinitionTraits(nextData, customDefinition)
+                    updateNodeData(selectedNode.id, {
+                      customDefinition,
+                      sim: nextData.sim
+                    })
+                  }}
+                />
+              ) : null}
+              <PropertiesForm
+                nodeId={selectedNode.id}
+                data={data}
+                onUpdate={handleUpdate}
+                resourcesLocked={!canEditResources}
+                executionProfileEnabled={canEditExecutionProfile}
+              />
+            </>
           )}
         </div>
       </div>

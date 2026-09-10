@@ -18,7 +18,8 @@ import {
   getLensCard,
   getPreRunMetric,
   isPreRunMetricLens,
-  isRuntimeNodeInactive
+  isRuntimeNodeInactive,
+  isBroadcastFanoutData
 } from './nodePresentation'
 
 const ServiceNode = ({ id, data, selected }: NodeProps<ServiceNodeData>) => {
@@ -121,6 +122,7 @@ const ServiceNode = ({ id, data, selected }: NodeProps<ServiceNodeData>) => {
               lensCard={lensCard}
               identityChip={identityChip}
               preRunMetric={preRunMetric}
+              isBroadcastFanout={isBroadcastFanoutData(data)}
             />
           </div>
         </div>

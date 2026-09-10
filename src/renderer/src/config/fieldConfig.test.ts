@@ -136,6 +136,34 @@ describe('getNodeConfigSections', () => {
     expect(availabilityTarget?.displayAs?.fromDisplay(99.9, data)).toBeCloseTo(0.999, 6)
   })
 
+  it('offers leader/follower roles and no redundant topology selector for a replicated DB', () => {
+    const data = makeRuntimeNode({
+      templateId: 'sql-database',
+      componentType: 'relational-db',
+      structuralRole: 'storage',
+      profile: 'datastore',
+      label: 'SQL DB',
+      sim: {
+        queue: { workers: 8, capacity: 10, discipline: 'fifo' },
+        processing: {
+          distribution: { type: 'exponential', lambda: 0.125 },
+          timeout: 100
+        },
+        replicationEnabled: true
+      }
+    })
+
+    const sections = getNodeConfigSections(data)
+    const replication = sections.find((section) => section.id === 'replication')
+    const paths = replication?.fields.map((field) => field.path) ?? []
+    // The primary-replica vs leader-follower topology selector is gone (same mechanism).
+    expect(paths).not.toContain('sim.replicationMode')
+
+    const role = replication?.fields.find((field) => field.path === 'sim.replicationRole')
+    expect(role?.label).toBe('Database role')
+    expect(role?.options).toEqual(['leader', 'follower'])
+  })
+
   it('marks free-form metadata fields as text inputs', () => {
     const composite = makeCompositeNode({
       templateId: 'availability-zone',
