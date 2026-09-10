@@ -34,6 +34,7 @@ type EdgeRuntimeData = {
   errorRate?: number
   condition?: string
   weight?: number
+  fanoutFactor?: number
 }
 
 function asPositiveNumber(value: unknown): number | null {

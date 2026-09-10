@@ -28,10 +28,10 @@ export interface SimpleFault {
   atS: number
   durationS: number
   mode: FailureMode
-  /** degraded only: share of requests hit by the slowdown [0, 1]. */
-  degradedFraction: number
-  /** degraded only: service-time multiplier applied to the affected share. */
-  degradedServiceMultiplier: number
+  /** degraded only: share of requests hit by the slowdown [0, 1]. Defaults applied in buildFault. */
+  degradedFraction?: number
+  /** degraded only: service-time multiplier applied to the affected share. Defaults applied in buildFault. */
+  degradedServiceMultiplier?: number
 }
 
 export function readFault(fault: FaultSpec): SimpleFault {
@@ -71,8 +71,14 @@ export function buildFault(simple: SimpleFault): FaultSpec {
       ...(simple.mode === 'degraded'
         ? {
             degradation: {
-              fraction: Math.max(0, Math.min(1, simple.degradedFraction)),
-              serviceTimeMultiplier: Math.max(0, simple.degradedServiceMultiplier)
+              fraction: Math.max(
+                0,
+                Math.min(1, simple.degradedFraction ?? DEFAULT_DEGRADED_FRACTION)
+              ),
+              serviceTimeMultiplier: Math.max(
+                0,
+                simple.degradedServiceMultiplier ?? DEFAULT_DEGRADED_SERVICE_MULTIPLIER
+              )
             }
           }
         : {})
