@@ -496,10 +496,7 @@ export const EdgePropertiesPanel = ({
                 />
               </div>
               <div className="space-y-1">
-                <FieldLabel
-                  label="Weight"
-                  help="Relative share for weighted routing at the source. Each edge gets weight ÷ sum-of-sibling-weights of the traffic. Only applies when the source's strategy is Weighted. Empty = 1."
-                />
+                <FieldLabel label="Weight" help={EDGE_PROPERTY_HELP.weight} />
                 <input
                   type="number"
                   min={0}

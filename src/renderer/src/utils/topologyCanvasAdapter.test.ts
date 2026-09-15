@@ -256,7 +256,7 @@ describe('topologyCanvasAdapter', () => {
           id: 'events',
           type: 'stream',
           category: 'messaging-and-streaming',
-          role: 'broker',
+          role: 'processor',
           label: 'Event Stream',
           position: { x: 520, y: 0 },
           queue: { workers: 1, capacity: 100, discipline: 'fifo' },
