@@ -18,6 +18,7 @@ import 'reactflow/dist/style.css'
 import EmptyFlowState from '../ui/EmptyFlowState'
 import { RunToast } from '../ui/RunToast'
 import { CanvasLegend } from './CanvasLegend'
+import { RequestTraceOverlay } from './RequestTraceOverlay'
 import { MetricLensSwitcher } from './MetricLensSwitcher'
 // Hooks & Config
 import useStore from '@renderer/store/useStore'
@@ -597,6 +598,7 @@ const FlowCanvasInternal = ({
       </ReactFlow>
       {!isEmpty && showMetricLens && <MetricLensSwitcher />}
       {!isEmpty && showMetricLens && <CanvasLegend />}
+      <RequestTraceOverlay />
 
       {/* Empty State */}
       <EmptyFlowState isEmpty={isEmpty} />

@@ -64,6 +64,7 @@ import {
   type ReliabilityStatus
 } from '@renderer/utils/nodeHealthThresholds'
 import { simulatedArrivalBins, workloadRateMultiplierAtMs } from './resultsTrayWorkload'
+import { selectCoveringRequestIds } from '@renderer/utils/requestTraceCoverage'
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
@@ -1166,6 +1167,10 @@ function RequestOutcomeLog({
   graphLookup: EventGraphLookup
 }) {
   const selectGraphElements = useStore((state) => state.selectGraphElements)
+  const setTracedRequestIds = useStore((state) => state.setTracedRequestIds)
+  const tracedRequestIds = useStore((state) => state.tracedRequestIds)
+  const tracePaused = useStore((state) => state.tracePaused)
+  const setTracePaused = useStore((state) => state.setTracePaused)
   const [statusFilter, setStatusFilter] = useState<OutcomeStatusFilter>('all')
   const [query, setQuery] = useState('')
   const [page, setPage] = useState(1)
@@ -1541,8 +1546,32 @@ function RequestOutcomeLog({
                                 )}
                                 {row.stateTimeline.length > 0 && (
                                   <div className="mt-2 border-t border-nss-border/70 pt-2">
-                                    <div className="pb-1 text-[10px] font-semibold uppercase tracking-wider text-nss-muted">
-                                      State Timeline
+                                    <div className="flex items-center justify-between pb-1">
+                                      <div className="text-[10px] font-semibold uppercase tracking-wider text-nss-muted">
+                                        State Timeline
+                                      </div>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          const soleFollowed =
+                                            tracedRequestIds.length === 1 &&
+                                            tracedRequestIds[0] === row.requestId
+                                          if (soleFollowed) {
+                                            setTracePaused(!tracePaused)
+                                          } else {
+                                            setTracedRequestIds([row.requestId])
+                                          }
+                                        }}
+                                        className="rounded border border-nss-border px-1.5 py-0.5 text-[10px] font-semibold text-nss-muted transition-colors hover:border-nss-primary hover:text-nss-primary"
+                                        title="Animate this request's causal journey along the topology; click again to pause/resume"
+                                      >
+                                        {tracedRequestIds.length === 1 &&
+                                        tracedRequestIds[0] === row.requestId
+                                          ? tracePaused
+                                            ? '▶ Resume'
+                                            : '⏸ Pause'
+                                          : '▶ Follow on canvas'}
+                                      </button>
                                     </div>
                                     <ol className="space-y-1 text-[10px] text-nss-muted">
                                       {row.stateTimeline.map((transition, index) => {
@@ -4955,6 +4984,17 @@ export function ResultsTray({
   const [selectedComponent, setSelectedComponent] = useState<SelectedComponent | null>(null)
   const nodes = useStore((state) => state.nodes)
   const edges = useStore((state) => state.edges)
+  const tracedRequestIds = useStore((state) => state.tracedRequestIds)
+  const setTracedRequestIds = useStore((state) => state.setTracedRequestIds)
+  const isTracingFlow = tracedRequestIds.length > 1
+  const toggleRequestFlow = useCallback(() => {
+    if (tracedRequestIds.length > 1) {
+      setTracedRequestIds([])
+      return
+    }
+    const ids = selectCoveringRequestIds(results?.requestOutcomes ?? [], edges)
+    if (ids.length > 0) setTracedRequestIds(ids)
+  }, [tracedRequestIds, setTracedRequestIds, results, edges])
   const sourceNodeIds = useMemo(() => {
     const ids = new Set<string>()
     for (const node of nodes) {
@@ -5091,11 +5131,26 @@ export function ResultsTray({
       {results && (
         <>
           {visibleTabs.length > 0 && (
-            <div className="shrink-0 overflow-x-auto border-b border-nss-border px-4 py-2">
-              <div className="flex min-w-max items-center gap-2">
-                {visibleTabs.map((tab) => (
-                  <TabButton key={tab.id} tab={tab} activeTab={activeTab} onSelect={setActiveTab} />
-                ))}
+            <div className="shrink-0 border-b border-nss-border px-4 py-2">
+              <div className="flex w-full items-center gap-2">
+                <div className="flex items-center gap-2 overflow-x-auto">
+                  {visibleTabs.map((tab) => (
+                    <TabButton
+                      key={tab.id}
+                      tab={tab}
+                      activeTab={activeTab}
+                      onSelect={setActiveTab}
+                    />
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  onClick={toggleRequestFlow}
+                  className="ml-auto shrink-0 rounded border border-nss-border px-2 py-0.5 text-[11px] font-semibold text-nss-muted transition-colors hover:border-nss-primary hover:text-nss-primary"
+                  title="Animate a representative sample of real requests flowing across the topology — showing where they route, get cached, fan out, or are rejected"
+                >
+                  {isTracingFlow ? '■ Stop request flow' : '▶ Show request flow'}
+                </button>
               </div>
             </div>
           )}
