@@ -1,6 +1,6 @@
 import type { CanvasNodeDataV2, RoutingStrategy } from '../catalog/nodeSpecTypes'
 import { hasWorkloadSourceConfig, isSourceComponentData } from '../catalog/sourceNodeSemantics'
-import type { ComponentType } from '../core/types'
+import type { ComponentType, LocationProvider } from '../core/types'
 import { ackAndReleaseCapabilityModule } from './ackAndRelease'
 import { broadcastFanoutCapabilityModule } from './broadcastFanout'
 import { cacheCapabilityModule } from './cache'
@@ -8,10 +8,10 @@ import { circuitBreakerCapabilityModule } from './circuitBreaker'
 import { coldStartCapabilityModule } from './coldStart'
 import { CONTENT_ROUTING_COMPONENT_TYPES, contentRoutingCapabilityModule } from './contentRouting'
 import { consumerLagCapabilityModule } from './consumerLag'
+import { consumerGroupMembershipCapabilityModule } from './consumerGroupMembership'
 import { dnsRoutingPolicyCapabilityModule } from './dnsRoutingPolicy'
 import { healthAwareRoutingCapabilityModule } from './healthAwareRouting'
 import { idempotencyDedupCapabilityModule } from './idempotencyDedup'
-import { geoLatencyCapabilityModule } from './geoLatency'
 import { externalLatencyCapabilityModule } from './externalLatency'
 import { tieredRetrievalCapabilityModule } from './tieredRetrieval'
 import { cryptoCostCapabilityModule } from './cryptoCost'
@@ -41,6 +41,7 @@ import { INSTANCE_CATALOG, INSTANCE_TYPES, PRICING_MODELS } from '../catalog/ins
 import { getResourceDefaults } from '../catalog/resourceDefaults'
 import { deriveNodeConcurrency, effectivePerfFactor } from '../nodes/resourceDerivation'
 import { nodeCostPerHour } from '../analysis/cost'
+import { cloudRegionsForProvider } from '../catalog/locationCatalog'
 
 const CONTENT_ROUTING_COMPONENT_TYPE_SET = new Set<ComponentType>(CONTENT_ROUTING_COMPONENT_TYPES)
 
@@ -49,7 +50,11 @@ const DEFAULT_ROUTING_OPTIONS: readonly RoutingStrategy[] = [
   'round-robin',
   'random',
   'weighted',
-  'least-conn'
+  'least-conn',
+  'least-response-time',
+  'p2c',
+  'sticky',
+  'ip-hash'
 ]
 
 const CONTENT_ROUTING_OPTIONS: readonly RoutingStrategy[] = [
@@ -57,6 +62,10 @@ const CONTENT_ROUTING_OPTIONS: readonly RoutingStrategy[] = [
   'random',
   'weighted',
   'least-conn',
+  'least-response-time',
+  'p2c',
+  'sticky',
+  'ip-hash',
   'conditional'
 ]
 
@@ -222,6 +231,14 @@ const SOURCE_WORKLOAD_MODULE: NodeCapabilityModule = {
             label: 'Base RPS',
             unit: 'req/s',
             why: 'Sets the baseline request rate for this source.'
+          },
+          {
+            path: 'source.defaultWorkload.origins',
+            type: 'input',
+            inputType: 'text',
+            label: 'Traffic origins',
+            renderer: 'traffic-origins',
+            why: 'Defines weighted client populations used for request-aware network latency and routing.'
           }
         ]
       },
@@ -332,7 +349,16 @@ const ROUTING_STRATEGY_MODULE: NodeCapabilityModule = {
             type: 'select',
             label: 'Strategy',
             options: resolveRoutingOptions,
-            why: 'Controls how this router chooses among eligible downstream targets.'
+            why: 'Controls how this router chooses among eligible downstream targets. "Sticky" and "IP hash" send the same client/session to the same backend (session affinity).'
+          },
+          {
+            path: 'sim.stickyKeyField',
+            type: 'input',
+            inputType: 'text',
+            label: 'Sticky key field',
+            visible: (data) => data.routingStrategy === 'sticky',
+            placeholder: 'sessionId (falls back to the request key)',
+            why: 'Request field hashed for session affinity. Defaults to sessionId, then the workload key. IP hash always uses clientIp instead.'
           }
         ]
       }
@@ -340,8 +366,15 @@ const ROUTING_STRATEGY_MODULE: NodeCapabilityModule = {
   },
   defaults: [],
   honesty: {
-    simulates: ['route selection strategy at the node level'],
-    notModeled: ['per-connection stickiness, protocol-specific balancing heuristics']
+    simulates: [
+      'route selection strategy at the node level',
+      'load-aware strategies: least-connections, least-response-time, power-of-two-choices',
+      'session affinity (sticky / ip-hash) placed on a consistent-hash ring, so pool changes reassign only ~1/N of keys'
+    ],
+    notModeled: [
+      'per-connection stickiness below the request level',
+      'protocol-specific balancing heuristics'
+    ]
   }
 }
 
@@ -353,26 +386,79 @@ const COMPOSITE_LOCATION_MODULE: NodeCapabilityModule = {
       {
         id: 'location',
         title: 'Location',
-        note: 'Grouping container — not simulated as a node. It shapes edge latency by where nodes sit: same subnet → same-rack, same AZ → same-dc, same region → cross-zone, different region → cross-region. This only fills an edge’s default latency; a latency set on an edge manually is kept. This field is descriptive metadata for labels/export and renderer-side location rollups; latency math uses containment, not this text. (AZ fault-domain failure and distance-aware cross-region latency are not modeled yet.)',
+        note: 'A placement boundary, not a queueing node. Region provider/code and containment are serialized and continue to feed renderer-side location rollups. Auto-derived edges use distance-aware latency when both endpoints are placed; an explicit edge latency always wins.',
         noteTone: 'info',
         fields: [
+          {
+            path: 'sim.locationProvider',
+            type: 'select',
+            label: 'Cloud provider',
+            options: ['aws', 'gcp', 'azure', 'ibm', 'custom'],
+            visible: (data) => data.templateId === 'vpc-region',
+            why: 'Selects the provider-specific region catalogue. Custom regions use authored coordinates.'
+          },
+          {
+            path: 'sim.locationId',
+            type: 'select',
+            label: (data) =>
+              data.templateId === 'vpc-region'
+                ? 'Exact region code'
+                : data.templateId === 'availability-zone'
+                  ? 'AZ ID'
+                  : 'Subnet / CIDR',
+            options: (data) =>
+              data.templateId === 'vpc-region' &&
+              data.sim?.locationProvider &&
+              data.sim.locationProvider !== 'custom'
+                ? cloudRegionsForProvider(data.sim.locationProvider as LocationProvider).map(
+                    (region) => region.code
+                  )
+                : [],
+            visible: (data) =>
+              data.templateId === 'vpc-region' && data.sim?.locationProvider !== 'custom',
+            why: 'Uses the cloud provider’s canonical code and catalogue coordinates.'
+          },
           {
             path: 'sim.locationId',
             type: 'input',
             inputType: 'text',
             label: (data) =>
               data.templateId === 'vpc-region'
-                ? 'Region ID'
+                ? 'Custom region code'
                 : data.templateId === 'availability-zone'
                   ? 'AZ ID'
                   : 'Subnet / CIDR',
             placeholder: (data) =>
               data.templateId === 'vpc-region'
-                ? 'e.g. us-east-1'
+                ? 'e.g. on-prem-mumbai'
                 : data.templateId === 'availability-zone'
                   ? 'e.g. us-east-1a'
                   : 'e.g. 10.0.1.0/24',
-            why: 'A human label for this boundary. Today it is metadata only; the latency math uses which container a node sits in, not this text.'
+            visible: (data) =>
+              data.templateId !== 'vpc-region' || data.sim?.locationProvider === 'custom',
+            why: 'The exact provider code, zone name, or subnet identifier for this boundary.'
+          },
+          {
+            path: 'sim.locationLatitude',
+            type: 'input',
+            label: 'Latitude',
+            min: -90,
+            max: 90,
+            step: 0.0001,
+            visible: (data) =>
+              data.templateId === 'vpc-region' && data.sim?.locationProvider === 'custom',
+            why: 'Coordinates let the geo model estimate network distance for a custom region.'
+          },
+          {
+            path: 'sim.locationLongitude',
+            type: 'input',
+            label: 'Longitude',
+            min: -180,
+            max: 180,
+            step: 0.0001,
+            visible: (data) =>
+              data.templateId === 'vpc-region' && data.sim?.locationProvider === 'custom',
+            why: 'Coordinates let the geo model estimate network distance for a custom region.'
           }
         ]
       }
@@ -380,12 +466,8 @@ const COMPOSITE_LOCATION_MODULE: NodeCapabilityModule = {
   },
   defaults: [],
   honesty: {
-    simulates: ['groups nodes so cross-boundary edge latency can be derived'],
-    notModeled: [
-      'fault-domain failure',
-      'distance-aware cross-region latency',
-      'IP/CIDR validation'
-    ]
+    simulates: ['provider region placement', 'distance-aware auto edge latency'],
+    notModeled: ['automatic fault-domain failure', 'IP/CIDR routing and validation']
   }
 }
 
@@ -874,6 +956,7 @@ export const TRAIT_CAPABILITY_MODULES: readonly NodeCapabilityModule[] = [
   contentRoutingCapabilityModule,
   healthAwareRoutingCapabilityModule,
   broadcastFanoutCapabilityModule,
+  consumerGroupMembershipCapabilityModule,
   cacheCapabilityModule,
   coldStartCapabilityModule,
   keyBasedRoutingCapabilityModule,
@@ -892,7 +975,6 @@ export const TRAIT_CAPABILITY_MODULES: readonly NodeCapabilityModule[] = [
   reservationStoreCapabilityModule,
   memoryPressureCapabilityModule,
   ackAndReleaseCapabilityModule,
-  geoLatencyCapabilityModule,
   externalLatencyCapabilityModule,
   tieredRetrievalCapabilityModule,
   cryptoCostCapabilityModule,

@@ -1,6 +1,8 @@
 import {
+  MATCH_OPERATORS,
   REQUEST_MATCH_FIELDS,
   requestFieldMatches,
+  type MatchOperator,
   type RequestMatchField
 } from '../core/requestSemantics'
 import type { ComponentType } from '../core/types'
@@ -17,10 +19,16 @@ export const CONTENT_ROUTING_MATCH_FIELDS = REQUEST_MATCH_FIELDS
 
 export type ContentRoutingMatchField = RequestMatchField
 
+export type ContentRoutingMatchOperator = MatchOperator
+
 export interface ContentRoutingRule {
   matchField: ContentRoutingMatchField
   matchValue: string
   targetNodeId: string
+  /** Comparison operator; defaults to `equals` when omitted (back-compat). */
+  matchOperator?: ContentRoutingMatchOperator
+  /** Header name to match when `matchField` is `header`. */
+  matchKey?: string
 }
 
 export const L4_CONTENT_ROUTING_FORBIDDEN_MESSAGE = validationMessage('contentRoutingNotAllowed')
@@ -30,14 +38,18 @@ function isContentRoutingRule(value: unknown): value is ContentRoutingRule {
     return false
   }
   const rule = value as Partial<ContentRoutingRule>
-  return (
+  const fieldOk =
     typeof rule.matchField === 'string' &&
-    (CONTENT_ROUTING_MATCH_FIELDS as readonly string[]).includes(rule.matchField) &&
-    typeof rule.matchValue === 'string' &&
-    rule.matchValue.length > 0 &&
-    typeof rule.targetNodeId === 'string' &&
-    rule.targetNodeId.length > 0
-  )
+    (CONTENT_ROUTING_MATCH_FIELDS as readonly string[]).includes(rule.matchField)
+  const valueOk = typeof rule.matchValue === 'string' && rule.matchValue.length > 0
+  const targetOk = typeof rule.targetNodeId === 'string' && rule.targetNodeId.length > 0
+  const operatorOk =
+    rule.matchOperator === undefined ||
+    (MATCH_OPERATORS as readonly string[]).includes(rule.matchOperator)
+  // A `header` rule must name which header to read.
+  const keyOk =
+    rule.matchField !== 'header' || (typeof rule.matchKey === 'string' && rule.matchKey.length > 0)
+  return fieldOk && valueOk && targetOk && operatorOk && keyOk
 }
 
 export function parseRoutingRules(value: unknown): ContentRoutingRule[] {
@@ -56,7 +68,13 @@ export const contentRoutingTrait: NodeBehaviourTrait = {
     }
 
     const matchedRule = rules.find((rule) =>
-      requestFieldMatches(request, rule.matchField, rule.matchValue)
+      requestFieldMatches(
+        request,
+        rule.matchField,
+        rule.matchValue,
+        rule.matchOperator ?? 'equals',
+        rule.matchKey
+      )
     )
     if (!matchedRule) {
       return { routes: candidates, decision: 'no-rule-matched' }
@@ -118,7 +136,10 @@ export const contentRoutingCapabilityModule: NodeCapabilityModule = {
   },
   defaults: [],
   honesty: {
-    simulates: ['request matching by type, method, path, or host'],
-    notModeled: ['header transforms, regex matching, SSL termination overhead']
+    simulates: [
+      'request matching by type, method, path, host, or a named header',
+      'equals / prefix / regex match operators'
+    ],
+    notModeled: ['header transforms/rewrites', 'SSL termination overhead']
   }
 }

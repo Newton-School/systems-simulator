@@ -31,7 +31,7 @@ export interface EdgePropertiesPanelProps {
   children?: ReactNode
   onChange: (patch: Partial<EdgePropertiesPanelValue>) => void
   onClose: () => void
-  /** Lock the config form (edge results stay interactive). V1 assignment mode. */
+  /** Lock editable fields (edge results stay interactive). V1 assignment mode. */
   readOnly?: boolean
   /**
    * Connector mode (`edgeModel === 'connector'`): the edge is a dumb wire that only
@@ -249,6 +249,7 @@ export const EdgePropertiesPanel = ({
               onChange={(e) => onChange({ label: e.target.value })}
               placeholder="e.g. reads, writes, publishes"
               className={CONTROL_CLASS}
+              disabled={readOnly}
             />
           </div>
         </div>
@@ -491,6 +492,26 @@ export const EdgePropertiesPanel = ({
                   step={1}
                   value={value.maxConcurrentRequests ?? defaults.maxConcurrentRequests}
                   onChange={(e) => onChange({ maxConcurrentRequests: Number(e.target.value) })}
+                  className={CONTROL_CLASS}
+                />
+              </div>
+              <div className="space-y-1">
+                <FieldLabel label="Weight" help={EDGE_PROPERTY_HELP.weight} />
+                <input
+                  type="number"
+                  min={0}
+                  step={1}
+                  value={value.weight ?? ''}
+                  placeholder="1"
+                  onChange={(e) => {
+                    const parsed = Number(e.target.value)
+                    onChange({
+                      weight:
+                        e.target.value === '' || !Number.isFinite(parsed) || parsed <= 0
+                          ? undefined
+                          : parsed
+                    })
+                  }}
                   className={CONTROL_CLASS}
                 />
               </div>

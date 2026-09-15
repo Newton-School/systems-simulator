@@ -20,6 +20,7 @@ type NodeMetricContentProps = {
   runtimeClassName?: string
   preRunClassName?: string
   isBroadcastFanout?: boolean
+  effects?: string[]
 }
 
 export function NodeMetricContent({
@@ -37,7 +38,8 @@ export function NodeMetricContent({
   identityClassName = 'min-w-0',
   runtimeClassName,
   preRunClassName = 'grid grid-cols-1 gap-4',
-  isBroadcastFanout = false
+  isBroadcastFanout = false,
+  effects = []
 }: NodeMetricContentProps) {
   if (isInactive) {
     return <p className={inactiveClassName}>No post-warmup traffic</p>
@@ -52,6 +54,7 @@ export function NodeMetricContent({
         timedOut={timedOut}
         className={runtimeClassName}
         isBroadcastFanout={isBroadcastFanout}
+        effects={effects}
       />
     )
   }

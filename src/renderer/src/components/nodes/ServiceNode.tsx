@@ -19,7 +19,8 @@ import {
   getPreRunMetric,
   isPreRunMetricLens,
   isRuntimeNodeInactive,
-  isBroadcastFanoutData
+  isBroadcastFanoutData,
+  describeNodeEffects
 } from './nodePresentation'
 
 const ServiceNode = ({ id, data, selected }: NodeProps<ServiceNodeData>) => {
@@ -72,6 +73,7 @@ const ServiceNode = ({ id, data, selected }: NodeProps<ServiceNodeData>) => {
     hasRuntime
   )
   const capacityStyle = getRuntimeCapacityStyle({ utilization, queueDepth }, hasRuntime)
+  const effects = hasRuntime ? describeNodeEffects(metrics) : []
 
   // After a simulation run, nodes that received zero post-warmup traffic are
   // visually muted so users can see at a glance which nodes stayed inactive.
@@ -123,6 +125,7 @@ const ServiceNode = ({ id, data, selected }: NodeProps<ServiceNodeData>) => {
               identityChip={identityChip}
               preRunMetric={preRunMetric}
               isBroadcastFanout={isBroadcastFanoutData(data)}
+              effects={effects}
             />
           </div>
         </div>

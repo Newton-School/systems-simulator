@@ -91,6 +91,7 @@ const ICON_BY_TEMPLATE: Record<string, LucideIcon> = {
   'discovery-service': BookOpen,
   'client-user': Monitor,
   dns: Navigation,
+  'global-traffic-manager': Globe,
   cdn: Wifi,
   'api-gateway': Globe,
   'message-queue': BellRing,

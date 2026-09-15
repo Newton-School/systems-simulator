@@ -46,7 +46,7 @@ export const CATALOG_CONFIG: CatalogCategory[] = [
   {
     id: 'clients-edge',
     title: 'Clients & Edge',
-    items: getItems(['client-user', 'dns', 'cdn'])
+    items: getItems(['client-user', 'dns', 'global-traffic-manager', 'cdn'])
   },
   {
     id: 'network',
@@ -54,7 +54,9 @@ export const CATALOG_CONFIG: CatalogCategory[] = [
     items: getItems([
       'api-gateway',
       'connection-server',
-      'load-balancer',
+      // Generic 'load-balancer' is intentionally hidden from the palette: it is a
+      // redundant catch-all that blurs the L4-vs-L7 distinction. The type still
+      // exists so saved topologies keep loading; author new designs with L4 or L7.
       'load-balancer-l4',
       'load-balancer-l7',
       'ingress-controller',

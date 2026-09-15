@@ -47,7 +47,7 @@ export const VpcHeader = memo(
         <div className="flex min-w-0 flex-1 items-center overflow-hidden">
           {onLabelChange ? (
             <InlineEditableLabel
-              value={label || 'VPC Region'}
+              value={label || 'Region'}
               onSave={(newLabel) => onLabelChange(newLabel)}
               wrapLines={2}
               textClassName="min-w-0 w-full text-xs font-bold text-nss-muted uppercase tracking-wider"
@@ -63,7 +63,7 @@ export const VpcHeader = memo(
               }}
               className="min-w-0 break-words text-xs font-bold text-nss-muted uppercase tracking-wider leading-tight"
             >
-              {label || 'VPC Region'}
+              {label || 'Region'}
             </span>
           )}
         </div>

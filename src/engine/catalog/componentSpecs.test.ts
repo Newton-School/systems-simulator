@@ -194,7 +194,7 @@ describe('component spec validation copy', () => {
         processing: { distribution: { type: 'constant', value: 1 }, timeout: 1_000 },
         routingRules: [
           {
-            matchField: 'header',
+            matchField: 'cookie',
             matchValue: '',
             targetNodeId: ''
           }
@@ -242,7 +242,7 @@ describe('component spec validation copy', () => {
         'Read latency must be greater than 0 ms.',
         'Write latency must be greater than 0 ms.',
         'Replication role must be Primary, Replica, Leader, or Follower.',
-        'Routing rule 1 uses an unsupported match field. Choose Type, Method, Path, Host.',
+        'Routing rule 1 uses an unsupported match field. Choose Type, Method, Path, Host, Header.',
         'Routing rule 1 needs a match value.',
         'Routing rule 1 needs a target node.',
         validationMessage('requestDistributionEmpty'),

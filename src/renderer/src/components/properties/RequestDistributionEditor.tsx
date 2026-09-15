@@ -53,6 +53,60 @@ function writeMetadataField(
   }
 }
 
+type KeyspaceConfig = NonNullable<RequestDistributionEntry['keyspace']>
+
+function writeKeyspace(
+  entry: RequestDistributionEntry,
+  patch: Partial<{ field: string; size: number; skew: number }>
+): RequestDistributionEntry {
+  const current = entry.keyspace
+  const field = patch.field !== undefined ? patch.field : (current?.field ?? '')
+  const size = patch.size !== undefined ? patch.size : (current?.size ?? 0)
+  const skew = patch.skew !== undefined ? patch.skew : current?.skew
+
+  const trimmedField = field.trim()
+  // A keyspace only exists once it has a field and a positive size.
+  if (trimmedField.length === 0 || !Number.isFinite(size) || size <= 0) {
+    const { keyspace: _drop, ...rest } = entry
+    void _drop
+    return rest
+  }
+
+  const keyspace: KeyspaceConfig = { field: trimmedField, size: Math.floor(size) }
+  if (typeof skew === 'number' && Number.isFinite(skew) && skew > 0) {
+    keyspace.skew = skew
+  }
+  return { ...entry, keyspace }
+}
+
+// Headers live under metadata.headers as a flat string map.
+function readHeaders(entry: RequestDistributionEntry): [string, string][] {
+  const headers = entry.metadata?.headers
+  if (!headers || typeof headers !== 'object') return []
+  return Object.entries(headers as Record<string, unknown>).map(([k, v]) => [k, String(v ?? '')])
+}
+
+function writeHeaders(
+  entry: RequestDistributionEntry,
+  headers: [string, string][]
+): RequestDistributionEntry {
+  const metadata = cloneMetadata(entry)
+  const map: Record<string, string> = {}
+  for (const [k, v] of headers) {
+    const name = k.trim()
+    if (name.length > 0) map[name] = v
+  }
+  if (Object.keys(map).length > 0) {
+    metadata.headers = map
+  } else {
+    delete metadata.headers
+  }
+  return {
+    ...entry,
+    metadata: Object.keys(metadata).length > 0 ? metadata : undefined
+  }
+}
+
 interface RequestDistributionEditorProps {
   entries: RequestDistributionEntry[]
   onChange: (entries: RequestDistributionEntry[]) => void
@@ -81,6 +135,17 @@ export const RequestDistributionEditor = ({
 
   const updateMetadataField = (index: number, field: EditableMetadataField, value: string) => {
     updateEntry(index, writeMetadataField(entries[index], field, value))
+  }
+
+  const updateKeyspace = (
+    index: number,
+    patch: Partial<{ field: string; size: number; skew: number }>
+  ) => {
+    updateEntry(index, writeKeyspace(entries[index], patch))
+  }
+
+  const updateHeaders = (index: number, headers: [string, string][]) => {
+    updateEntry(index, writeHeaders(entries[index], headers))
   }
 
   const addEntry = () => {
@@ -180,6 +245,97 @@ export const RequestDistributionEditor = ({
                 placeholder="Path, e.g. /checkout"
                 onChange={(event) => updateMetadataField(index, 'path', event.target.value)}
               />
+            </div>
+
+            <div>
+              <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-nss-muted">
+                Keyspace{' '}
+                <span className="font-normal normal-case">
+                  — drives affinity, sharding, cache & partitioning
+                </span>
+              </p>
+              <div className="grid gap-2 md:grid-cols-[minmax(0,1.2fr)_6rem_6rem]">
+                <Input
+                  type="text"
+                  value={entry.keyspace?.field ?? ''}
+                  placeholder="Key field, e.g. sessionId / shardKey"
+                  onChange={(event) => updateKeyspace(index, { field: event.target.value })}
+                />
+                <Input
+                  type="number"
+                  min={0}
+                  step={1}
+                  value={entry.keyspace?.size ?? ''}
+                  placeholder="# keys"
+                  onChange={(event) => updateKeyspace(index, { size: Number(event.target.value) })}
+                />
+                <Input
+                  type="number"
+                  min={0}
+                  step={0.1}
+                  value={entry.keyspace?.skew ?? ''}
+                  placeholder="skew (0=uniform)"
+                  onChange={(event) => updateKeyspace(index, { skew: Number(event.target.value) })}
+                />
+              </div>
+            </div>
+
+            <div>
+              <div className="mb-1 flex items-center justify-between">
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-nss-muted">
+                  Headers{' '}
+                  <span className="font-normal normal-case">— for header-based routing</span>
+                </p>
+                <button
+                  type="button"
+                  onClick={() => updateHeaders(index, [...readHeaders(entry), ['', '']])}
+                  className="rounded border border-dashed border-nss-border px-2 py-0.5 text-[10px] font-semibold text-nss-muted transition-colors hover:border-nss-primary hover:text-nss-primary"
+                >
+                  + Header
+                </button>
+              </div>
+              <div className="space-y-1.5">
+                {readHeaders(entry).map((header, headerIndex) => (
+                  <div
+                    key={headerIndex}
+                    className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-1.5"
+                  >
+                    <Input
+                      type="text"
+                      value={header[0]}
+                      placeholder="Name, e.g. X-Api-Version"
+                      onChange={(event) => {
+                        const next = readHeaders(entry)
+                        next[headerIndex] = [event.target.value, next[headerIndex][1]]
+                        updateHeaders(index, next)
+                      }}
+                    />
+                    <Input
+                      type="text"
+                      value={header[1]}
+                      placeholder="Value, e.g. 2"
+                      onChange={(event) => {
+                        const next = readHeaders(entry)
+                        next[headerIndex] = [next[headerIndex][0], event.target.value]
+                        updateHeaders(index, next)
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() =>
+                        updateHeaders(
+                          index,
+                          readHeaders(entry).filter((_, i) => i !== headerIndex)
+                        )
+                      }
+                      aria-label="Remove header"
+                      className="shrink-0 rounded border border-nss-border px-2 text-xs text-nss-muted transition-colors hover:border-nss-danger hover:text-nss-danger"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         ))}

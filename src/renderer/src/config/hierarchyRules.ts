@@ -17,16 +17,16 @@ const DEFAULT_ALLOWED_PARENTS: readonly AllowedParent[] = [
 export const HIERARCHY_RULES: Record<string, HierarchyRule> = {
   'vpc-region': {
     allowedParents: [ROOT_PARENT],
-    errorMessage: 'VPC Regions can only be placed on the root canvas.'
+    errorMessage: 'Regions can only be placed on the root canvas.'
   },
   'availability-zone': {
     allowedParents: [ROOT_PARENT, 'vpc-region'],
-    errorMessage: 'Availability Zones can only be placed on the root canvas or inside a VPC Region.'
+    errorMessage: 'Availability Zones can only be placed on the root canvas or inside a Region.'
   },
   subnet: {
     allowedParents: [ROOT_PARENT, 'vpc-region', 'availability-zone'],
     errorMessage:
-      'Subnets can only be placed on the root canvas, inside a VPC Region, or inside an Availability Zone.'
+      'Subnets can only be placed on the root canvas, inside a Region, or inside an Availability Zone.'
   }
 }
 

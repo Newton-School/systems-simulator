@@ -1,4 +1,3 @@
-import { useMemo } from 'react'
 import ServiceNode from '../../nodes/ServiceNode'
 import VpcNode from '../../nodes/VpcNode'
 import ComputeNode from '../../nodes/ComputeNode'
@@ -17,22 +16,16 @@ export const nodeTypes = {
   [TEXT_LABEL_NODE_TYPE]: TextLabelNode
 }
 
-export const useFlowConfig = () => {
-  const edgeTypes = useMemo(
-    () => ({
-      packet: PacketEdge
-    }),
-    []
-  )
+// Module-level constants (stable identity for the life of the module) so React
+// Flow never sees a new nodeTypes/edgeTypes object — this is React Flow's own
+// recommendation and avoids warning #002 even when the canvas remounts (it is
+// lazy-loaded), which a per-component useMemo would not.
+export const edgeTypes = {
+  packet: PacketEdge
+}
 
-  const defaultEdgeOptions = useMemo(
-    () => ({
-      type: 'packet',
-      animated: true,
-      style: { stroke: '#94A3B8', strokeWidth: 2 }
-    }),
-    []
-  )
-
-  return { edgeTypes, defaultEdgeOptions }
+export const defaultEdgeOptions = {
+  type: 'packet',
+  animated: true,
+  style: { stroke: '#94A3B8', strokeWidth: 2 }
 }

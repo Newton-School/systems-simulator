@@ -1,6 +1,7 @@
 import type { EventType, SimulationEvent } from './events'
 import type { RequestOutcomeFamily, RequestOutcomeStatusClass } from './requestOutcomeSemantics'
 import type { RequestSemanticsSnapshot, RequestStateTransition } from './simulationSemantics'
+import type { TrafficOriginLocation } from './types'
 
 export const CANONICAL_EVENT_TYPES = [
   'request-generated',
@@ -70,6 +71,12 @@ export interface RequestOutcomeRecord {
   /** End-to-end latency (ms) for terminal requests; null while in flight. */
   latencyMs: number | null
   requestType: string | null
+  originId?: string
+  originLabel?: string
+  originLocation?: TrafficOriginLocation
+  servingRegionId?: string
+  servingRegionLabel?: string
+  cacheOutcome?: 'hit' | 'miss'
   method: string | null
   host: string | null
   path: string | null

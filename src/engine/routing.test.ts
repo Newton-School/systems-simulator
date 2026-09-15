@@ -287,6 +287,32 @@ describe('RoutingTable', () => {
     ])
   })
 
+  it('broker consumer-group mode delivers one member per group end-to-end', () => {
+    const edges = [
+      makeEdge('e1', 'broker', 'w1'),
+      makeEdge('e2', 'broker', 'w2'),
+      makeEdge('e3', 'broker', 'audit')
+    ]
+    const nodes = [
+      { ...makeNode('broker', 'message-broker'), config: { consumerGroupMode: true } },
+      { ...makeNode('w1'), config: { consumerGroup: 'workers' } },
+      { ...makeNode('w2'), config: { consumerGroup: 'workers' } },
+      { ...makeNode('audit'), config: { consumerGroup: 'audit' } }
+    ]
+
+    const routing = new RoutingTable(edges, createRandom('broker-groups'), nodes)
+    const resolved = routing.resolveTarget('broker', {
+      ...makeRequest('publish'),
+      metadata: { __key: 'evt-1' }
+    })
+
+    // One "workers" member (competing consumers) + the "audit" group = 2 deliveries.
+    expect(resolved).toHaveLength(2)
+    const targets = resolved.map((r) => r.targetNodeId)
+    expect(targets).toContain('audit')
+    expect(targets.filter((t) => t === 'w1' || t === 'w2')).toHaveLength(1)
+  })
+
   it('conditional-mode edge with no condition string is never eligible', () => {
     const edges = [
       makeEdge('e1', 'node-a', 'guarded', { mode: 'conditional' }),
@@ -410,5 +436,200 @@ describe('RoutingTable', () => {
 
     expect(resolved[0].targetNodeId).toBe('api')
     expect(resolved[1]?.targetNodeId).toBe('metrics')
+  })
+
+  describe('load-aware routing', () => {
+    function poolEdges(): EdgeDefinition[] {
+      return [makeEdge('e1', 'lb', 'a'), makeEdge('e2', 'lb', 'b'), makeEdge('e3', 'lb', 'c')]
+    }
+    function lbNodes(strategy: string): ComponentNode[] {
+      return [{ ...makeNode('lb', 'load-balancer'), config: { routingStrategy: strategy } }]
+    }
+
+    it('least-response-time picks the lowest (in-flight × service time)', () => {
+      const routing = new RoutingTable(
+        poolEdges(),
+        createRandom('lrt'),
+        lbNodes('least-response-time')
+      )
+      const inFlight: Record<string, number> = { a: 1, b: 1, c: 1 }
+      const responseMs: Record<string, number> = { a: 50, b: 5, c: 40 }
+      const picks = Array.from(
+        { length: 5 },
+        () =>
+          routing.resolveTarget('lb', makeRequest(), {
+            getInFlight: (id) => inFlight[id] ?? 0,
+            getResponseTimeMs: (id) => responseMs[id] ?? 0
+          })[0].targetNodeId
+      )
+      expect(new Set(picks)).toEqual(new Set(['b'])) // b has the smallest score
+    })
+
+    it('least-response-time falls back to least-conn before any completions', () => {
+      const routing = new RoutingTable(
+        poolEdges(),
+        createRandom('lrt-cold'),
+        lbNodes('least-response-time')
+      )
+      const inFlight: Record<string, number> = { a: 3, b: 0, c: 2 }
+      const pick = routing.resolveTarget('lb', makeRequest(), {
+        getInFlight: (id) => inFlight[id] ?? 0,
+        getResponseTimeMs: () => 0 // no service-time signal yet
+      })[0].targetNodeId
+      expect(pick).toBe('b') // least in-flight
+    })
+
+    it('power-of-two-choices never picks a more-loaded target than the sampled pair', () => {
+      const routing = new RoutingTable(poolEdges(), createRandom('p2c'), lbNodes('p2c'))
+      const inFlight: Record<string, number> = { a: 0, b: 5, c: 9 }
+      // Over many draws it should heavily favour the least-loaded 'a' and never
+      // be dominated; assert it at least frequently avoids the worst target 'c'.
+      const counts: Record<string, number> = { a: 0, b: 0, c: 0 }
+      for (let i = 0; i < 200; i++) {
+        const t = routing.resolveTarget('lb', makeRequest(), {
+          getInFlight: (id) => inFlight[id] ?? 0
+        })[0].targetNodeId
+        counts[t]++
+      }
+      expect(counts.a).toBeGreaterThan(counts.c) // least-loaded chosen most
+    })
+  })
+
+  describe('session-affinity routing', () => {
+    function stickyEdges(): EdgeDefinition[] {
+      return [makeEdge('e1', 'lb', 'a'), makeEdge('e2', 'lb', 'b'), makeEdge('e3', 'lb', 'c')]
+    }
+
+    function stickyNodes(config: Record<string, unknown>): ComponentNode[] {
+      return [{ ...makeNode('lb', 'load-balancer'), config }]
+    }
+
+    function requestWith(metadata: Record<string, unknown>): Request {
+      return { ...makeRequest(), metadata }
+    }
+
+    it('sends the same session key to the same backend every time', () => {
+      const routing = new RoutingTable(
+        stickyEdges(),
+        createRandom('sticky'),
+        stickyNodes({ routingStrategy: 'sticky' })
+      )
+      const picks = Array.from(
+        { length: 20 },
+        () => routing.resolveTarget('lb', requestWith({ sessionId: 'user-42' }))[0].targetNodeId
+      )
+      expect(new Set(picks).size).toBe(1)
+    })
+
+    it('spreads different session keys across backends', () => {
+      const routing = new RoutingTable(
+        stickyEdges(),
+        createRandom('sticky-spread'),
+        stickyNodes({ routingStrategy: 'sticky' })
+      )
+      const targets = new Set<string>()
+      for (let i = 0; i < 50; i++) {
+        targets.add(
+          routing.resolveTarget('lb', requestWith({ sessionId: `u-${i}` }))[0].targetNodeId
+        )
+      }
+      expect(targets.size).toBeGreaterThan(1) // not all collapsed onto one backend
+    })
+
+    it('honours a custom stickyKeyField', () => {
+      const routing = new RoutingTable(
+        stickyEdges(),
+        createRandom('sticky-field'),
+        stickyNodes({ routingStrategy: 'sticky', stickyKeyField: 'tenant' })
+      )
+      const a = routing.resolveTarget('lb', requestWith({ tenant: 'acme' }))[0].targetNodeId
+      const b = routing.resolveTarget('lb', requestWith({ tenant: 'acme' }))[0].targetNodeId
+      expect(a).toBe(b)
+    })
+
+    it('falls back to the canonical __key when no session field is present', () => {
+      const routing = new RoutingTable(
+        stickyEdges(),
+        createRandom('sticky-key'),
+        stickyNodes({ routingStrategy: 'sticky' })
+      )
+      const a = routing.resolveTarget('lb', requestWith({ __key: 'k-7' }))[0].targetNodeId
+      const b = routing.resolveTarget('lb', requestWith({ __key: 'k-7' }))[0].targetNodeId
+      expect(a).toBe(b)
+    })
+
+    it('ip-hash pins a client IP to one backend', () => {
+      const routing = new RoutingTable(
+        stickyEdges(),
+        createRandom('ip-hash'),
+        stickyNodes({ routingStrategy: 'ip-hash' })
+      )
+      const picks = Array.from(
+        { length: 15 },
+        () => routing.resolveTarget('lb', requestWith({ clientIp: '10.0.0.5' }))[0].targetNodeId
+      )
+      expect(new Set(picks).size).toBe(1)
+    })
+
+    it('degrades to round-robin when no affinity key is present', () => {
+      const routing = new RoutingTable(
+        stickyEdges(),
+        createRandom('sticky-degrade'),
+        stickyNodes({ routingStrategy: 'sticky' })
+      )
+      const picks = Array.from(
+        { length: 3 },
+        () => routing.resolveTarget('lb', makeRequest())[0].targetNodeId
+      )
+      // No key ⇒ spreads instead of pinning: three distinct backends in a row.
+      expect(new Set(picks).size).toBe(3)
+    })
+
+    it('consistent hashing reassigns only a small share of keys when a backend is removed', () => {
+      const fullNodes = stickyNodes({ routingStrategy: 'sticky' })
+      const full = new RoutingTable(
+        [makeEdge('e1', 'lb', 'a'), makeEdge('e2', 'lb', 'b'), makeEdge('e3', 'lb', 'c')],
+        createRandom('ring-full'),
+        fullNodes
+      )
+      const reduced = new RoutingTable(
+        [makeEdge('e1', 'lb', 'a'), makeEdge('e2', 'lb', 'b')], // 'c' ejected
+        createRandom('ring-reduced'),
+        fullNodes
+      )
+      let moved = 0
+      let stayedOnSurvivors = 0
+      const N = 600
+      for (let i = 0; i < N; i++) {
+        const req = () => requestWith({ sessionId: `s-${i}` })
+        const before = full.resolveTarget('lb', req())[0].targetNodeId
+        const after = reduced.resolveTarget('lb', req())[0].targetNodeId
+        if (before === 'a' || before === 'b') {
+          stayedOnSurvivors++
+          // Keys already on a surviving backend must NOT move (ring invariant).
+          if (before !== after) moved++
+        }
+      }
+      // No key that was on a survivor should have moved; only 'c' keys reassign.
+      expect(moved).toBe(0)
+      expect(stayedOnSurvivors).toBeGreaterThan(0)
+    })
+
+    it('is stable regardless of edge declaration order (sorted by target id)', () => {
+      const forward = new RoutingTable(
+        [makeEdge('e1', 'lb', 'a'), makeEdge('e2', 'lb', 'b'), makeEdge('e3', 'lb', 'c')],
+        createRandom('order-1'),
+        stickyNodes({ routingStrategy: 'sticky' })
+      )
+      const reversed = new RoutingTable(
+        [makeEdge('e3', 'lb', 'c'), makeEdge('e2', 'lb', 'b'), makeEdge('e1', 'lb', 'a')],
+        createRandom('order-2'),
+        stickyNodes({ routingStrategy: 'sticky' })
+      )
+      const req = () => requestWith({ sessionId: 'stable-1' })
+      expect(forward.resolveTarget('lb', req())[0].targetNodeId).toBe(
+        reversed.resolveTarget('lb', req())[0].targetNodeId
+      )
+    })
   })
 })

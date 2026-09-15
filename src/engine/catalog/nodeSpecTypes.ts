@@ -32,6 +32,10 @@ export type RoutingStrategy =
   | 'weighted'
   | 'random'
   | 'least-conn'
+  | 'least-response-time'
+  | 'p2c'
+  | 'sticky'
+  | 'ip-hash'
   | 'broadcast'
   | 'conditional'
   | 'passthrough'
@@ -92,12 +96,48 @@ export interface NodeSimulationConfig {
   }
   healthCheckEnabled?: boolean
   cacheHitRate?: number
+  cacheModel?: 'declared-rate' | 'derived-lru'
+  cacheRamMb?: number
+  valueSizeBytes?: number
   cacheHitLatencyMs?: number
   ttlSeconds?: number
   cacheEngine?: 'redis' | 'memcached'
   cacheStrategy?: 'cache-aside' | 'read-through' | 'write-through' | 'write-behind'
   dataModel?: 'document' | 'key-value' | 'wide-column'
   routingRules?: ContentRoutingRule[]
+  /**
+   * Request metadata field the `sticky` routing strategy hashes on (session
+   * affinity). Defaults to `sessionId` then the canonical `__key`. Ignored by
+   * other strategies; `ip-hash` always hashes `clientIp`.
+   */
+  stickyKeyField?: string
+  /**
+   * Broker delivery mode. When true, a message-broker/pub-sub/stream node
+   * delivers one copy per consumer group and one competing-consumer member
+   * within each group, instead of broadcasting to every subscriber.
+   */
+  consumerGroupMode?: boolean
+  /**
+   * Consumer group this subscriber belongs to. Members sharing a name compete for
+   * each message (one member handles it); a subscriber with no group is its own
+   * group and receives every message. Read by broker consumer-group delivery.
+   */
+  consumerGroup?: string
+  /** Partitioned stream broker (Kafka-like): turns the stream into an
+   *  append-and-consume boundary. The fields below only apply when enabled. */
+  streamBrokerEnabled?: boolean
+  /** Number of partitions; deterministic key→partition routing. */
+  partitionCount?: number
+  /** Metadata field used as the partition key. */
+  partitionKeyField?: string
+  /** Records older than this (ms) are expired before subsequent appends. */
+  retentionMs?: number
+  /** Schedules deterministic replay reads from each group's committed offset (ms). */
+  streamReplayIntervalMs?: number
+  /** Deterministic time (ms) at which this broker pauses appends/delivery. */
+  brokerFailureAtMs?: number
+  /** Deterministic time (ms) at which the broker resumes after a failure. */
+  brokerRecoveryAtMs?: number
   maxTokens?: number
   refillRatePerSecond?: number
   retry?: {
@@ -112,6 +152,11 @@ export interface NodeSimulationConfig {
   idleTimeoutMs?: number
   maxConcurrency?: number
   locationId?: string
+  locationProvider?: import('../core/types').LocationProvider
+  locationLatitude?: number
+  locationLongitude?: number
+  /** Optional vendor label, e.g. Cloudflare, Fastly, or Akamai for a generic CDN. */
+  provider?: string
   routingKeyField?: string
   dnsRoutingPolicy?: 'simple' | 'weighted' | 'failover' | 'latency-based' | 'geolocation'
   dnsCacheTtlSeconds?: number

@@ -7,6 +7,10 @@ const STRATEGY_LABELS: Record<RoutingStrategyVisualizationState['strategy'], str
   random: 'random',
   weighted: 'weighted',
   'least-conn': 'least-connections',
+  'least-response-time': 'least-response-time',
+  p2c: 'power of two choices',
+  sticky: 'sticky (session affinity)',
+  'ip-hash': 'IP hash',
   broadcast: 'broadcast',
   conditional: 'conditional'
 }

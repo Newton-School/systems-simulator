@@ -3,6 +3,7 @@ import type {
   ComponentNode,
   DistributionConfig,
   EdgeDefinition,
+  TopologyLocation,
   TopologyJSON,
   WorkloadProfile
 } from '../../../engine/core/types'
@@ -17,6 +18,7 @@ import { isCustomNodeDefinition } from '../../../engine/catalog/customDefinition
 import type { EdgeSimulationData, ScenarioState } from '@renderer/types/ui'
 import { DEFAULT_SCENARIO_STATE } from '@renderer/types/ui'
 import type { NestedFileData, NestedNode } from './nodeTransformers'
+import { convertFlatToNested } from './nodeTransformers'
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
@@ -43,6 +45,10 @@ function asRoutingStrategy(value: unknown): RoutingStrategy | undefined {
     value === 'weighted' ||
     value === 'random' ||
     value === 'least-conn' ||
+    value === 'least-response-time' ||
+    value === 'p2c' ||
+    value === 'sticky' ||
+    value === 'ip-hash' ||
     value === 'broadcast' ||
     value === 'conditional' ||
     value === 'passthrough'
@@ -90,6 +96,7 @@ function buildSourceDefaults(workload: WorkloadProfile) {
   return {
     pattern: workload.pattern,
     baseRps: workload.baseRps,
+    ...(workload.origins ? { origins: structuredClone(workload.origins) } : {}),
     ...(workload.bursty ? { bursty: workload.bursty } : {}),
     ...(workload.spike ? { spike: workload.spike } : {}),
     ...(workload.sawtooth ? { sawtooth: workload.sawtooth } : {}),
@@ -144,6 +151,10 @@ function overlaySimulationConfig(
 ): NodeSimulationConfig | undefined {
   const sim: NodeSimulationConfig = initial ? structuredClone(initial) : {}
 
+  if (node.provider) {
+    sim.provider = node.provider
+  }
+
   if (node.queue) {
     sim.queue = structuredClone(node.queue)
   }
@@ -176,6 +187,18 @@ function overlaySimulationConfig(
 
   if (asNumber(config['cacheHitRate']) !== undefined) {
     sim.cacheHitRate = asNumber(config['cacheHitRate'])
+  }
+
+  if (config['cacheModel'] === 'declared-rate' || config['cacheModel'] === 'derived-lru') {
+    sim.cacheModel = config['cacheModel']
+  }
+
+  if (asNumber(config['cacheRamMb']) !== undefined) {
+    sim.cacheRamMb = asNumber(config['cacheRamMb'])
+  }
+
+  if (asNumber(config['valueSizeBytes']) !== undefined) {
+    sim.valueSizeBytes = asNumber(config['valueSizeBytes'])
   }
 
   if (asNumber(config['cacheHitLatencyMs']) !== undefined) {
@@ -269,6 +292,41 @@ function overlaySimulationConfig(
 
   if (asString(config['routingKeyField'])) {
     sim.routingKeyField = asString(config['routingKeyField'])
+  }
+
+  if (asString(config['stickyKeyField'])) {
+    sim.stickyKeyField = asString(config['stickyKeyField'])
+  }
+
+  if (typeof config['consumerGroupMode'] === 'boolean') {
+    sim.consumerGroupMode = config['consumerGroupMode']
+  }
+
+  if (asString(config['consumerGroup'])) {
+    sim.consumerGroup = asString(config['consumerGroup'])
+  }
+
+  if (typeof config['streamBrokerEnabled'] === 'boolean') {
+    sim.streamBrokerEnabled = config['streamBrokerEnabled']
+  }
+
+  if (asNumber(config['partitionCount']) !== undefined) {
+    sim.partitionCount = asNumber(config['partitionCount'])
+  }
+
+  if (asString(config['partitionKeyField'])) {
+    sim.partitionKeyField = asString(config['partitionKeyField'])
+  }
+
+  for (const field of [
+    'retentionMs',
+    'streamReplayIntervalMs',
+    'brokerFailureAtMs',
+    'brokerRecoveryAtMs'
+  ] as const) {
+    if (asNumber(config[field]) !== undefined) {
+      sim[field] = asNumber(config[field])
+    }
   }
 
   if (
@@ -387,6 +445,75 @@ function convertNode(
   }
 }
 
+function locationTemplateId(location: TopologyLocation): string | null {
+  switch (location.kind) {
+    case 'region':
+      return 'vpc-region'
+    case 'availability-zone':
+      return 'availability-zone'
+    case 'subnet':
+      return 'subnet'
+    case 'edge-pop':
+      return null
+  }
+}
+
+function convertLocation(location: TopologyLocation): Node<CanvasNodeDataV2> | null {
+  const templateId = locationTemplateId(location)
+  if (!templateId) return null
+  const data = instantiateTemplate(templateId)
+  data.label = location.label
+  data.sim = {
+    locationId: location.providerCode,
+    locationProvider: location.provider,
+    locationLatitude: location.coordinates?.latitude,
+    locationLongitude: location.coordinates?.longitude
+  }
+
+  return {
+    id: location.id,
+    type: data.rendererType,
+    position: structuredClone(location.position ?? { x: 0, y: 0 }),
+    parentNode: location.parentId,
+    extent: location.parentId ? 'parent' : undefined,
+    style: location.size ? { width: location.size.width, height: location.size.height } : undefined,
+    data
+  }
+}
+
+function mostSpecificPlacementParent(
+  node: ComponentNode,
+  locationIds: ReadonlySet<string>
+): string | undefined {
+  const candidates = [
+    node.placement?.subnetId,
+    node.placement?.availabilityZoneId,
+    node.placement?.regionId
+  ]
+  return candidates.find((id): id is string => Boolean(id && locationIds.has(id)))
+}
+
+function absoluteLocationPosition(
+  locationId: string,
+  byId: ReadonlyMap<string, TopologyLocation>,
+  memo: Map<string, { x: number; y: number }>,
+  visiting = new Set<string>()
+): { x: number; y: number } {
+  const cached = memo.get(locationId)
+  if (cached) return cached
+  const location = byId.get(locationId)
+  if (!location || visiting.has(locationId)) return { x: 0, y: 0 }
+  visiting.add(locationId)
+  const local = location.position ?? { x: 0, y: 0 }
+  const parent = location.parentId
+    ? absoluteLocationPosition(location.parentId, byId, memo, visiting)
+    : { x: 0, y: 0 }
+  const result = { x: local.x + parent.x, y: local.y + parent.y }
+  memo.set(locationId, result)
+  visiting.delete(locationId)
+  return result
+}
+
 function edgeDataFromTopology(edge: EdgeDefinition): EdgeSimulationData {
   const distribution = edge.latency.distribution
   return {
@@ -459,11 +586,42 @@ export function isTopologyJsonLike(value: unknown): value is TopologyJSON {
 }
 
 export function topologyToCanvasFileData(topology: TopologyJSON): NestedFileData {
-  const nodes = topology.nodes
+  const runtimeNodes = topology.nodes
     .map((node) => convertNode(node, topology.workload))
     .filter((node): node is Node<CanvasNodeDataV2> => node !== null)
-    .map((node) => ({ ...node }) as NestedNode)
-  const nodePositions = new Map(nodes.map((node) => [node.id, node.position]))
+  const locations = topology.locations ?? []
+  const locationIds = new Set(locations.map((location) => location.id))
+  const locationsById = new Map(locations.map((location) => [location.id, location]))
+  const absoluteLocationPositions = new Map<string, { x: number; y: number }>()
+  const locationNodes = locations
+    .map(convertLocation)
+    .filter((node): node is Node<CanvasNodeDataV2> => node !== null)
+
+  for (let index = 0; index < runtimeNodes.length; index++) {
+    const runtimeNode = runtimeNodes[index]!
+    const sourceNode = topology.nodes.find((node) => node.id === runtimeNode.id)
+    if (!sourceNode) continue
+    const parentNode = mostSpecificPlacementParent(sourceNode, locationIds)
+    if (!parentNode) continue
+    const parentPosition = absoluteLocationPosition(
+      parentNode,
+      locationsById,
+      absoluteLocationPositions
+    )
+    runtimeNodes[index] = {
+      ...runtimeNode,
+      parentNode,
+      extent: 'parent',
+      position: {
+        x: runtimeNode.position.x - parentPosition.x,
+        y: runtimeNode.position.y - parentPosition.y
+      }
+    }
+  }
+
+  const flatNodes = [...locationNodes, ...runtimeNodes]
+  const nodes = convertFlatToNested(flatNodes) as NestedNode[]
+  const nodePositions = new Map(topology.nodes.map((node) => [node.id, node.position]))
 
   return {
     nodes,

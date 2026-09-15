@@ -329,6 +329,18 @@ export function canEditEdgesForQuestion(
 }
 
 /**
+ * Edge labels are presentation metadata, not network simulation configuration.
+ * Connector-mode sandboxes may therefore edit labels when their base profile allows
+ * edge editing, even though connector edges intentionally expose no physics fields.
+ */
+export function canEditEdgeLabelsForQuestion(
+  profile: EnvironmentProfile,
+  question?: { domains?: readonly QuestionDomain[] } | null
+): boolean {
+  return profile.capabilities.canEditEdges || canEditEdgesForQuestion(profile, question)
+}
+
+/**
  * Effective resource-editability for the *loaded question*, layering the question's
  * bottleneck `domains` over the profile's base `canEditResources` capability.
  *

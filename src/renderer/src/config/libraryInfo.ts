@@ -48,6 +48,11 @@ const INFO_BY_ID: Record<string, LibraryItemInfo> = {
     realWorld: 'CloudFront, Cloudflare, Fastly, Akamai.',
     config: ['cache hit ratio', 'edge latency', 'origin fallback']
   },
+  'global-traffic-manager': {
+    represents: 'Chooses a serving region using request origin, target health, or latency.',
+    realWorld: 'Route 53 latency routing, Cloudflare Load Balancing, Azure Traffic Manager.',
+    config: ['routing policy', 'region targets', 'health checks']
+  },
   'api-gateway': {
     represents: 'The public API entry point that can authenticate, throttle, and route requests.',
     realWorld: 'Kong, AWS API Gateway, Apigee, NGINX gateway.',
@@ -320,9 +325,9 @@ const INFO_BY_ID: Record<string, LibraryItemInfo> = {
     config: ['node class', 'runtime template', 'capabilities', 'traits']
   },
   'vpc-region': {
-    represents: 'A top-level cloud network area where resources are grouped by region.',
-    realWorld: 'AWS/GCP/Azure region-level VPC/VNet.',
-    config: ['region', 'CIDR', 'child resources']
+    represents: 'A named provider region that gives contained resources a physical placement.',
+    realWorld: 'AWS, GCP, Azure, or IBM Cloud region.',
+    config: ['provider', 'exact region code', 'child resources']
   },
   'availability-zone': {
     represents: 'A separate failure domain inside a region for spreading resilient deployments.',

@@ -30,6 +30,12 @@ export interface DisplaySettings {
   hiddenComponentLibraryTemplateIds: string[]
   /** When false, the SPOF badge and danger ring are hidden on canvas nodes. */
   showSpofBadges: boolean
+  /**
+   * When true, request dots on edges are colored by their affinity/partition key
+   * so session affinity and sharding are visible (a key's color stays on one edge
+   * under sticky/shard routing, and scatters under round-robin).
+   */
+  colorDotsByKey: boolean
 }
 
 export interface NodeSimulationMetrics {
@@ -81,6 +87,13 @@ export interface EdgeSimulationData {
   packetLossRate?: number
   errorRate?: number
   condition?: string
+  /**
+   * Relative weight for weighted routing at the source. Among a source's edges,
+   * each edge's share of traffic is its weight ÷ the sum of sibling weights.
+   * Only used when the source's routing strategy is `weighted` (or unset with
+   * weights present). Empty/≤0 is treated as weight 1.
+   */
+  weight?: number
   /**
    * Fan-out amplification: each request over this edge is delivered to this many
    * recipients (e.g. a post → N follower feed writes). ≤1 or empty = no amplification.
@@ -167,7 +180,8 @@ export const DEFAULT_DISPLAY_SETTINGS: DisplaySettings = {
   defaultResultsTab: 'overview',
   componentLibraryMode: 'default',
   hiddenComponentLibraryTemplateIds: [],
-  showSpofBadges: true
+  showSpofBadges: true,
+  colorDotsByKey: false
 }
 
 export function normalizeScenarioState(value: unknown): ScenarioState {

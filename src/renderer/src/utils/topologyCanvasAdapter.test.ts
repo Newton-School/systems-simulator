@@ -194,6 +194,100 @@ describe('topologyCanvasAdapter', () => {
     expect(canvas.scenario.selectedSourceNodeId).toBe('api-gw')
   })
 
+  it('reconstructs serialized region placement and traffic origins as nested canvas data', () => {
+    const canvas = topologyToCanvasFileData({
+      ...SERVERLESS_COLD_START,
+      version: '2.1.0',
+      locations: [
+        {
+          id: 'region-us',
+          kind: 'region',
+          label: 'US East',
+          provider: 'aws',
+          providerCode: 'us-east-1',
+          coordinates: { latitude: 38.95, longitude: -77.45 },
+          position: { x: 100, y: 50 },
+          size: { width: 600, height: 400 }
+        }
+      ],
+      networkModel: { mode: 'geo-aware', catalogueVersion: 'test' },
+      nodes: SERVERLESS_COLD_START.nodes.map((node) =>
+        node.id === 'lambda' ? { ...node, placement: { regionId: 'region-us' } } : node
+      ),
+      workload: {
+        ...SERVERLESS_COLD_START.workload!,
+        origins: [
+          {
+            id: 'east-coast',
+            label: 'East coast',
+            weight: 1,
+            location: { kind: 'region', regionId: 'region-us' }
+          }
+        ]
+      }
+    })
+
+    const region = canvas.nodes.find((node) => node.id === 'region-us')
+    const lambda = region?.nodes?.find((node) => node.id === 'lambda')
+    const client = canvas.nodes.find((node) => node.id === 'client')
+
+    expect(region?.data).toMatchObject({
+      templateId: 'vpc-region',
+      label: 'US East',
+      sim: {
+        locationProvider: 'aws',
+        locationId: 'us-east-1',
+        locationLatitude: 38.95,
+        locationLongitude: -77.45
+      }
+    })
+    expect(lambda).toBeDefined()
+    expect(client?.data.source?.defaultWorkload.origins).toEqual([
+      expect.objectContaining({ id: 'east-coast', weight: 1 })
+    ])
+  })
+
+  it('hydrates partitioned stream-broker config fields onto the canvas', () => {
+    const canvas = topologyToCanvasFileData({
+      ...SERVERLESS_COLD_START,
+      nodes: [
+        ...SERVERLESS_COLD_START.nodes,
+        {
+          id: 'events',
+          type: 'stream',
+          category: 'messaging-and-streaming',
+          role: 'processor',
+          label: 'Event Stream',
+          position: { x: 520, y: 0 },
+          queue: { workers: 1, capacity: 100, discipline: 'fifo' },
+          processing: { distribution: { type: 'constant', value: 0 }, timeout: 1_000 },
+          config: {
+            streamBrokerEnabled: true,
+            partitionCount: 6,
+            partitionKeyField: 'orderId',
+            retentionMs: 60_000,
+            streamReplayIntervalMs: 5_000,
+            brokerFailureAtMs: 10_000,
+            brokerRecoveryAtMs: 15_000,
+            consumerGroupMode: true
+          }
+        }
+      ]
+    })
+
+    const events = canvas.nodes.find((node) => node.id === 'events')
+    expect(events?.data.sim).toMatchObject({
+      streamBrokerEnabled: true,
+      partitionCount: 6,
+      partitionKeyField: 'orderId',
+      retentionMs: 60_000,
+      streamReplayIntervalMs: 5_000,
+      brokerFailureAtMs: 10_000,
+      brokerRecoveryAtMs: 15_000,
+      consumerGroupMode: true
+    })
+  })
+
   it('synthesizes default handles for topology edges that do not carry canvas metadata', () => {
     const canvas = topologyToCanvasFileData(ROUTER_ENTRYPOINT_TOPOLOGY)
 

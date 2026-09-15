@@ -5,6 +5,7 @@ import type {
   DistributionConfig,
   EdgeDefinition,
   GlobalConfig,
+  TopologyLocation,
   TopologyJSON,
   WorkloadProfile
 } from '../../../engine/core/types'
@@ -19,6 +20,10 @@ import type { ScenarioRunContext, ScenarioState } from '@renderer/types/ui'
 import { normalizeScenarioState } from '@renderer/types/ui'
 import { mergeWorkloadDefaults } from '@renderer/utils/workloadDefaults'
 import { isCanvasAnnotationNodeType } from '../../../engine/catalog/canvasAnnotations'
+import {
+  findCloudRegion,
+  LOCATION_CATALOGUE_VERSION
+} from '../../../engine/catalog/locationCatalog'
 
 type EdgeRuntimeData = {
   protocol?: EdgeDefinition['protocol']
@@ -213,13 +218,81 @@ export function buildContainerLocations(
   return locations
 }
 
+function serializeLocations(
+  rfNodes: readonly {
+    id: string
+    parentNode?: string
+    position: { x: number; y: number }
+    width?: number | null
+    height?: number | null
+    style?: unknown
+    data?: unknown
+  }[]
+): TopologyLocation[] {
+  const containerIds = new Set(
+    rfNodes
+      .filter((node) => {
+        const templateId = (node.data as Partial<CanvasNodeDataV2> | undefined)?.templateId
+        return typeof templateId === 'string' && templateId in CONTAINER_LEVEL_BY_TEMPLATE
+      })
+      .map((node) => node.id)
+  )
+
+  return rfNodes.flatMap((node): TopologyLocation[] => {
+    const data = node.data as Partial<CanvasNodeDataV2> | undefined
+    const templateId = data?.templateId
+    if (typeof templateId !== 'string') return []
+    const level = CONTAINER_LEVEL_BY_TEMPLATE[templateId]
+    if (!level) return []
+
+    const provider = data?.sim?.locationProvider
+    const providerCode = data?.sim?.locationId?.trim() || undefined
+    const catalogueRegion =
+      level === 'region' && provider && providerCode
+        ? findCloudRegion(provider, providerCode)
+        : undefined
+    const latitude = asFiniteNumber(data?.sim?.locationLatitude)
+    const longitude = asFiniteNumber(data?.sim?.locationLongitude)
+    const style =
+      typeof node.style === 'object' && node.style !== null
+        ? (node.style as Record<string, unknown>)
+        : undefined
+    const width = asPositiveNumber(node.width) ?? asPositiveNumber(style?.width)
+    const height = asPositiveNumber(node.height) ?? asPositiveNumber(style?.height)
+
+    return [
+      {
+        id: node.id,
+        kind: level === 'region' ? 'region' : level === 'az' ? 'availability-zone' : 'subnet',
+        label: data?.label?.trim() || providerCode || node.id,
+        parentId:
+          node.parentNode && containerIds.has(node.parentNode) ? node.parentNode : undefined,
+        provider: level === 'region' ? provider : undefined,
+        providerCode,
+        coordinates:
+          level === 'region'
+            ? catalogueRegion
+              ? {
+                  latitude: catalogueRegion.latitude,
+                  longitude: catalogueRegion.longitude
+                }
+              : latitude !== null && longitude !== null
+                ? { latitude, longitude }
+                : undefined
+            : undefined,
+        position: { ...node.position },
+        size: width && height ? { width, height } : undefined
+      }
+    ]
+  })
+}
+
 export interface ContainerPathResolution {
   pathType: EdgePathType
   /**
    * For cross-region hops, the ordered [sourceRegion, targetRegion] container
-   * ids. Populated so a future distance-aware model can look up a per-pair RTT
-   * (e.g. us-east↔ap-south costs more than us-east↔us-west) without re-threading
-   * the serializer. v1 ignores it - cross-region uses the flat profile.
+   * ids. The geo-aware runtime resolves their catalogue coordinates (or a
+   * region-pair override), so us-east↔ap-south can differ from us-east↔us-west.
    */
   regionPair?: readonly [string, string]
 }
@@ -446,6 +519,18 @@ export function useTopologySerializer() {
 
       const serializedNodeIds = new Set(engineNodes.map((node) => node.id))
       const containerLocations = buildContainerLocations(nodes)
+      const locations = serializeLocations(nodes)
+      for (const engineNode of engineNodes) {
+        const placement = containerLocations.get(engineNode.id)
+        if (!placement) continue
+        if (placement.region || placement.az || placement.subnet) {
+          engineNode.placement = {
+            regionId: placement.region,
+            availabilityZoneId: placement.az,
+            subnetId: placement.subnet
+          }
+        }
+      }
       const engineEdges = edges
         .map((edge) =>
           serializeEdge(
@@ -466,10 +551,19 @@ export function useTopologySerializer() {
       const topology: TopologyJSON = {
         id: 'canvas-topology',
         name: 'Canvas Topology',
-        version: '2.0.0',
+        version: '2.1.0',
         global: buildScenarioGlobal(resolvedScenario.global),
         nodes: engineNodes,
         edges: engineEdges,
+        ...(locations.length > 0
+          ? {
+              locations,
+              networkModel: {
+                mode: 'geo-aware' as const,
+                catalogueVersion: LOCATION_CATALOGUE_VERSION
+              }
+            }
+          : {}),
         workload,
         ...(faults.length > 0 ? { faults } : {})
       }

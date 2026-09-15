@@ -4,9 +4,14 @@ export const HTTP_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'O
 
 export type HttpMethod = (typeof HTTP_METHODS)[number]
 
-export const REQUEST_MATCH_FIELDS = ['type', 'method', 'path', 'host'] as const
+export const REQUEST_MATCH_FIELDS = ['type', 'method', 'path', 'host', 'header'] as const
 
 export type RequestMatchField = (typeof REQUEST_MATCH_FIELDS)[number]
+
+/** How a routing rule compares its value against the request field. */
+export const MATCH_OPERATORS = ['equals', 'prefix', 'regex'] as const
+
+export type MatchOperator = (typeof MATCH_OPERATORS)[number]
 
 export interface RequestSemanticsInput {
   type?: string
@@ -39,9 +44,15 @@ export function inferHttpMethodFromRequestType(
     : undefined
 }
 
+/**
+ * Resolves the request's value for a match field. `header` needs a header name
+ * (`key`) and reads `metadata.headers[name]` case-insensitively, since HTTP
+ * header names are case-insensitive.
+ */
 export function requestFieldValue(
   request: RequestSemanticsInput,
-  field: RequestMatchField
+  field: RequestMatchField,
+  key?: string
 ): string | undefined {
   if (field === 'type') {
     return asNonEmptyString(request.type)
@@ -56,24 +67,58 @@ export function requestFieldValue(
     return inferHttpMethodFromRequestType(request.type)
   }
 
+  if (field === 'header') {
+    const headers = request.metadata?.headers
+    const name = asNonEmptyString(key)
+    if (!headers || typeof headers !== 'object' || !name) {
+      return undefined
+    }
+    const wanted = name.toLowerCase()
+    for (const [headerName, headerValue] of Object.entries(headers as Record<string, unknown>)) {
+      if (headerName.toLowerCase() === wanted) {
+        return asNonEmptyString(headerValue)
+      }
+    }
+    return undefined
+  }
+
   return asNonEmptyString(request.metadata?.[field])
 }
 
+/**
+ * Tests whether a request field satisfies a rule. `operator` selects the
+ * comparison (`equals` default, `prefix`, or `regex`); `key` names the header for
+ * the `header` field. An invalid regex never matches (fails closed).
+ */
 export function requestFieldMatches(
   request: RequestSemanticsInput,
   field: RequestMatchField,
-  expectedValue: string
+  expectedValue: string,
+  operator: MatchOperator = 'equals',
+  key?: string
 ): boolean {
-  const actualValue = requestFieldValue(request, field)
+  const actualValue = requestFieldValue(request, field, key)
   if (!actualValue) {
     return false
   }
 
-  if (field === 'method') {
-    return actualValue === expectedValue.trim().toUpperCase()
-  }
+  // Method comparison is case-insensitive for exact matches only.
+  const expected =
+    field === 'method' && operator === 'equals' ? expectedValue.trim().toUpperCase() : expectedValue
 
-  return actualValue === expectedValue
+  switch (operator) {
+    case 'prefix':
+      return actualValue.startsWith(expected)
+    case 'regex':
+      try {
+        return new RegExp(expected).test(actualValue)
+      } catch {
+        return false
+      }
+    case 'equals':
+    default:
+      return actualValue === expected
+  }
 }
 
 function joinEndpoint(host: string | null, path: string | null): string | null {

@@ -130,6 +130,13 @@ export const EDGE_PROPERTY_HELP = {
     simulationEffect:
       'Near the cap, latency inflates; at or above the cap, reliable protocols reject new transfers with connection_refused.'
   },
+  weight: {
+    title: 'Weight',
+    summary: "Relative share of the source's traffic sent down this edge under weighted routing.",
+    simulationEffect:
+      "Each edge gets weight ÷ sum-of-sibling-weights of the traffic. Only applies when the source's strategy is Weighted (or unset with weights present); empty is treated as 1.",
+    note: 'Shown as a % badge on the edge when the source routes by weight.'
+  },
   packetLossRate: {
     title: 'Packet Loss (%)',
     summary: 'Probability that packets are dropped while traversing the edge.',

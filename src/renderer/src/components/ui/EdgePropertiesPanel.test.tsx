@@ -60,4 +60,9 @@ describe('EdgePropertiesPanel', () => {
     expect(text).toContain('simple link showing how the components are wired')
     expect(text).not.toContain('Protocol')
   })
+
+  it('disables the connector label when the edge is read-only', () => {
+    renderPanel({ connectorOnly: true, readOnly: true }, [false, undefined])
+    expect(container?.querySelector('input')?.disabled).toBe(true)
+  })
 })
