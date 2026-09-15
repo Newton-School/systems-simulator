@@ -247,6 +247,11 @@ describe('generateSimulationOutput', () => {
         attempts: 2,
         latencyMs: 12,
         requestType: 'POST',
+        originId: 'us-users',
+        originLabel: 'US users',
+        originLocation: { kind: 'region', regionId: 'us-east' },
+        servingRegionId: 'us-east',
+        cacheOutcome: 'hit',
         method: 'POST',
         host: null,
         path: '/payments',
@@ -311,6 +316,11 @@ describe('generateSimulationOutput', () => {
         attempts: 1,
         latencyMs: 8,
         requestType: 'GET',
+        originId: 'india-users',
+        originLabel: 'India users',
+        originLocation: { kind: 'region', regionId: 'ap-south' },
+        servingRegionId: 'ap-south',
+        cacheOutcome: 'miss',
         method: 'GET',
         host: null,
         path: '/status',
@@ -364,6 +374,24 @@ describe('generateSimulationOutput', () => {
     expect(output.runtimeSemanticsSummary.affectedOutcomeCounts.duplicateSuppressed).toBe(1)
     expect(output.runtimeSemanticsSummary.affectedOutcomeCounts.lockContended).toBe(1)
     expect(output.runtimeSemanticsSummary.affectedOutcomeCounts.reservationOversold).toBe(1)
+    expect(output.perOrigin).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          originId: 'us-users',
+          requests: 1,
+          cacheHitRate: 1,
+          servingRegions: { 'us-east': 1 },
+          latency: expect.objectContaining({ p50: 12, p95: 12 })
+        }),
+        expect.objectContaining({
+          originId: 'india-users',
+          requests: 1,
+          cacheHitRate: 0,
+          servingRegions: { 'ap-south': 1 },
+          latency: expect.objectContaining({ p50: 8, p95: 8 })
+        })
+      ])
+    )
   })
 
   it('conservation check flags nodes with large in-flight counts', () => {

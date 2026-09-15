@@ -112,6 +112,75 @@ function collectSequence(seed: string, count = 200): Request[] {
 }
 
 describe('WorkloadGenerator', () => {
+  it('selects weighted traffic origins deterministically and stamps each request', () => {
+    const sequence = collectSequence('weighted-origins', 1000)
+    const scheduler = makeScheduler()
+    const generator = new WorkloadGenerator(
+      makeWorkload({
+        origins: [
+          {
+            id: 'us',
+            label: 'US users',
+            weight: 0.75,
+            location: { kind: 'coordinates', latitude: 38.9, longitude: -77 }
+          },
+          {
+            id: 'in',
+            label: 'India users',
+            weight: 0.25,
+            location: { kind: 'coordinates', latitude: 19, longitude: 72.8 }
+          }
+        ]
+      }),
+      createRandom('weighted-origins'),
+      scheduler,
+      { defaultTimeoutMs: 5000 }
+    )
+    generator.initialize(0n)
+    let event = scheduler.popNext()!
+    const ids: string[] = []
+    for (let index = 0; index < sequence.length; index++) {
+      ids.push(generator.generateNext(event.timestamp).origin?.originId ?? '')
+      event = scheduler.popNext()!
+    }
+
+    expect(ids.filter((id) => id === 'us').length).toBeGreaterThan(700)
+    expect(ids.filter((id) => id === 'us').length).toBeLessThan(800)
+    expect(ids).toEqual(
+      (() => {
+        const replayScheduler = makeScheduler()
+        const replay = new WorkloadGenerator(
+          makeWorkload({
+            origins: [
+              {
+                id: 'us',
+                label: 'US users',
+                weight: 0.75,
+                location: { kind: 'coordinates', latitude: 38.9, longitude: -77 }
+              },
+              {
+                id: 'in',
+                label: 'India users',
+                weight: 0.25,
+                location: { kind: 'coordinates', latitude: 19, longitude: 72.8 }
+              }
+            ]
+          }),
+          createRandom('weighted-origins'),
+          replayScheduler,
+          { defaultTimeoutMs: 5000 }
+        )
+        replay.initialize(0n)
+        let next = replayScheduler.popNext()!
+        return Array.from({ length: ids.length }, () => {
+          const id = replay.generateNext(next.timestamp).origin?.originId ?? ''
+          next = replayScheduler.popNext()!
+          return id
+        })
+      })()
+    )
+  })
+
   it('constant pattern at 100 RPS generates 100 requests in 1 simulated second', () => {
     const scheduler = makeScheduler()
     const generator = new WorkloadGenerator(
@@ -320,5 +389,101 @@ describe('WorkloadGenerator', () => {
 
     expect(sequenceA).toEqual(sequenceB)
     expect(sequenceA).not.toEqual(sequenceC)
+  })
+
+  it('stamps authored request metadata (headers) onto generated requests', () => {
+    const scheduler = makeScheduler()
+    const generator = new WorkloadGenerator(
+      makeWorkload({
+        pattern: 'constant',
+        requestDistribution: [
+          {
+            type: 'GET',
+            weight: 1,
+            sizeBytes: 100,
+            metadata: { path: '/v2/orders', headers: { 'X-Api-Version': '2' } }
+          }
+        ]
+      }),
+      createRandom('headers-seed'),
+      scheduler,
+      { defaultTimeoutMs: 5000 }
+    )
+    generator.initialize(0n)
+    const current = scheduler.popNext()!
+    const request = generator.generateNext(current.timestamp)
+    expect(request.metadata.path).toBe('/v2/orders')
+    expect(request.metadata.headers).toEqual({ 'X-Api-Version': '2' })
+  })
+
+  describe('keyspace key selection', () => {
+    const KEY_FIELD = 'seatId'
+
+    function collectKeyIndices(
+      seed: string,
+      keyspace: { field: string; size: number; skew?: number },
+      count = 4000
+    ): number[] {
+      const scheduler = makeScheduler()
+      const generator = new WorkloadGenerator(
+        makeWorkload({
+          pattern: 'constant',
+          requestDistribution: [{ type: 'book', weight: 1, sizeBytes: 100, keyspace }]
+        }),
+        createRandom(seed),
+        scheduler,
+        { defaultTimeoutMs: 5000 }
+      )
+      generator.initialize(0n)
+      let current = scheduler.popNext()!
+      const indices: number[] = []
+      for (let i = 0; i < count; i++) {
+        const request = generator.generateNext(current.timestamp)
+        const value = request.metadata?.[KEY_FIELD] as string
+        indices.push(Number(value.slice(`${KEY_FIELD}-`.length)))
+        const next = scheduler.popNext()
+        if (!next) break
+        current = next
+      }
+      return indices
+    }
+
+    it('draws uniformly across the keyspace when skew is omitted', () => {
+      const indices = collectKeyIndices('uniform-seed', { field: KEY_FIELD, size: 10 })
+      const counts = new Array(10).fill(0)
+      for (const index of indices) counts[index]++
+      // Every key should be hit, and no key should dominate (uniform ⇒ ~10% each).
+      expect(counts.every((c) => c > 0)).toBe(true)
+      expect(Math.max(...counts) / indices.length).toBeLessThan(0.2)
+    })
+
+    it('concentrates traffic on hot keys under Zipf skew', () => {
+      const size = 100
+      const uniform = collectKeyIndices('skew-seed', { field: KEY_FIELD, size })
+      const skewed = collectKeyIndices('skew-seed', { field: KEY_FIELD, size, skew: 1 })
+
+      const topDecile = (indices: number[]): number =>
+        indices.filter((i) => i < size / 10).length / indices.length
+
+      // Uniform: the hottest 10% of keys carry ~10% of traffic.
+      expect(topDecile(uniform)).toBeCloseTo(0.1, 1)
+      // Zipf(s=1) over N=100: the top decile carries H_10/H_100 ≈ 0.565 of
+      // traffic — far above uniform's 0.1, the curve that makes small caches win.
+      expect(topDecile(skewed)).toBeGreaterThan(0.5)
+      // Index 0 is the single hottest key and beats a uniform share handily.
+      const zeroShare = skewed.filter((i) => i === 0).length / skewed.length
+      expect(zeroShare).toBeGreaterThan(0.15)
+    })
+
+    it('keeps every drawn key inside the keyspace bounds', () => {
+      const size = 50
+      const indices = collectKeyIndices('bounds-seed', { field: KEY_FIELD, size, skew: 0.8 })
+      expect(indices.every((i) => i >= 0 && i < size)).toBe(true)
+    })
+
+    it('is deterministic under a fixed seed with skew', () => {
+      const ks = { field: KEY_FIELD, size: 30, skew: 1.2 }
+      expect(collectKeyIndices('zipf-det', ks, 300)).toEqual(collectKeyIndices('zipf-det', ks, 300))
+    })
   })
 })

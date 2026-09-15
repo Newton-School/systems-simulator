@@ -58,6 +58,7 @@ import {
 } from './defaults/edgeDefaults'
 import { MetricsCollector } from './metrics'
 import { classifyRejectionCause } from './metrics/windowedLatencyAggregator'
+import { GeoLatencyResolver } from './network/geoLatencyResolver'
 import { GGcKNode } from './nodes/GGcKNode'
 import { deriveNodeConcurrency } from './nodes/resourceDerivation'
 import {
@@ -145,6 +146,17 @@ interface SimulationEngineOptions {
   debugInvariants?: boolean
 }
 
+/** The request's affinity/partition key for edge-flow coloring, if any. */
+function affinityKeyOf(request: Request): string | undefined {
+  const metadata = request.metadata
+  for (const field of ['__key', 'partitionKey', 'shardKey', 'sessionId', 'clientIp'] as const) {
+    const value = metadata[field]
+    if (typeof value === 'string' && value.length > 0) return value
+    if (typeof value === 'number') return String(value)
+  }
+  return undefined
+}
+
 export class SimulationEngine {
   onProgress?: (percent: number, eventsProcessed: number) => void
   onSnapshot?: (snapshot: TimeSeriesSnapshot) => void
@@ -159,6 +171,7 @@ export class SimulationEngine {
   })
   private readonly distributions: Distributions
   private readonly routing: RoutingTable
+  private readonly geoLatency: GeoLatencyResolver
   private readonly metrics: MetricsCollector
   private readonly tracer: RequestTracer
   private readonly nodes = new Map<string, GGcKNode>()
@@ -225,6 +238,7 @@ export class SimulationEngine {
     const traitResolver = options.resolveTraits ?? resolveTraits
     this.debugInvariants = options.debugInvariants ?? false
     this.distributions = new Distributions(rng)
+    this.geoLatency = new GeoLatencyResolver(topology)
     this.routing = new RoutingTable(topology.edges, rng, topology.nodes, traitResolver)
     this.metrics = new MetricsCollector({
       warmupDuration: topology.global.warmupDuration,
@@ -690,6 +704,16 @@ export class SimulationEngine {
     }
 
     const request = this.workload.generateNext(this.clock)
+    if (!request.origin) {
+      const sourceRegionId = this.geoLatency.servingRegionId(event.nodeId)
+      if (sourceRegionId) {
+        request.origin = {
+          originId: `source:${sourceRegionId}`,
+          label: this.geoLatency.locationLabel(sourceRegionId) ?? sourceRegionId,
+          location: { kind: 'region', regionId: sourceRegionId }
+        }
+      }
+    }
     this.metrics.recordGeneratedRequest(request.createdAt)
     event.requestId = request.id
     event.data.request = request
@@ -801,6 +825,11 @@ export class SimulationEngine {
 
     this.releaseEdgeTransfer(event.data.edgeId)
     this.appendNodeToPath(request, event.nodeId)
+    const arrivedRegionId = this.geoLatency.servingRegionId(event.nodeId)
+    request.servingRegionId = arrivedRegionId ?? request.servingRegionId
+    request.servingRegionLabel = arrivedRegionId
+      ? this.geoLatency.locationDisplayName(arrivedRegionId)
+      : request.servingRegionLabel
     this.recordSimulationEvent(event, this.createNodeSnapshot(event.nodeId))
     this.metrics.recordNodeArrival(event.nodeId, this.clock)
     this.recordNodePhaseArrival(request, event.nodeId, this.clock)
@@ -1835,9 +1864,11 @@ export class SimulationEngine {
     request: Request,
     activeTransfers: number
   ): bigint {
-    const latencyDistribution = edge.latency.derivedFromPathType
-      ? getPathTypeLatencyProfile(edge.latency.pathType)
-      : edge.latency.distribution
+    const latencyDistribution =
+      this.geoLatency.distributionFor(edge, request) ??
+      (edge.latency.derivedFromPathType
+        ? getPathTypeLatencyProfile(edge.latency.pathType)
+        : edge.latency.distribution)
     const propagationMs = Math.max(0, this.distributions.fromConfig(latencyDistribution))
     const transmissionMs = request.sizeBytes / (edge.bandwidth * 125)
     // Streaming links reuse an already-open channel, so only a small framing
@@ -2485,6 +2516,15 @@ export class SimulationEngine {
       attempts: (request.retryCount ?? 0) + 1,
       latencyMs: Math.max(0, terminalAtMs - createdAtMs),
       requestType: operation.requestType,
+      originId: request.origin?.originId,
+      originLabel: request.origin?.label,
+      originLocation: request.origin?.location,
+      servingRegionId: request.servingRegionId,
+      servingRegionLabel: request.servingRegionLabel,
+      cacheOutcome:
+        request.metadata.__cacheOutcome === 'hit' || request.metadata.__cacheOutcome === 'miss'
+          ? request.metadata.__cacheOutcome
+          : undefined,
       method: operation.method,
       host: operation.host,
       path: operation.path,
@@ -2606,6 +2646,15 @@ export class SimulationEngine {
         attempts: (request.retryCount ?? 0) + 1,
         latencyMs: null,
         requestType: operation.requestType,
+        originId: request.origin?.originId,
+        originLabel: request.origin?.label,
+        originLocation: request.origin?.location,
+        servingRegionId: request.servingRegionId,
+        servingRegionLabel: request.servingRegionLabel,
+        cacheOutcome:
+          request.metadata.__cacheOutcome === 'hit' || request.metadata.__cacheOutcome === 'miss'
+            ? request.metadata.__cacheOutcome
+            : undefined,
         method: operation.method,
         host: operation.host,
         path: operation.path,
@@ -3010,6 +3059,9 @@ export class SimulationEngine {
       isTargetHealthy: (nodeId) => this.isNodeHealthy(nodeId),
       isEdgeHealthy: (edge) => this.isEdgeHealthy(edge),
       getInFlight: (nodeId) => this.nodes.get(nodeId)?.getState().totalInSystem ?? 0,
+      getResponseTimeMs: (nodeId) => this.nodes.get(nodeId)?.getState().meanServiceTimeMs ?? 0,
+      estimateRouteLatencyMs: (edge, routedRequest) =>
+        this.geoLatency.estimateEdgeLatencyMs(edge, routedRequest),
       sharedState: this.getSharedTraitStateStore(),
       onTraitDecision: (decision) => {
         this.recordTraitPayloadMetrics(decision.nodeId, decision.payload)
@@ -3238,7 +3290,8 @@ export class SimulationEngine {
         completedAtMs: microToMs(completedAt),
         latencyMs: microToMs(latencyUs),
         status,
-        failureCause
+        failureCause,
+        key: affinityKeyOf(request)
       })
     }
 

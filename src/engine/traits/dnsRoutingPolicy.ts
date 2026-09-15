@@ -5,7 +5,8 @@ import { getPathTypeLatencyProfile } from '../defaults/edgeDefaults'
 import type { NodeBehaviourTrait, NodeCapabilityModule } from './types'
 
 export const DNS_ROUTING_COMPONENT_TYPES = [
-  'internal-dns'
+  'internal-dns',
+  'global-traffic-manager'
 ] as const satisfies readonly ComponentType[]
 
 type DnsRoutingPolicy = 'simple' | 'weighted' | 'failover' | 'latency-based' | 'geolocation'
@@ -150,7 +151,14 @@ export const dnsRoutingPolicyTrait: NodeBehaviourTrait = {
       }
     }
   },
-  filterRoutes: ({ node, request, candidates, random, isTargetHealthy }) => {
+  filterRoutes: ({
+    node,
+    request,
+    candidates,
+    random,
+    isTargetHealthy,
+    estimateRouteLatencyMs
+  }) => {
     if (candidates.length <= 1) {
       return { routes: candidates, decision: 'single-answer' }
     }
@@ -194,7 +202,9 @@ export const dnsRoutingPolicyTrait: NodeBehaviourTrait = {
 
     if (config.routingPolicy === 'latency-based') {
       const selected = sortRoutesStable(candidates).sort(
-        (a, b) => estimatedEdgeLatencyMs(a.edge) - estimatedEdgeLatencyMs(b.edge)
+        (a, b) =>
+          (estimateRouteLatencyMs?.(a.edge, request) ?? estimatedEdgeLatencyMs(a.edge)) -
+          (estimateRouteLatencyMs?.(b.edge, request) ?? estimatedEdgeLatencyMs(b.edge))
       )[0]
       return {
         routes: [selected],
@@ -208,9 +218,10 @@ export const dnsRoutingPolicyTrait: NodeBehaviourTrait = {
 
     if (config.routingPolicy === 'geolocation') {
       const origin =
-        typeof request.metadata.origin === 'string' && request.metadata.origin.length > 0
+        request.origin?.originId ??
+        (typeof request.metadata.origin === 'string' && request.metadata.origin.length > 0
           ? request.metadata.origin
-          : undefined
+          : undefined)
       const matchedTarget = origin
         ? config.geoTargets.find((candidate) => candidate.origin === origin)?.targetNodeId
         : undefined

@@ -30,6 +30,8 @@ import {
   type ReservationTimelineState
 } from '../core/simulationSemantics'
 import { MetricsCollector, PerEdgeMetrics, PerNodeMetrics, SimulationSummary } from '../metrics'
+import type { LatencyPercentiles } from '../metrics'
+import type { TrafficOriginLocation } from '../core/types'
 import { RequestTrace, RequestTracer } from '../tracer'
 
 export interface TimeSeriesSnapshot {
@@ -259,6 +261,8 @@ export interface SimulationOutput {
   requestOutcomeBreakdown: Record<RequestOutcomeFamily, number>
   /** True when `requestOutcomes` is a sampled subset of the total outcome ledger. */
   requestOutcomesSampled: boolean
+  /** Request success, latency, serving region, and cache behavior grouped by client origin. */
+  perOrigin: OriginMetrics[]
   /** Exact run-level semantics summary computed before any worker-side sampling. */
   runtimeSemanticsSummary: RuntimeSemanticsSummary
   /** Broker-state projections for stream nodes with partitioned broker semantics enabled. */
@@ -271,6 +275,122 @@ export interface SimulationOutput {
    * the topology (no run needed); surfaced in the results tray + on the canvas.
    */
   singlePointsOfFailure: SpofFinding[]
+}
+
+export interface OriginMetrics {
+  originId: string
+  originLabel: string
+  originLocation?: TrafficOriginLocation
+  requests: number
+  succeeded: number
+  failed: number
+  inFlight: number
+  errorRate: number
+  latency: LatencyPercentiles
+  servingRegions: Record<string, number>
+  servingRegionLabels: Record<string, string>
+  cacheHits: number
+  cacheMisses: number
+  cacheHitRate: number | null
+  sampled: boolean
+}
+
+function percentile(sorted: readonly number[], quantile: number): number | null {
+  if (sorted.length === 0) return null
+  const index = Math.min(sorted.length - 1, Math.max(0, Math.ceil(sorted.length * quantile) - 1))
+  return sorted[index] ?? null
+}
+
+export function buildOriginMetrics(
+  outcomes: readonly RequestOutcomeRecord[],
+  sampled = false
+): OriginMetrics[] {
+  const groups = new Map<
+    string,
+    {
+      label: string
+      location?: TrafficOriginLocation
+      requests: number
+      succeeded: number
+      failed: number
+      inFlight: number
+      latencies: number[]
+      regions: Record<string, number>
+      regionLabels: Record<string, string>
+      hits: number
+      misses: number
+    }
+  >()
+
+  for (const outcome of outcomes) {
+    const id = outcome.originId ?? 'unspecified'
+    const group = groups.get(id) ?? {
+      label: outcome.originLabel ?? (id === 'unspecified' ? 'Unspecified origin' : id),
+      location: outcome.originLocation,
+      requests: 0,
+      succeeded: 0,
+      failed: 0,
+      inFlight: 0,
+      latencies: [],
+      regions: {},
+      regionLabels: {},
+      hits: 0,
+      misses: 0
+    }
+    group.requests++
+    if (outcome.status === 'success') {
+      group.succeeded++
+      if (outcome.latencyMs !== null) group.latencies.push(outcome.latencyMs)
+    } else if (outcome.status === 'in-flight') {
+      group.inFlight++
+    } else {
+      group.failed++
+    }
+    if (outcome.servingRegionId) {
+      group.regions[outcome.servingRegionId] = (group.regions[outcome.servingRegionId] ?? 0) + 1
+      group.regionLabels[outcome.servingRegionId] =
+        outcome.servingRegionLabel ?? outcome.servingRegionId
+    }
+    if (outcome.cacheOutcome === 'hit') group.hits++
+    if (outcome.cacheOutcome === 'miss') group.misses++
+    groups.set(id, group)
+  }
+
+  return [...groups.entries()]
+    .map(([originId, group]): OriginMetrics => {
+      group.latencies.sort((left, right) => left - right)
+      const totalLatency = group.latencies.reduce((sum, latency) => sum + latency, 0)
+      const cacheDecisions = group.hits + group.misses
+      const terminalRequests = group.succeeded + group.failed
+      return {
+        originId,
+        originLabel: group.label,
+        originLocation: group.location,
+        requests: group.requests,
+        succeeded: group.succeeded,
+        failed: group.failed,
+        inFlight: group.inFlight,
+        errorRate: terminalRequests > 0 ? group.failed / terminalRequests : 0,
+        latency: {
+          p50: percentile(group.latencies, 0.5),
+          p90: percentile(group.latencies, 0.9),
+          p95: percentile(group.latencies, 0.95),
+          p99: percentile(group.latencies, 0.99),
+          min: group.latencies[0] ?? null,
+          max: group.latencies[group.latencies.length - 1] ?? null,
+          mean: group.latencies.length > 0 ? totalLatency / group.latencies.length : null
+        },
+        servingRegions: group.regions,
+        servingRegionLabels: group.regionLabels,
+        cacheHits: group.hits,
+        cacheMisses: group.misses,
+        cacheHitRate: cacheDecisions > 0 ? group.hits / cacheDecisions : null,
+        sampled
+      }
+    })
+    .sort(
+      (left, right) => right.requests - left.requests || left.originId.localeCompare(right.originId)
+    )
 }
 
 const RUNTIME_DELIVERY_GUARANTEES = [
@@ -313,6 +433,7 @@ export function generateSimulationOutput(
   const conservationCheck = buildConservationCheck(perNode)
 
   const requestOutcomes = debugData?.requestOutcomes ?? []
+  const requestOutcomesSampled = debugData?.requestOutcomesSampled ?? false
   const runtimeSemanticsSummary = buildRuntimeSemanticsSummary(requestOutcomes)
 
   return {
@@ -342,7 +463,11 @@ export function generateSimulationOutput(
     requestOutcomeTotal: debugData?.requestOutcomeTotal ?? requestOutcomes.length,
     requestOutcomeBreakdown:
       debugData?.requestOutcomeBreakdown ?? createEmptyRequestOutcomeBreakdown(),
-    requestOutcomesSampled: debugData?.requestOutcomesSampled ?? false,
+    requestOutcomesSampled,
+    perOrigin: buildOriginMetrics(
+      requestOutcomes.filter((outcome) => outcome.createdAtMs >= config.warmupDuration),
+      requestOutcomesSampled
+    ),
     runtimeSemanticsSummary,
     streamProjection: debugData?.streamProjection ?? [],
     replicationProjection: debugData?.replicationProjection ?? [],

@@ -13,6 +13,7 @@ import {
   CONTENT_ROUTING_MATCH_FIELDS,
   L4_CONTENT_ROUTING_FORBIDDEN_MESSAGE
 } from '../traits/contentRouting'
+import { MATCH_OPERATORS } from '../core/requestSemantics'
 import { DEFAULT_BREAKER_CONFIG } from '../traits/circuitBreaker'
 import { HEALTH_AWARE_COMPONENT_TYPES } from '../traits/healthAwareRouting'
 import {
@@ -29,6 +30,8 @@ import {
   probability,
   queueCapacityAtLeastWorkers,
   queueFieldLabels,
+  routingRuleInvalidOperator,
+  routingRuleMissingHeaderKey,
   routingRuleMissingMatchValue,
   routingRuleMissingTarget,
   routingRuleUnsupportedMatchField,
@@ -322,6 +325,10 @@ function buildSourceNode(
     role: spec.structuralRole,
     label: data.label,
     position: ctx.position,
+    provider:
+      typeof data.sim?.provider === 'string' && data.sim.provider.trim().length > 0
+        ? data.sim.provider.trim()
+        : undefined,
     config: { sourceOnly: true }
   }
 }
@@ -362,6 +369,26 @@ function buildRuntimeNode(
     config.cacheHitRate = clamp(data.sim.cacheHitRate, 0, 1)
   }
 
+  if (data.sim?.cacheModel === 'declared-rate' || data.sim?.cacheModel === 'derived-lru') {
+    config.cacheModel = data.sim.cacheModel
+  }
+
+  if (
+    typeof data.sim?.cacheRamMb === 'number' &&
+    Number.isFinite(data.sim.cacheRamMb) &&
+    data.sim.cacheRamMb > 0
+  ) {
+    config.cacheRamMb = data.sim.cacheRamMb
+  }
+
+  if (
+    typeof data.sim?.valueSizeBytes === 'number' &&
+    Number.isFinite(data.sim.valueSizeBytes) &&
+    data.sim.valueSizeBytes > 0
+  ) {
+    config.valueSizeBytes = data.sim.valueSizeBytes
+  }
+
   if (
     typeof data.sim?.cacheHitLatencyMs === 'number' &&
     Number.isFinite(data.sim.cacheHitLatencyMs) &&
@@ -397,6 +424,10 @@ function buildRuntimeNode(
 
   if (Array.isArray(data.sim?.routingRules) && data.sim.routingRules.length > 0) {
     config.routingRules = data.sim.routingRules
+  }
+
+  if (typeof data.sim?.stickyKeyField === 'string' && data.sim.stickyKeyField.trim().length > 0) {
+    config.stickyKeyField = data.sim.stickyKeyField.trim()
   }
 
   if (typeof data.sim?.maxTokens === 'number' && Number.isFinite(data.sim.maxTokens)) {
@@ -560,6 +591,45 @@ function buildRuntimeNode(
     config.lockKeyField = data.sim.lockKeyField.trim()
   }
 
+  if (typeof data.sim?.consumerGroupMode === 'boolean') {
+    config.consumerGroupMode = data.sim.consumerGroupMode
+  }
+
+  if (typeof data.sim?.consumerGroup === 'string' && data.sim.consumerGroup.trim().length > 0) {
+    config.consumerGroup = data.sim.consumerGroup.trim()
+  }
+
+  if (typeof data.sim?.streamBrokerEnabled === 'boolean') {
+    config.streamBrokerEnabled = data.sim.streamBrokerEnabled
+  }
+
+  if (
+    typeof data.sim?.partitionCount === 'number' &&
+    Number.isInteger(data.sim.partitionCount) &&
+    data.sim.partitionCount > 0
+  ) {
+    config.partitionCount = data.sim.partitionCount
+  }
+
+  if (
+    typeof data.sim?.partitionKeyField === 'string' &&
+    data.sim.partitionKeyField.trim().length > 0
+  ) {
+    config.partitionKeyField = data.sim.partitionKeyField.trim()
+  }
+
+  for (const field of [
+    'retentionMs',
+    'streamReplayIntervalMs',
+    'brokerFailureAtMs',
+    'brokerRecoveryAtMs'
+  ] as const) {
+    const value = data.sim?.[field]
+    if (typeof value === 'number' && Number.isFinite(value) && value >= 0) {
+      config[field] = value
+    }
+  }
+
   if (typeof data.sim?.fencing === 'boolean') {
     config.fencing = data.sim.fencing
   }
@@ -580,6 +650,10 @@ function buildRuntimeNode(
     role: spec.structuralRole,
     label: data.label,
     position: ctx.position,
+    provider:
+      typeof data.sim?.provider === 'string' && data.sim.provider.trim().length > 0
+        ? data.sim.provider.trim()
+        : undefined,
     queue,
     resources,
     processing: data.sim?.processing,
@@ -932,7 +1006,13 @@ function validateSimulationNode(data: CanvasNodeDataV2): string[] {
       routingRules.forEach((rule, ruleIndex) => {
         if (!(CONTENT_ROUTING_MATCH_FIELDS as readonly string[]).includes(rule.matchField)) {
           errors.push(
-            routingRuleUnsupportedMatchField(ruleIndex, ['Type', 'Method', 'Path', 'Host'])
+            routingRuleUnsupportedMatchField(ruleIndex, [
+              'Type',
+              'Method',
+              'Path',
+              'Host',
+              'Header'
+            ])
           )
         }
         if (!rule.matchValue) {
@@ -940,6 +1020,15 @@ function validateSimulationNode(data: CanvasNodeDataV2): string[] {
         }
         if (!rule.targetNodeId) {
           errors.push(routingRuleMissingTarget(ruleIndex))
+        }
+        if (
+          rule.matchOperator !== undefined &&
+          !(MATCH_OPERATORS as readonly string[]).includes(rule.matchOperator)
+        ) {
+          errors.push(routingRuleInvalidOperator(ruleIndex, ['equals', 'prefix', 'regex']))
+        }
+        if (rule.matchField === 'header' && !rule.matchKey) {
+          errors.push(routingRuleMissingHeaderKey(ruleIndex))
         }
       })
     }
@@ -1034,6 +1123,7 @@ for (const componentType of [
   'load-balancer',
   'load-balancer-l4',
   'load-balancer-l7',
+  'global-traffic-manager',
   'ingress-controller',
   'reverse-proxy',
   'service-mesh',

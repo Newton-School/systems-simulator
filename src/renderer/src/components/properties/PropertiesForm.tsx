@@ -20,8 +20,11 @@ import { Label } from '../ui/Label'
 import { Select } from '../ui/Select'
 import { FormField } from './FormField'
 import { RequestDistributionEditor } from './RequestDistributionEditor'
+import { TrafficOriginsEditor } from './TrafficOriginsEditor'
 import { RoutingRulesEditor } from './RoutingRulesEditor'
 import type { ContentRoutingRule } from '../../../../engine/traits/contentRouting'
+import type { LocationProvider } from '../../../../engine/core/types'
+import { cloudRegionsForProvider } from '../../../../engine/catalog/locationCatalog'
 import {
   HEALTH_PRESET_ERROR_RATE,
   clamp,
@@ -67,6 +70,10 @@ const ROUTING_STRATEGIES = new Set<RoutingStrategy>([
   'random',
   'weighted',
   'least-conn',
+  'least-response-time',
+  'p2c',
+  'sticky',
+  'ip-hash',
   'broadcast',
   'conditional'
 ])
@@ -315,6 +322,30 @@ export const PropertiesForm = ({
       )
     }
 
+    if (field.renderer === 'traffic-origins') {
+      const entries = effectiveSourceWorkload?.origins ?? []
+      return (
+        <TrafficOriginsEditor
+          key={field.path}
+          entries={entries}
+          onChange={(nextValue) => {
+            if (isScenarioManagedSourceNode) {
+              updateScenario((current) => ({
+                ...current,
+                workloadOverride: updateWorkloadOverrideForField(
+                  current.workloadOverride,
+                  field.path,
+                  nextValue.length > 0 ? nextValue : undefined
+                )
+              }))
+              return
+            }
+            onUpdate(field.path, nextValue.length > 0 ? nextValue : undefined)
+          }}
+        />
+      )
+    }
+
     return (
       <FormField
         key={field.path}
@@ -323,6 +354,16 @@ export const PropertiesForm = ({
         data={formData}
         value={value}
         onChange={(nextValue) => {
+          if (field.path === 'sim.locationProvider') {
+            const provider = nextValue as LocationProvider
+            onUpdate(field.path, provider)
+            onUpdate(
+              'sim.locationId',
+              provider === 'custom' ? undefined : cloudRegionsForProvider(provider)[0]?.code
+            )
+            return
+          }
+
           if (isScenarioManagedSourceNode && isSourceWorkloadFieldPath(field.path)) {
             updateScenario((current) => ({
               ...current,

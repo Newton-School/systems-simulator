@@ -477,7 +477,11 @@ export class GGcKNode {
       // Instance-backed nodes report CPU occupancy as the sole utilization meaning.
       // Legacy nodes have no CPU tier and retain the historical worker occupancy.
       utilization: this.instantUtilization(),
-      totalInSystem: this.inSystem()
+      totalInSystem: this.inSystem(),
+      meanServiceTimeMs:
+        this.metrics.totalCompleted > 0
+          ? Number(this.metrics.totalServiceTime) / 1000 / this.metrics.totalCompleted
+          : 0
     }
   }
 

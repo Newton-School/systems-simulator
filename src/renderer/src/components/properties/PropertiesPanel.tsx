@@ -21,6 +21,7 @@ import {
 } from 'lucide-react'
 import type { SimulationOutput } from '../../../../engine/analysis/output'
 import {
+  canEditEdgeLabelsForQuestion,
   canEditEdgesForQuestion,
   resolveEdgeModel,
   canEditResourcesForQuestion
@@ -1413,6 +1414,9 @@ export const PropertiesPanel = ({ results = null }: { results?: SimulationOutput
   const canEditEdges = useStore((state) =>
     canEditEdgesForQuestion(state.environmentProfile, state.activeQuestion)
   )
+  const canEditEdgeLabels = useStore((state) =>
+    canEditEdgeLabelsForQuestion(state.environmentProfile, state.activeQuestion)
+  )
   // Connector mode: edges are dumb wires (no physics, no properties, no lenses).
   const edgeIsConnectorOnly = useStore(
     (state) => resolveEdgeModel(state.environmentProfile, state.activeQuestion) === 'connector'
@@ -1710,13 +1714,17 @@ export const PropertiesPanel = ({ results = null }: { results?: SimulationOutput
     )?.pathType
 
     const handleEdgeChange = (patch: Partial<EdgePropertiesPanelValue>) => {
-      if (!canEditEdges || selectedEdgeLocked) return
+      if (selectedEdgeLocked) return
       const { label, ...dataPatch } = patch
       const hasDataPatch = Object.keys(dataPatch).length > 0
+      const hasEditableLabelPatch = label !== undefined && canEditEdgeLabels
+      const hasEditableDataPatch = hasDataPatch && canEditEdges
+
+      if (!hasEditableLabelPatch && !hasEditableDataPatch) return
 
       updateEdgeData(selectedEdge.id, {
-        ...(label !== undefined ? { label } : {}),
-        ...(hasDataPatch ? { data: dataPatch as Partial<EdgeSimulationData> } : {})
+        ...(hasEditableLabelPatch ? { label } : {}),
+        ...(hasEditableDataPatch ? { data: dataPatch as Partial<EdgeSimulationData> } : {})
       })
     }
 
@@ -1739,12 +1747,13 @@ export const PropertiesPanel = ({ results = null }: { results?: SimulationOutput
           )}
           containerDerivedPathType={containerDerivedPath}
           value={{
-            label: (selectedEdge.label as string) || '',
-            ...(((selectedEdge.data as EdgeSimulationData | undefined) ?? {}) as EdgeSimulationData)
+            ...(((selectedEdge.data as EdgeSimulationData | undefined) ??
+              {}) as EdgeSimulationData),
+            label: (selectedEdge.label as string) || ''
           }}
           onChange={handleEdgeChange}
           onClose={() => selectGraphElements({})}
-          readOnly={!canEditEdges}
+          readOnly={!canEditEdgeLabels}
           connectorOnly={edgeIsConnectorOnly}
           tabs={
             selectedEdgeHasRuntime ? <InspectorTabs active={tab} onChange={setTab} /> : undefined

@@ -1,5 +1,5 @@
 import type { ComponentNode, ComponentType } from '../core/types'
-import type { ResolveRoute } from '../routing'
+import { pickOnHashRing } from '../core/hashRing'
 import type { NodeBehaviourTrait, NodeCapabilityModule } from './types'
 
 export const KEY_BASED_ROUTING_COMPONENT_TYPES = [
@@ -9,23 +9,9 @@ export const KEY_BASED_ROUTING_COMPONENT_TYPES = [
 
 const DEFAULT_ROUTING_KEY_FIELD = 'shardKey'
 
-function stableHash(input: string): number {
-  let hash = 2166136261
-  for (let i = 0; i < input.length; i++) {
-    hash ^= input.charCodeAt(i)
-    hash = Math.imul(hash, 16777619)
-  }
-  return hash >>> 0
-}
-
 function readRoutingKeyField(node: ComponentNode): string {
   const raw = node.config?.['routingKeyField']
   return typeof raw === 'string' && raw.trim().length > 0 ? raw.trim() : DEFAULT_ROUTING_KEY_FIELD
-}
-
-function pickRouteForKey(routes: ResolveRoute[], key: string): ResolveRoute {
-  const sorted = [...routes].sort((a, b) => a.targetNodeId.localeCompare(b.targetNodeId))
-  return sorted[stableHash(key) % sorted.length]
 }
 
 export const keyBasedRoutingTrait: NodeBehaviourTrait = {
@@ -40,7 +26,9 @@ export const keyBasedRoutingTrait: NodeBehaviourTrait = {
     const routingKey =
       typeof rawKey === 'string' || typeof rawKey === 'number' ? String(rawKey) : request.id
 
-    const selected = pickRouteForKey(candidates, routingKey)
+    // Consistent-hash ring (not modulo): adding or removing a shard reassigns
+    // only that shard's ~1/N of keys, instead of remapping almost everything.
+    const selected = pickOnHashRing(candidates, routingKey)
     return {
       routes: [selected],
       decision: 'key-routed',
@@ -87,7 +75,10 @@ export const keyBasedRoutingCapabilityModule: NodeCapabilityModule = {
     counters: ['keyRoutedRequests']
   },
   honesty: {
-    simulates: ['deterministic same-key routing to the same downstream shard'],
-    notModeled: ['ring rebalancing cost', 'virtual-node skew analysis']
+    simulates: [
+      'deterministic same-key routing to the same downstream shard',
+      'consistent-hash ring (64 virtual nodes/shard): adding or removing a shard reassigns only ~1/N of keys'
+    ],
+    notModeled: ['the data-movement cost/time of a rebalance', 'weighted or heterogeneous shards']
   }
 }

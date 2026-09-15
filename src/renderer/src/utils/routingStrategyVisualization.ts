@@ -264,6 +264,31 @@ export function resolveRoutingVisualizationDecision({
       break
     }
 
+    case 'least-response-time': {
+      // Load-aware like least-conn; the preview has no live latency so it shares
+      // the least-connection illustration.
+      if (syncTargets.length > 0) {
+        const result = selectLeastConnectionTarget(syncTargets, state.leastConnectionTieIndex)
+        selectedSyncTargets = [result.target]
+        nextState.leastConnectionTieIndex = result.nextTieIndex
+      }
+      signature =
+        'Least response time: pick the target with the lowest (in-flight × mean service time).'
+      break
+    }
+
+    case 'p2c': {
+      // Power-of-two-choices samples two targets and takes the less loaded; the
+      // preview approximates it with the least-connection pick.
+      if (syncTargets.length > 0) {
+        const result = selectLeastConnectionTarget(syncTargets, state.leastConnectionTieIndex)
+        selectedSyncTargets = [result.target]
+        nextState.leastConnectionTieIndex = result.nextTieIndex
+      }
+      signature = 'Power of two choices: sample two targets, route to the less loaded one.'
+      break
+    }
+
     case 'conditional': {
       const index = modulo(state.conditionalIndex, syncTargets.length)
       selectedSyncTargets = syncTargets.length > 0 ? [syncTargets[index]] : []
@@ -276,6 +301,20 @@ export function resolveRoutingVisualizationDecision({
       selectedSyncTargets = syncTargets.length > 0 ? [syncTargets[0]] : []
       signature = 'Passthrough: forward to the first eligible target without balancing.'
       break
+
+    case 'sticky':
+    case 'ip-hash': {
+      // Session affinity pins a client/session to one backend. Without a live
+      // request key in the preview, illustrate the invariant by always lighting
+      // the same (id-sorted) target, mirroring the engine's stable hash mapping.
+      const ordered = [...syncTargets].sort((a, b) => (a.id < b.id ? -1 : 1))
+      selectedSyncTargets = ordered.length > 0 ? [ordered[0]] : []
+      signature =
+        strategy === 'ip-hash'
+          ? 'IP hash: each client IP maps to a fixed backend (session affinity).'
+          : 'Sticky: each session key maps to a fixed backend (session affinity).'
+      break
+    }
 
     case 'random':
     default: {

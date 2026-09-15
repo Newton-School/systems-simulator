@@ -20,6 +20,7 @@ export type ConfigCustomRenderer =
   | 'routing-rules'
   | 'health-preset'
   | 'request-distribution'
+  | 'traffic-origins'
 export type ConfigInputType = 'number' | 'text'
 
 export interface ConfigDisplayTransform {
@@ -148,6 +149,8 @@ export interface TraitFilterRoutesContext extends TraitContext {
   getNode?: (nodeId: string) => ComponentNode | undefined
   isTargetHealthy?: (nodeId: string) => boolean
   isEdgeHealthy?: (edge: EdgeDefinition) => boolean
+  /** Request-aware estimate from the active topology's network model. */
+  estimateRouteLatencyMs?: (edge: EdgeDefinition, request: Request) => number
 }
 
 export interface TraitTerminalContext extends TraitContext {

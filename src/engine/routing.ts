@@ -1,4 +1,5 @@
 import type { Request } from './core/events'
+import { pickOnHashRing } from './core/hashRing'
 import type { ComponentNode, EdgeDefinition, RandomGenerator } from './core/types'
 import { isAsyncBoundaryComponentType } from './traits/asyncOnly'
 import { resolveTraits } from './traits/resolveTraits'
@@ -39,6 +40,13 @@ export interface ResolveTargetOptions {
    * state; when absent, least-conn degrades to round-robin so it still spreads.
    */
   getInFlight?: (nodeId: string) => number
+  /**
+   * Cumulative mean service time (ms) for a target node, used by the
+   * `least-response-time` strategy. When absent, that strategy degrades to
+   * `least-conn` (and thence round-robin).
+   */
+  getResponseTimeMs?: (nodeId: string) => number
+  estimateRouteLatencyMs?: (edge: EdgeDefinition, request: Request) => number
   sharedState?: TraitStateStore
   onTraitDecision?: (decision: {
     traitName: string
@@ -201,7 +209,15 @@ export class RoutingTable {
       if (this.strategyBySourceId.get(sourceNodeId) === 'broadcast') {
         results.push(...syncRoutes)
       } else {
-        results.push(this.pickSyncRoute(sourceNodeId, syncRoutes, options.getInFlight))
+        results.push(
+          this.pickSyncRoute(
+            sourceNodeId,
+            syncRoutes,
+            request,
+            options.getInFlight,
+            options.getResponseTimeMs
+          )
+        )
       }
     }
 
@@ -219,15 +235,25 @@ export class RoutingTable {
   private pickSyncRoute(
     sourceNodeId: string,
     routes: ResolveRoute[],
-    getInFlight?: (nodeId: string) => number
+    request: Request,
+    getInFlight?: (nodeId: string) => number,
+    getResponseTimeMs?: (nodeId: string) => number
   ): ResolveRoute {
     switch (this.strategyBySourceId.get(sourceNodeId)) {
       case 'round-robin':
         return this.pickRoundRobin(sourceNodeId, routes)
       case 'least-conn':
         return this.pickLeastConnected(sourceNodeId, routes, getInFlight)
+      case 'least-response-time':
+        return this.pickLeastResponseTime(sourceNodeId, routes, getInFlight, getResponseTimeMs)
+      case 'p2c':
+        return this.pickPowerOfTwoChoices(sourceNodeId, routes, getInFlight)
       case 'weighted':
         return this.pickByWeight(routes)
+      case 'sticky':
+        return this.pickSticky(sourceNodeId, routes, request, 'sticky')
+      case 'ip-hash':
+        return this.pickSticky(sourceNodeId, routes, request, 'ip-hash')
       case 'passthrough':
         // No balancing: forward to the first eligible target, matching the preview.
         return routes[0]
@@ -247,6 +273,112 @@ export class RoutingTable {
     const route = routes[safeIndex]
     this.roundRobinIndexBySource.set(sourceNodeId, (safeIndex + 1) % routes.length)
     return route
+  }
+
+  /**
+   * Session-affinity routing: hashes a stable per-client key to a fixed backend
+   * so every request from the same client/session lands on the same target.
+   * `sticky` hashes the session key (the node's `stickyKeyField`, else
+   * `sessionId`, else the canonical `__key`); `ip-hash` hashes `clientIp`.
+   *
+   * Placement uses a **consistent-hash ring** (not `hash(key) % n`): each target
+   * gets several virtual points on a 2^32 ring, and a key maps to the first target
+   * clockwise from `hash(key)`. Adding or ejecting one backend then reassigns only
+   * that backend's share of keys (~1/N), instead of remapping almost everything —
+   * the property that makes affinity survive pool changes. When no affinity key is
+   * present there is nothing to be sticky about, so this degrades to round-robin
+   * (it still spreads) — matching how `least-conn` degrades.
+   */
+  private pickSticky(
+    sourceNodeId: string,
+    routes: ResolveRoute[],
+    request: Request,
+    mode: 'sticky' | 'ip-hash'
+  ): ResolveRoute {
+    const key = this.resolveAffinityKey(sourceNodeId, request, mode)
+    if (key === undefined) {
+      return this.pickRoundRobin(sourceNodeId, routes)
+    }
+    return pickOnHashRing(routes, key)
+  }
+
+  /**
+   * Least-response-time: picks the target minimizing expected wait, scored as
+   * `(in-flight + 1) × mean service time`. Falls back to `least-conn` when no
+   * response-time signal exists yet (e.g. before any completion), which itself
+   * degrades to round-robin without an in-flight signal.
+   */
+  private pickLeastResponseTime(
+    sourceNodeId: string,
+    routes: ResolveRoute[],
+    getInFlight?: (nodeId: string) => number,
+    getResponseTimeMs?: (nodeId: string) => number
+  ): ResolveRoute {
+    if (!getResponseTimeMs) {
+      return this.pickLeastConnected(sourceNodeId, routes, getInFlight)
+    }
+    const score = (route: ResolveRoute): number => {
+      const serviceMs = getResponseTimeMs(route.targetNodeId)
+      const inFlight = getInFlight?.(route.targetNodeId) ?? 0
+      return (inFlight + 1) * serviceMs
+    }
+    // If no target has recorded a service time yet, there is nothing to compare.
+    if (routes.every((route) => getResponseTimeMs(route.targetNodeId) <= 0)) {
+      return this.pickLeastConnected(sourceNodeId, routes, getInFlight)
+    }
+    const scores = routes.map(score)
+    const min = Math.min(...scores)
+    const tied = routes.filter((_, index) => scores[index] === min)
+    if (tied.length === 1) {
+      return tied[0]
+    }
+    const tieIndex = this.leastConnTieIndexBySource.get(sourceNodeId) ?? 0
+    const chosen = tied[tieIndex % tied.length]
+    this.leastConnTieIndexBySource.set(sourceNodeId, (tieIndex + 1) % tied.length)
+    return chosen
+  }
+
+  /**
+   * Power-of-two-choices: sample two distinct candidates at random and route to
+   * the less-loaded of the two. Near-optimal load spreading at O(1) cost and far
+   * less herd behaviour than global least-conn. Degrades to round-robin without an
+   * in-flight signal.
+   */
+  private pickPowerOfTwoChoices(
+    sourceNodeId: string,
+    routes: ResolveRoute[],
+    getInFlight?: (nodeId: string) => number
+  ): ResolveRoute {
+    if (!getInFlight || routes.length === 1) {
+      return this.pickRoundRobin(sourceNodeId, routes)
+    }
+    const first = this.rng.integer(0, routes.length - 1)
+    let second = this.rng.integer(0, routes.length - 2)
+    if (second >= first) second += 1 // pick a distinct second index
+    const a = routes[first]!
+    const b = routes[second]!
+    return getInFlight(a.targetNodeId) <= getInFlight(b.targetNodeId) ? a : b
+  }
+
+  private resolveAffinityKey(
+    sourceNodeId: string,
+    request: Request,
+    mode: 'sticky' | 'ip-hash'
+  ): string | undefined {
+    const asKey = (value: unknown): string | undefined =>
+      typeof value === 'string' && value.length > 0 ? value : undefined
+
+    if (mode === 'ip-hash') {
+      return asKey(request.metadata.clientIp) ?? asKey(request.metadata.__key)
+    }
+
+    const field = this.nodeById.get(sourceNodeId)?.config?.['stickyKeyField']
+    const configured = typeof field === 'string' && field.length > 0 ? field : undefined
+    return (
+      (configured ? asKey(request.metadata[configured]) : undefined) ??
+      asKey(request.metadata.sessionId) ??
+      asKey(request.metadata.__key)
+    )
   }
 
   /**
@@ -428,6 +560,7 @@ export class RoutingTable {
         getNode: (nodeId) => this.nodeById.get(nodeId),
         isTargetHealthy: options.isTargetHealthy,
         isEdgeHealthy: options.isEdgeHealthy,
+        estimateRouteLatencyMs: options.estimateRouteLatencyMs,
         state: this.getTraitStateStore(sourceNodeId),
         sharedState: options.sharedState
       })

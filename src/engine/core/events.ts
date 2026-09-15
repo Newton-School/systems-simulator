@@ -1,4 +1,5 @@
 import type { RequestStateTransition } from './simulationSemantics'
+import type { TrafficOriginLocation } from './types'
 
 /**
  * All possible event types that drive the simulation state.
@@ -134,6 +135,15 @@ export interface Request {
   stateTimeline?: RequestStateTransition[]
   retryCount: number
   metadata: Record<string, unknown>
+  /** Typed client population selected by the workload generator. */
+  origin?: {
+    originId: string
+    label: string
+    location: TrafficOriginLocation
+  }
+  /** Most recent placed region reached by this request. */
+  servingRegionId?: string
+  servingRegionLabel?: string
   /**
    * Lazy-tombstone generation for this request's SERVICE_COMPLETE
    * (`processing-complete`) events. Every such event snapshots this value at
@@ -168,6 +178,12 @@ export interface EdgeFlowEvent {
   latencyMs: number
   status: EdgeFlowStatus
   failureCause?: EdgeFailureCause
+  /**
+   * The request's affinity/partition key (`__key` / partitionKey / shardKey /
+   * sessionId / clientIp), when present. Lets the UI color dots by key so
+   * session affinity and sharding are visible: same key → same color.
+   */
+  key?: string
 }
 
 /**

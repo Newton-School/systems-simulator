@@ -2021,6 +2021,32 @@ describe('SimulationEngine', () => {
     })
   })
 
+  it('stamps the affinity key on edge-flow events when the workload declares a keyspace', () => {
+    const topology = makeTopology({
+      global: { simulationDuration: 50, traceSampleRate: 1 },
+      nodes: [makeNode('source'), makeNode('dst')],
+      edges: [makeEdge('source-to-dst', 'source', 'dst')],
+      workload: {
+        sourceNodeId: 'source',
+        pattern: 'constant',
+        baseRps: 2,
+        requestDistribution: [
+          { type: 'GET', weight: 1, sizeBytes: 100, keyspace: { field: 'sessionId', size: 4 } }
+        ]
+      }
+    })
+
+    const edgeEvents: EdgeFlowEvent[] = []
+    const engine = new SimulationEngine(topology)
+    engine.onEdgeFlowEvent = (event) => edgeEvents.push(event)
+    engine.run()
+
+    expect(edgeEvents.length).toBeGreaterThan(0)
+    // Every event carries the drawn key, and it matches the keyspace field pattern.
+    expect(edgeEvents.every((event) => typeof event.key === 'string')).toBe(true)
+    expect(edgeEvents.every((event) => /^sessionId-\d+$/.test(event.key ?? ''))).toBe(true)
+  })
+
   it('preserves intermediate-node arrivals and completions when a downstream edge rejects requests', () => {
     const topology = makeTopology({
       global: {

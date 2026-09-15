@@ -3,6 +3,7 @@ import type {
   BaseDistributionConfig,
   DiurnalHourlyMultipliers,
   DistributionConfig,
+  TrafficOrigin,
   TopologyJSON
 } from '../core/types'
 import { inferStructuralRole } from '../catalog/componentSpecs'
@@ -12,8 +13,10 @@ import {
   CONTENT_ROUTING_MATCH_FIELDS,
   L4_CONTENT_ROUTING_FORBIDDEN_MESSAGE
 } from '../traits/contentRouting'
+import { MATCH_OPERATORS } from '../core/requestSemantics'
 import { asDistributionConfig } from '../traits/serviceTimeOverride'
 import { INSTANCE_TYPES } from '../catalog/instanceCatalog'
+import { findCloudRegion } from '../catalog/locationCatalog'
 import {
   nonNegativeNumber,
   oneOf,
@@ -21,6 +24,8 @@ import {
   probability,
   queueCapacityAtLeastWorkers,
   queueFieldLabels,
+  routingRuleInvalidOperator,
+  routingRuleMissingHeaderKey,
   routingRuleMissingMatchValue,
   routingRuleMissingTarget,
   routingRuleUnsupportedMatchField,
@@ -345,6 +350,14 @@ export const ComponentNodeSchema = z.object({
   role: z.enum(['source', 'processor', 'storage', 'router', 'sink']).optional(),
   label: z.string(),
   position: z.object({ x: z.number(), y: z.number() }),
+  provider: z.string().min(1).optional(),
+  placement: z
+    .object({
+      regionId: z.string().min(1).optional(),
+      availabilityZoneId: z.string().min(1).optional(),
+      subnetId: z.string().min(1).optional()
+    })
+    .optional(),
 
   resources: z
     .object({
@@ -483,11 +496,42 @@ const DiurnalHourlyMultipliersSchema: z.ZodType<DiurnalHourlyMultipliers> = z
     ]
   )
 
+const TrafficOriginSchema = z
+  .object({
+    id: z.string().min(1),
+    label: z.string().min(1),
+    weight: z.number().nonnegative(),
+    location: z.discriminatedUnion('kind', [
+      z.object({ kind: z.literal('region'), regionId: z.string().min(1) }),
+      z.object({
+        kind: z.literal('coordinates'),
+        latitude: z.number().min(-90).max(90),
+        longitude: z.number().min(-180).max(180)
+      })
+    ])
+  })
+  // Zod v4 currently widens a nested discriminated-union property to optional
+  // in its output type even though runtime parsing requires it. Preserve the
+  // stricter engine contract at this boundary.
+  .transform((origin) => origin as TrafficOrigin)
+
 export const WorkloadProfileSchema = z.object({
   sourceNodeId: z.string().min(1),
   pattern: z.enum(['constant', 'poisson', 'bursty', 'diurnal', 'spike', 'sawtooth', 'replay']),
 
   baseRps: z.number().positive(),
+
+  origins: z
+    .array(TrafficOriginSchema)
+    .min(1)
+    .refine(
+      (origins) => {
+        const totalWeight = origins.reduce((sum, origin) => sum + origin.weight, 0)
+        return totalWeight > 0 && Math.abs(totalWeight - 1) < 0.0001
+      },
+      { message: 'The sum of origin weights must equal 1.0' }
+    )
+    .optional(),
 
   requestDistribution: z
     .array(
@@ -499,7 +543,8 @@ export const WorkloadProfileSchema = z.object({
         keyspace: z
           .object({
             field: z.string().min(1),
-            size: z.number().int().positive()
+            size: z.number().int().positive(),
+            skew: z.number().min(0).optional()
           })
           .optional()
       })
@@ -567,6 +612,40 @@ export const ScenarioRefSchema = z.object({
   overrides: z.record(z.string(), z.unknown())
 })
 
+const LocationProviderSchema = z.enum(['aws', 'gcp', 'azure', 'ibm', 'custom'])
+
+export const TopologyLocationSchema = z.object({
+  id: z.string().min(1),
+  kind: z.enum(['region', 'availability-zone', 'subnet', 'edge-pop']),
+  label: z.string().min(1),
+  parentId: z.string().min(1).optional(),
+  provider: LocationProviderSchema.optional(),
+  providerCode: z.string().min(1).optional(),
+  coordinates: z
+    .object({
+      latitude: z.number().min(-90).max(90),
+      longitude: z.number().min(-180).max(180)
+    })
+    .optional(),
+  position: z.object({ x: z.number(), y: z.number() }).optional(),
+  size: z.object({ width: z.number().positive(), height: z.number().positive() }).optional()
+})
+
+export const GeoNetworkModelSchema = z.object({
+  mode: z.enum(['path-type', 'geo-aware']),
+  catalogueVersion: z.string().min(1).optional(),
+  regionPairOverrides: z
+    .array(
+      z.object({
+        fromRegionId: z.string().min(1),
+        toRegionId: z.string().min(1),
+        distribution: DistributionConfigSchema,
+        source: z.enum(['catalogue', 'user']).optional()
+      })
+    )
+    .optional()
+})
+
 export const TopologyJSONSchema: z.ZodType<TopologyJSON> = z.object({
   id: z.string(),
   name: z.string(),
@@ -574,6 +653,8 @@ export const TopologyJSONSchema: z.ZodType<TopologyJSON> = z.object({
   global: GlobalConfigSchema,
   nodes: z.array(ComponentNodeSchema),
   edges: z.array(EdgeDefinitionSchema),
+  locations: z.array(TopologyLocationSchema).optional(),
+  networkModel: GeoNetworkModelSchema.optional(),
   workload: WorkloadProfileSchema.optional(),
 
   faults: z.array(FaultSpecSchema).optional(),
@@ -729,6 +810,107 @@ export const validateTopology = (
   const topology = parseResult.data
 
   //Cross-Reference Validations
+  const locationIds = new Set<string>()
+  const locationById = new Map(
+    (topology.locations ?? []).map((location) => [location.id, location] as const)
+  )
+  ;(topology.locations ?? []).forEach((location, index) => {
+    if (locationIds.has(location.id)) {
+      errors.push({
+        path: `locations[${index}].id`,
+        message: `Duplicate location ID: ${location.id}`
+      })
+    }
+    locationIds.add(location.id)
+
+    if (location.parentId && !locationById.has(location.parentId)) {
+      errors.push({
+        path: `locations[${index}].parentId`,
+        message: `Parent location ID '${location.parentId}' does not exist.`
+      })
+    }
+
+    if (
+      location.kind === 'region' &&
+      location.provider &&
+      location.provider !== 'custom' &&
+      !findCloudRegion(location.provider, location.providerCode)
+    ) {
+      errors.push({
+        path: `locations[${index}].providerCode`,
+        message: `Region code '${location.providerCode ?? ''}' is not in the ${location.provider} catalogue.`
+      })
+    }
+
+    if (location.kind === 'region' && location.provider === 'custom' && !location.coordinates) {
+      errors.push({
+        path: `locations[${index}].coordinates`,
+        message: 'A custom region requires latitude and longitude.'
+      })
+    }
+
+    const parent = location.parentId ? locationById.get(location.parentId) : undefined
+    if (location.kind === 'availability-zone' && parent && parent.kind !== 'region') {
+      errors.push({
+        path: `locations[${index}].parentId`,
+        message: 'An availability zone parent must be a region.'
+      })
+    }
+    if (
+      location.kind === 'subnet' &&
+      parent &&
+      parent.kind !== 'region' &&
+      parent.kind !== 'availability-zone'
+    ) {
+      errors.push({
+        path: `locations[${index}].parentId`,
+        message: 'A subnet parent must be a region or availability zone.'
+      })
+    }
+  })
+
+  topology.workload?.origins?.forEach((origin, index, origins) => {
+    if (origins.findIndex((candidate) => candidate.id === origin.id) !== index) {
+      errors.push({
+        path: `workload.origins[${index}].id`,
+        message: `Duplicate traffic origin ID: ${origin.id}`
+      })
+    }
+    if (origin.location.kind === 'region') {
+      const originRegion = locationById.get(origin.location.regionId)
+      if (!originRegion) {
+        errors.push({
+          path: `workload.origins[${index}].location.regionId`,
+          message: `Traffic origin region '${origin.location.regionId}' does not exist.`
+        })
+      } else if (originRegion.kind !== 'region') {
+        errors.push({
+          path: `workload.origins[${index}].location.regionId`,
+          message: `Traffic origin '${origin.id}' must reference a region, not ${originRegion.kind}.`
+        })
+      }
+    }
+  })
+
+  topology.networkModel?.regionPairOverrides?.forEach((pair, index) => {
+    for (const [field, regionId] of [
+      ['fromRegionId', pair.fromRegionId],
+      ['toRegionId', pair.toRegionId]
+    ] as const) {
+      if (!locationById.has(regionId)) {
+        errors.push({
+          path: `networkModel.regionPairOverrides[${index}].${field}`,
+          message: `Region '${regionId}' does not exist.`
+        })
+      } else if (locationById.get(regionId)?.kind !== 'region') {
+        errors.push({
+          path: `networkModel.regionPairOverrides[${index}].${field}`,
+          message: `Region-pair endpoint '${regionId}' must reference a region.`
+        })
+      }
+    }
+  })
+
   const nodeIds = new Set<string>()
   const nodeById = new Map<string, TopologyJSON['nodes'][number]>()
   const edgeIds = new Set<string>()
@@ -755,6 +937,26 @@ export const validateTopology = (
 
     const role = resolvedRole(node)
     const nodeLabel = displayNodeLabel(node)
+
+    for (const [field, locationId, expectedKind] of [
+      ['regionId', node.placement?.regionId, 'region'],
+      ['availabilityZoneId', node.placement?.availabilityZoneId, 'availability-zone'],
+      ['subnetId', node.placement?.subnetId, 'subnet']
+    ] as const) {
+      if (!locationId) continue
+      const location = locationById.get(locationId)
+      if (!location) {
+        errors.push({
+          path: `nodes[${index}].placement.${field}`,
+          message: `Placement location '${locationId}' does not exist.`
+        })
+      } else if (location.kind !== expectedKind) {
+        errors.push({
+          path: `nodes[${index}].placement.${field}`,
+          message: `Placement '${locationId}' must reference a ${expectedKind} location.`
+        })
+      }
+    }
 
     if (role !== 'source') {
       if (!node.queue) {
@@ -1230,6 +1432,8 @@ export const validateTopology = (
             matchField: unknown
             matchValue: unknown
             targetNodeId: unknown
+            matchOperator: unknown
+            matchKey: unknown
           }>
           if (
             !(CONTENT_ROUTING_MATCH_FIELDS as readonly string[]).includes(
@@ -1242,7 +1446,8 @@ export const validateTopology = (
                 'Type',
                 'Method',
                 'Path',
-                'Host'
+                'Host',
+                'Header'
               ])
             })
           }
@@ -1256,6 +1461,24 @@ export const validateTopology = (
             errors.push({
               path: `nodes[${index}].config.routingRules[${ruleIndex}].targetNodeId`,
               message: routingRuleMissingTarget(ruleIndex)
+            })
+          }
+          if (
+            candidate?.matchOperator !== undefined &&
+            !(MATCH_OPERATORS as readonly string[]).includes(candidate.matchOperator as string)
+          ) {
+            errors.push({
+              path: `nodes[${index}].config.routingRules[${ruleIndex}].matchOperator`,
+              message: routingRuleInvalidOperator(ruleIndex, ['equals', 'prefix', 'regex'])
+            })
+          }
+          if (
+            candidate?.matchField === 'header' &&
+            (typeof candidate?.matchKey !== 'string' || candidate.matchKey.length === 0)
+          ) {
+            errors.push({
+              path: `nodes[${index}].config.routingRules[${ruleIndex}].matchKey`,
+              message: routingRuleMissingHeaderKey(ruleIndex)
             })
           }
         })

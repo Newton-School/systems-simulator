@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { AnyNodeData } from '@renderer/types/ui'
 import {
   buildLatencyLensCard,
+  describeNodeEffects,
   getIdentityChip,
   getLensCard,
   isBroadcastFanoutData
@@ -163,5 +164,92 @@ describe('getIdentityChip', () => {
       label: 'Workload',
       value: 'poisson · 80.0 rps'
     })
+  })
+
+  it('shows the distribution mechanism for distributor nodes', () => {
+    const chip = (data: Partial<AnyNodeData>) => getIdentityChip(data as never)
+
+    expect(chip({ componentType: 'load-balancer', routingStrategy: 'weighted' })).toEqual({
+      label: 'Distributes',
+      value: 'weighted'
+    })
+    expect(chip({ componentType: 'load-balancer', routingStrategy: 'sticky' })).toEqual({
+      label: 'Distributes',
+      value: 'sticky · sessionId'
+    })
+    expect(
+      chip({
+        componentType: 'load-balancer',
+        routingStrategy: 'sticky',
+        sim: { stickyKeyField: 'tenant' }
+      })
+    ).toEqual({ label: 'Distributes', value: 'sticky · tenant' })
+    expect(chip({ componentType: 'pub-sub' })).toEqual({
+      label: 'Distributes',
+      value: 'broadcast · all subscribers'
+    })
+    expect(chip({ componentType: 'message-broker', sim: { consumerGroupMode: true } })).toEqual({
+      label: 'Distributes',
+      value: 'consumer groups · one per group'
+    })
+    expect(chip({ componentType: 'sharding', sim: { routingKeyField: 'userId' } })).toEqual({
+      label: 'Distributes',
+      value: 'by userId · consistent hash'
+    })
+    expect(
+      chip({
+        componentType: 'stream',
+        sim: { streamBrokerEnabled: true, partitionCount: 6 }
+      })
+    ).toEqual({ label: 'Distributes', value: '6 partitions' })
+    expect(
+      chip({
+        componentType: 'load-balancer-l7',
+        sim: { routingRules: [{ matchField: 'path', matchValue: '/a', targetNodeId: 't' }] }
+      })
+    ).toEqual({ label: 'Distributes', value: 'content routing · 1 rule' })
+    // Default LB with no explicit strategy still reads as round-robin.
+    expect(chip({ componentType: 'load-balancer' })).toEqual({
+      label: 'Distributes',
+      value: 'round-robin'
+    })
+    // A caching reverse-proxy still reads as a cache, not a balancer.
+    expect(chip({ componentType: 'reverse-proxy', sim: { cacheHitRate: 0.9 } })).toEqual({
+      label: 'Cache',
+      value: 'hit 90%'
+    })
+  })
+})
+
+describe('describeNodeEffects', () => {
+  it('surfaces hidden node effects from trait counters', () => {
+    expect(describeNodeEffects({ cacheHits: 120, cacheHitRatio: 0.85 })).toEqual(['⚡ cache 85%'])
+    expect(describeNodeEffects({ traitCounters: { retryAttempts: 7 } })).toEqual(['↻ 7 retries'])
+    expect(describeNodeEffects({ traitCounters: { replicationQuorumWrites: 3 } })).toEqual([
+      '⇉ replicated'
+    ])
+    expect(describeNodeEffects({ traitCounters: { fanoutQueries: 5 } })).toEqual([
+      '⋔ scatter/gather'
+    ])
+    expect(describeNodeEffects({ traitCounters: { idempotencyDuplicateHits: 4 } })).toEqual([
+      '⊘ 4 dupes blocked'
+    ])
+  })
+
+  it('returns nothing when no defining effect fired, and caps at three', () => {
+    expect(describeNodeEffects({})).toEqual([])
+    expect(describeNodeEffects({ traitCounters: { rateRejected: 10 } })).toEqual([]) // drops shown elsewhere
+    const many = describeNodeEffects({
+      cacheHits: 1,
+      cacheHitRatio: 0.5,
+      traitCounters: {
+        retryAttempts: 2,
+        replicationQuorumWrites: 1,
+        fanoutQueries: 1,
+        idempotencyDuplicateHits: 1
+      }
+    })
+    expect(many).toHaveLength(3)
+    expect(many[0]).toBe('⚡ cache 50%')
   })
 })

@@ -73,6 +73,7 @@ import {
 } from '../question/questionEntryFormatPresentation'
 
 // Atoms
+import { ErrorBoundary } from '../ui/ErrorBoundary'
 import { ResizeHandle } from '../ui/ResizeHandle'
 import { RunToast } from '../ui/RunToast'
 import { RoutingVisualizationToast } from '../ui/RoutingVisualizationToast'
@@ -1159,16 +1160,41 @@ export const WorkspaceLayout = () => {
               {/* Canvas */}
               <Panel defaultSize={showResults ? 65 : 100} minSize={10} order={1}>
                 <div className="relative h-full">
-                  <Suspense fallback={<PanelFallback label="Loading canvas..." />}>
-                    <FlowCanvas
-                      showMetricLens={environmentProfile.visibility.liveMetrics}
-                      interactionLocked={experienceEnvelope.canvasLocked}
-                      onNodeDoubleClick={(_, node) => {
-                        selectGraphElements({ nodeId: node.id })
-                        setIsRightOpen(true)
-                      }}
-                    />
-                  </Suspense>
+                  <ErrorBoundary
+                    label="FlowCanvas"
+                    fallback={(error, reset) => (
+                      <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
+                        <p className="text-sm font-semibold text-nss-danger">
+                          The canvas hit a rendering error.
+                        </p>
+                        <p className="max-w-md text-xs text-nss-muted">
+                          Your topology is safe. This is usually a transient issue with one node or
+                          edge — reload the canvas to continue.
+                        </p>
+                        <p className="max-w-md break-words font-mono text-[10px] text-nss-muted/80">
+                          {error.message}
+                        </p>
+                        <button
+                          type="button"
+                          onClick={reset}
+                          className="rounded border border-nss-border px-3 py-1.5 text-xs font-semibold text-nss-text transition-colors hover:border-nss-primary hover:text-nss-primary"
+                        >
+                          Reload canvas
+                        </button>
+                      </div>
+                    )}
+                  >
+                    <Suspense fallback={<PanelFallback label="Loading canvas..." />}>
+                      <FlowCanvas
+                        showMetricLens={environmentProfile.visibility.liveMetrics}
+                        interactionLocked={experienceEnvelope.canvasLocked}
+                        onNodeDoubleClick={(_, node) => {
+                          selectGraphElements({ nodeId: node.id })
+                          setIsRightOpen(true)
+                        }}
+                      />
+                    </Suspense>
+                  </ErrorBoundary>
 
                   {!showResults && sim.results && (
                     <button

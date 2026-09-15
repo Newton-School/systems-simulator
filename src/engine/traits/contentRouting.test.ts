@@ -164,4 +164,73 @@ describe('contentRoutingTrait', () => {
       routes: [expect.objectContaining({ targetNodeId: 'read-svc' })]
     })
   })
+
+  it('routes by a named header', () => {
+    const result = contentRoutingTrait.filterRoutes?.({
+      node: makeGatewayNode({
+        routingRules: [
+          {
+            matchField: 'header',
+            matchKey: 'X-Api-Version',
+            matchValue: '2',
+            targetNodeId: 'v2-svc'
+          }
+        ]
+      }),
+      request: makeRequest({ metadata: { headers: { 'x-api-version': '2' } } }),
+      clock: 0n,
+      candidates: [makeRoute('v1-svc'), makeRoute('v2-svc')]
+    })
+
+    expect(result).toMatchObject({
+      decision: 'content-routed',
+      routes: [expect.objectContaining({ targetNodeId: 'v2-svc' })]
+    })
+  })
+
+  it('routes by a path prefix operator', () => {
+    const result = contentRoutingTrait.filterRoutes?.({
+      node: makeGatewayNode({
+        routingRules: [
+          {
+            matchField: 'path',
+            matchOperator: 'prefix',
+            matchValue: '/admin/',
+            targetNodeId: 'admin-svc'
+          }
+        ]
+      }),
+      request: makeRequest({ metadata: { path: '/admin/users' } }),
+      clock: 0n,
+      candidates: [makeRoute('app-svc'), makeRoute('admin-svc')]
+    })
+
+    expect(result).toMatchObject({
+      decision: 'content-routed',
+      routes: [expect.objectContaining({ targetNodeId: 'admin-svc' })]
+    })
+  })
+
+  it('routes by a regex operator on host', () => {
+    const result = contentRoutingTrait.filterRoutes?.({
+      node: makeGatewayNode({
+        routingRules: [
+          {
+            matchField: 'host',
+            matchOperator: 'regex',
+            matchValue: '^tenant-\\d+\\.',
+            targetNodeId: 'tenant-svc'
+          }
+        ]
+      }),
+      request: makeRequest({ metadata: { host: 'tenant-42.example.com' } }),
+      clock: 0n,
+      candidates: [makeRoute('default-svc'), makeRoute('tenant-svc')]
+    })
+
+    expect(result).toMatchObject({
+      decision: 'content-routed',
+      routes: [expect.objectContaining({ targetNodeId: 'tenant-svc' })]
+    })
+  })
 })

@@ -24,6 +24,8 @@ import {
 } from '../../../../engine/catalog/sourceNodeSemantics'
 import { ACK_AND_RELEASE_COMPONENT_TYPES } from '../../../../engine/traits/ackAndRelease'
 import { BROADCAST_FANOUT_COMPONENT_TYPES } from '../../../../engine/traits/broadcastFanout'
+import { CONTENT_ROUTING_COMPONENT_TYPES } from '../../../../engine/traits/contentRouting'
+import { KEY_BASED_ROUTING_COMPONENT_TYPES } from '../../../../engine/traits/keyBasedRouting'
 import { HEALTH_AWARE_COMPONENT_TYPES } from '../../../../engine/traits/healthAwareRouting'
 import { getInstanceCount, type ComponentNode } from '../../../../engine/core/types'
 import { deriveNodeConcurrency } from '../../../../engine/nodes/resourceDerivation'
@@ -235,9 +237,132 @@ export function isBroadcastFanoutData(data: AnyNodeData): boolean {
   )
 }
 
+// Load-balancer types that default to round-robin spread (see componentSpecs.ts).
+const DEFAULT_RR_TYPE_SET = new Set<string>([
+  'load-balancer',
+  'load-balancer-l4',
+  'load-balancer-l7',
+  'ingress-controller',
+  'reverse-proxy'
+])
+const CONTENT_ROUTING_TYPE_SET = new Set<string>(CONTENT_ROUTING_COMPONENT_TYPES)
+const KEY_BASED_ROUTING_TYPE_SET = new Set<string>(KEY_BASED_ROUTING_COMPONENT_TYPES)
+const BROADCAST_FANOUT_TYPE_SET = new Set<string>(BROADCAST_FANOUT_COMPONENT_TYPES)
+
+const STRATEGY_LABELS: Record<string, string> = {
+  'round-robin': 'round-robin',
+  weighted: 'weighted',
+  random: 'random',
+  'least-conn': 'least-connections',
+  'least-response-time': 'least-response-time',
+  p2c: 'power of two',
+  passthrough: 'passthrough'
+}
+
+/**
+ * A short, human description of *how* a distributor node spreads traffic — the
+ * Axis-B "spatial distribution" mechanism — so the pattern is legible on the card
+ * itself, not just inferable from relative dot volume. Derived from config alone
+ * (no edges), so weight ratios aren't shown here; the strategy/keying is.
+ */
+export function describeDistribution(data: AnyNodeData): string | null {
+  const componentType = (data as { componentType?: string }).componentType
+  const strategy = (data as { routingStrategy?: string }).routingStrategy
+  const sim = data.sim
+
+  if (componentType !== undefined && BROADCAST_FANOUT_TYPE_SET.has(componentType)) {
+    return sim?.consumerGroupMode === true
+      ? 'consumer groups · one per group'
+      : 'broadcast · all subscribers'
+  }
+
+  if (componentType === 'stream' && sim?.streamBrokerEnabled === true) {
+    const partitions = typeof sim.partitionCount === 'number' ? sim.partitionCount : 1
+    const base = `${partitions} partition${partitions === 1 ? '' : 's'}`
+    return sim.consumerGroupMode === true ? `${base} · consumer groups` : base
+  }
+
+  if (componentType !== undefined && KEY_BASED_ROUTING_TYPE_SET.has(componentType)) {
+    return `by ${sim?.routingKeyField ?? 'shardKey'} · consistent hash`
+  }
+
+  if (
+    componentType !== undefined &&
+    CONTENT_ROUTING_TYPE_SET.has(componentType) &&
+    Array.isArray(sim?.routingRules) &&
+    sim.routingRules.length > 0
+  ) {
+    const n = sim.routingRules.length
+    return `content routing · ${n} rule${n === 1 ? '' : 's'}`
+  }
+
+  if (strategy === 'sticky') {
+    return `sticky · ${sim?.stickyKeyField ?? 'sessionId'}`
+  }
+  if (strategy === 'ip-hash') {
+    return 'IP hash · client affinity'
+  }
+  if (strategy === 'broadcast') {
+    return 'broadcast · all subscribers'
+  }
+  if (typeof strategy === 'string' && STRATEGY_LABELS[strategy]) {
+    return STRATEGY_LABELS[strategy]
+  }
+
+  // No explicit strategy: surface the effective default for true load balancers
+  // (which spread round-robin by default) so the pattern still reads on the card.
+  if (
+    strategy === undefined &&
+    componentType !== undefined &&
+    DEFAULT_RR_TYPE_SET.has(componentType)
+  ) {
+    return 'round-robin'
+  }
+
+  return null
+}
+
 export interface IdentityChip {
   label: string
   value: string
+}
+
+/**
+ * Runtime "node effect" markers (Axis D) — short badges revealing what a node did
+ * to the flow that the four traffic numbers (arrived/completed/rejected/timedout)
+ * do NOT already show: a cache short-circuit, retries, a write split to replicas,
+ * scatter/gather, or duplicate suppression. Drops/timeouts are intentionally
+ * omitted here since they already appear in the Rejected/Timed-out cell. Returns
+ * at most three, most-defining first, from real trait counters.
+ */
+export function describeNodeEffects(
+  metrics: Pick<NodeSimulationMetrics, 'cacheHits' | 'cacheHitRatio' | 'traitCounters'>
+): string[] {
+  const counters = metrics.traitCounters ?? {}
+  const n = (key: string): number => counters[key] ?? 0
+  const markers: string[] = []
+
+  const cacheHits = metrics.cacheHits ?? n('cacheHits')
+  if (cacheHits > 0) {
+    const ratio = metrics.cacheHitRatio
+    markers.push(
+      typeof ratio === 'number' ? `⚡ cache ${Math.round(ratio * 100)}%` : '⚡ cache hit'
+    )
+  }
+  if (n('retryAttempts') > 0) {
+    markers.push(`↻ ${Math.round(n('retryAttempts')).toLocaleString()} retries`)
+  }
+  if (n('replicationQuorumWrites') > 0 || n('replicationPrimaryAcks') > 0) {
+    markers.push('⇉ replicated')
+  }
+  if (n('fanoutQueries') > 0) {
+    markers.push('⋔ scatter/gather')
+  }
+  if (n('idempotencyDuplicateHits') > 0) {
+    markers.push(`⊘ ${Math.round(n('idempotencyDuplicateHits')).toLocaleString()} dupes blocked`)
+  }
+
+  return markers.slice(0, 3)
 }
 
 /**
@@ -260,6 +385,14 @@ export function getIdentityChip(
   }
   if (typeof data.sim?.cacheHitRate === 'number') {
     return { label: 'Cache', value: `hit ${Math.round(data.sim.cacheHitRate * 100)}%` }
+  }
+  // How this node distributes traffic (Axis B) — the defining fact for a router/
+  // broker/shard, and what makes weighted vs sticky vs broadcast legible on the
+  // card instead of only as relative dot volume. (After cache so a caching
+  // reverse-proxy still reads as a cache.)
+  const distribution = describeDistribution(data)
+  if (distribution) {
+    return { label: 'Distributes', value: distribution }
   }
   if (data.sim?.replicationEnabled === true) {
     const role = data.sim.replicationRole ?? 'leader'

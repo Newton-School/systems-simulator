@@ -4,6 +4,7 @@ import {
   DEFAULT_ENVIRONMENT_PROFILE,
   ASSIGNMENT_ENVIRONMENT_PROFILE,
   PRACTICE_ENVIRONMENT_PROFILE,
+  canEditEdgeLabelsForQuestion,
   canEditEdgesForQuestion,
   canEditResourcesForQuestion,
   canTriggerTestRun,
@@ -150,6 +151,16 @@ describe('canEditEdgesForQuestion', () => {
     expect(canEditEdgesForQuestion(PRACTICE_ENVIRONMENT_PROFILE, { domains: ['network'] })).toBe(
       true
     )
+  })
+})
+
+describe('canEditEdgeLabelsForQuestion', () => {
+  it('allows presentational labels in the connector-mode practice sandbox', () => {
+    expect(canEditEdgeLabelsForQuestion(PRACTICE_ENVIRONMENT_PROFILE, null)).toBe(true)
+  })
+
+  it('keeps connector labels locked when the base assignment profile forbids edge edits', () => {
+    expect(canEditEdgeLabelsForQuestion(ASSIGNMENT_ENVIRONMENT_PROFILE, null)).toBe(false)
   })
 })
 

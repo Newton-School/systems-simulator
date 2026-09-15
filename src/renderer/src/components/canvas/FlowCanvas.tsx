@@ -25,7 +25,7 @@ import useStore from '@renderer/store/useStore'
 import { useCopyPaste } from './hooks/useCopyPaste'
 import { useFlowStore } from './hooks/useFlowStore'
 import { useFlowDnD } from './hooks/useFlowDnD'
-import { useFlowConfig, nodeTypes, GRID_COLOR } from './config/flowConfig'
+import { nodeTypes, edgeTypes, defaultEdgeOptions, GRID_COLOR } from './config/flowConfig'
 import { useMagneticSnap } from './hooks/useMagneticSnap'
 import { useHandleProximity } from './hooks/useHandleProximity'
 import MagneticConnectionLine from './MagneticConnectionLine'
@@ -122,8 +122,6 @@ const FlowCanvasInternal = ({
     () => new Set(activeQuestion?.scaffold.lockedEdgeIds ?? []),
     [activeQuestion]
   )
-
-  const { edgeTypes, defaultEdgeOptions } = useFlowConfig()
 
   const {
     onConnectStart: onConnectStartBase,

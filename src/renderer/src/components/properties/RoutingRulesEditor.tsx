@@ -3,6 +3,7 @@ import {
   CONTENT_ROUTING_MATCH_FIELDS,
   type ContentRoutingRule
 } from '../../../../engine/traits/contentRouting'
+import { MATCH_OPERATORS } from '../../../../engine/core/requestSemantics'
 import type { AnyNodeData } from '@renderer/types/ui'
 import useStore from '@renderer/store/useStore'
 import { Input } from '../ui/Input'
@@ -10,6 +11,9 @@ import { Label } from '../ui/Label'
 import { Select } from '../ui/Select'
 
 const MATCH_FIELDS: ContentRoutingRule['matchField'][] = [...CONTENT_ROUTING_MATCH_FIELDS]
+const MATCH_OPERATOR_OPTIONS: NonNullable<ContentRoutingRule['matchOperator']>[] = [
+  ...MATCH_OPERATORS
+]
 
 function placeholderForField(field: ContentRoutingRule['matchField']): string {
   switch (field) {
@@ -19,6 +23,8 @@ function placeholderForField(field: ContentRoutingRule['matchField']): string {
       return 'e.g. api.internal'
     case 'path':
       return 'e.g. /checkout'
+    case 'header':
+      return 'e.g. 2 (header value)'
     case 'type':
     default:
       return 'e.g. create-order'
@@ -82,11 +88,14 @@ export const RoutingRulesEditor = ({ nodeId, rules, onChange }: RoutingRulesEdit
             <div className="grid grid-cols-2 gap-1.5">
               <Select
                 value={rule.matchField}
-                onChange={(event) =>
+                onChange={(event) => {
+                  const matchField = event.target.value as ContentRoutingRule['matchField']
                   updateRule(index, {
-                    matchField: event.target.value as ContentRoutingRule['matchField']
+                    matchField,
+                    // Drop the header name when leaving the header field.
+                    ...(matchField === 'header' ? {} : { matchKey: undefined })
                   })
-                }
+                }}
               >
                 {MATCH_FIELDS.map((field) => (
                   <option key={field} value={field}>
@@ -94,13 +103,37 @@ export const RoutingRulesEditor = ({ nodeId, rules, onChange }: RoutingRulesEdit
                   </option>
                 ))}
               </Select>
+              <Select
+                value={rule.matchOperator ?? 'equals'}
+                onChange={(event) =>
+                  updateRule(index, {
+                    matchOperator: event.target.value as NonNullable<
+                      ContentRoutingRule['matchOperator']
+                    >
+                  })
+                }
+              >
+                {MATCH_OPERATOR_OPTIONS.map((operator) => (
+                  <option key={operator} value={operator}>
+                    {operator}
+                  </option>
+                ))}
+              </Select>
+            </div>
+            {rule.matchField === 'header' && (
               <Input
                 type="text"
-                value={rule.matchValue}
-                placeholder={placeholderForField(rule.matchField)}
-                onChange={(event) => updateRule(index, { matchValue: event.target.value })}
+                value={rule.matchKey ?? ''}
+                placeholder="Header name, e.g. X-Api-Version"
+                onChange={(event) => updateRule(index, { matchKey: event.target.value })}
               />
-            </div>
+            )}
+            <Input
+              type="text"
+              value={rule.matchValue}
+              placeholder={placeholderForField(rule.matchField)}
+              onChange={(event) => updateRule(index, { matchValue: event.target.value })}
+            />
             <div className="flex items-center gap-1.5">
               <Select
                 className="flex-1"

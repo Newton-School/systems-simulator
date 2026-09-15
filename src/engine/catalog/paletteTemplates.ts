@@ -51,9 +51,11 @@ function createCanvasData(template: PaletteTemplate): CanvasNodeDataV2 {
     iconKey: template.iconKey,
     routingStrategy: template.routingStrategy,
     sim:
-      template.serializable && spec && template.profile !== 'source'
-        ? { ...spec.createDefaultSimulationConfig(template.seed), ...template.simDefaults }
-        : undefined,
+      template.profile === 'composite'
+        ? { ...template.simDefaults }
+        : template.serializable && spec && template.profile !== 'source'
+          ? { ...spec.createDefaultSimulationConfig(template.seed), ...template.simDefaults }
+          : undefined,
     source: template.profile === 'source' ? createSourceConfig(template.seed) : undefined,
     ui: template.seed?.overloadPreview ? { overloadPreview: true } : undefined
   }
@@ -416,9 +418,10 @@ export const PALETTE_TEMPLATES: Record<string, PaletteTemplate> = {
     profile: 'composite',
     rendererType: 'vpcNode',
     iconKey: 'cloud',
-    label: 'VPC Region',
-    subLabel: 'Isolated Network',
-    serializable: false
+    label: 'Region',
+    subLabel: 'Cloud Location',
+    serializable: false,
+    simDefaults: { locationProvider: 'aws', locationId: 'us-east-1' }
   },
   'availability-zone': {
     id: 'availability-zone',
@@ -491,6 +494,21 @@ export const PALETTE_TEMPLATES: Record<string, PaletteTemplate> = {
     subLabel: 'Client-side Name Resolution',
     serializable: true,
     seed: { throughput: 2000, load: 4, queueDepth: 1 }
+  },
+  'global-traffic-manager': {
+    id: 'global-traffic-manager',
+    componentType: 'global-traffic-manager',
+    category: 'network-and-edge',
+    structuralRole: 'router',
+    profile: 'router',
+    rendererType: 'serviceNode',
+    iconKey: 'globe',
+    label: 'Global Traffic Manager',
+    subLabel: 'Geo / Latency Routing',
+    serializable: true,
+    routingStrategy: 'passthrough',
+    seed: { throughput: 10000, load: 5, queueDepth: 2 },
+    simDefaults: { dnsRoutingPolicy: 'latency-based', dnsCacheTtlSeconds: 30 }
   },
   cdn: {
     id: 'cdn',

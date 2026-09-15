@@ -15,6 +15,61 @@ export type ParameterAccuracyClass =
   | 'user-parameter'
   | 'not-simulated'
 
+export type LocationProvider = 'aws' | 'gcp' | 'azure' | 'ibm' | 'custom'
+
+export type TopologyLocationKind = 'region' | 'availability-zone' | 'subnet' | 'edge-pop'
+
+/**
+ * A physical or logical placement boundary authored on the canvas. Composite
+ * location containers are not queueing nodes, but they are serialized so the
+ * engine can resolve request-aware network latency deterministically.
+ */
+export interface TopologyLocation {
+  id: string
+  kind: TopologyLocationKind
+  label: string
+  parentId?: string
+  provider?: LocationProvider
+  providerCode?: string
+  coordinates?: {
+    latitude: number
+    longitude: number
+  }
+  /** Canvas geometry retained so exported topologies reopen as editable locations. */
+  position?: { x: number; y: number }
+  size?: { width: number; height: number }
+}
+
+export interface ComponentPlacement {
+  regionId?: string
+  availabilityZoneId?: string
+  subnetId?: string
+}
+
+export type TrafficOriginLocation =
+  | { kind: 'region'; regionId: string }
+  | { kind: 'coordinates'; latitude: number; longitude: number }
+
+export interface TrafficOrigin {
+  id: string
+  label: string
+  weight: number
+  location: TrafficOriginLocation
+}
+
+export interface RegionPairLatency {
+  fromRegionId: string
+  toRegionId: string
+  distribution: DistributionConfig
+  source?: 'catalogue' | 'user'
+}
+
+export interface GeoNetworkModel {
+  mode: 'path-type' | 'geo-aware'
+  catalogueVersion?: string
+  regionPairOverrides?: RegionPairLatency[]
+}
+
 export type ComponentCategory =
   | 'compute'
   | 'network-and-edge'
@@ -350,6 +405,9 @@ export interface ComponentNode {
   role?: Exclude<StructuralRole, 'composite'>
   label: string
   position: { x: number; y: number }
+  /** Optional vendor/product label; behavior continues to come from `type`. */
+  provider?: string
+  placement?: ComponentPlacement
   resources?: ResourceConfig
   queue?: QueueConfig
   processing?: ProcessingConfig
@@ -437,6 +495,8 @@ export interface WorkloadProfile {
    * Must be a positive number (> 0).
    */
   baseRps: number
+  /** Weighted client populations. Omitted means use the source node placement. */
+  origins?: TrafficOrigin[]
   diurnal?: {
     peakMultiplier: number
     /**
@@ -475,16 +535,29 @@ export interface WorkloadProfile {
     metadata?: Record<string, unknown>
     /**
      * Optional contended keyspace. When set, each generated request of this type
-     * is stamped with `metadata[field]` = a key drawn uniformly from `size`
-     * distinct keys. A small `size` under high RPS forces many requests onto the
-     * same key — the contention needed to exercise reservation / no-double-book
-     * designs. Omitted → requests share the static `metadata` (no contention).
+     * is stamped with `metadata[field]` = a key drawn from `size` distinct keys.
+     * A small `size` under high RPS forces many requests onto the same key — the
+     * contention needed to exercise reservation / no-double-book designs.
+     * Omitted → requests share the static `metadata` (no contention).
+     *
+     * `skew` controls the access distribution across the keyspace:
+     *   - `0` (or omitted) → uniform: every key equally likely.
+     *   - `> 0` → Zipf with exponent `s`: key rank `r` is drawn with probability
+     *     ∝ `r^(-s)`, so a small set of "hot" keys carries most traffic
+     *     (`s ≈ 1` ≈ the classic 80/20 web access pattern). This is what makes a
+     *     small cache earn a high hit rate and what produces hot-partition skew.
+     * Keys are ranked by index: `field-0` is the most popular, `field-1` next, …
      */
     keyspace?: {
       /** Metadata field to populate, e.g. "seatId". */
       field: string
       /** Number of distinct keys (e.g. seats) to spread traffic across. */
       size: number
+      /**
+       * Zipf skew exponent. `0`/omitted = uniform (back-compat); higher = more
+       * concentrated on hot keys. Typical web ≈ 0.8–1.0.
+       */
+      skew?: number
     }
   }>
 }
@@ -525,6 +598,8 @@ export interface TopologyJSON {
   global: GlobalConfig
   nodes: ComponentNode[]
   edges: EdgeDefinition[]
+  locations?: TopologyLocation[]
+  networkModel?: GeoNetworkModel
   workload?: WorkloadProfile
   faults?: FaultSpec[]
   invariants?: InvariantCheck[]
@@ -554,6 +629,11 @@ export interface NodeState {
   queueLength: number
   utilization: number
   totalInSystem: number
+  /**
+   * Cumulative mean service time (ms) over completed requests, or 0 before any
+   * completion. Used by the `least-response-time` routing strategy.
+   */
+  meanServiceTimeMs: number
 }
 
 export interface EventScheduler {

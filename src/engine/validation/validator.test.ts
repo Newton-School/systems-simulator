@@ -93,6 +93,70 @@ function makeTopology({
 }
 
 describe('validateTopology workload fields', () => {
+  it('accepts weighted origins that reference declared regions', () => {
+    const topology = cloneMockArchitecture()
+    topology.locations = [
+      { id: 'mumbai', kind: 'region', label: 'Mumbai', provider: 'aws', providerCode: 'ap-south-1' }
+    ]
+    topology.workload = {
+      ...topology.workload!,
+      origins: [
+        {
+          id: 'india',
+          label: 'India users',
+          weight: 1,
+          location: { kind: 'region', regionId: 'mumbai' }
+        }
+      ]
+    }
+
+    expect(validateTopology(topology).valid).toBe(true)
+  })
+
+  it('rejects origin regions that are not declared', () => {
+    const topology = cloneMockArchitecture()
+    topology.workload = {
+      ...topology.workload!,
+      origins: [
+        {
+          id: 'india',
+          label: 'India users',
+          weight: 1,
+          location: { kind: 'region', regionId: 'missing' }
+        }
+      ]
+    }
+
+    const result = validateTopology(topology)
+    expect(result.valid).toBe(false)
+    expect(
+      result.errors?.some((error) => error.message.includes("region 'missing' does not exist"))
+    ).toBe(true)
+  })
+
+  it('rejects traffic-origin weights that do not total one', () => {
+    const topology = cloneMockArchitecture()
+    topology.workload = {
+      ...topology.workload!,
+      origins: [
+        {
+          id: 'a',
+          label: 'A',
+          weight: 0.3,
+          location: { kind: 'coordinates', latitude: 0, longitude: 0 }
+        },
+        {
+          id: 'b',
+          label: 'B',
+          weight: 0.3,
+          location: { kind: 'coordinates', latitude: 1, longitude: 1 }
+        }
+      ]
+    }
+
+    expect(validateTopology(topology).valid).toBe(false)
+  })
+
   it('preserves bursty workload settings after validation', () => {
     const topology = cloneMockArchitecture()
     topology.workload = {
@@ -610,7 +674,7 @@ describe('validateTopology node config validation', () => {
       category: 'network-and-edge',
       role: 'router',
       config: {
-        routingRules: [{ matchField: 'header', matchValue: '', targetNodeId: '' }]
+        routingRules: [{ matchField: 'cookie', matchValue: '', targetNodeId: '' }]
       }
     }
     const service = makeProcessorNode('service', 'Service')
@@ -629,6 +693,44 @@ describe('validateTopology node config validation', () => {
         expect.objectContaining({ path: expect.stringContaining('routingRules[0].matchField') }),
         expect.objectContaining({ path: expect.stringContaining('routingRules[0].matchValue') }),
         expect.objectContaining({ path: expect.stringContaining('routingRules[0].targetNodeId') })
+      ])
+    )
+  })
+
+  it('rejects a header rule with no header name and an invalid operator', () => {
+    const source = makeSourceNode('client', 'Client')
+    const l7: ComponentNode = {
+      ...makeProcessorNode('l7', 'L7 Load Balancer'),
+      type: 'load-balancer-l7',
+      category: 'network-and-edge',
+      role: 'router',
+      config: {
+        routingRules: [
+          { matchField: 'header', matchValue: '2', targetNodeId: 'service' },
+          {
+            matchField: 'path',
+            matchOperator: 'glob',
+            matchValue: '/x',
+            targetNodeId: 'service'
+          }
+        ]
+      }
+    }
+    const service = makeProcessorNode('service', 'Service')
+
+    const result = validateTopology(
+      makeTopology({
+        nodes: [source, l7, service],
+        edges: [makeEdge('client-l7', source.id, l7.id), makeEdge('l7-service', l7.id, service.id)],
+        sourceNodeId: source.id
+      })
+    )
+
+    expect(result.valid).toBe(false)
+    expect(result.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: expect.stringContaining('routingRules[0].matchKey') }),
+        expect.objectContaining({ path: expect.stringContaining('routingRules[1].matchOperator') })
       ])
     )
   })

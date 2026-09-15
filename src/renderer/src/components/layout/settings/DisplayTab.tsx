@@ -91,6 +91,18 @@ export function DisplayTab(): React.JSX.Element {
         />
       </SettingRow>
 
+      <SettingRow
+        label="Color request dots by key"
+        hint="When on, request dots on edges are tinted by their affinity/partition key. A key's color stays on one edge under sticky or shard routing and scatters across edges under round-robin — so you can see the distribution pattern, not just the volume."
+      >
+        <Toggle
+          checked={displaySettings.colorDotsByKey}
+          onChange={(colorDotsByKey) =>
+            updateDisplaySettings((current) => ({ ...current, colorDotsByKey }))
+          }
+        />
+      </SettingRow>
+
       <SectionLabel>Results</SectionLabel>
 
       <SettingRow

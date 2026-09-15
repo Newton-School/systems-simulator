@@ -2637,6 +2637,72 @@ function OutcomeBreakdownPanel({ output }: { output: SimulationOutput }) {
 
 // ─── Summary Panel ────────────────────────────────────────────────────────────
 
+function OriginMetricsPanel({ output }: { output: SimulationOutput }) {
+  if (output.perOrigin.length === 0) return null
+
+  return (
+    <div className={`${SURFACE_CARD} p-3`}>
+      <div className="flex items-baseline justify-between gap-3">
+        <h3 className={SECTION_TITLE}>Traffic by Origin</h3>
+        <span className="text-[10px] text-nss-muted">
+          post-warmup{output.requestOutcomesSampled ? ' · sampled ledger' : ''}
+        </span>
+      </div>
+      <div className="mt-3 overflow-x-auto">
+        <table className="w-full min-w-[620px] text-left text-xs">
+          <thead className="text-[10px] uppercase tracking-wide text-nss-muted">
+            <tr>
+              <th className="pb-2 pr-3 font-semibold">Origin</th>
+              <th className="pb-2 pr-3 text-right font-semibold">Requests</th>
+              <th className="pb-2 pr-3 text-right font-semibold">p50</th>
+              <th className="pb-2 pr-3 text-right font-semibold">p95</th>
+              <th className="pb-2 pr-3 text-right font-semibold">Errors</th>
+              <th className="pb-2 pr-3 text-right font-semibold">Cache hit</th>
+              <th className="pb-2 font-semibold">Serving regions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {output.perOrigin.map((origin) => (
+              <tr key={origin.originId} className="border-t border-nss-border">
+                <td className="py-2 pr-3">
+                  <div className="font-medium text-nss-text">{origin.originLabel}</div>
+                  <div className="text-[10px] text-nss-muted">{origin.originId}</div>
+                </td>
+                <td className="py-2 pr-3 text-right tabular-nums text-nss-text">
+                  {origin.requests.toLocaleString()}
+                </td>
+                <td className="py-2 pr-3 text-right tabular-nums text-nss-text">
+                  {fmtMs(origin.latency.p50)}
+                </td>
+                <td className="py-2 pr-3 text-right tabular-nums text-nss-text">
+                  {fmtMs(origin.latency.p95)}
+                </td>
+                <td className="py-2 pr-3 text-right tabular-nums text-nss-text">
+                  {fmtPct(origin.errorRate)}
+                </td>
+                <td className="py-2 pr-3 text-right tabular-nums text-nss-text">
+                  {origin.cacheHitRate === null ? 'N/A' : fmtPct(origin.cacheHitRate)}
+                </td>
+                <td className="py-2 text-[10px] text-nss-muted">
+                  {Object.keys(origin.servingRegions).length > 0
+                    ? Object.entries(origin.servingRegions)
+                        .sort((left, right) => right[1] - left[1])
+                        .map(
+                          ([regionId, count]) =>
+                            `${origin.servingRegionLabels[regionId] ?? regionId} ${count}`
+                        )
+                        .join(' · ')
+                    : 'Unplaced'}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
 function SummaryPanel({
   output,
   runContext
@@ -5046,6 +5112,7 @@ export function ResultsTray({
               <>
                 {runContext && <RunContextPanel runContext={runContext} />}
                 <SummaryPanel output={results} runContext={runContext} />
+                <OriginMetricsPanel output={results} />
                 <LocationRollupsPanel
                   nodeRollups={nodeLocationRollups}
                   edgeRollups={edgeLocalityRollups}

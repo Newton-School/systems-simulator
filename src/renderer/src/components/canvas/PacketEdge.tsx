@@ -18,6 +18,18 @@ const FLOW_WARNING_COLOR = 'rgb(var(--nss-warning))'
 const FLOW_DANGER_COLOR = 'rgb(var(--nss-danger))'
 const FLOW_PRIMARY_COLOR = 'rgb(var(--nss-primary))'
 const ROUTING_PREVIEW_DECISION_SAMPLE_LIMIT = 2_000
+
+/** Stable, evenly-spread hue for a key so the same key always gets the same color. */
+function keyToColor(key: string): string {
+  let hash = 2166136261
+  for (let i = 0; i < key.length; i++) {
+    hash ^= key.charCodeAt(i)
+    hash = Math.imul(hash, 16777619)
+  }
+  // Golden-angle stepping keeps distinct keys visually far apart.
+  const hue = ((hash >>> 0) * 137.508) % 360
+  return `hsl(${hue.toFixed(0)} 75% 58%)`
+}
 const EMPTY_EDGE_FLOW_BY_ID: Record<string, EdgeFlowState> = {}
 const CONNECTOR_IDLE_STROKE_WIDTH = 2.5
 const CONNECTOR_IDLE_OPACITY = 0.68
@@ -41,6 +53,23 @@ function streamDurationForRate(arrivalRate: number): number {
     MIN_STREAM_DURATION_MS,
     MAX_STREAM_DURATION_MS
   )
+}
+
+/**
+ * How much slower dots crawl on higher-latency hops (Axis F). pathType is the
+ * dominant latency driver, so a cross-region link visibly moves dots slower than
+ * a same-rack one — speed reads as distance, not just as request rate.
+ */
+const PATH_TYPE_SPEED_FACTOR: Record<string, number> = {
+  'same-rack': 0.8,
+  'same-dc': 1,
+  'cross-zone': 1.35,
+  'cross-region': 1.9,
+  internet: 2.3
+}
+
+function latencySpeedFactor(pathType: string | undefined): number {
+  return (pathType && PATH_TYPE_SPEED_FACTOR[pathType]) || 1
 }
 
 function patternPacketCount(baseCount: number, multiplier: number): number {
@@ -115,6 +144,7 @@ export const PacketEdge = ({
   const runConfig = useStore((state) => state.edgeFlowRunConfig)
   const playback = useStore((state) => state.edgeFlowPlayback)
   const routingVisualization = useStore((state) => state.routingStrategyVisualization)
+  const colorDotsByKey = useStore((state) => state.displaySettings.colorDotsByKey)
   const previewEdgeFlowById = useStore((state) =>
     state.routingStrategyVisualization?.sourceNodeId === source
       ? state.edgeFlowById
@@ -125,8 +155,32 @@ export const PacketEdge = ({
   const metricsByNode = useStore((state) => state.simulationMetricsByNode)
   const sourceNodeData = nodes.find((node) => node.id === source)?.data as AnyNodeData | undefined
   const targetNodeData = nodes.find((node) => node.id === target)?.data as AnyNodeData | undefined
-  const edgeData = (data ?? {}) as EdgeSimulationData
+  const edgeData = useMemo(() => (data ?? {}) as EdgeSimulationData, [data])
   const edgeMode = inferCanvasEdgeMode(edgeData, targetNodeData)
+
+  // Per-edge weight share (Axis B) — shown only when the source actually routes
+  // by weight, so the number reflects real behavior rather than an ignored dial.
+  const weightSharePct = useMemo(() => {
+    const sourceStrategy = (sourceNodeData as { routingStrategy?: string } | undefined)
+      ?.routingStrategy
+    const siblings = edges.filter((candidate) => candidate.source === source)
+    if (siblings.length < 2) return null
+    const weightOf = (data: unknown): number => {
+      const w = (data as { weight?: number } | undefined)?.weight
+      return typeof w === 'number' && w > 0 ? w : 1
+    }
+    const anyWeighted = siblings.some(
+      (candidate) => typeof (candidate.data as { weight?: number } | undefined)?.weight === 'number'
+    )
+    // Weighted is the effective strategy when explicitly chosen, or by default
+    // when edges carry weights and no other strategy overrides them.
+    const routesByWeight =
+      sourceStrategy === 'weighted' || (sourceStrategy === undefined && anyWeighted)
+    if (!routesByWeight || !anyWeighted) return null
+    const total = siblings.reduce((sum, candidate) => sum + weightOf(candidate.data), 0)
+    if (total <= 0) return null
+    return Math.round((weightOf(edgeData) / total) * 100)
+  }, [edges, source, sourceNodeData, edgeData])
   const edgeModePresentation = getEdgeModePresentation(edgeMode)
   const routingPreview = useMemo(() => {
     if (!routingVisualization || routingVisualization.sourceNodeId !== source) return null
@@ -174,6 +228,21 @@ export const PacketEdge = ({
   const failedPackets = visibleEvents
     .filter((event) => event.status !== 'success' && now - event.displayAtMs <= FAILED_PULSE_MS)
     .slice(-12)
+
+  // Dots crawl slower on higher-latency hops (Axis F). Use the guarded `edgeData`
+  // (not raw `data`, which is undefined for a freshly-created edge).
+  const edgeSpeedFactor = latencySpeedFactor(edgeData.pathType)
+
+  // Distinct keys seen recently on this edge, for color-by-key dot tinting.
+  const keySamples = colorDotsByKey
+    ? Array.from(
+        new Set(
+          visibleEvents
+            .map((event) => event.key)
+            .filter((key): key is string => typeof key === 'string' && key.length > 0)
+        )
+      )
+    : []
 
   const isComplete = flowStatus === 'complete'
   const liveIncomingRate = Math.max(flow?.attemptedPerSecond ?? 0, flow?.avgAttemptedPerSecond ?? 0)
@@ -331,12 +400,20 @@ export const PacketEdge = ({
 
       {Array.from({ length: streamPacketCount }, (_, index) => {
         const speedJitter = packetSpeedJitter(runConfig?.workload.pattern, id, index)
-        const duration = streamDurationForRate(visualRequestRate) / speedJitter
+        const duration = (streamDurationForRate(visualRequestRate) / speedJitter) * edgeSpeedFactor
         const offset = packetOffset(runConfig?.workload.pattern, id, index, streamPacketCount)
         const progress = (((now / duration + offset) % 1) + 1) % 1
         const point = pointForProgress(progress)
         const opacity =
           progress < 0.08 ? progress / 0.08 : progress > 0.92 ? (1 - progress) / 0.08 : 1
+
+        // Color-by-key mode: tint each dot by an actual key that traversed this
+        // edge (sampled from recent events). A key's hue stays on the same edge
+        // under sticky/shard routing and scatters under round-robin.
+        const keyColor =
+          colorDotsByKey && keySamples.length > 0
+            ? keyToColor(keySamples[index % keySamples.length])
+            : FLOW_SUCCESS_COLOR
 
         return (
           <circle
@@ -344,7 +421,7 @@ export const PacketEdge = ({
             cx={point.x}
             cy={point.y}
             r={visualRequestRate > 150 ? 5.25 : 6.75}
-            fill={FLOW_SUCCESS_COLOR}
+            fill={keyColor}
             stroke="var(--nss-panel)"
             strokeWidth={1.25}
             opacity={clamp(opacity, 0, 0.95)}
@@ -392,7 +469,7 @@ export const PacketEdge = ({
         style={{ pointerEvents: 'all', ...(selected ? { opacity: 1 } : {}) }}
       />
 
-      {(hasLabel || showFlowLabel) && (
+      {(hasLabel || showFlowLabel || weightSharePct !== null) && (
         <EdgeLabelRenderer>
           <div
             style={{
@@ -403,6 +480,14 @@ export const PacketEdge = ({
             className="nodrag nopan"
           >
             <div className="flex flex-col items-center gap-1">
+              {weightSharePct !== null && (
+                <span
+                  className="rounded-full border border-nss-border bg-nss-panel px-1.5 py-0.5 text-[10px] font-semibold leading-none text-nss-muted"
+                  title="Share of this source's traffic sent down this edge (weighted routing)"
+                >
+                  {weightSharePct}%
+                </span>
+              )}
               {hasLabel && (
                 <span className="bg-nss-bg px-2 py-0.5 text-[11px] font-bold uppercase leading-none tracking-wide text-nss-text">
                   {label.toString()}

@@ -133,3 +133,14 @@ export function routingRuleMissingMatchValue(index: number): string {
 export function routingRuleMissingTarget(index: number): string {
   return `Routing rule ${index + 1} needs a target node.`
 }
+
+export function routingRuleInvalidOperator(
+  index: number,
+  allowedOperators: readonly string[]
+): string {
+  return `Routing rule ${index + 1} uses an unsupported operator. Choose ${allowedOperators.join(', ')}.`
+}
+
+export function routingRuleMissingHeaderKey(index: number): string {
+  return `Routing rule ${index + 1} matches a header, so it needs a header name.`
+}

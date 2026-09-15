@@ -97,4 +97,49 @@ describe('keyBasedRoutingTrait', () => {
       })
     })
   })
+
+  it('consistent hashing keeps surviving-shard keys put when a shard is removed', () => {
+    const node = makeNode({ routingKeyField: 'k' })
+    const shardOf = (candidates: ResolveRoute[], key: string): string =>
+      keyBasedRoutingTrait.filterRoutes?.({
+        node,
+        request: makeRequest({ metadata: { k: key } }),
+        clock: 0n,
+        candidates
+      })!.routes[0].targetNodeId
+
+    const full = [makeRoute('shard-a'), makeRoute('shard-b'), makeRoute('shard-c')]
+    const reduced = [makeRoute('shard-a'), makeRoute('shard-b')] // shard-c removed
+
+    let moved = 0
+    let onSurvivor = 0
+    for (let i = 0; i < 600; i++) {
+      const key = `key-${i}`
+      const before = shardOf(full, key)
+      if (before === 'shard-a' || before === 'shard-b') {
+        onSurvivor++
+        if (shardOf(reduced, key) !== before) moved++
+      }
+    }
+    // Ring invariant: keys already on a surviving shard never move; only shard-c's keys reassign.
+    expect(moved).toBe(0)
+    expect(onSurvivor).toBeGreaterThan(0)
+  })
+
+  it('spreads keys across shards', () => {
+    const node = makeNode({ routingKeyField: 'k' })
+    const candidates = [makeRoute('shard-a'), makeRoute('shard-b'), makeRoute('shard-c')]
+    const targets = new Set<string>()
+    for (let i = 0; i < 100; i++) {
+      targets.add(
+        keyBasedRoutingTrait.filterRoutes?.({
+          node,
+          request: makeRequest({ metadata: { k: `key-${i}` } }),
+          clock: 0n,
+          candidates
+        })!.routes[0].targetNodeId
+      )
+    }
+    expect(targets.size).toBe(3)
+  })
 })

@@ -109,4 +109,25 @@ describe('dnsRoutingPolicyTrait', () => {
       routes: [expect.objectContaining({ targetNodeId: 'secondary' })]
     })
   })
+
+  it('uses the request-aware latency estimator for latency-based global routing', () => {
+    const result = dnsRoutingPolicyTrait.filterRoutes?.({
+      node: makeNode({ dnsRoutingPolicy: 'latency-based' }),
+      request: makeRequest({
+        origin: {
+          originId: 'india',
+          label: 'India users',
+          location: { kind: 'coordinates', latitude: 19, longitude: 72.8 }
+        }
+      }),
+      clock: 0n,
+      candidates: [makeRoute('virginia'), makeRoute('mumbai')],
+      estimateRouteLatencyMs: (edge) => (edge.target === 'mumbai' ? 12 : 180)
+    })
+
+    expect(result).toMatchObject({
+      decision: 'latency-based',
+      routes: [expect.objectContaining({ targetNodeId: 'mumbai' })]
+    })
+  })
 })
