@@ -1193,6 +1193,16 @@ type RFState = {
    *  to measured (consumption throughput, egress bytes). Cleared on reset/new run. */
   lastRunOutput: SimulationOutput | null
   setLastRunOutput: (output: SimulationOutput | null) => void
+  /** Request ids currently being followed on the canvas (the causal tracer). One
+   *  for follow-a-request; several for "trace all paths". Empty = tracer off. */
+  tracedRequestIds: string[]
+  setTracedRequestIds: (requestIds: string[]) => void
+  /** Whether the causal tracer playback is paused. */
+  tracePaused: boolean
+  setTracePaused: (paused: boolean) => void
+  /** Tracer playback speed: 'slow' stretches per-hop time for teaching. */
+  traceSpeed: 'normal' | 'slow'
+  setTraceSpeed: (speed: 'normal' | 'slow') => void
   viewportFitVersion: number
   requestViewportFit: () => void
 
@@ -1899,6 +1909,13 @@ const useStore = create<RFState>((set, get) => ({
   setEnvironmentProfile: (environmentProfile) => set({ environmentProfile }),
   setResultsRevealed: (resultsRevealed) => set({ resultsRevealed }),
   setLastRunOutput: (lastRunOutput) => set({ lastRunOutput }),
+  tracedRequestIds: [],
+  // Starting/clearing a trace always resets playback to playing.
+  setTracedRequestIds: (tracedRequestIds) => set({ tracedRequestIds, tracePaused: false }),
+  tracePaused: false,
+  setTracePaused: (tracePaused) => set({ tracePaused }),
+  traceSpeed: 'slow',
+  setTraceSpeed: (traceSpeed) => set({ traceSpeed }),
   requestViewportFit: () =>
     set((state) => ({
       viewportFitVersion: state.viewportFitVersion + 1

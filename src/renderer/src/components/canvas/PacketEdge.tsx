@@ -145,6 +145,9 @@ export const PacketEdge = ({
   const playback = useStore((state) => state.edgeFlowPlayback)
   const routingVisualization = useStore((state) => state.routingStrategyVisualization)
   const colorDotsByKey = useStore((state) => state.displaySettings.colorDotsByKey)
+  // While following a single request, hide the ambient aggregate dots so only the
+  // one traced request is seen traversing the topology.
+  const isTracing = useStore((state) => state.tracedRequestIds.length > 0)
   const previewEdgeFlowById = useStore((state) =>
     state.routingStrategyVisualization?.sourceNodeId === source
       ? state.edgeFlowById
@@ -229,9 +232,29 @@ export const PacketEdge = ({
     .filter((event) => event.status !== 'success' && now - event.displayAtMs <= FAILED_PULSE_MS)
     .slice(-12)
 
+  // Backpressure (Axis F): an edge at its concurrency cap rejects with
+  // connection_refused. When that's happening, dots visibly bunch/slow to convey
+  // the saturated link, on top of the red failure pulses already shown.
+  const isBackpressured = visibleEvents.some((event) => event.failureCause === 'connection_refused')
+
   // Dots crawl slower on higher-latency hops (Axis F). Use the guarded `edgeData`
   // (not raw `data`, which is undefined for a freshly-created edge).
-  const edgeSpeedFactor = latencySpeedFactor(edgeData.pathType)
+  const edgeSpeedFactor = latencySpeedFactor(edgeData.pathType) * (isBackpressured ? 1.7 : 1)
+
+  // Cache bounce-back (Axis D): when the target is a cache serving hits, that
+  // fraction of requests is answered without reaching the origin. Render that
+  // share of dots travelling partway to the cache and returning, so the
+  // short-circuit is visible — the rest pass through as a miss. Driven by the
+  // target's measured hit ratio (real data), not a synthetic guess.
+  const cacheHitRatio = (() => {
+    const m = metricsByNode[target]
+    // Store keeps cacheHitRatio as a 0-100 percentage (WorkspaceLayout scales it);
+    // convert back to a 0-1 share here.
+    if (typeof m?.cacheHitRatio === 'number') return clamp(m.cacheHitRatio / 100, 0, 1)
+    const hits = m?.cacheHits ?? 0
+    const misses = m?.cacheMisses ?? 0
+    return hits + misses > 0 ? hits / (hits + misses) : 0
+  })()
 
   // Distinct keys seen recently on this edge, for color-by-key dot tinting.
   const keySamples = colorDotsByKey
@@ -311,17 +334,21 @@ export const PacketEdge = ({
   // Node-first lenses (timeout, queue capacity) recede: the edge dims to its
   // identity and lets the nodes carry the lens.
   const lensRecedes = !isRoutingPreviewEdge && lensProjection.recedes
-  const baseEdgeOpacity = isRoutingPreviewEdge
-    ? routingPreview?.isSelected
-      ? 1
-      : UNSELECTED_ROUTING_PREVIEW_OPACITY
-    : edgeIsConnectorOnly && !selected
-      ? CONNECTOR_IDLE_OPACITY
-      : isInactiveAfterRun
-        ? INACTIVE_EDGE_OPACITY
-        : lensRecedes
-          ? RECEDING_EDGE_OPACITY
-          : 1
+  const baseEdgeOpacity = isTracing
+    ? // While following a request, hide the drawn connectors so only the trace
+      // path is shown (a faint ghost keeps the layout readable).
+      0.06
+    : isRoutingPreviewEdge
+      ? routingPreview?.isSelected
+        ? 1
+        : UNSELECTED_ROUTING_PREVIEW_OPACITY
+      : edgeIsConnectorOnly && !selected
+        ? CONNECTOR_IDLE_OPACITY
+        : isInactiveAfterRun
+          ? INACTIVE_EDGE_OPACITY
+          : lensRecedes
+            ? RECEDING_EDGE_OPACITY
+            : 1
   const flowLabelText = isRoutingPreviewEdge
     ? routingPreview?.isSelected
       ? `${routingPreview.selectedCount}/${routingPreview.totalCount} preview`
@@ -398,60 +425,80 @@ export const PacketEdge = ({
         opacity={0}
       />
 
-      {Array.from({ length: streamPacketCount }, (_, index) => {
-        const speedJitter = packetSpeedJitter(runConfig?.workload.pattern, id, index)
-        const duration = (streamDurationForRate(visualRequestRate) / speedJitter) * edgeSpeedFactor
-        const offset = packetOffset(runConfig?.workload.pattern, id, index, streamPacketCount)
-        const progress = (((now / duration + offset) % 1) + 1) % 1
-        const point = pointForProgress(progress)
-        const opacity =
-          progress < 0.08 ? progress / 0.08 : progress > 0.92 ? (1 - progress) / 0.08 : 1
+      {!isTracing &&
+        Array.from({ length: streamPacketCount }, (_, index) => {
+          const speedJitter = packetSpeedJitter(runConfig?.workload.pattern, id, index)
+          const duration =
+            (streamDurationForRate(visualRequestRate) / speedJitter) * edgeSpeedFactor
+          const offset = packetOffset(runConfig?.workload.pattern, id, index, streamPacketCount)
+          const rawProgress = (((now / duration + offset) % 1) + 1) % 1
 
-        // Color-by-key mode: tint each dot by an actual key that traversed this
-        // edge (sampled from recent events). A key's hue stays on the same edge
-        // under sticky/shard routing and scatters under round-robin.
-        const keyColor =
-          colorDotsByKey && keySamples.length > 0
-            ? keyToColor(keySamples[index % keySamples.length])
-            : FLOW_SUCCESS_COLOR
+          // A deterministic hit-ratio share of dots bounce back from the cache.
+          const isBounce = cacheHitRatio > 0 && index / streamPacketCount < cacheHitRatio
+          // Bounce: travel to the cache (~0.9) then return (triangle wave), so the
+          // dot reaches the cache and comes straight back served, instead of
+          // continuing to the origin.
+          const progress = isBounce
+            ? (rawProgress < 0.5 ? rawProgress * 2 : (1 - rawProgress) * 2) * 0.9
+            : rawProgress
+          const point = pointForProgress(progress)
+          const opacity = isBounce
+            ? clamp(Math.sin(rawProgress * Math.PI), 0, 0.95)
+            : rawProgress < 0.08
+              ? rawProgress / 0.08
+              : rawProgress > 0.92
+                ? (1 - rawProgress) / 0.08
+                : 1
 
-        return (
-          <circle
-            key={`${id}-packet-${index}`}
-            cx={point.x}
-            cy={point.y}
-            r={visualRequestRate > 150 ? 5.25 : 6.75}
-            fill={keyColor}
-            stroke="var(--nss-panel)"
-            strokeWidth={1.25}
-            opacity={clamp(opacity, 0, 0.95)}
-            pointerEvents="none"
-          />
-        )
-      })}
+          // Color-by-key mode: tint each dot by an actual key that traversed this
+          // edge (sampled from recent events). A key's hue stays on the same edge
+          // under sticky/shard routing and scatters under round-robin. Bounced
+          // (cache-served) dots keep the cache-hit accent so they read distinctly.
+          const keyColor =
+            colorDotsByKey && keySamples.length > 0
+              ? keyToColor(keySamples[index % keySamples.length])
+              : isBounce
+                ? FLOW_PRIMARY_COLOR
+                : FLOW_SUCCESS_COLOR
 
-      {failedPackets.map((event) => {
-        const progress = clamp((now - event.displayAtMs) / FAILED_PULSE_MS, 0, 1)
-        const radius = 2 + Math.sin(progress * Math.PI) * 7
+          return (
+            <circle
+              key={`${id}-packet-${index}`}
+              cx={point.x}
+              cy={point.y}
+              r={visualRequestRate > 150 ? 5.25 : 6.75}
+              fill={keyColor}
+              stroke="var(--nss-panel)"
+              strokeWidth={1.25}
+              opacity={clamp(opacity, 0, 0.95)}
+              pointerEvents="none"
+            />
+          )
+        })}
 
-        return (
-          <circle
-            key={`${event.edgeId}-${event.sequence}-failed`}
-            cx={sourceX}
-            cy={sourceY}
-            r={radius}
-            fill={
-              event.status === 'packet-loss' || event.status === 'timeout'
-                ? FLOW_WARNING_COLOR
-                : FLOW_DANGER_COLOR
-            }
-            stroke="var(--nss-panel)"
-            strokeWidth={1}
-            opacity={Math.max(0, 0.75 * (1 - progress))}
-            pointerEvents="none"
-          />
-        )
-      })}
+      {!isTracing &&
+        failedPackets.map((event) => {
+          const progress = clamp((now - event.displayAtMs) / FAILED_PULSE_MS, 0, 1)
+          const radius = 2 + Math.sin(progress * Math.PI) * 7
+
+          return (
+            <circle
+              key={`${event.edgeId}-${event.sequence}-failed`}
+              cx={sourceX}
+              cy={sourceY}
+              r={radius}
+              fill={
+                event.status === 'packet-loss' || event.status === 'timeout'
+                  ? FLOW_WARNING_COLOR
+                  : FLOW_DANGER_COLOR
+              }
+              stroke="var(--nss-panel)"
+              strokeWidth={1}
+              opacity={Math.max(0, 0.75 * (1 - progress))}
+              pointerEvents="none"
+            />
+          )
+        })}
 
       {/* Endpoint grab handles - visible on hover/selected, draggable for reconnection */}
       <circle

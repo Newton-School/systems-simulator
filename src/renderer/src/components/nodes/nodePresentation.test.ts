@@ -223,7 +223,9 @@ describe('getIdentityChip', () => {
 
 describe('describeNodeEffects', () => {
   it('surfaces hidden node effects from trait counters', () => {
-    expect(describeNodeEffects({ cacheHits: 120, cacheHitRatio: 0.85 })).toEqual(['⚡ cache 85%'])
+    // cacheHitRatio arrives already scaled to a percentage (WorkspaceLayout maps
+    // the engine's 0-1 ratio to 0-100 before it reaches the card).
+    expect(describeNodeEffects({ cacheHits: 120, cacheHitRatio: 85 })).toEqual(['⚡ cache 85%'])
     expect(describeNodeEffects({ traitCounters: { retryAttempts: 7 } })).toEqual(['↻ 7 retries'])
     expect(describeNodeEffects({ traitCounters: { replicationQuorumWrites: 3 } })).toEqual([
       '⇉ replicated'
@@ -241,7 +243,7 @@ describe('describeNodeEffects', () => {
     expect(describeNodeEffects({ traitCounters: { rateRejected: 10 } })).toEqual([]) // drops shown elsewhere
     const many = describeNodeEffects({
       cacheHits: 1,
-      cacheHitRatio: 0.5,
+      cacheHitRatio: 50,
       traitCounters: {
         retryAttempts: 2,
         replicationQuorumWrites: 1,

@@ -345,9 +345,7 @@ export function describeNodeEffects(
   const cacheHits = metrics.cacheHits ?? n('cacheHits')
   if (cacheHits > 0) {
     const ratio = metrics.cacheHitRatio
-    markers.push(
-      typeof ratio === 'number' ? `⚡ cache ${Math.round(ratio * 100)}%` : '⚡ cache hit'
-    )
+    markers.push(typeof ratio === 'number' ? `⚡ cache ${Math.round(ratio)}%` : '⚡ cache hit')
   }
   if (n('retryAttempts') > 0) {
     markers.push(`↻ ${Math.round(n('retryAttempts')).toLocaleString()} retries`)

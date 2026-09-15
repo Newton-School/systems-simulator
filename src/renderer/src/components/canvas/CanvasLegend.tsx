@@ -14,13 +14,19 @@ import useStore from '@renderer/store/useStore'
 function LegendSwatch({ item }: { item: CanvasLegendItem }) {
   return (
     <span className="inline-flex items-center gap-1.5 rounded-full border border-nss-border bg-nss-panel px-2 py-1 text-[11px] text-nss-text">
-      <span
-        className={clsx(
-          'shrink-0',
-          item.shape === 'dot' ? 'h-2 w-2 rounded-full' : 'h-2.5 w-2.5 rounded-[4px]',
-          item.swatchClassName
-        )}
-      />
+      {item.glyph ? (
+        <span className="w-3 shrink-0 text-center text-[11px] leading-none text-nss-muted">
+          {item.glyph}
+        </span>
+      ) : (
+        <span
+          className={clsx(
+            'shrink-0',
+            item.shape === 'dot' ? 'h-2 w-2 rounded-full' : 'h-2.5 w-2.5 rounded-[4px]',
+            item.swatchClassName
+          )}
+        />
+      )}
       <span>{item.label}</span>
     </span>
   )

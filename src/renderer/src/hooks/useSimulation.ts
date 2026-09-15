@@ -182,6 +182,7 @@ export function useSimulation(): SimulationState & SimulationControls {
     workerRef.current = null
     useStore.getState().clearEdgeFlow()
     useStore.getState().setLastRunOutput(null)
+    useStore.getState().setTracedRequestIds([])
     setState(INITIAL_STATE)
   }, [])
 

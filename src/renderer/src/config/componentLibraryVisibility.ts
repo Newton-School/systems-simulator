@@ -13,7 +13,12 @@ const DEFAULT_VISIBLE_TEMPLATE_IDS: ReadonlySet<string> = new Set([
  */
 export const DEFAULT_COMPONENT_LIBRARY_NODE_TYPES: ReadonlySet<string> = new Set([
   'api-endpoint',
-  'load-balancer',
+  // The generic 'load-balancer' is retired from the palette; the default library
+  // now offers the L4/L7 pair so a load balancer is available out-of-box and the
+  // transport-vs-application distinction is visible without switching to the full
+  // library.
+  'load-balancer-l4',
+  'load-balancer-l7',
   'cdn',
   'microservice',
   'batch-worker',
