@@ -14,6 +14,7 @@ import type { CanvasNodeDataV2 } from '../../../engine/catalog/nodeSpecTypes'
 import { hasWorkloadSourceConfig } from '../../../engine/catalog/sourceNodeSemantics'
 import { getPathTypeLatencyProfile, inferEdgeDefaults } from '../../../engine/defaults/edgeDefaults'
 import { inferCanvasEdgeMode } from '@renderer/config/edgeSemantics'
+import { isEdgeRoutingStyle } from '@renderer/config/edgeRouting'
 import useStore from '../store/useStore'
 import { resolveEdgeModel } from '../../../engine/analysis/environmentProfile'
 import type { ScenarioRunContext, ScenarioState } from '@renderer/types/ui'
@@ -26,6 +27,7 @@ import {
 } from '../../../engine/catalog/locationCatalog'
 
 type EdgeRuntimeData = {
+  routingStyle?: unknown
   protocol?: EdgeDefinition['protocol']
   mode?: EdgeDefinition['mode']
   latencyDistributionType?: 'log-normal' | 'constant'
@@ -40,6 +42,14 @@ type EdgeRuntimeData = {
   condition?: string
   weight?: number
   fanoutFactor?: number
+}
+
+export function serializeEdgePresentation(
+  edgeData: Pick<EdgeRuntimeData, 'routingStyle'>
+): EdgeDefinition['presentation'] {
+  return isEdgeRoutingStyle(edgeData.routingStyle)
+    ? { routingStyle: edgeData.routingStyle }
+    : undefined
 }
 
 function asPositiveNumber(value: unknown): number | null {
@@ -381,6 +391,7 @@ function serializeEdge(
         ? edgeData.condition.trim()
         : undefined,
     weight: asPositiveNumber(edgeData.weight) ?? undefined,
+    presentation: serializeEdgePresentation(edgeData),
     fanoutFactor:
       asPositiveNumber(edgeData.fanoutFactor) !== undefined &&
       (asPositiveNumber(edgeData.fanoutFactor) as number) > 1

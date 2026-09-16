@@ -1,5 +1,6 @@
 import type { DisplaySettings } from '@renderer/types/ui'
 import { DEFAULT_DISPLAY_SETTINGS } from '@renderer/types/ui'
+import { normalizeEdgeRoutingStyle } from '@renderer/config/edgeRouting'
 
 const DISPLAY_SETTINGS_STORAGE_KEY = 'nssimulator.display-settings'
 const LEGACY_THEME_STORAGE_KEY = 'theme'
@@ -44,12 +45,17 @@ export function loadDisplaySettings(): DisplaySettings {
           )
         ]
       : DEFAULT_DISPLAY_SETTINGS.hiddenComponentLibraryTemplateIds
+    const edgeRoutingStyle = normalizeEdgeRoutingStyle(
+      (parsed as { edgeRoutingStyle?: unknown }).edgeRoutingStyle,
+      DEFAULT_DISPLAY_SETTINGS.edgeRoutingStyle
+    )
 
     return {
       ...DEFAULT_DISPLAY_SETTINGS,
       ...parsed,
       componentLibraryMode,
       hiddenComponentLibraryTemplateIds,
+      edgeRoutingStyle,
       theme:
         parsed.theme === 'light' || parsed.theme === 'dark'
           ? parsed.theme

@@ -437,7 +437,12 @@ export const EdgeDefinitionSchema = z.object({
   condition: z.string().optional(),
   sourceHandle: z.string().optional(),
   targetHandle: z.string().optional(),
-  animated: z.boolean().optional()
+  animated: z.boolean().optional(),
+  presentation: z
+    .object({
+      routingStyle: z.enum(['straight', 'orthogonal', 'rounded', 'bezier', 'octilinear']).optional()
+    })
+    .optional()
 })
 
 const DiurnalHourlyMultipliersSchema: z.ZodType<DiurnalHourlyMultipliers> = z

@@ -112,7 +112,7 @@ export const PALETTE_TEMPLATES: Record<string, PaletteTemplate> = {
     profile: 'compute-service',
     rendererType: 'computeNode',
     iconKey: 'LAMBDA',
-    label: 'Serverless Fn',
+    label: 'Serverless Function',
     subLabel: 'Event Driven',
     serializable: true,
     seed: { throughput: 250, load: 10, queueDepth: 0 }
@@ -394,7 +394,7 @@ export const PALETTE_TEMPLATES: Record<string, PaletteTemplate> = {
     profile: 'security-filter',
     rendererType: 'securityNode',
     iconKey: 'firewall',
-    label: 'Firewall Rule',
+    label: 'Firewall',
     subLabel: 'L4/L7 Filtering',
     serializable: true,
     seed: { droppedPackets: 0.2, load: 8, queueDepth: 1 }
@@ -464,8 +464,8 @@ export const PALETTE_TEMPLATES: Record<string, PaletteTemplate> = {
     profile: 'control-plane',
     rendererType: 'serviceNode',
     iconKey: 'book-open',
-    label: 'Discovery Service',
-    subLabel: 'Service Registry',
+    label: 'Service Registry',
+    subLabel: 'Service Discovery',
     serializable: true,
     seed: { throughput: 3000, load: 15, queueDepth: 2 }
   },
@@ -893,7 +893,7 @@ export const PALETTE_TEMPLATES: Record<string, PaletteTemplate> = {
     profile: 'source',
     rendererType: 'serviceNode',
     iconKey: 'input-source',
-    label: 'Input Source',
+    label: 'Traffic Source',
     subLabel: 'Entry Point / Ingress',
     serializable: true,
     seed: { baseRps: 100, requestType: 'default', requestSizeBytes: 1024 }
@@ -1062,7 +1062,7 @@ export const PALETTE_TEMPLATES: Record<string, PaletteTemplate> = {
     profile: 'control-plane',
     rendererType: 'serviceNode',
     iconKey: 'idempotency-manager',
-    label: 'Idempotency Guard',
+    label: 'Idempotency Service',
     subLabel: 'Dedup Store / Key Check',
     serializable: true,
     seed: { throughput: 4000, load: 10, queueDepth: 2 }

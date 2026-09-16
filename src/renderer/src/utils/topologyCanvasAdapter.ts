@@ -517,6 +517,7 @@ function absoluteLocationPosition(
 function edgeDataFromTopology(edge: EdgeDefinition): EdgeSimulationData {
   const distribution = edge.latency.distribution
   return {
+    routingStyle: edge.presentation?.routingStyle,
     protocol: edge.protocol,
     mode: edge.mode,
     latencyDistributionType:

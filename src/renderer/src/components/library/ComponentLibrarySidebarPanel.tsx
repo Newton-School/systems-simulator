@@ -71,7 +71,10 @@ export function ComponentLibrarySidebarPanel({
     return CATALOG_CONFIG.map((category) => ({
       ...category,
       items: category.items.filter((item) => {
-        const matchesFilter = filter === 'all' || COMMON_IDS.has(item.id)
+        // An active search spans the whole catalog: you should never have to switch
+        // from "Common" to "All" just to find a node by name. With no query, the
+        // Common/All tab still scopes the browsing list as before.
+        const matchesFilter = filter === 'all' || trimmed.length > 0 || COMMON_IDS.has(item.id)
         const matchesSearch =
           !trimmed ||
           item.label.toLowerCase().includes(trimmed) ||

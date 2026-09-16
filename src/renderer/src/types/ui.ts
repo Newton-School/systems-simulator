@@ -1,5 +1,10 @@
 import { LucideIcon } from 'lucide-react'
-import type { FaultSpec, GlobalConfig, WorkloadProfile } from '../../../engine/core/types'
+import type {
+  EdgePresentationRoutingStyle,
+  FaultSpec,
+  GlobalConfig,
+  WorkloadProfile
+} from '../../../engine/core/types'
 import type { CanvasNodeDataV2, RendererNodeType } from '../../../engine/catalog/nodeSpecTypes'
 import type { LatencyPercentiles, TimeToErrorSummary } from '../../../engine/metrics'
 import type { LibraryItemInfo } from '@renderer/config/libraryInfo'
@@ -17,6 +22,7 @@ export type MetricLens = PreRunMetricLens | RuntimeMetricLens
 export type LatencyLensPercentile = 'p50' | 'p95' | 'p99'
 export type ResultsTabId = 'overview' | 'bottlenecks' | 'nodes' | 'traffic'
 export type ComponentLibraryMode = 'default' | 'all'
+export type EdgeRoutingStyle = EdgePresentationRoutingStyle
 
 export interface DisplaySettings {
   theme: ThemeMode
@@ -30,6 +36,8 @@ export interface DisplaySettings {
   hiddenComponentLibraryTemplateIds: string[]
   /** When false, the SPOF badge and danger ring are hidden on canvas nodes. */
   showSpofBadges: boolean
+  /** Geometry used by both normal canvas edges and the causal request tracer. */
+  edgeRoutingStyle: EdgeRoutingStyle
   /**
    * When true, request dots on edges are colored by their affinity/partition key
    * so session affinity and sharding are visible (a key's color stays on one edge
@@ -75,6 +83,8 @@ export interface NodeSimulationMetrics {
 }
 
 export interface EdgeSimulationData {
+  /** Optional visual override. Undefined inherits the canvas-wide display preference. */
+  routingStyle?: EdgeRoutingStyle
   protocol?: 'https' | 'grpc' | 'tcp' | 'udp' | 'websocket' | 'amqp' | 'kafka'
   mode?: 'synchronous' | 'asynchronous' | 'streaming' | 'conditional'
   latencyDistributionType?: 'log-normal' | 'constant'
@@ -181,6 +191,7 @@ export const DEFAULT_DISPLAY_SETTINGS: DisplaySettings = {
   componentLibraryMode: 'default',
   hiddenComponentLibraryTemplateIds: [],
   showSpofBadges: true,
+  edgeRoutingStyle: 'straight',
   colorDotsByKey: false
 }
 

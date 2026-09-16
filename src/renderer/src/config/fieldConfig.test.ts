@@ -164,6 +164,21 @@ describe('getNodeConfigSections', () => {
     expect(role?.options).toEqual(['leader', 'follower'])
   })
 
+  it('gives a push-notification service the external-dependency (APNs/FCM) latency section', () => {
+    const data = makeRuntimeNode({
+      templateId: 'push-notification-service',
+      componentType: 'push-notification-service',
+      structuralRole: 'processor',
+      profile: 'worker',
+      label: 'Notification Service'
+    })
+
+    const sections = getNodeConfigSections(data)
+    const external = sections.find((section) => section.id === 'external-latency')
+    expect(external).toBeDefined()
+    expect(external?.fields.some((field) => field.path === 'sim.externalLatencyMs')).toBe(true)
+  })
+
   it('marks free-form metadata fields as text inputs', () => {
     const composite = makeCompositeNode({
       templateId: 'availability-zone',

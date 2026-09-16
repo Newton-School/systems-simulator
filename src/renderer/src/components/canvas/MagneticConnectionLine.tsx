@@ -1,7 +1,9 @@
 import { memo } from 'react'
-import { getSmoothStepPath, Position } from 'reactflow'
+import { Position } from 'reactflow'
 import type { ConnectionLineComponentProps } from 'reactflow'
+import useStore from '@renderer/store/useStore'
 import { snapStateRef } from './hooks/useMagneticSnap'
+import { getCanvasEdgePath } from './edgePathGeometry'
 
 function inferToPosition(fromX: number, fromY: number, toX: number, toY: number): Position {
   const dx = toX - fromX
@@ -22,6 +24,7 @@ const MagneticConnectionLine = memo(
     toPosition,
     connectionStatus
   }: ConnectionLineComponentProps) => {
+    const edgeRoutingStyle = useStore((state) => state.displaySettings.edgeRoutingStyle)
     const { lerpTarget, winner } = snapStateRef.current
 
     const effectiveToX = lerpTarget?.x ?? toX
@@ -30,15 +33,17 @@ const MagneticConnectionLine = memo(
       ? inferToPosition(fromX, fromY, effectiveToX, effectiveToY)
       : toPosition
 
-    const [dPath] = getSmoothStepPath({
-      sourceX: fromX,
-      sourceY: fromY,
-      sourcePosition: fromPosition ?? Position.Right,
-      targetX: effectiveToX,
-      targetY: effectiveToY,
-      targetPosition: effectiveToPosition,
-      borderRadius: 16
-    })
+    const { path: dPath } = getCanvasEdgePath(
+      {
+        sourceX: fromX,
+        sourceY: fromY,
+        sourcePosition: fromPosition ?? Position.Right,
+        targetX: effectiveToX,
+        targetY: effectiveToY,
+        targetPosition: effectiveToPosition
+      },
+      edgeRoutingStyle
+    )
 
     const isSnapping = winner !== null
     // connectionStatus === 'valid' means React Flow will commit the connection on release.

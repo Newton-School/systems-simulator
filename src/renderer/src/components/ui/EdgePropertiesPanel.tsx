@@ -13,6 +13,7 @@ import {
   getPathTypeLatencyProfile,
   inferEdgeDefaults
 } from '../../../../engine/defaults/edgeDefaults'
+import { EDGE_ROUTING_OPTIONS } from '@renderer/config/edgeRouting'
 
 export interface EdgePropertiesPanelValue extends EdgeSimulationData {
   label?: string
@@ -90,6 +91,50 @@ function FieldLabel({ label, help }: { label: string; help: EdgeHelpEntry }) {
         width={320}
         content={<EdgeTooltipContent entry={help} />}
       />
+    </div>
+  )
+}
+
+function EdgeAppearanceControl({
+  routingStyle,
+  onChange,
+  disabled = false
+}: {
+  routingStyle: EdgeSimulationData['routingStyle']
+  onChange: (routingStyle: EdgeSimulationData['routingStyle']) => void
+  disabled?: boolean
+}) {
+  const selectedOption = EDGE_ROUTING_OPTIONS.find((option) => option.value === routingStyle)
+
+  return (
+    <div className="space-y-1">
+      <label htmlFor="edge-routing-style" className={FIELD_LABEL_CLASS}>
+        Route appearance
+      </label>
+      <select
+        id="edge-routing-style"
+        value={routingStyle ?? 'inherit'}
+        disabled={disabled}
+        onChange={(event) =>
+          onChange(
+            event.target.value === 'inherit'
+              ? undefined
+              : (event.target.value as NonNullable<EdgeSimulationData['routingStyle']>)
+          )
+        }
+        className={CONTROL_CLASS}
+      >
+        <option value="inherit">Use canvas default</option>
+        {EDGE_ROUTING_OPTIONS.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+      <p className="text-[10px] leading-relaxed text-nss-muted">
+        {selectedOption?.description ??
+          'Follows the canvas-wide edge path selected in Settings → Display.'}
+      </p>
     </div>
   )
 }
@@ -252,6 +297,11 @@ export const EdgePropertiesPanel = ({
               disabled={readOnly}
             />
           </div>
+          <EdgeAppearanceControl
+            routingStyle={value.routingStyle}
+            onChange={(routingStyle) => onChange({ routingStyle })}
+            disabled={readOnly}
+          />
         </div>
       ) : hasRealChildren ? (
         <div className="flex-1 overflow-y-auto custom-scrollbar p-5 bg-nss-panel">{children}</div>
@@ -274,6 +324,11 @@ export const EdgePropertiesPanel = ({
                 className={CONTROL_CLASS}
               />
             </div>
+
+            <EdgeAppearanceControl
+              routingStyle={value.routingStyle}
+              onChange={(routingStyle) => onChange({ routingStyle })}
+            />
 
             <div className="grid grid-cols-2 gap-2">
               <div className="space-y-1">

@@ -64,5 +64,27 @@ describe('EdgePropertiesPanel', () => {
   it('disables the connector label when the edge is read-only', () => {
     renderPanel({ connectorOnly: true, readOnly: true }, [false, undefined])
     expect(container?.querySelector('input')?.disabled).toBe(true)
+    expect(container?.querySelector('#edge-routing-style')?.hasAttribute('disabled')).toBe(true)
+  })
+
+  it('offers a per-edge appearance override and can return to the canvas default', () => {
+    const onChange = vi.fn()
+    renderPanel({ value: { label: '', routingStyle: 'rounded' }, onChange })
+    const select = container?.querySelector<HTMLSelectElement>('#edge-routing-style')
+
+    expect(select?.value).toBe('rounded')
+    act(() => {
+      if (!select) return
+      select.value = 'bezier'
+      select.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+    expect(onChange).toHaveBeenLastCalledWith({ routingStyle: 'bezier' })
+
+    act(() => {
+      if (!select) return
+      select.value = 'inherit'
+      select.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+    expect(onChange).toHaveBeenLastCalledWith({ routingStyle: undefined })
   })
 })

@@ -167,8 +167,10 @@ export const RequestDistributionEditor = ({
     <div className="mb-5" data-field-path="source.requestDistribution">
       <Label>Requests</Label>
       <p className="mb-2 text-[10px] leading-relaxed text-nss-muted">
-        Each entry is a request template. Type is the simulator&apos;s coarse request class; method,
-        host, and path add HTTP-aware routing context without dropping custom metadata.
+        Each entry is a request template. Type is the transport-agnostic request class the simulator
+        routes and grades on (e.g. create, resolve, send, op). Method, host, and path are optional
+        HTTP routing hints for content-aware routers &mdash; leave them blank for non-HTTP frames
+        (WebSocket, gRPC). The connection transport is set on the edge, not here.
       </p>
 
       <div className="space-y-2">
