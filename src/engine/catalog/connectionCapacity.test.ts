@@ -39,9 +39,23 @@ describe('connection-server palette node', () => {
     expect(data.componentType).toBe('api-gateway')
     expect(data.sim?.connection).toEqual({
       maxConnectionsPerInstance: 65000,
-      offeredConnections: 100000,
+      // Offered starts at 0 so the tier reads 0% used until a target is declared.
+      offeredConnections: 0,
       heartbeatIntervalMs: 30000,
       sessionProtocol: 'websocket'
     })
+  })
+
+  it('ships neutral by default: 0 offered ⇒ 0% used, not saturated', () => {
+    const data = instantiateTemplate('connection-server')
+    // The spec's hardware defaults must survive the simDefaults merge (not clobbered).
+    expect(data.sim?.resources?.instanceType).toBeDefined()
+    const derived = deriveConnectionCapacity(
+      data.sim!.connection!,
+      data.sim?.resources?.instanceCount ?? 1
+    )
+    expect(derived.utilization).toBe(0)
+    expect(derived.saturated).toBe(false)
+    expect(derived.connectionsRefused).toBe(0)
   })
 })

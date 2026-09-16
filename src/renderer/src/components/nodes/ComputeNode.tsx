@@ -107,8 +107,8 @@ const ComputeNode = ({ id, data, selected }: NodeProps<ComputeNodeData>) => {
                 value={data.label || 'Compute'}
                 onSave={handleLabelChange}
                 wrapLines={2}
-                textClassName="text-xs font-bold uppercase tracking-wide w-full"
-                inputClassName="text-xs font-bold uppercase tracking-wide w-full"
+                textClassName="text-xs font-bold tracking-wide w-full"
+                inputClassName="text-xs font-bold tracking-wide w-full"
               />
               <span className="text-[10px] text-nss-muted px-1">{data.profile}</span>
             </div>
