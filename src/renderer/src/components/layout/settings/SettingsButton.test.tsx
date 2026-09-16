@@ -39,9 +39,9 @@ describe('SettingsButton mode visibility', () => {
     expect(view.querySelector('button[title="Settings (Cmd/Ctrl+,)"]')).not.toBeNull()
   })
 
-  it('hides settings in Practice mode', () => {
+  it('shows settings in Practice mode', () => {
     const view = renderForMode(PRACTICE_ENVIRONMENT_PROFILE)
-    expect(view.querySelector('button')).toBeNull()
+    expect(view.querySelector('button[title="Settings (Cmd/Ctrl+,)"]')).not.toBeNull()
   })
 
   it('hides settings in Assignment mode', () => {
