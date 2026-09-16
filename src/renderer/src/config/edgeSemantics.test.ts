@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import type { CanvasNodeDataV2 } from '../../../engine/catalog/nodeSpecTypes'
-import { inferCanvasEdgeMode, isPathTypeDrivingLatency } from './edgeSemantics'
+import {
+  getEdgeModePresentation,
+  getEdgeProtocolPresentation,
+  inferCanvasEdgeMode,
+  isPathTypeDrivingLatency
+} from './edgeSemantics'
 
 describe('inferCanvasEdgeMode', () => {
   it('preserves an explicit mode override', () => {
@@ -31,6 +36,26 @@ describe('inferCanvasEdgeMode', () => {
         templateId: 'microservice'
       } as CanvasNodeDataV2)
     ).toBe('synchronous')
+  })
+})
+
+describe('edge visual semantics', () => {
+  it('uses distinct line patterns for every edge mode', () => {
+    const patterns = ['synchronous', 'asynchronous', 'streaming', 'conditional'].map(
+      (mode) =>
+        getEdgeModePresentation(mode as Parameters<typeof getEdgeModePresentation>[0])
+          .strokeDasharray
+    )
+
+    expect(new Set(patterns).size).toBe(patterns.length)
+  })
+
+  it('provides compact protocol labels and theme-aware direction accents', () => {
+    expect(getEdgeProtocolPresentation('grpc')).toEqual({
+      shortLabel: 'gRPC',
+      accent: 'rgb(var(--nss-info))'
+    })
+    expect(getEdgeProtocolPresentation('udp').accent).toBe('rgb(var(--nss-warning))')
   })
 })
 

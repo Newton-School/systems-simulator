@@ -85,6 +85,16 @@ export interface NodeSimulationMetrics {
 export interface EdgeSimulationData {
   /** Optional visual override. Undefined inherits the canvas-wide display preference. */
   routingStyle?: EdgeRoutingStyle
+  /**
+   * Presentation-only protocol used by connector-mode diagrams. It deliberately
+   * stays separate from `protocol`, which participates in simulation semantics.
+   */
+  displayProtocol?: 'https' | 'grpc' | 'tcp' | 'udp' | 'websocket' | 'amqp' | 'kafka'
+  /**
+   * Presentation-only interaction mode used by connector-mode diagrams. It can
+   * change the line pattern without changing routing or simulation results.
+   */
+  displayMode?: 'synchronous' | 'asynchronous' | 'streaming' | 'conditional'
   protocol?: 'https' | 'grpc' | 'tcp' | 'udp' | 'websocket' | 'amqp' | 'kafka'
   mode?: 'synchronous' | 'asynchronous' | 'streaming' | 'conditional'
   latencyDistributionType?: 'log-normal' | 'constant'

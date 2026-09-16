@@ -6,6 +6,7 @@ import type { NestedFileData } from '@renderer/utils/nodeTransformers'
 import { isTopologyJsonLike, topologyToCanvasFileData } from '@renderer/utils/topologyCanvasAdapter'
 import { migrateCanvasNodes } from '../../../engine/catalog/legacyCanvasMigration'
 import { normalizeScenarioState } from '@renderer/types/ui'
+import { isModalOpen, isPrimaryModifier } from '@renderer/config/keyboardShortcuts'
 
 const DEFAULT_FILE_NAME = 'scenario.json'
 
@@ -33,7 +34,9 @@ const useKeyboardShortcuts = (
 ) => {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      const isMod = e.metaKey || e.ctrlKey
+      if (isModalOpen()) return
+
+      const isMod = isPrimaryModifier(e)
       if (!isMod) return
 
       if (canSave && e.key.toLowerCase() === 's') {

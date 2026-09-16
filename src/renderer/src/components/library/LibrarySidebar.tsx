@@ -4,10 +4,12 @@ import {
   FileText,
   FlaskConical,
   ClipboardList,
+  Keyboard,
   Library as LibraryIcon,
   type LucideIcon
 } from 'lucide-react'
 import type { ExperienceEnvelope, ExperienceSidebarTab } from '@renderer/utils/experienceEnvelope'
+import { SettingsButton } from '../layout/settings/SettingsButton'
 import type { ComponentLibraryFilter } from './ComponentLibrarySidebarPanel'
 
 export type LibrarySidebarTab = ExperienceSidebarTab
@@ -16,9 +18,10 @@ interface ActivityTab {
   id: LibrarySidebarTab
   label: string
   icon: LucideIcon
+  shortcutIndex: number
 }
 
-const TAB_META: Record<LibrarySidebarTab, Omit<ActivityTab, 'id'>> = {
+const TAB_META: Record<LibrarySidebarTab, Omit<ActivityTab, 'id' | 'shortcutIndex'>> = {
   question: { label: 'Question Text', icon: FileText },
   blueprints: { label: 'Blueprints', icon: ClipboardList },
   labs: { label: 'Labs', icon: Beaker },
@@ -30,11 +33,14 @@ interface LibraryActivityRailProps {
   activeTab: LibrarySidebarTab
   experience: ExperienceEnvelope
   onSelect: (tab: LibrarySidebarTab) => void
+  onShowShortcuts: () => void
+  settingsOpenRequestVersion?: number
 }
 
 interface LibrarySidebarContentProps {
   activeTab: LibrarySidebarTab
   onLoadScenario: (scenarioId: string) => Promise<void>
+  focusSearchVersion?: number
 }
 
 const QuestionPanel = lazy(async () => {
@@ -86,10 +92,10 @@ const ActivityButton = memo(function ActivityButton({
     <button
       type="button"
       onClick={() => onSelect(tab.id)}
-      title={tab.label}
-      aria-label={tab.label}
+      title={`${tab.label} (Cmd/Ctrl+${tab.shortcutIndex})`}
+      aria-label={`${tab.label}, shortcut Cmd or Ctrl plus ${tab.shortcutIndex}`}
       aria-pressed={isActive}
-      className={`relative h-10 w-10 rounded-md flex items-center justify-center transition-colors ${
+      className={`group relative h-10 w-10 rounded-md flex items-center justify-center transition-colors ${
         isActive
           ? 'bg-nss-surface text-nss-text'
           : 'text-nss-muted hover:text-nss-text hover:bg-nss-surface'
@@ -99,6 +105,9 @@ const ActivityButton = memo(function ActivityButton({
         <span className="absolute left-0 top-1 bottom-1 w-0.5 rounded-r bg-nss-primary" />
       )}
       <Icon size={18} />
+      <span className="absolute bottom-0.5 right-1 font-mono text-[7px] font-medium leading-none text-nss-muted opacity-25 transition-opacity group-hover:opacity-60">
+        {tab.shortcutIndex}
+      </span>
     </button>
   )
 })
@@ -106,12 +115,15 @@ const ActivityButton = memo(function ActivityButton({
 export const LibraryActivityRail = memo(function LibraryActivityRail({
   activeTab,
   experience,
-  onSelect
+  onSelect,
+  onShowShortcuts,
+  settingsOpenRequestVersion = 0
 }: LibraryActivityRailProps) {
-  const tabs = experience.allowedTabs.map((id) => ({
+  const tabs = experience.allowedTabs.map((id, index) => ({
     id,
     label: id === 'question' ? experience.questionTabLabel : TAB_META[id].label,
-    icon: TAB_META[id].icon
+    icon: TAB_META[id].icon,
+    shortcutIndex: index + 1
   }))
 
   return (
@@ -122,11 +134,30 @@ export const LibraryActivityRail = memo(function LibraryActivityRail({
       {tabs.map((tab) => (
         <ActivityButton key={tab.id} tab={tab} activeTab={activeTab} onSelect={onSelect} />
       ))}
+
+      {/* Utility actions — pinned to the bottom of the rail, below the tabs. */}
+      <div className="mt-auto flex flex-col items-center gap-1">
+        <button
+          type="button"
+          onClick={onShowShortcuts}
+          title="Keyboard shortcuts (?)"
+          aria-label="Keyboard shortcuts"
+          aria-haspopup="dialog"
+          className="h-10 w-10 rounded-md flex items-center justify-center text-nss-muted transition-colors hover:text-nss-text hover:bg-nss-surface"
+        >
+          <Keyboard size={18} />
+        </button>
+        <SettingsButton openRequestVersion={settingsOpenRequestVersion} />
+      </div>
     </nav>
   )
 })
 
-export function LibrarySidebarContent({ activeTab, onLoadScenario }: LibrarySidebarContentProps) {
+export function LibrarySidebarContent({
+  activeTab,
+  onLoadScenario,
+  focusSearchVersion = 0
+}: LibrarySidebarContentProps) {
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<ComponentLibraryFilter>('all')
 
@@ -172,6 +203,7 @@ export function LibrarySidebarContent({ activeTab, onLoadScenario }: LibrarySide
               filter={filter}
               onQueryChange={setQuery}
               onFilterChange={setFilter}
+              focusSearchVersion={focusSearchVersion}
             />
           </div>
         </Suspense>

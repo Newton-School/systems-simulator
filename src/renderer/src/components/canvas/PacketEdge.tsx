@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { BaseEdge, EdgeProps, EdgeLabelRenderer } from 'reactflow'
 import type { AnyNodeData, EdgeSimulationData } from '@renderer/types/ui'
-import { getEdgeModePresentation, inferCanvasEdgeMode } from '@renderer/config/edgeSemantics'
+import {
+  getEdgeModePresentation,
+  getEdgeProtocolPresentation,
+  inferCanvasEdgeMode
+} from '@renderer/config/edgeSemantics'
 import { resolveEdgeRoutingStyle } from '@renderer/config/edgeRouting'
 import useStore, { type EdgeFlowRunConfig, type EdgeFlowState } from '@renderer/store/useStore'
 import { getRoutingPreviewSnapshot } from '@renderer/utils/routingStrategyPreview'
@@ -121,7 +125,6 @@ export const PacketEdge = ({
   sourcePosition,
   targetPosition,
   style = {},
-  markerEnd,
   label,
   data,
   selected
@@ -162,7 +165,15 @@ export const PacketEdge = ({
   const metricsByNode = useStore((state) => state.simulationMetricsByNode)
   const sourceNodeData = nodes.find((node) => node.id === source)?.data as AnyNodeData | undefined
   const targetNodeData = nodes.find((node) => node.id === target)?.data as AnyNodeData | undefined
-  const edgeMode = inferCanvasEdgeMode(edgeData, targetNodeData)
+  const edgeMode = inferCanvasEdgeMode(
+    {
+      mode: edgeIsConnectorOnly ? (edgeData.displayMode ?? edgeData.mode) : edgeData.mode,
+      protocol: edgeIsConnectorOnly
+        ? (edgeData.displayProtocol ?? edgeData.protocol)
+        : edgeData.protocol
+    },
+    targetNodeData
+  )
 
   // Per-edge weight share (Axis B) — shown only when the source actually routes
   // by weight, so the number reflects real behavior rather than an ignored dial.
@@ -279,6 +290,10 @@ export const PacketEdge = ({
     () => inferEdgeDefaults(sourceNodeData, targetNodeData),
     [sourceNodeData, targetNodeData]
   )
+  const effectiveProtocol = edgeIsConnectorOnly
+    ? (edgeData.displayProtocol ?? edgeData.protocol ?? edgeDefaults.protocol)
+    : (edgeData.protocol ?? edgeDefaults.protocol)
+  const edgeProtocolPresentation = getEdgeProtocolPresentation(effectiveProtocol)
   const lensProjection = useMemo(
     () =>
       resolveEdgeLensProjection({
@@ -387,6 +402,22 @@ export const PacketEdge = ({
     return pathRef.current.getPointAtLength(pathLength * progress)
   }
 
+  const semanticBadgeAnchor =
+    pathLength >= 24 && !isTracing ? pointForProgress(0.62) : { x: labelX, y: labelY }
+  const endpointDirection = (() => {
+    if (!pathRef.current || pathLength < 24 || isTracing) return null
+
+    // Keep the chevron just outside the target handle/node while still reading as
+    // an arrowhead at the end of the connector.
+    const tipLength = Math.max(0, pathLength - 11)
+    const point = pathRef.current.getPointAtLength(tipLength)
+    const before = pathRef.current.getPointAtLength(Math.max(0, tipLength - 6))
+    const after = pathRef.current.getPointAtLength(Math.min(pathLength, tipLength + 3))
+    const angle = (Math.atan2(after.y - before.y, after.x - before.x) * 180) / Math.PI
+
+    return { x: point.x, y: point.y, angle }
+  })()
+
   return (
     <>
       {/* Glow halo - only visible when selected */}
@@ -403,7 +434,6 @@ export const PacketEdge = ({
 
       <BaseEdge
         path={edgePath}
-        markerEnd={markerEnd}
         style={{
           ...style,
           strokeWidth: trafficStrokeWidth,
@@ -417,6 +447,25 @@ export const PacketEdge = ({
         }}
         interactionWidth={30}
       />
+
+      {endpointDirection && (
+        <g
+          transform={`translate(${endpointDirection.x} ${endpointDirection.y}) rotate(${endpointDirection.angle})`}
+          opacity={selected ? 1 : clamp(baseEdgeOpacity * 0.82, 0.28, 0.82)}
+          pointerEvents="none"
+        >
+          <title>{`${edgeProtocolPresentation.shortLabel} · ${edgeModePresentation.title} · ${source} to ${target}`}</title>
+          <path
+            d="M -5 -4 L 0 0 L -5 4"
+            fill="none"
+            stroke={edgeProtocolPresentation.accent}
+            strokeWidth={2}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            vectorEffect="non-scaling-stroke"
+          />
+        </g>
+      )}
 
       <path
         ref={pathRef}
@@ -518,6 +567,34 @@ export const PacketEdge = ({
         className="edge-endpoint nodrag nopan"
         style={{ pointerEvents: 'all', ...(selected ? { opacity: 1 } : {}) }}
       />
+
+      {selected && (
+        <EdgeLabelRenderer>
+          <div
+            style={{
+              position: 'absolute',
+              transform: `translate(-50%, -100%) translate(${semanticBadgeAnchor.x}px, ${semanticBadgeAnchor.y - 10}px)`,
+              pointerEvents: 'all'
+            }}
+            className="nodrag nopan"
+          >
+            <span
+              className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-2 py-1 text-[10px] font-semibold leading-none tracking-wide shadow-sm ${edgeModePresentation.badgeClassName}`}
+              title={`${edgeProtocolPresentation.shortLabel} protocol · ${edgeModePresentation.title} edge`}
+            >
+              <span
+                className="h-1.5 w-1.5 rounded-full"
+                style={{ backgroundColor: edgeProtocolPresentation.accent }}
+              />
+              <span>{edgeProtocolPresentation.shortLabel}</span>
+              <span aria-hidden="true" className="opacity-45">
+                ·
+              </span>
+              <span>{edgeModePresentation.shortLabel}</span>
+            </span>
+          </div>
+        </EdgeLabelRenderer>
+      )}
 
       {(hasLabel || showFlowLabel || weightSharePct !== null) && (
         <EdgeLabelRenderer>

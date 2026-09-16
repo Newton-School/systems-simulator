@@ -55,16 +55,43 @@ describe('EdgePropertiesPanel', () => {
     expect(text).not.toContain('Protocol')
   })
 
-  it('shows the connector-mode message when connectorOnly and no real children', () => {
+  it('offers presentation-only protocol and interaction fields in connector mode', () => {
     const text = renderPanel({ connectorOnly: true }, [false, undefined])
-    expect(text).toContain('simple link showing how the components are wired')
-    expect(text).not.toContain('Protocol')
+    expect(text).toContain('only change its canvas presentation')
+    expect(text).toContain('Protocol')
+    expect(text).toContain('Interaction')
+    expect(text).not.toContain('Bandwidth')
+    expect(text).not.toContain('Packet Loss')
   })
 
-  it('disables the connector label when the edge is read-only', () => {
+  it('stores connector semantics as display metadata instead of simulation fields', () => {
+    const onChange = vi.fn()
+    renderPanel({ connectorOnly: true, onChange }, [false, undefined])
+    const protocol = container?.querySelector<HTMLSelectElement>('#connector-edge-protocol')
+    const mode = container?.querySelector<HTMLSelectElement>('#connector-edge-mode')
+
+    act(() => {
+      if (!protocol) return
+      protocol.value = 'kafka'
+      protocol.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+    expect(onChange).toHaveBeenLastCalledWith({ displayProtocol: 'kafka' })
+
+    act(() => {
+      if (!mode) return
+      mode.value = 'asynchronous'
+      mode.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+    expect(onChange).toHaveBeenLastCalledWith({ displayMode: 'asynchronous' })
+  })
+
+  it('disables all connector presentation fields when the edge is read-only', () => {
     renderPanel({ connectorOnly: true, readOnly: true }, [false, undefined])
-    expect(container?.querySelector('input')?.disabled).toBe(true)
-    expect(container?.querySelector('#edge-routing-style')?.hasAttribute('disabled')).toBe(true)
+    expect(container?.querySelector('fieldset')?.disabled).toBe(true)
+    expect(container?.querySelector('input')?.matches(':disabled')).toBe(true)
+    expect(container?.querySelector('#connector-edge-protocol')?.matches(':disabled')).toBe(true)
+    expect(container?.querySelector('#connector-edge-mode')?.matches(':disabled')).toBe(true)
+    expect(container?.querySelector('#edge-routing-style')?.matches(':disabled')).toBe(true)
   })
 
   it('offers a per-edge appearance override and can return to the canvas default', () => {

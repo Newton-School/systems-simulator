@@ -1,6 +1,7 @@
 import { useEffect, useRef, useCallback } from 'react'
 import { Node, Edge, XYPosition, useReactFlow } from 'reactflow'
 import { useFlowStore } from './useFlowStore'
+import { isEditableShortcutTarget, isModalOpen } from '@renderer/config/keyboardShortcuts'
 
 interface ClipboardNodeEntry {
   node: Node
@@ -168,8 +169,7 @@ export const useCopyPaste = ({ disabled = false }: { disabled?: boolean } = {}) 
         return
       }
 
-      const target = event.target as HTMLElement
-      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+      if (isEditableShortcutTarget(event.target) || isModalOpen()) {
         return
       }
 

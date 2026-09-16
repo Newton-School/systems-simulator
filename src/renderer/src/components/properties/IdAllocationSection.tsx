@@ -5,6 +5,7 @@ import {
   type IdAllocationConfig,
   type IdGeneratorKind
 } from '../../../../engine/catalog/idAllocation'
+import { EditableNumberInput } from '../ui/EditableNumberInput'
 
 const KIND_OPTIONS: Array<{ id: IdGeneratorKind; label: string; note: string }> = [
   {
@@ -110,8 +111,7 @@ export function IdAllocationSection({
           {idAllocation.mode === 'block' ? (
             <label className="mb-2 block text-[11px] text-nss-muted">
               Block size
-              <input
-                type="number"
+              <EditableNumberInput
                 min={1}
                 value={idAllocation.blockSize}
                 onChange={(event) =>

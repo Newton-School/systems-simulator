@@ -2,6 +2,7 @@ import {
   deriveConnectionCapacity,
   type ConnectionConfig
 } from '../../../../engine/catalog/connectionCapacity'
+import { EditableNumberInput } from '../ui/EditableNumberInput'
 
 function formatCount(value: number): string {
   if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(2)}M`
@@ -52,8 +53,7 @@ export function ConnectionCapacitySection({
       <div className="grid grid-cols-2 gap-2">
         <label className="text-[10px] text-nss-muted">
           Max connections / instance
-          <input
-            type="number"
+          <EditableNumberInput
             min={1}
             value={connection.maxConnectionsPerInstance}
             onChange={(event) => emit({ maxConnectionsPerInstance: Number(event.target.value) })}
@@ -62,8 +62,7 @@ export function ConnectionCapacitySection({
         </label>
         <label className="text-[10px] text-nss-muted">
           Offered connections
-          <input
-            type="number"
+          <EditableNumberInput
             min={0}
             value={connection.offeredConnections}
             onChange={(event) => emit({ offeredConnections: Number(event.target.value) })}
@@ -72,8 +71,7 @@ export function ConnectionCapacitySection({
         </label>
         <label className="text-[10px] text-nss-muted">
           Heartbeat interval ms
-          <input
-            type="number"
+          <EditableNumberInput
             min={0}
             value={connection.heartbeatIntervalMs ?? 0}
             onChange={(event) => emit({ heartbeatIntervalMs: Number(event.target.value) })}

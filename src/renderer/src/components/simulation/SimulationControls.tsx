@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Pause, Play, RotateCcw, Square, X } from 'lucide-react'
 import type { FaultTargetOption, ScenarioState, SourceNodeOption } from '@renderer/types/ui'
+import { EditableNumberInput } from '@renderer/components/ui/EditableNumberInput'
 import { mergeWorkloadDefaults } from '@renderer/utils/workloadDefaults'
 import {
   buildFault,
@@ -592,8 +593,7 @@ function NumberInput({
   disabled?: boolean
 }) {
   return (
-    <input
-      type="number"
+    <EditableNumberInput
       min={min}
       value={value}
       disabled={disabled}

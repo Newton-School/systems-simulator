@@ -1,7 +1,6 @@
-import { lazy, Suspense, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { Settings } from 'lucide-react'
 import useStore from '@renderer/store/useStore'
-import { IconButton } from '../../ui/IconButton'
 
 const SettingsModal = lazy(async () => {
   const module = await import('./SettingsModal')
@@ -9,14 +8,29 @@ const SettingsModal = lazy(async () => {
 })
 
 /**
- * Header entry point for the settings modal — a gear button that owns the open
- * state, so the Header stays prop-free (same self-contained pattern as CostChip
- * and ThemeToggle). Hidden in ASSIGNMENT mode: that surface is for author/
- * sandbox configuration, not graded student attempts.
+ * Header entry point for the settings modal. The button owns the modal state,
+ * while an incrementing request lets the workspace open it from Cmd/Ctrl+,.
+ * Hidden in ASSIGNMENT mode: that surface is for author/sandbox configuration,
+ * not graded student attempts.
  */
-export function SettingsButton(): React.JSX.Element | null {
+export function SettingsButton({
+  openRequestVersion = 0
+}: {
+  openRequestVersion?: number
+}): React.JSX.Element | null {
   const [open, setOpen] = useState(false)
   const mode = useStore((s) => s.environmentProfile.mode)
+
+  useEffect(() => {
+    if (mode === 'ASSIGNMENT') {
+      setOpen(false)
+      return
+    }
+
+    if (openRequestVersion > 0) {
+      setOpen(true)
+    }
+  }, [mode, openRequestVersion])
 
   if (mode === 'ASSIGNMENT') {
     return null
@@ -24,12 +38,16 @@ export function SettingsButton(): React.JSX.Element | null {
 
   return (
     <>
-      <IconButton
+      <button
+        type="button"
         onClick={() => setOpen(true)}
-        icon={<Settings size={18} />}
-        label="Settings"
+        title="Settings (Cmd/Ctrl+,)"
+        aria-label="Settings"
         aria-haspopup="dialog"
-      />
+        className="h-10 w-10 rounded-md flex items-center justify-center text-nss-muted transition-colors hover:text-nss-text hover:bg-nss-surface"
+      >
+        <Settings size={18} />
+      </button>
       {open ? (
         <Suspense fallback={null}>
           <SettingsModal onClose={() => setOpen(false)} />

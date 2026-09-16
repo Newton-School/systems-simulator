@@ -28,6 +28,7 @@ import { instantiateTemplate } from '../../../../engine/catalog/paletteTemplates
 import type { CanvasNodeDataV2 } from '../../../../engine/catalog/nodeSpecTypes'
 import { getId } from '../canvas/utils/canvasUtils'
 import useStore from '../../store/useStore'
+import { EditableNumberInput } from '../ui/EditableNumberInput'
 
 export type DefinitionBuilderMode = 'service' | 'custom-node' | 'my-service'
 
@@ -848,8 +849,7 @@ function DefinitionBuilderModal({
                         {template.componentType === 'api-endpoint' ? (
                           <label className="text-[10px] font-semibold text-nss-muted">
                             Traffic weight
-                            <input
-                              type="number"
+                            <EditableNumberInput
                               min={0}
                               step={0.1}
                               value={operation.weight ?? 1}
@@ -1071,8 +1071,7 @@ function DefinitionBuilderModal({
                                 </label>
                                 <label className="text-[10px] font-semibold text-nss-muted">
                                   Workers per instance
-                                  <input
-                                    type="number"
+                                  <EditableNumberInput
                                     min={1}
                                     value={(values.workersPerInstance as number | undefined) ?? 32}
                                     onChange={(event) =>
@@ -1090,8 +1089,7 @@ function DefinitionBuilderModal({
                                 </label>
                                 <label className="text-[10px] font-semibold text-nss-muted">
                                   Instance count
-                                  <input
-                                    type="number"
+                                  <EditableNumberInput
                                     min={1}
                                     value={(values.instanceCount as number | undefined) ?? 1}
                                     onChange={(event) =>
@@ -1109,8 +1107,7 @@ function DefinitionBuilderModal({
                                 </label>
                                 <label className="text-[10px] font-semibold text-nss-muted">
                                   Queue slots
-                                  <input
-                                    type="number"
+                                  <EditableNumberInput
                                     min={1}
                                     value={(values.queueSlots as number | undefined) ?? 64}
                                     onChange={(event) =>
@@ -1131,8 +1128,7 @@ function DefinitionBuilderModal({
                             {trait.traitId === 'workload-profile' ? (
                               <label className="text-[10px] font-semibold text-nss-muted">
                                 Service time ms
-                                <input
-                                  type="number"
+                                <EditableNumberInput
                                   min={1}
                                   value={(values.serviceTimeMs as number | undefined) ?? 25}
                                   onChange={(event) =>
@@ -1153,8 +1149,7 @@ function DefinitionBuilderModal({
                               <>
                                 <label className="text-[10px] font-semibold text-nss-muted">
                                   Cold start latency ms
-                                  <input
-                                    type="number"
+                                  <EditableNumberInput
                                     min={0}
                                     value={(values.coldStartLatencyMs as number | undefined) ?? 150}
                                     onChange={(event) =>
@@ -1172,8 +1167,7 @@ function DefinitionBuilderModal({
                                 </label>
                                 <label className="text-[10px] font-semibold text-nss-muted">
                                   Idle timeout ms
-                                  <input
-                                    type="number"
+                                  <EditableNumberInput
                                     min={0}
                                     value={(values.idleTimeoutMs as number | undefined) ?? 300000}
                                     onChange={(event) =>
@@ -1191,8 +1185,7 @@ function DefinitionBuilderModal({
                                 </label>
                                 <label className="text-[10px] font-semibold text-nss-muted">
                                   Max concurrency
-                                  <input
-                                    type="number"
+                                  <EditableNumberInput
                                     min={1}
                                     value={(values.maxConcurrency as number | undefined) ?? 100}
                                     onChange={(event) =>
@@ -1214,8 +1207,7 @@ function DefinitionBuilderModal({
                               <>
                                 <label className="text-[10px] font-semibold text-nss-muted">
                                   Timeout ms
-                                  <input
-                                    type="number"
+                                  <EditableNumberInput
                                     min={1}
                                     value={(values.timeoutMs as number | undefined) ?? 1000}
                                     onChange={(event) =>
@@ -1233,8 +1225,7 @@ function DefinitionBuilderModal({
                                 </label>
                                 <label className="text-[10px] font-semibold text-nss-muted">
                                   Max retries
-                                  <input
-                                    type="number"
+                                  <EditableNumberInput
                                     min={0}
                                     value={(values.maxRetries as number | undefined) ?? 0}
                                     onChange={(event) =>
@@ -1255,8 +1246,7 @@ function DefinitionBuilderModal({
                             {trait.traitId === 'rate-limiting' ? (
                               <label className="text-[10px] font-semibold text-nss-muted">
                                 Limit per second
-                                <input
-                                  type="number"
+                                <EditableNumberInput
                                   min={1}
                                   value={(values.limitPerSecond as number | undefined) ?? 1000}
                                   onChange={(event) =>
@@ -1277,8 +1267,7 @@ function DefinitionBuilderModal({
                               <>
                                 <label className="text-[10px] font-semibold text-nss-muted">
                                   Latency ms
-                                  <input
-                                    type="number"
+                                  <EditableNumberInput
                                     min={1}
                                     value={(values.latencyMs as number | undefined) ?? 100}
                                     onChange={(event) =>
@@ -1296,8 +1285,7 @@ function DefinitionBuilderModal({
                                 </label>
                                 <label className="text-[10px] font-semibold text-nss-muted">
                                   Error rate percent
-                                  <input
-                                    type="number"
+                                  <EditableNumberInput
                                     min={0}
                                     max={100}
                                     value={(values.errorRate as number | undefined) ?? 1}
@@ -1320,8 +1308,7 @@ function DefinitionBuilderModal({
                               <>
                                 <label className="text-[10px] font-semibold text-nss-muted">
                                   Cache hit rate (0–1)
-                                  <input
-                                    type="number"
+                                  <EditableNumberInput
                                     min={0}
                                     max={1}
                                     step={0.05}
@@ -1341,8 +1328,7 @@ function DefinitionBuilderModal({
                                 </label>
                                 <label className="text-[10px] font-semibold text-nss-muted">
                                   Cache hit latency ms
-                                  <input
-                                    type="number"
+                                  <EditableNumberInput
                                     min={0}
                                     step={0.1}
                                     value={(values.cacheHitLatencyMs as number | undefined) ?? 0.5}
@@ -1365,8 +1351,7 @@ function DefinitionBuilderModal({
                               <>
                                 <label className="text-[10px] font-semibold text-nss-muted">
                                   Base RPS
-                                  <input
-                                    type="number"
+                                  <EditableNumberInput
                                     min={1}
                                     value={(values.baseRps as number | undefined) ?? 100}
                                     onChange={(event) =>

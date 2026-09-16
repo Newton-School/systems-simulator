@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import useStore from '../../store/useStore'
 import { CATALOG_CONFIG } from '../../config/catalogConfig'
 import { PALETTE_TEMPLATES } from '../../../../engine/catalog/paletteTemplates'
@@ -32,13 +32,16 @@ export function ComponentLibrarySidebarPanel({
   query,
   filter,
   onQueryChange,
-  onFilterChange
+  onFilterChange,
+  focusSearchVersion = 0
 }: {
   query: string
   filter: ComponentLibraryFilter
   onQueryChange: (value: string) => void
   onFilterChange: (value: ComponentLibraryFilter) => void
+  focusSearchVersion?: number
 }): React.JSX.Element {
+  const searchInputRef = useRef<HTMLInputElement>(null)
   const [builderMode, setBuilderMode] = useState<DefinitionBuilderMode | null>(null)
   const editPaletteList = useStore((state) => state.environmentProfile.capabilities.editPaletteList)
   const activeQuestion = useStore((state) => state.activeQuestion)
@@ -46,6 +49,23 @@ export function ComponentLibrarySidebarPanel({
   const hiddenComponentLibraryTemplateIds = useStore(
     (state) => state.displaySettings.hiddenComponentLibraryTemplateIds
   )
+
+  // Focus the search box as soon as the library mounts, so opening the app
+  // lands the caret in the component search — type a node name and drag away
+  // without a click. Deferred a frame so the sidebar layout has settled.
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      searchInputRef.current?.focus()
+      searchInputRef.current?.select()
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [])
+
+  useEffect(() => {
+    if (focusSearchVersion <= 0) return
+    searchInputRef.current?.focus()
+    searchInputRef.current?.select()
+  }, [focusSearchVersion])
   const allowedPalette = useMemo(
     () => (editPaletteList === null ? null : new Set(editPaletteList)),
     [editPaletteList]
@@ -132,10 +152,12 @@ export function ComponentLibrarySidebarPanel({
 
         <div className="relative">
           <input
+            ref={searchInputRef}
             type="text"
             value={query}
             onChange={(event) => onQueryChange(event.target.value)}
             placeholder="Search components…"
+            title="Search components (/ or Cmd/Ctrl+K)"
             className="
               h-7 w-full rounded-md border border-nss-border bg-nss-input-bg
               pl-7 pr-3 text-xs font-sans text-nss-text outline-none

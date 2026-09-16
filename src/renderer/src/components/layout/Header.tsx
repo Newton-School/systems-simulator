@@ -9,7 +9,6 @@ import { CostChip } from './CostChip'
 import { ModeBadge } from './ModeBadge'
 import { FileStatus } from './FileStatus'
 import { ThemeToggle } from './ThemeToggle'
-import { SettingsButton } from './settings/SettingsButton'
 import { SimulationControls } from '../simulation/SimulationControls'
 import type { FaultTargetOption, ScenarioState, SourceNodeOption } from '@renderer/types/ui'
 
@@ -180,7 +179,6 @@ export const Header = memo(
 
         {/* RIGHT: Theme & right sidebar toggle */}
         <div ref={rightGroupRef} className="flex items-center gap-3 shrink-0">
-          <SettingsButton />
           <ThemeToggle />
           <Divider />
           <ToggleButton

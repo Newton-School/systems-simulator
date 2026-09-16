@@ -3,6 +3,7 @@
  * a toggle row, and an optional-number ("unbounded when empty") field. Kept dumb:
  * they render current value + call back on change; the tab owns the state wiring.
  */
+import { EditableNumberInput } from '@renderer/components/ui/EditableNumberInput'
 
 export function SettingRow({
   label,
@@ -114,8 +115,7 @@ export function OptionalNumber({
 }): React.JSX.Element {
   return (
     <div className="flex items-center gap-1.5">
-      <input
-        type="number"
+      <EditableNumberInput
         min={min}
         step={step}
         disabled={disabled}
@@ -154,8 +154,7 @@ export function NumberField({
 }): React.JSX.Element {
   return (
     <div className="flex items-center gap-1.5">
-      <input
-        type="number"
+      <EditableNumberInput
         min={min}
         step={step}
         disabled={disabled}
