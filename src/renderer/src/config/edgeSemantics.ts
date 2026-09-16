@@ -21,6 +21,12 @@ export interface EdgeModePresentation extends EdgeHelpEntry {
   badgeClassName: string
 }
 
+export interface EdgeProtocolPresentation {
+  shortLabel: string
+  /** Theme-aware accent used by the small direction marker. */
+  accent: string
+}
+
 export const EDGE_MODE_PRESENTATION: Record<EdgeModeValue, EdgeModePresentation> = {
   synchronous: {
     title: 'Synchronous',
@@ -75,6 +81,19 @@ export const EDGE_PROPERTY_HELP = {
     summary: 'How the edge participates in routing: wait, fan out, stream, or branch by condition.',
     simulationEffect:
       'Controls whether one route is chosen, all async routes are chosen, or a condition must match first.'
+  },
+  connectorProtocol: {
+    title: 'Protocol',
+    summary: 'Describes the transport represented by this connector.',
+    simulationEffect:
+      'Presentation only in connector mode. It changes the badge and arrow accent, not latency, reliability, capacity, cost, or results.'
+  },
+  connectorMode: {
+    title: 'Interaction',
+    summary:
+      'Describes whether the connection is synchronous, asynchronous, streaming, or conditional.',
+    simulationEffect:
+      'Presentation only in connector mode. It changes the badge and line pattern without changing routing or results.'
   },
   pathType: {
     title: 'Path Type',
@@ -201,6 +220,16 @@ export const EDGE_PROTOCOL_HELP: Record<EdgeProtocolValue, EdgeHelpEntry> = {
   }
 }
 
+export const EDGE_PROTOCOL_PRESENTATION: Record<EdgeProtocolValue, EdgeProtocolPresentation> = {
+  https: { shortLabel: 'HTTPS', accent: 'rgb(var(--nss-primary))' },
+  grpc: { shortLabel: 'gRPC', accent: 'rgb(var(--nss-info))' },
+  tcp: { shortLabel: 'TCP', accent: 'var(--nss-muted)' },
+  udp: { shortLabel: 'UDP', accent: 'rgb(var(--nss-warning))' },
+  websocket: { shortLabel: 'WebSocket', accent: 'rgb(var(--nss-info))' },
+  amqp: { shortLabel: 'AMQP', accent: 'rgb(var(--nss-success))' },
+  kafka: { shortLabel: 'Kafka', accent: 'rgb(var(--nss-success))' }
+}
+
 export const EDGE_PATH_TYPE_HELP: Record<EdgePathTypeValue, EdgeHelpEntry> = {
   'same-rack': {
     title: 'Same Rack',
@@ -237,6 +266,12 @@ export function getEdgeModePresentation(
   mode: EdgeSimulationData['mode'] | EdgeDefinition['mode'] | undefined
 ): EdgeModePresentation {
   return EDGE_MODE_PRESENTATION[mode ?? 'synchronous']
+}
+
+export function getEdgeProtocolPresentation(
+  protocol: EdgeSimulationData['protocol'] | EdgeDefinition['protocol'] | undefined
+): EdgeProtocolPresentation {
+  return EDGE_PROTOCOL_PRESENTATION[protocol ?? 'https']
 }
 
 export function inferCanvasEdgeMode(

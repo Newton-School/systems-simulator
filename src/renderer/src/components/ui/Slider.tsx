@@ -1,4 +1,5 @@
 import type { CSSProperties, ChangeEvent } from 'react'
+import { EditableNumberInput } from './EditableNumberInput'
 
 export const Slider = ({
   value,
@@ -32,8 +33,7 @@ export const Slider = ({
         <span className="text-xs text-nss-muted font-medium select-none">{unit}</span>
 
         {/* --- AUTO-RESIZING INPUT --- */}
-        <input
-          type="number"
+        <EditableNumberInput
           min={min}
           max={max}
           value={value}

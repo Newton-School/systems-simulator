@@ -31,30 +31,44 @@ interface CanvasToolbarProps {
 interface CanvasToolButtonProps {
   icon: LucideIcon
   label: string
+  shortcut?: string
   active?: boolean
   disabled?: boolean
   onClick: () => void
 }
 
-const TOOL_ITEMS: ReadonlyArray<{ tool: CanvasTool; label: string; icon: LucideIcon }> = [
-  { tool: 'pan', label: 'Move canvas', icon: Hand },
-  { tool: 'select', label: 'Select', icon: MousePointer2 },
-  { tool: 'text', label: 'Add label', icon: Type }
+const TOOL_ITEMS: ReadonlyArray<{
+  tool: CanvasTool
+  label: string
+  icon: LucideIcon
+  shortcut: string
+}> = [
+  { tool: 'select', label: 'Select (1 or V)', icon: MousePointer2, shortcut: '1' },
+  { tool: 'pan', label: 'Move canvas (2 or H)', icon: Hand, shortcut: '2' },
+  { tool: 'text', label: 'Add label (3 or T)', icon: Type, shortcut: '3' }
 ]
 
 const TOOLBAR_SHELL_CLASS =
   'pointer-events-auto flex flex-col items-center gap-0.5 rounded-md border border-nss-border bg-nss-panel/95 p-0.5 shadow-lg backdrop-blur'
 
 const CanvasToolButton = memo(
-  ({ icon: Icon, label, active = false, disabled = false, onClick }: CanvasToolButtonProps) => (
+  ({
+    icon: Icon,
+    label,
+    shortcut,
+    active = false,
+    disabled = false,
+    onClick
+  }: CanvasToolButtonProps) => (
     <button
       type="button"
       aria-label={label}
+      aria-pressed={shortcut ? active : undefined}
       title={label}
       disabled={disabled}
       onClick={onClick}
       className={clsx(
-        'flex h-8 w-8 items-center justify-center rounded border text-nss-muted transition-all',
+        'group relative flex h-8 w-8 items-center justify-center rounded border text-nss-muted transition-all',
         'focus:outline-none focus:ring-2 focus:ring-nss-primary/60',
         active
           ? 'border-nss-primary/50 bg-nss-primary/15 text-nss-primary'
@@ -63,6 +77,11 @@ const CanvasToolButton = memo(
       )}
     >
       <Icon size={16} strokeWidth={2.2} />
+      {shortcut ? (
+        <span className="absolute bottom-0.5 right-1 font-mono text-[7px] font-medium leading-none text-current opacity-30 transition-opacity group-hover:opacity-60">
+          {shortcut}
+        </span>
+      ) : null}
     </button>
   )
 )
@@ -114,11 +133,12 @@ const CanvasToolbarComponent = ({
   return (
     <div className="pointer-events-none absolute bottom-36 left-2 z-30">
       <div className={TOOLBAR_SHELL_CLASS}>
-        {TOOL_ITEMS.map(({ tool, label, icon }) => (
+        {TOOL_ITEMS.map(({ tool, label, icon, shortcut }) => (
           <CanvasToolButton
             key={tool}
             icon={icon}
             label={label}
+            shortcut={shortcut}
             active={activeTool === tool}
             disabled={editingDisabled && tool === 'text'}
             onClick={() => onToolChange(tool)}
@@ -152,7 +172,7 @@ const CanvasToolbarComponent = ({
 
         <CanvasToolButton
           icon={Trash2}
-          label="Delete selection"
+          label="Delete selection (Backspace/Delete)"
           disabled={editingDisabled || !hasSelection}
           onClick={onDeleteSelection}
         />

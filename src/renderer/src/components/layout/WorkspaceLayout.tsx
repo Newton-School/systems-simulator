@@ -57,6 +57,11 @@ import {
   isSourceComponentData
 } from '../../../../engine/catalog/sourceNodeSemantics'
 import { resolveExperienceEnvelope } from '@renderer/utils/experienceEnvelope'
+import {
+  isEditableShortcutTarget,
+  isModalOpen,
+  isPrimaryModifier
+} from '@renderer/config/keyboardShortcuts'
 
 // Organisms
 import {
@@ -65,6 +70,7 @@ import {
   type LibrarySidebarTab
 } from '../library/LibrarySidebar'
 import { Header } from './Header'
+import { ShortcutsModal } from './ShortcutsModal'
 import { SampleScenarioPicker } from '../samples/SampleScenarioPicker'
 import { SAMPLE_SCENARIOS, type SampleScenario } from '@renderer/config/sampleScenarios'
 import {
@@ -86,6 +92,7 @@ import {
   type SourceNodeOption
 } from '@renderer/types/ui'
 import { generateRunSeed } from '@renderer/components/simulation/simulationControlModel'
+import { PRE_RUN_LENSES, RUNTIME_LENSES } from '@renderer/config/metricLensConfig'
 
 type RunIssueTone = 'warning' | 'error'
 
@@ -319,6 +326,9 @@ export const WorkspaceLayout = () => {
   const [isRightOpen, setIsRightOpen] = useState(false)
   const [showResults, setShowResults] = useState(false)
   const [showSamples, setShowSamples] = useState(false)
+  const [showShortcuts, setShowShortcuts] = useState(false)
+  const [componentLibrarySearchFocusVersion, setComponentLibrarySearchFocusVersion] = useState(0)
+  const [settingsOpenRequestVersion, setSettingsOpenRequestVersion] = useState(0)
   const [runIssues, setRunIssues] = useState<{ messages: string[]; tone: RunIssueTone }>({
     messages: [],
     tone: 'warning'
@@ -472,6 +482,10 @@ export const WorkspaceLayout = () => {
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
+      if (isModalOpen()) {
+        return
+      }
+
       const isMod = event.metaKey || event.ctrlKey
       if (!isMod || !event.shiftKey || event.key.toLowerCase() !== 'o') {
         return
@@ -507,6 +521,7 @@ export const WorkspaceLayout = () => {
 
   // Simulation
   const sim = useSimulation()
+  const runSimulation = sim.run
   const { serialize } = useTopologySerializer()
   const currentQuestionTopology = useMemo(() => {
     if (!activeQuestion) {
@@ -938,7 +953,7 @@ export const WorkspaceLayout = () => {
     }
   }, [sim.status, clearSimulationMetrics])
 
-  function startSimulation() {
+  const startSimulation = useCallback(() => {
     const scenarioForRun =
       scenario.randomizeSeedEachRun === true
         ? {
@@ -987,14 +1002,25 @@ export const WorkspaceLayout = () => {
       warmupDurationMs: runContext.global.warmupDuration
     })
     flowStore.setEdgeFlowStatus('running')
-    sim.run(topology)
+    runSimulation(topology)
     flowStore.setRunInspectorPinned(true)
     setIsRightOpen(true)
-  }
+  }, [
+    activeQuestion,
+    clearSimulationMetrics,
+    displaySettings.autoOpenSimulationTray,
+    edges,
+    environmentProfile,
+    nodes,
+    scenario,
+    serialize,
+    runSimulation,
+    updateScenario
+  ])
 
-  function handleRun() {
+  const handleRun = useCallback(() => {
     startSimulation()
-  }
+  }, [startSimulation])
 
   // Leave the post-run state and return to pre-run setup: discard the run's
   // results (node metrics, edge flow) and reset the lens back to the pre-run
@@ -1028,6 +1054,160 @@ export const WorkspaceLayout = () => {
   const isRunning = sim.status === 'running'
   const isPaused = sim.status === 'paused' && !sim.stopped
   const isPostRun = sim.status === 'complete'
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const key = event.key.toLowerCase()
+      const isMod = isPrimaryModifier(event)
+      const switchesLeftTab = isMod && /^[1-9]$/.test(key)
+
+      if (isEditableShortcutTarget(event.target) && !switchesLeftTab) {
+        return
+      }
+
+      const togglesShortcutModal = event.key === '?' || (isMod && key === '/')
+
+      if (togglesShortcutModal) {
+        if (!isModalOpen()) {
+          event.preventDefault()
+          setShowShortcuts(true)
+        }
+        return
+      }
+
+      if (isModalOpen() || !isMod) {
+        if (isModalOpen()) {
+          return
+        }
+
+        const opensLibrarySearch =
+          (!isMod && !event.altKey && !event.shiftKey && event.key === '/') ||
+          (isMod && !event.altKey && !event.shiftKey && key === 'k')
+        if (opensLibrarySearch && experienceEnvelope.allowedTabs.includes('library')) {
+          event.preventDefault()
+          handleLeftSidebarTabSelect('library')
+          setComponentLibrarySearchFocusVersion((version) => version + 1)
+          return
+        }
+
+        const store = useStore.getState()
+        const lenses =
+          Object.keys(store.simulationMetricsByNode).length > 0 ? RUNTIME_LENSES : PRE_RUN_LENSES
+        const activeLensIndex = Math.max(
+          0,
+          lenses.findIndex((lens) => lens.id === store.metricLens)
+        )
+
+        if (!isMod && !event.altKey && (event.key === '[' || event.key === ']')) {
+          event.preventDefault()
+          const direction = event.key === ']' ? 1 : -1
+          const nextIndex = (activeLensIndex + direction + lenses.length) % lenses.length
+          store.setMetricLens(lenses[nextIndex].id)
+          return
+        }
+
+        const directLensMatch = event.code.match(/^Digit([1-5])$/)
+        if (!isMod && event.altKey && directLensMatch) {
+          const lens = lenses[Number(directLensMatch[1]) - 1]
+          if (lens) {
+            event.preventDefault()
+            store.setMetricLens(lens.id)
+          }
+        }
+        return
+      }
+
+      if (/^[1-9]$/.test(key) && !event.shiftKey && !event.altKey) {
+        const tab = experienceEnvelope.allowedTabs[Number(key) - 1]
+        if (tab) {
+          event.preventDefault()
+          handleLeftSidebarTabSelect(tab)
+        }
+        return
+      }
+
+      if (!event.shiftKey && !event.altKey && key === 'k') {
+        if (experienceEnvelope.allowedTabs.includes('library')) {
+          event.preventDefault()
+          handleLeftSidebarTabSelect('library')
+          setComponentLibrarySearchFocusVersion((version) => version + 1)
+        }
+        return
+      }
+
+      if (!event.shiftKey && !event.altKey && key === ',') {
+        if (environmentProfile.mode === 'AUTHOR') {
+          event.preventDefault()
+          setSettingsOpenRequestVersion((version) => version + 1)
+        }
+        return
+      }
+
+      if (!event.shiftKey && key === 'b') {
+        event.preventDefault()
+        setIsLeftOpen((current) => !current)
+        return
+      }
+
+      if (key === 'i') {
+        event.preventDefault()
+        if (event.shiftKey) {
+          const store = useStore.getState()
+          const hasRunData =
+            sim.results !== null || Object.keys(store.simulationMetricsByNode).length > 0
+          if (hasRunData) {
+            if (runInspectorPinned && isRightOpen) {
+              setIsRightOpen(false)
+            } else {
+              setRunInspectorPinned(true)
+              store.selectGraphElements({})
+              setIsRightOpen(true)
+            }
+          }
+        } else if (selectedNodeId || selectedEdgeId) {
+          setIsRightOpen((current) => !current)
+        }
+        return
+      }
+
+      if (!event.shiftKey && key === 'j') {
+        event.preventDefault()
+        if (sim.status !== 'idle') {
+          setShowResults((current) => !current)
+        }
+        return
+      }
+
+      if (event.shiftKey && key === 'l') {
+        event.preventDefault()
+        handleAutoLayout()
+        return
+      }
+
+      if (!event.shiftKey && event.key === 'Enter' && !isRunning && !isPaused) {
+        event.preventDefault()
+        handleRun()
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [
+    environmentProfile.mode,
+    experienceEnvelope.allowedTabs,
+    handleAutoLayout,
+    handleLeftSidebarTabSelect,
+    handleRun,
+    isPaused,
+    isRightOpen,
+    isRunning,
+    runInspectorPinned,
+    selectedEdgeId,
+    selectedNodeId,
+    setRunInspectorPinned,
+    sim.results,
+    sim.status
+  ])
   const sourceNodes: SourceNodeOption[] = nodes
     // Only true traffic sources (Client App / source-profile nodes) may drive the
     // workload. A load balancer can pick up a `source` config on import but is not
@@ -1133,6 +1313,8 @@ export const WorkspaceLayout = () => {
           activeTab={leftSidebarTab}
           experience={experienceEnvelope}
           onSelect={handleLeftSidebarTabSelect}
+          onShowShortcuts={() => setShowShortcuts(true)}
+          settingsOpenRequestVersion={settingsOpenRequestVersion}
         />
 
         <PanelGroup
@@ -1150,7 +1332,11 @@ export const WorkspaceLayout = () => {
             order={1}
             id="left-panel"
           >
-            <LibrarySidebarContent activeTab={leftSidebarTab} onLoadScenario={handleLoadScenario} />
+            <LibrarySidebarContent
+              activeTab={leftSidebarTab}
+              onLoadScenario={handleLoadScenario}
+              focusSearchVersion={componentLibrarySearchFocusVersion}
+            />
           </Panel>
           <ResizeHandle vertical id="resize-left-catalog" />
 
@@ -1260,6 +1446,8 @@ export const WorkspaceLayout = () => {
           onClose={() => setShowSamples(false)}
         />
       )}
+
+      {showShortcuts && <ShortcutsModal onClose={() => setShowShortcuts(false)} />}
 
       {dialog}
     </div>

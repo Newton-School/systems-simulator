@@ -1,4 +1,4 @@
-import { memo } from 'react'
+import { memo, useId } from 'react'
 import { Position } from 'reactflow'
 import type { ConnectionLineComponentProps } from 'reactflow'
 import useStore from '@renderer/store/useStore'
@@ -24,6 +24,7 @@ const MagneticConnectionLine = memo(
     toPosition,
     connectionStatus
   }: ConnectionLineComponentProps) => {
+    const directionMarkerId = useId().replace(/:/g, '')
     const edgeRoutingStyle = useStore((state) => state.displaySettings.edgeRoutingStyle)
     const { lerpTarget, winner } = snapStateRef.current
 
@@ -63,6 +64,27 @@ const MagneticConnectionLine = memo(
 
     return (
       <g>
+        <defs>
+          <marker
+            id={directionMarkerId}
+            viewBox="0 0 12 12"
+            refX="9"
+            refY="6"
+            markerWidth="8"
+            markerHeight="8"
+            orient="auto"
+            markerUnits="userSpaceOnUse"
+          >
+            <path
+              d="M 2 2.25 L 8.5 6 L 2 9.75"
+              fill="none"
+              stroke={stroke}
+              strokeWidth="1.75"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </marker>
+        </defs>
         <path
           d={dPath}
           fill="none"
@@ -80,6 +102,7 @@ const MagneticConnectionLine = memo(
           strokeLinecap="round"
           strokeLinejoin="round"
           strokeDasharray={canDrop || isSnapping ? undefined : '6 3'}
+          markerEnd={`url(#${directionMarkerId})`}
           vectorEffect="non-scaling-stroke"
           style={{ transition: 'stroke 100ms, stroke-width 100ms' }}
         />

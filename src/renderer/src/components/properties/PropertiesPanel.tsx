@@ -1715,24 +1715,38 @@ export const PropertiesPanel = ({ results = null }: { results?: SimulationOutput
 
     const handleEdgeChange = (patch: Partial<EdgePropertiesPanelValue>) => {
       if (selectedEdgeLocked) return
-      const { label, routingStyle, ...simulationDataPatch } = patch
+      const { label, routingStyle, displayProtocol, displayMode, ...simulationDataPatch } = patch
       const hasRoutingStylePatch = Object.prototype.hasOwnProperty.call(patch, 'routingStyle')
+      const hasDisplayProtocolPatch = Object.prototype.hasOwnProperty.call(patch, 'displayProtocol')
+      const hasDisplayModePatch = Object.prototype.hasOwnProperty.call(patch, 'displayMode')
       const hasSimulationDataPatch = Object.keys(simulationDataPatch).length > 0
       const hasEditableLabelPatch = label !== undefined && canEditEdgeLabels
-      // Route appearance is authoring metadata, not edge physics. Practice/connector
-      // environments may style a link even when latency and protocol remain locked.
-      const hasEditableAppearancePatch = hasRoutingStylePatch && canEditEdgeLabels
+      // These fields are authoring metadata, not edge physics. Connector environments
+      // may describe and style a link while simulation-affecting fields remain locked.
+      const hasPresentationPatch =
+        hasRoutingStylePatch || hasDisplayProtocolPatch || hasDisplayModePatch
+      const hasEditablePresentationPatch = hasPresentationPatch && canEditEdgeLabels
       const hasEditableSimulationDataPatch = hasSimulationDataPatch && canEditEdges
 
-      if (!hasEditableLabelPatch && !hasEditableAppearancePatch && !hasEditableSimulationDataPatch)
+      if (
+        !hasEditableLabelPatch &&
+        !hasEditablePresentationPatch &&
+        !hasEditableSimulationDataPatch
+      )
         return
 
       updateEdgeData(selectedEdge.id, {
         ...(hasEditableLabelPatch ? { label } : {}),
-        ...(hasEditableAppearancePatch || hasEditableSimulationDataPatch
+        ...(hasEditablePresentationPatch || hasEditableSimulationDataPatch
           ? {
               data: {
-                ...(hasEditableAppearancePatch ? { routingStyle } : {}),
+                ...(hasEditablePresentationPatch
+                  ? {
+                      ...(hasRoutingStylePatch ? { routingStyle } : {}),
+                      ...(hasDisplayProtocolPatch ? { displayProtocol } : {}),
+                      ...(hasDisplayModePatch ? { displayMode } : {})
+                    }
+                  : {}),
                 ...(hasEditableSimulationDataPatch ? simulationDataPatch : {})
               } as Partial<EdgeSimulationData>
             }

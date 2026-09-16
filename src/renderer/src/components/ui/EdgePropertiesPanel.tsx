@@ -4,6 +4,8 @@ import { EdgeSimulationData } from '@renderer/types/ui'
 import { TooltipInfo } from '@renderer/components/ui/Tooltip'
 import {
   EDGE_PROPERTY_HELP,
+  getEdgeModePresentation,
+  getEdgeProtocolPresentation,
   type EdgeHelpEntry,
   inferCanvasEdgeMode
 } from '@renderer/config/edgeSemantics'
@@ -14,6 +16,7 @@ import {
   inferEdgeDefaults
 } from '../../../../engine/defaults/edgeDefaults'
 import { EDGE_ROUTING_OPTIONS } from '@renderer/config/edgeRouting'
+import { EditableNumberInput } from './EditableNumberInput'
 
 export interface EdgePropertiesPanelValue extends EdgeSimulationData {
   label?: string
@@ -36,8 +39,8 @@ export interface EdgePropertiesPanelProps {
   readOnly?: boolean
   /**
    * Connector mode (`edgeModel === 'connector'`): the edge is a dumb wire that only
-   * expresses topology. Hide every physics field — only the label (a basic interface
-   * for naming the connection) remains. The edge contributes nothing to the sim.
+   * expresses topology. Hide every physics field; protocol and interaction are
+   * presentation-only metadata and contribute nothing to the simulation.
    */
   connectorOnly?: boolean
 }
@@ -170,6 +173,14 @@ export const EdgePropertiesPanel = ({
     { mode: value.mode, protocol: selectedProtocol },
     targetNodeData
   )
+  const selectedConnectorProtocol = value.displayProtocol ?? selectedProtocol
+  const selectedConnectorMode = inferCanvasEdgeMode(
+    {
+      mode: value.displayMode ?? value.mode,
+      protocol: selectedConnectorProtocol
+    },
+    targetNodeData
+  )
   const selectedCondition = value.condition ?? ''
   const hasExplicitLatencyValue =
     typeof value.latencyValue === 'number' && Number.isFinite(value.latencyValue)
@@ -282,26 +293,73 @@ export const EdgePropertiesPanel = ({
       {connectorOnly && !hasRealChildren ? (
         <div className="flex-1 overflow-y-auto custom-scrollbar p-5 space-y-3">
           <div className="rounded border border-nss-border bg-nss-surface px-3 py-2 text-[11px] leading-relaxed text-nss-muted">
-            This connection is a simple link showing how the components are wired. It carries no
-            latency, bandwidth, or cost in this environment - focus on the components and how they
-            fit together.
+            This connection describes how the components are wired. The descriptive fields below
+            only change its canvas presentation; they do not change latency, capacity, reliability,
+            cost, routing, or simulation results.
           </div>
-          <div className="space-y-1">
-            <FieldLabel label="Label" help={EDGE_PROPERTY_HELP.label} />
-            <input
-              type="text"
-              value={value.label ?? ''}
-              onChange={(e) => onChange({ label: e.target.value })}
-              placeholder="e.g. reads, writes, publishes"
-              className={CONTROL_CLASS}
-              disabled={readOnly}
+          <fieldset disabled={readOnly} className="m-0 space-y-3 border-0 p-0 disabled:opacity-70">
+            <div className="space-y-1">
+              <FieldLabel label="Label" help={EDGE_PROPERTY_HELP.label} />
+              <input
+                type="text"
+                value={value.label ?? ''}
+                onChange={(e) => onChange({ label: e.target.value })}
+                placeholder="e.g. reads, writes, publishes"
+                className={CONTROL_CLASS}
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <FieldLabel label="Protocol" help={EDGE_PROPERTY_HELP.connectorProtocol} />
+                <select
+                  id="connector-edge-protocol"
+                  value={selectedConnectorProtocol}
+                  onChange={(event) =>
+                    onChange({
+                      displayProtocol: event.target.value as EdgeSimulationData['displayProtocol']
+                    })
+                  }
+                  className={CONTROL_CLASS}
+                >
+                  {EDGE_PROTOCOL_OPTIONS.map((option) => (
+                    <option key={option} value={option}>
+                      {getEdgeProtocolPresentation(option).shortLabel}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <FieldLabel label="Interaction" help={EDGE_PROPERTY_HELP.connectorMode} />
+                <select
+                  id="connector-edge-mode"
+                  value={selectedConnectorMode}
+                  onChange={(event) =>
+                    onChange({
+                      displayMode: event.target.value as EdgeSimulationData['displayMode']
+                    })
+                  }
+                  className={CONTROL_CLASS}
+                >
+                  {EDGE_MODE_OPTIONS.map((option) => (
+                    <option key={option} value={option}>
+                      {getEdgeModePresentation(option).title}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <p className="text-[10px] leading-relaxed text-nss-muted">
+              Protocol controls the connector accent; interaction controls its line pattern.
+            </p>
+
+            <EdgeAppearanceControl
+              routingStyle={value.routingStyle}
+              onChange={(routingStyle) => onChange({ routingStyle })}
             />
-          </div>
-          <EdgeAppearanceControl
-            routingStyle={value.routingStyle}
-            onChange={(routingStyle) => onChange({ routingStyle })}
-            disabled={readOnly}
-          />
+          </fieldset>
         </div>
       ) : hasRealChildren ? (
         <div className="flex-1 overflow-y-auto custom-scrollbar p-5 bg-nss-panel">{children}</div>
@@ -484,8 +542,7 @@ export const EdgePropertiesPanel = ({
                 {selectedLatencyDistributionType === 'constant' ? (
                   <div className="space-y-1">
                     <FieldLabel label="Latency (ms)" help={EDGE_PROPERTY_HELP.latencyValue} />
-                    <input
-                      type="number"
+                    <EditableNumberInput
                       min={0}
                       step={0.01}
                       value={selectedLatencyValue}
@@ -500,8 +557,7 @@ export const EdgePropertiesPanel = ({
                         label="Latency Mu (log-space)"
                         help={EDGE_PROPERTY_HELP.latencyMu}
                       />
-                      <input
-                        type="number"
+                      <EditableNumberInput
                         step={0.01}
                         value={selectedLatencyMu}
                         onChange={(e) => onChange({ latencyMu: Number(e.target.value) })}
@@ -510,8 +566,7 @@ export const EdgePropertiesPanel = ({
                     </div>
                     <div className="space-y-1">
                       <FieldLabel label="Jitter Sigma" help={EDGE_PROPERTY_HELP.latencySigma} />
-                      <input
-                        type="number"
+                      <EditableNumberInput
                         min={0.01}
                         step={0.01}
                         value={selectedLatencySigma}
@@ -527,8 +582,7 @@ export const EdgePropertiesPanel = ({
             <div className="grid grid-cols-2 gap-2">
               <div className="space-y-1">
                 <FieldLabel label="Bandwidth (Mbps)" help={EDGE_PROPERTY_HELP.bandwidth} />
-                <input
-                  type="number"
+                <EditableNumberInput
                   min={1}
                   step={1}
                   value={value.bandwidth ?? defaults.bandwidth}
@@ -541,8 +595,7 @@ export const EdgePropertiesPanel = ({
                   label="Max Concurrent"
                   help={EDGE_PROPERTY_HELP.maxConcurrentRequests}
                 />
-                <input
-                  type="number"
+                <EditableNumberInput
                   min={1}
                   step={1}
                   value={value.maxConcurrentRequests ?? defaults.maxConcurrentRequests}
@@ -552,8 +605,7 @@ export const EdgePropertiesPanel = ({
               </div>
               <div className="space-y-1">
                 <FieldLabel label="Weight" help={EDGE_PROPERTY_HELP.weight} />
-                <input
-                  type="number"
+                <EditableNumberInput
                   min={0}
                   step={1}
                   value={value.weight ?? ''}
@@ -575,8 +627,7 @@ export const EdgePropertiesPanel = ({
             <div className="grid grid-cols-2 gap-2">
               <div className="space-y-1">
                 <FieldLabel label="Packet Loss (%)" help={EDGE_PROPERTY_HELP.packetLossRate} />
-                <input
-                  type="number"
+                <EditableNumberInput
                   min={0}
                   max={100}
                   step={0.01}
@@ -587,8 +638,7 @@ export const EdgePropertiesPanel = ({
               </div>
               <div className="space-y-1">
                 <FieldLabel label="Edge Error (%)" help={EDGE_PROPERTY_HELP.errorRate} />
-                <input
-                  type="number"
+                <EditableNumberInput
                   min={0}
                   max={100}
                   step={0.01}
@@ -601,8 +651,7 @@ export const EdgePropertiesPanel = ({
 
             <div className="space-y-1">
               <FieldLabel label="Fan-out factor" help={EDGE_PROPERTY_HELP.fanoutFactor} />
-              <input
-                type="number"
+              <EditableNumberInput
                 min={1}
                 step={1}
                 placeholder="1 (no amplification)"

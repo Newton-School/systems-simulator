@@ -36,6 +36,11 @@ import {
   TEXT_LABEL_NODE_TYPE,
   type CanvasTextLabelData
 } from '../../../../engine/catalog/canvasAnnotations'
+import {
+  isEditableShortcutTarget,
+  isModalOpen,
+  isPrimaryModifier
+} from '@renderer/config/keyboardShortcuts'
 
 interface FlowCanvasProps {
   showMetricLens?: boolean
@@ -86,10 +91,16 @@ const FlowCanvasInternal = ({
   onNodeDoubleClick
 }: FlowCanvasProps) => {
   const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance | null>(null)
-  const [activeTool, setActiveTool] = useState<CanvasTool>('pan')
+  const [selectedTool, setSelectedTool] = useState<CanvasTool>('pan')
+  const [temporarySelectActive, setTemporarySelectActive] = useState(false)
+  const [temporaryPanActive, setTemporaryPanActive] = useState(false)
   const [isConnectionDragging, setIsConnectionDragging] = useState(false)
   const [validationError, setValidationError] = useState<string | null>(null)
-  const shiftPreviousToolRef = useRef<CanvasTool | null>(null)
+  const activeTool: CanvasTool = temporaryPanActive
+    ? 'pan'
+    : temporarySelectActive
+      ? 'select'
+      : selectedTool
   const edgeRoutingStyle = useStore((state) => state.displaySettings.edgeRoutingStyle)
 
   const {
@@ -252,45 +263,51 @@ const FlowCanvasInternal = ({
   }, [nodes.length, reactFlowInstance])
 
   useEffect(() => {
-    if (!interactionLocked || activeTool !== 'text') {
+    if (!interactionLocked || selectedTool !== 'text') {
       return
     }
 
-    setActiveTool('pan')
-  }, [activeTool, interactionLocked])
+    setSelectedTool('pan')
+  }, [interactionLocked, selectedTool])
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Shift' || event.repeat || shiftPreviousToolRef.current) {
+      if (isEditableShortcutTarget(event.target) || isModalOpen()) {
         return
       }
 
-      setActiveTool((currentTool) => {
-        shiftPreviousToolRef.current = currentTool
-        return 'select'
-      })
-    }
+      if (event.key === 'Shift') {
+        setTemporarySelectActive(true)
+        return
+      }
 
-    const restorePreviousTool = () => {
-      const previousTool = shiftPreviousToolRef.current
-      if (!previousTool) return
-      shiftPreviousToolRef.current = null
-      setActiveTool(previousTool)
+      if (event.code === 'Space' && !isPrimaryModifier(event) && !event.altKey) {
+        event.preventDefault()
+        setTemporaryPanActive(true)
+      }
     }
 
     const handleKeyUp = (event: KeyboardEvent) => {
       if (event.key === 'Shift') {
-        restorePreviousTool()
+        setTemporarySelectActive(false)
       }
+      if (event.code === 'Space') {
+        setTemporaryPanActive(false)
+      }
+    }
+
+    const clearTemporaryTools = () => {
+      setTemporarySelectActive(false)
+      setTemporaryPanActive(false)
     }
 
     window.addEventListener('keydown', handleKeyDown)
     window.addEventListener('keyup', handleKeyUp)
-    window.addEventListener('blur', restorePreviousTool)
+    window.addEventListener('blur', clearTemporaryTools)
     return () => {
       window.removeEventListener('keydown', handleKeyDown)
       window.removeEventListener('keyup', handleKeyUp)
-      window.removeEventListener('blur', restorePreviousTool)
+      window.removeEventListener('blur', clearTemporaryTools)
     }
   }, [])
 
@@ -315,8 +332,7 @@ const FlowCanvasInternal = ({
       event.stopPropagation()
       if (activeTool !== 'select') return
 
-      const shouldToggleSelection =
-        event.metaKey || event.ctrlKey || (event.shiftKey && !shiftPreviousToolRef.current)
+      const shouldToggleSelection = event.metaKey || event.ctrlKey || event.shiftKey
 
       if (shouldToggleSelection) {
         setEdges(
@@ -484,40 +500,91 @@ const FlowCanvasInternal = ({
   ])
 
   useEffect(() => {
-    const isEditableTarget = (target: EventTarget | null) => {
-      if (!(target instanceof HTMLElement)) {
-        return false
-      }
-
-      return (
-        target.isContentEditable ||
-        target instanceof HTMLInputElement ||
-        target instanceof HTMLTextAreaElement ||
-        target instanceof HTMLSelectElement
-      )
-    }
-
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (isEditableTarget(event.target)) {
+      if (isEditableShortcutTarget(event.target) || isModalOpen()) {
         return
       }
 
       const key = event.key.toLowerCase()
-      const isModifierPressed = event.metaKey || event.ctrlKey
+      const isModifierPressed = isPrimaryModifier(event)
 
       if (isModifierPressed && key === 'z') {
         event.preventDefault()
-        if (event.shiftKey) {
-          redoGraph()
-        } else {
-          undoGraph()
+        if (attemptStatus !== 'LOCKED' && !interactionLocked) {
+          if (event.shiftKey) {
+            redoGraph()
+          } else {
+            undoGraph()
+          }
         }
         return
       }
 
       if (event.ctrlKey && key === 'y') {
         event.preventDefault()
-        redoGraph()
+        if (attemptStatus !== 'LOCKED' && !interactionLocked) {
+          redoGraph()
+        }
+        return
+      }
+
+      if (isModifierPressed && key === 'a') {
+        event.preventDefault()
+        setGraph(
+          nodes.map((node) => ({ ...node, selected: true })),
+          edges.map((edge) => ({ ...edge, selected: true })),
+          { history: 'skip' }
+        )
+        return
+      }
+
+      if (!isModifierPressed && !event.altKey && (key === 'v' || key === '1')) {
+        event.preventDefault()
+        setSelectedTool('select')
+        return
+      }
+
+      if (!isModifierPressed && !event.altKey && (key === 'h' || key === '2')) {
+        event.preventDefault()
+        setSelectedTool('pan')
+        return
+      }
+
+      if (!isModifierPressed && !event.altKey && (key === 't' || key === '3')) {
+        if (!interactionLocked) {
+          event.preventDefault()
+          setSelectedTool('text')
+        }
+        return
+      }
+
+      if (!isModifierPressed && !event.altKey && key === 'f') {
+        event.preventDefault()
+        reactFlowInstance?.fitView({ padding: 0.2, maxZoom: 1.2, duration: 300 })
+        return
+      }
+
+      if (!isModifierPressed && !event.altKey && key === '0') {
+        event.preventDefault()
+        void reactFlowInstance?.zoomTo(1, { duration: 180 })
+        return
+      }
+
+      if (!isModifierPressed && !event.altKey && (event.key === '+' || event.key === '=')) {
+        event.preventDefault()
+        void reactFlowInstance?.zoomIn({ duration: 160 })
+        return
+      }
+
+      if (!isModifierPressed && !event.altKey && event.key === '-') {
+        event.preventDefault()
+        void reactFlowInstance?.zoomOut({ duration: 160 })
+        return
+      }
+
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        selectGraphElements({})
         return
       }
 
@@ -529,7 +596,19 @@ const FlowCanvasInternal = ({
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [deleteSelection, hasSelection, redoGraph, undoGraph])
+  }, [
+    attemptStatus,
+    deleteSelection,
+    edges,
+    hasSelection,
+    interactionLocked,
+    nodes,
+    reactFlowInstance,
+    redoGraph,
+    selectGraphElements,
+    setGraph,
+    undoGraph
+  ])
 
   const isPanTool = activeTool === 'pan'
   const isSelectTool = activeTool === 'select'
@@ -550,7 +629,7 @@ const FlowCanvasInternal = ({
         editingDisabled={interactionLocked}
         hasCanvasContent={hasCanvasContent}
         hasSelection={hasSelection}
-        onToolChange={setActiveTool}
+        onToolChange={setSelectedTool}
         onUndo={undoGraph}
         onRedo={redoGraph}
         onResetCanvas={resetCanvas}
