@@ -1,6 +1,11 @@
 import { getComponentSpec } from './componentSpecs'
 import { deriveIdAllocationDistribution } from './idAllocation'
-import type { CanvasNodeDataV2, PaletteTemplate, SourceConfig } from './nodeSpecTypes'
+import type {
+  CanvasNodeDataV2,
+  NodeSimulationConfig,
+  PaletteTemplate,
+  SourceConfig
+} from './nodeSpecTypes'
 
 const DEFAULT_REQUEST_TYPE = 'default'
 const DEFAULT_REQUEST_SIZE_BYTES = 1024
@@ -36,6 +41,24 @@ function createSourceConfig(seed?: PaletteTemplate['seed']): SourceConfig {
   }
 }
 
+/**
+ * Overlay a template's `simDefaults` onto the spec's base sim config. This is a shallow
+ * merge except for `resources`, which is merged one level deeper so a template can set
+ * just `resources.instanceCount` (e.g. a Connection Server defaulting to 2 instances)
+ * without wiping the spec's hardware defaults (vCPU / RAM / instance type).
+ */
+function mergeSimDefaults(
+  base: NodeSimulationConfig,
+  overrides: PaletteTemplate['simDefaults']
+): NodeSimulationConfig {
+  if (!overrides) return { ...base }
+  const merged: NodeSimulationConfig = { ...base, ...overrides }
+  if (overrides.resources || base.resources) {
+    merged.resources = { ...base.resources, ...overrides.resources }
+  }
+  return merged
+}
+
 function createCanvasData(template: PaletteTemplate): CanvasNodeDataV2 {
   const spec = getComponentSpec(template.componentType)
 
@@ -54,7 +77,10 @@ function createCanvasData(template: PaletteTemplate): CanvasNodeDataV2 {
       template.profile === 'composite'
         ? { ...template.simDefaults }
         : template.serializable && spec && template.profile !== 'source'
-          ? { ...spec.createDefaultSimulationConfig(template.seed), ...template.simDefaults }
+          ? mergeSimDefaults(
+              spec.createDefaultSimulationConfig(template.seed),
+              template.simDefaults
+            )
           : undefined,
     source: template.profile === 'source' ? createSourceConfig(template.seed) : undefined,
     ui: template.seed?.overloadPreview ? { overloadPreview: true } : undefined
@@ -554,7 +580,11 @@ export const PALETTE_TEMPLATES: Record<string, PaletteTemplate> = {
     simDefaults: {
       connection: {
         maxConnectionsPerInstance: 65000,
-        offeredConnections: 100000,
+        // Offered starts at 0 — the tier reads 0% used until you declare your target
+        // held-connection count, rather than claiming a utilization for a load you
+        // never specified. Enter your concurrent-connection target and the readout
+        // then shows utilization + the required instance count.
+        offeredConnections: 0,
         heartbeatIntervalMs: 30000,
         sessionProtocol: 'websocket'
       }

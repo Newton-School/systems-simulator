@@ -616,7 +616,7 @@ export const PacketEdge = ({
                 </span>
               )}
               {hasLabel && (
-                <span className="bg-nss-bg px-2 py-0.5 text-[11px] font-bold uppercase leading-none tracking-wide text-nss-text">
+                <span className="bg-nss-bg px-2 py-0.5 text-[11px] font-bold leading-none tracking-wide text-nss-text">
                   {label.toString()}
                 </span>
               )}
