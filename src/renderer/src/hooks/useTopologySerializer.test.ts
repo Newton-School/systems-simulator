@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   buildContainerLocations,
   pathTypeFromContainers,
-  resolveEdgeLatencyDistribution
+  resolveEdgeLatencyDistribution,
+  serializeEdgePresentation
 } from './useTopologySerializer'
 
 describe('container-derived edge pathType', () => {
@@ -95,5 +96,18 @@ describe('resolveEdgeLatencyDistribution', () => {
       distribution: { type: 'log-normal', mu: -1.2, sigma: 0.3 },
       derivedFromPathType: false
     })
+  })
+})
+
+describe('serializeEdgePresentation', () => {
+  it('persists a valid per-edge route override', () => {
+    expect(serializeEdgePresentation({ routingStyle: 'octilinear' })).toEqual({
+      routingStyle: 'octilinear'
+    })
+  })
+
+  it('omits inherited and malformed route overrides', () => {
+    expect(serializeEdgePresentation({ routingStyle: undefined })).toBeUndefined()
+    expect(serializeEdgePresentation({ routingStyle: 'curved' })).toBeUndefined()
   })
 })

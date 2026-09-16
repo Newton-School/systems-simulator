@@ -1715,16 +1715,28 @@ export const PropertiesPanel = ({ results = null }: { results?: SimulationOutput
 
     const handleEdgeChange = (patch: Partial<EdgePropertiesPanelValue>) => {
       if (selectedEdgeLocked) return
-      const { label, ...dataPatch } = patch
-      const hasDataPatch = Object.keys(dataPatch).length > 0
+      const { label, routingStyle, ...simulationDataPatch } = patch
+      const hasRoutingStylePatch = Object.prototype.hasOwnProperty.call(patch, 'routingStyle')
+      const hasSimulationDataPatch = Object.keys(simulationDataPatch).length > 0
       const hasEditableLabelPatch = label !== undefined && canEditEdgeLabels
-      const hasEditableDataPatch = hasDataPatch && canEditEdges
+      // Route appearance is authoring metadata, not edge physics. Practice/connector
+      // environments may style a link even when latency and protocol remain locked.
+      const hasEditableAppearancePatch = hasRoutingStylePatch && canEditEdgeLabels
+      const hasEditableSimulationDataPatch = hasSimulationDataPatch && canEditEdges
 
-      if (!hasEditableLabelPatch && !hasEditableDataPatch) return
+      if (!hasEditableLabelPatch && !hasEditableAppearancePatch && !hasEditableSimulationDataPatch)
+        return
 
       updateEdgeData(selectedEdge.id, {
         ...(hasEditableLabelPatch ? { label } : {}),
-        ...(hasEditableDataPatch ? { data: dataPatch as Partial<EdgeSimulationData> } : {})
+        ...(hasEditableAppearancePatch || hasEditableSimulationDataPatch
+          ? {
+              data: {
+                ...(hasEditableAppearancePatch ? { routingStyle } : {}),
+                ...(hasEditableSimulationDataPatch ? simulationDataPatch : {})
+              } as Partial<EdgeSimulationData>
+            }
+          : {})
       })
     }
 

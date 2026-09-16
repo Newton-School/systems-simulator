@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { useReactFlow, useViewport } from 'reactflow'
+import { useReactFlow, useViewport, type Edge } from 'reactflow'
 import { Pause, Play, X } from 'lucide-react'
 import type { RequestOutcomeRecord } from '../../../../engine/core/event-stream'
 import useStore from '@renderer/store/useStore'
+import { resolveStoredEdgePath } from './edgePathGeometry'
+import type { EdgeRoutingStyle, EdgeSimulationData } from '@renderer/types/ui'
+import { resolveEdgeRoutingStyle } from '@renderer/config/edgeRouting'
 
 /** Per-segment travel time = floor + latency·scale, so slow hops visibly linger. */
 const SEG_MIN_MS = 600
@@ -26,6 +29,16 @@ interface TracePlan {
   segmentMs: number[]
   totalMs: number
 }
+
+interface TraceSegment {
+  key: string
+  path: string
+  from: { x: number; y: number }
+  to: { x: number; y: number }
+  reversed: boolean
+}
+
+const pathSamplerCache = new Map<string, { element: SVGPathElement; length: number }>()
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value))
@@ -88,6 +101,46 @@ function buildSegmentMs(hops: TraceHop[], slow: boolean): number[] {
   })
 }
 
+function findHopEdge(edges: Edge[], fromNodeId: string, toNodeId: string): Edge | undefined {
+  return (
+    edges.find((edge) => edge.source === fromNodeId && edge.target === toNodeId) ??
+    edges.find((edge) => edge.source === toNodeId && edge.target === fromNodeId)
+  )
+}
+
+function pointOnPath(segment: TraceSegment, progress: number): { x: number; y: number } {
+  const directedProgress = segment.reversed ? 1 - progress : progress
+
+  if (typeof document !== 'undefined') {
+    try {
+      let sampler = pathSamplerCache.get(segment.path)
+      if (!sampler) {
+        const element = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+        element.setAttribute('d', segment.path)
+        if (typeof element.getTotalLength === 'function') {
+          sampler = { element, length: element.getTotalLength() }
+          if (pathSamplerCache.size >= 256) {
+            const oldestKey = pathSamplerCache.keys().next().value
+            if (oldestKey !== undefined) pathSamplerCache.delete(oldestKey)
+          }
+          pathSamplerCache.set(segment.path, sampler)
+        }
+      }
+      if (sampler && sampler.length > 0) {
+        const point = sampler.element.getPointAtLength(sampler.length * directedProgress)
+        return { x: point.x, y: point.y }
+      }
+    } catch {
+      // Some test DOMs do not implement SVG path measurement; use linear fallback.
+    }
+  }
+
+  return {
+    x: segment.from.x + (segment.to.x - segment.from.x) * progress,
+    y: segment.from.y + (segment.to.y - segment.from.y) * progress
+  }
+}
+
 /**
  * Causal request tracer. Follows one request ("Follow on canvas") or a minimal
  * covering set ("Trace all paths") as dots travelling node-to-node across the
@@ -104,6 +157,8 @@ export function RequestTraceOverlay() {
   const speed = useStore((state) => state.traceSpeed)
   const setSpeed = useStore((state) => state.setTraceSpeed)
   const output = useStore((state) => state.lastRunOutput)
+  const edges = useStore((state) => state.edges)
+  const edgeRoutingStyle = useStore((state) => state.displaySettings.edgeRoutingStyle)
   const { getNode } = useReactFlow()
   const { x: viewportX, y: viewportY, zoom } = useViewport()
 
@@ -212,14 +267,48 @@ export function RequestTraceOverlay() {
   const dotR = 7 / zoom
   const pathW = 3 / zoom
 
-  // Per-trace geometry in FLOW coordinates: the node-path polyline (straight
-  // segments through node centers) and the dot's current position along it.
+  const traceSegments = (hops: TraceHop[], routingStyle: EdgeRoutingStyle) => {
+    const segments: TraceSegment[] = []
+    for (let index = 0; index < hops.length - 1; index++) {
+      const fromNodeId = hops[index].nodeId
+      const toNodeId = hops[index + 1].nodeId
+      const edge = findHopEdge(edges, fromNodeId, toNodeId)
+      if (!edge) return null
+
+      const effectiveRoutingStyle = resolveEdgeRoutingStyle(
+        (edge.data as EdgeSimulationData | undefined)?.routingStyle,
+        routingStyle
+      )
+      const geometry = resolveStoredEdgePath(
+        edge,
+        getNode(edge.source),
+        getNode(edge.target),
+        effectiveRoutingStyle
+      )
+      if (!geometry) return null
+
+      const reversed = edge.source !== fromNodeId
+      segments.push({
+        key: `${edge.id}-${index}`,
+        path: geometry.path,
+        from: reversed
+          ? { x: geometry.targetX, y: geometry.targetY }
+          : { x: geometry.sourceX, y: geometry.sourceY },
+        to: reversed
+          ? { x: geometry.sourceX, y: geometry.sourceY }
+          : { x: geometry.targetX, y: geometry.targetY },
+        reversed
+      })
+    }
+    return segments
+  }
+
+  // Resolve every traced hop through the same handle-aware path generator used
+  // by PacketEdge. A routing-style toggle therefore changes both layers exactly.
   const rendered = active
     .map((trace) => {
-      const centers = trace.hops
-        .map((hop) => nodeCenter(hop.nodeId))
-        .filter((point): point is { x: number; y: number } => point !== null)
-      if (centers.length === 0) return null
+      const segments = traceSegments(trace.hops, edgeRoutingStyle)
+      if (!segments) return null
 
       let segmentIndex = 0
       let frac = 1
@@ -242,9 +331,11 @@ export function RequestTraceOverlay() {
         }
       }
 
-      const a = centers[Math.min(centers.length - 1, segmentIndex)]
-      const b = centers[Math.min(centers.length - 1, segmentIndex + 1)]
-      const dot = { x: a.x + (b.x - a.x) * frac, y: a.y + (b.y - a.y) * frac }
+      const activeSegment = segments[Math.min(segments.length - 1, segmentIndex)]
+      const dot = activeSegment
+        ? pointOnPath(activeSegment, frac)
+        : nodeCenter(trace.hops[0].nodeId)
+      if (!dot) return null
       const record = trace.record as RequestOutcomeRecord
       const atEnd = segmentIndex >= trace.segmentMs.length - 1 && frac > 0.9
       const color = atEnd ? statusColor(record.status) : requestHue(trace.requestId)
@@ -253,23 +344,25 @@ export function RequestTraceOverlay() {
       const cause = atEnd
         ? `${record.status}${record.reasonCode ? ` · ${record.reasonCode}` : ''}`
         : describeHop(frac < 0.5 ? fromHop : toHop)
-      const points = centers.map((point) => `${point.x},${point.y}`).join(' ')
-      return { requestId: trace.requestId, points, dot, color, cause }
+      return { requestId: trace.requestId, segments, dot, color, cause }
     })
     .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
 
-  // Trace shapes in FLOW coordinates: straight node-path polyline + moving dot.
+  // Trace shapes in FLOW coordinates use the exact same SVG paths as normal edges.
   const traceContent = rendered.map((entry) => (
     <g key={entry.requestId}>
-      <polyline
-        points={entry.points}
-        fill="none"
-        stroke={entry.color}
-        strokeWidth={pathW}
-        strokeOpacity={0.7}
-        strokeLinejoin="round"
-        strokeLinecap="round"
-      />
+      {entry.segments.map((segment) => (
+        <path
+          key={segment.key}
+          d={segment.path}
+          fill="none"
+          stroke={entry.color}
+          strokeWidth={pathW}
+          strokeOpacity={0.7}
+          strokeLinejoin="round"
+          strokeLinecap="round"
+        />
+      ))}
       <circle
         cx={entry.dot.x}
         cy={entry.dot.y}

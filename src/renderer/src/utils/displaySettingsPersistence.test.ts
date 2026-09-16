@@ -26,6 +26,7 @@ describe('displaySettingsPersistence', () => {
       latencyLensPercentile: 'p99' as const,
       autoOpenSimulationTray: false,
       defaultResultsTab: 'traffic' as const,
+      edgeRoutingStyle: 'octilinear' as const,
       componentLibraryMode: 'all' as const,
       hiddenComponentLibraryTemplateIds: ['kv-store', 'redis-cache']
     }
@@ -41,13 +42,24 @@ describe('displaySettingsPersistence', () => {
       'nssimulator.display-settings',
       JSON.stringify({
         componentLibraryMode: 'unknown-mode',
+        edgeRoutingStyle: 'diagonal-ish',
         hiddenComponentLibraryTemplateIds: ['kv-store', 42, 'kv-store']
       })
     )
 
     expect(loadDisplaySettings()).toMatchObject({
       componentLibraryMode: 'default',
+      edgeRoutingStyle: 'straight',
       hiddenComponentLibraryTemplateIds: ['kv-store']
     })
+  })
+
+  it('migrates the legacy curved route name to rounded orthogonal', () => {
+    localStorage.setItem(
+      'nssimulator.display-settings',
+      JSON.stringify({ edgeRoutingStyle: 'curved' })
+    )
+
+    expect(loadDisplaySettings().edgeRoutingStyle).toBe('rounded')
   })
 })

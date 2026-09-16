@@ -1,6 +1,7 @@
 import useStore from '@renderer/store/useStore'
 import { PRE_RUN_LENSES } from '@renderer/config/metricLensConfig'
 import { SectionLabel, Segmented, SelectField, SettingRow, Toggle } from './SettingsControls'
+import { EdgeRoutingPicker } from './EdgeRoutingPicker'
 
 const LATENCY_PERCENTILE_OPTIONS = [
   { value: 'p50', label: 'p50' },
@@ -52,6 +53,22 @@ export function DisplayTab(): React.JSX.Element {
       </SettingRow>
 
       <SectionLabel>Canvas</SectionLabel>
+
+      <div className="py-2.5">
+        <div className="text-[12px] font-medium text-nss-text">Edge path</div>
+        <div className="mt-0.5 text-[11px] leading-relaxed text-nss-muted">
+          Sets the canvas default. Normal traffic, connection previews, and request traces follow
+          the same route. Individual edges can override it in Edge Properties.
+        </div>
+        <div className="mt-3">
+          <EdgeRoutingPicker
+            value={displaySettings.edgeRoutingStyle}
+            onChange={(edgeRoutingStyle) =>
+              updateDisplaySettings((current) => ({ ...current, edgeRoutingStyle }))
+            }
+          />
+        </div>
+      </div>
 
       <SettingRow
         label="Default build lens"

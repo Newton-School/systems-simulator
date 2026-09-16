@@ -419,6 +419,18 @@ export interface ComponentNode {
   config?: Record<string, unknown>
 }
 
+/** Visual route geometry for an authored canvas edge. It never changes simulation semantics. */
+export type EdgePresentationRoutingStyle =
+  | 'straight'
+  | 'orthogonal'
+  | 'rounded'
+  | 'bezier'
+  | 'octilinear'
+
+export interface EdgePresentation {
+  routingStyle?: EdgePresentationRoutingStyle
+}
+
 export interface EdgeDefinition {
   id: string
   source: string
@@ -457,6 +469,8 @@ export interface EdgeDefinition {
   sourceHandle?: string
   targetHandle?: string
   animated?: boolean
+  /** Optional authoring metadata; ignored by the simulation engine. */
+  presentation?: EdgePresentation
 }
 
 // 24 entries: one multiplier per hour of the day (0–23).

@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { BaseEdge, getSmoothStepPath, EdgeProps, EdgeLabelRenderer } from 'reactflow'
+import { BaseEdge, EdgeProps, EdgeLabelRenderer } from 'reactflow'
 import type { AnyNodeData, EdgeSimulationData } from '@renderer/types/ui'
 import { getEdgeModePresentation, inferCanvasEdgeMode } from '@renderer/config/edgeSemantics'
+import { resolveEdgeRoutingStyle } from '@renderer/config/edgeRouting'
 import useStore, { type EdgeFlowRunConfig, type EdgeFlowState } from '@renderer/store/useStore'
 import { getRoutingPreviewSnapshot } from '@renderer/utils/routingStrategyPreview'
 import { inferEdgeDefaults } from '../../../../engine/defaults/edgeDefaults'
 import { resolveEdgeModel } from '../../../../engine/analysis/environmentProfile'
 import { patternMultiplier } from './edgeFlowPatterns'
 import { resolveEdgeLensProjection } from './edgeLensPresentation'
+import { getCanvasEdgePath } from './edgePathGeometry'
 
 const EDGE_VISUAL_WINDOW_MS = 3_000
 const FAILED_PULSE_MS = 650
@@ -124,15 +126,17 @@ export const PacketEdge = ({
   data,
   selected
 }: EdgeProps) => {
-  const [edgePath, labelX, labelY] = getSmoothStepPath({
-    sourceX,
-    sourceY,
-    sourcePosition,
-    targetX,
-    targetY,
-    targetPosition,
-    borderRadius: 16
-  })
+  const canvasRoutingStyle = useStore((state) => state.displaySettings.edgeRoutingStyle)
+  const edgeData = useMemo(() => (data ?? {}) as EdgeSimulationData, [data])
+  const edgeRoutingStyle = resolveEdgeRoutingStyle(edgeData.routingStyle, canvasRoutingStyle)
+  const {
+    path: edgePath,
+    labelX,
+    labelY
+  } = getCanvasEdgePath(
+    { sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition },
+    edgeRoutingStyle
+  )
 
   const hasLabel = typeof label === 'string' && label.trim().length > 0
   const flow = useStore((state) => state.edgeFlowById[id])
@@ -158,7 +162,6 @@ export const PacketEdge = ({
   const metricsByNode = useStore((state) => state.simulationMetricsByNode)
   const sourceNodeData = nodes.find((node) => node.id === source)?.data as AnyNodeData | undefined
   const targetNodeData = nodes.find((node) => node.id === target)?.data as AnyNodeData | undefined
-  const edgeData = useMemo(() => (data ?? {}) as EdgeSimulationData, [data])
   const edgeMode = inferCanvasEdgeMode(edgeData, targetNodeData)
 
   // Per-edge weight share (Axis B) — shown only when the source actually routes

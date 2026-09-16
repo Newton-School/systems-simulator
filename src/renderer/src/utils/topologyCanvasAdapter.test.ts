@@ -177,6 +177,20 @@ describe('topologyCanvasAdapter', () => {
     })
   })
 
+  it('hydrates an authored per-edge route override', () => {
+    const canvas = topologyToCanvasFileData({
+      ...SERVERLESS_COLD_START,
+      edges: [
+        {
+          ...SERVERLESS_COLD_START.edges[0],
+          presentation: { routingStyle: 'bezier' }
+        }
+      ]
+    })
+
+    expect(canvas.edges[0]?.data).toMatchObject({ routingStyle: 'bezier' })
+  })
+
   it('hydrates workload overlay state onto non-source components', () => {
     const canvas = topologyToCanvasFileData(ROUTER_ENTRYPOINT_TOPOLOGY)
     const apiGateway = canvas.nodes.find((node) => node.id === 'api-gw')

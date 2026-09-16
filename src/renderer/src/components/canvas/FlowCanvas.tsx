@@ -90,6 +90,7 @@ const FlowCanvasInternal = ({
   const [isConnectionDragging, setIsConnectionDragging] = useState(false)
   const [validationError, setValidationError] = useState<string | null>(null)
   const shiftPreviousToolRef = useRef<CanvasTool | null>(null)
+  const edgeRoutingStyle = useStore((state) => state.displaySettings.edgeRoutingStyle)
 
   const {
     nodes,
@@ -564,7 +565,15 @@ const FlowCanvasInternal = ({
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         defaultEdgeOptions={defaultEdgeOptions}
-        connectionLineType={ConnectionLineType.SmoothStep}
+        connectionLineType={
+          edgeRoutingStyle === 'bezier'
+            ? ConnectionLineType.Bezier
+            : edgeRoutingStyle === 'straight' || edgeRoutingStyle === 'octilinear'
+              ? ConnectionLineType.Straight
+              : edgeRoutingStyle === 'orthogonal'
+                ? ConnectionLineType.Step
+                : ConnectionLineType.SmoothStep
+        }
         connectionLineComponent={MagneticConnectionLine}
         connectionRadius={MAGNETIC_CONNECTION_RADIUS_PX}
         onConnectStart={onConnectStart}

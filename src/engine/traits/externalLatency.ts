@@ -6,7 +6,11 @@ export const EXTERNAL_LATENCY_COMPONENT_TYPES = [
   'third-party-api-connector',
   'payment-gateway',
   'third-party-auth',
-  'webhook-gateway'
+  'webhook-gateway',
+  // A push-notification service is itself a call out to an external provider
+  // (APNs / FCM) the caller does not control — so it carries the same
+  // external-dependency latency + error blast-radius as any other integration.
+  'push-notification-service'
 ] as const satisfies readonly ComponentType[]
 
 const DEFAULT_EXTERNAL_LATENCY_MS = 120
@@ -25,10 +29,10 @@ function addPenalty(request: { metadata: Record<string, unknown> }, ms: number):
 
 /**
  * Third-party dependency latency. A call out to an external provider (payment,
- * auth, webhook target, generic API) costs a latency the caller does not
- * control. Combined with the retry-backoff trait these nodes already carry, this
- * makes "a slow external dependency" a real blast-radius lesson instead of a
- * free hop.
+ * auth, webhook target, generic API, or a push provider like APNs / FCM) costs a
+ * latency the caller does not control. Combined with the retry-backoff trait these
+ * nodes already carry, this makes "a slow external dependency" a real blast-radius
+ * lesson instead of a free hop.
  */
 export const externalLatencyTrait: NodeBehaviourTrait = {
   name: 'integration.external-latency',
