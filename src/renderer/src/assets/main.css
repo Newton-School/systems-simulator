@@ -56,6 +56,20 @@
     @apply bg-nss-bg text-nss-text;
   }
 
+  html,
+  body,
+  #root {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+  }
+
+  body {
+    position: fixed;
+    inset: 0;
+    overscroll-behavior: none;
+  }
+
   *,
   ::before,
   ::after {
@@ -78,6 +92,164 @@
 
   ::-webkit-scrollbar-thumb:hover {
     background-color: var(--nss-muted);
+  }
+}
+
+.nss-app-shell {
+  height: 100vh;
+  height: 100dvh;
+  height: var(--nss-app-height, 100dvh);
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.nss-activity-rail {
+  padding-bottom: max(0.5rem, env(safe-area-inset-bottom, 0px));
+}
+
+.nss-properties-panel {
+  container-type: inline-size;
+}
+
+.nss-compact-only {
+  display: none;
+}
+
+.nss-settings-dialog {
+  width: min(45rem, calc(100vw - 2rem));
+  height: min(35rem, calc(var(--nss-app-height, 100dvh) - 2rem));
+}
+
+@keyframes nss-settings-search-target {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+
+  20%,
+  70% {
+    box-shadow: 0 0 0 2px var(--nss-primary);
+  }
+}
+
+.nss-settings-search-target {
+  border-radius: 0.375rem;
+  animation: nss-settings-search-target 1400ms ease-out;
+  outline: none;
+}
+
+.nss-search-input::-webkit-search-cancel-button {
+  display: none;
+  appearance: none;
+}
+
+@container (max-width: 27rem) {
+  .nss-inspector-metric-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+}
+
+@media (max-width: 700px) {
+  .nss-settings-dialog {
+    width: calc(100vw - 1rem);
+    height: calc(var(--nss-app-height, 100dvh) - 1rem);
+    flex-direction: column;
+  }
+
+  .nss-settings-nav {
+    width: 100%;
+    flex-direction: column;
+    border-right: 0;
+    border-bottom: 1px solid var(--nss-border);
+  }
+
+  .nss-settings-tab-list {
+    flex-direction: row;
+    overflow-x: auto;
+  }
+
+  .nss-settings-title {
+    display: none;
+  }
+}
+
+@media (max-width: 1180px), (max-width: 1366px) and (pointer: coarse) {
+  .nss-desktop-only {
+    display: none !important;
+  }
+
+  .nss-compact-only {
+    display: block;
+  }
+
+  .nss-branding-full {
+    display: none;
+  }
+
+  .nss-branding-compact {
+    display: inline;
+  }
+
+  .nss-app-header {
+    padding-inline: 0.75rem;
+  }
+
+  .nss-app-header .nss-touch-target {
+    min-width: 2rem;
+    min-height: 2rem;
+  }
+
+  .nss-app-header .nss-mode-badge {
+    gap: 0.25rem;
+    padding: 0.2rem 0.5rem;
+    font-size: 0.625rem;
+  }
+
+  .nss-touch-target {
+    min-width: 2.75rem;
+    min-height: 2.75rem;
+  }
+
+  .nss-compact-minimap {
+    display: none !important;
+  }
+
+  .react-flow__controls {
+    bottom: max(4.75rem, calc(env(safe-area-inset-bottom, 0px) + 4rem)) !important;
+  }
+
+  .nss-canvas-toolbar-position {
+    bottom: max(0.5rem, env(safe-area-inset-bottom, 0px)) !important;
+    left: 50% !important;
+    max-width: calc(100% - 1rem);
+    transform: translateX(-50%);
+  }
+
+  .nss-canvas-toolbar-shell {
+    max-width: 100%;
+    flex-direction: row;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+  }
+
+  .nss-toolbar-divider {
+    width: 1px;
+    height: 1.75rem;
+    margin: 0 0.125rem;
+  }
+
+  .nss-request-trace-overlay {
+    bottom: max(4.5rem, calc(env(safe-area-inset-bottom, 0px) + 4rem)) !important;
+    max-width: calc(100% - 1rem);
+  }
+
+  .nss-results-reopen {
+    bottom: max(4.5rem, calc(env(safe-area-inset-bottom, 0px) + 4rem)) !important;
+  }
+
+  .nss-results-tabs-bar {
+    flex-wrap: wrap;
   }
 }
 
@@ -105,6 +277,61 @@
 
 .react-flow__attribution {
   display: none !important;
+}
+
+.nss-touch-only-tool {
+  display: none;
+}
+
+@media (pointer: coarse) {
+  .nss-touch-only-tool {
+    display: flex;
+  }
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .react-flow.nss-pan-tool .react-flow__pane {
+    cursor: grab;
+  }
+
+  .react-flow.nss-pan-tool .react-flow__pane:active {
+    cursor: grabbing;
+  }
+
+  .react-flow.nss-pan-tool .react-flow__node {
+    cursor: pointer;
+  }
+
+  .react-flow.nss-pan-tool .react-flow__node.dragging {
+    cursor: grabbing;
+  }
+
+  .react-flow.nss-pan-tool .react-flow__edge,
+  .react-flow.nss-pan-tool .react-flow__edge-interaction {
+    cursor: pointer;
+  }
+}
+
+@keyframes nss-laser-stroke-fade {
+  0%,
+  45% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 0;
+  }
+}
+
+.nss-laser-stroke {
+  animation: nss-laser-stroke-fade 1800ms ease-out forwards;
+  filter: drop-shadow(0 0 3px rgba(239, 68, 68, 0.95));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nss-laser-stroke {
+    animation: none;
+  }
 }
 
 [data-theme='dark'] .react-flow {
@@ -147,7 +374,10 @@
   --prox-scale: 1;
   --prox-intensity: 0;
   will-change: transform, opacity;
-  transition: transform 80ms ease-out, opacity 80ms ease-out, box-shadow 80ms ease-out;
+  transition:
+    transform 80ms ease-out,
+    opacity 80ms ease-out,
+    box-shadow 80ms ease-out;
 }
 
 /* Passive proximity: source handle scales up when cursor is nearby */
@@ -164,13 +394,57 @@
   --magnetic-glow-alpha: 0;
   --magnetic-scale: 1;
   will-change: transform, opacity, box-shadow;
-  transition: transform 80ms ease-out, opacity 80ms ease-out, box-shadow 80ms ease-out;
+  transition:
+    transform 80ms ease-out,
+    opacity 80ms ease-out,
+    box-shadow 80ms ease-out;
 }
 
 .custom-source-handle:hover {
   opacity: 1 !important;
   transform: scale(1.5);
   background-color: #f59e0b !important;
+}
+
+.react-flow.nss-connect-tool .custom-source-handle,
+.react-flow__node.selected .custom-source-handle {
+  opacity: 0.65 !important;
+}
+
+@media (pointer: coarse) {
+  .custom-source-handle,
+  .custom-target-handle {
+    box-sizing: border-box !important;
+    width: 1.5rem !important;
+    height: 1.5rem !important;
+    border: 0.5rem solid transparent !important;
+    background-clip: content-box !important;
+  }
+
+  .react-flow__handle-left.custom-source-handle,
+  .react-flow__handle-left.custom-target-handle {
+    margin-left: -0.4375rem;
+  }
+
+  .react-flow__handle-right.custom-source-handle,
+  .react-flow__handle-right.custom-target-handle {
+    margin-right: -0.4375rem;
+  }
+
+  .react-flow__handle-top.custom-source-handle,
+  .react-flow__handle-top.custom-target-handle {
+    margin-top: -0.4375rem;
+  }
+
+  .react-flow__handle-bottom.custom-source-handle,
+  .react-flow__handle-bottom.custom-target-handle {
+    margin-bottom: -0.4375rem;
+  }
+
+  .react-flow__node.selected .custom-source-handle,
+  .react-flow.nss-connect-tool .custom-source-handle {
+    opacity: 0.7 !important;
+  }
 }
 
 .react-flow.nss-connection-dragging .custom-source-handle {
@@ -197,7 +471,9 @@
   stroke: var(--nss-surface, #fff);
   stroke-width: 2;
   opacity: 0;
-  transition: opacity 150ms ease, r 150ms ease;
+  transition:
+    opacity 150ms ease,
+    r 150ms ease;
   cursor: grab;
 }
 
@@ -318,14 +594,23 @@
 [data-theme='dark'] .react-flow.nss-connection-dragging .custom-target-handle.magnetic-snap-winner {
   box-shadow:
     0 0 0 2px rgba(59, 130, 246, calc(var(--magnetic-glow-alpha, 0) * 0.7)),
-    0 0 16px rgba(59, 130, 246, calc(var(--magnetic-glow-alpha, 0) * 1.0)) !important;
+    0 0 16px rgba(59, 130, 246, calc(var(--magnetic-glow-alpha, 0) * 1)) !important;
 }
 
 /* Pulsing ring in connection line SVG - shown when cursor is in the drop zone */
 @keyframes connection-snap-ring {
-  0%   { r: 8px;  opacity: 0.7; }
-  60%  { r: 18px; opacity: 0;   }
-  100% { r: 18px; opacity: 0;   }
+  0% {
+    r: 8px;
+    opacity: 0.7;
+  }
+  60% {
+    r: 18px;
+    opacity: 0;
+  }
+  100% {
+    r: 18px;
+    opacity: 0;
+  }
 }
 
 .connection-snap-ring {

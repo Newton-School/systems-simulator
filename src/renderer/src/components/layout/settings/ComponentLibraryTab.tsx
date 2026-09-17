@@ -54,7 +54,11 @@ export function ComponentLibraryTab(): React.JSX.Element {
 
   return (
     <div className="space-y-4">
-      <div className="rounded-md border border-nss-border bg-nss-surface p-3">
+      <div
+        id="settings-library-palette"
+        tabIndex={-1}
+        className="rounded-md border border-nss-border bg-nss-surface p-3"
+      >
         <div className="text-[12px] font-medium text-nss-text">Palette visibility</div>
         <p className="mt-1 text-[11px] leading-relaxed text-nss-muted">
           Choose the starting library, then hide individual components or complete categories.
@@ -107,7 +111,12 @@ export function ComponentLibraryTab(): React.JSX.Element {
           const expanded = expandedCategoryIds.has(category.id)
 
           return (
-            <section key={category.id} className="border-b border-nss-border last:border-b-0">
+            <section
+              key={category.id}
+              id={`settings-library-category-${category.id}`}
+              tabIndex={-1}
+              className="border-b border-nss-border last:border-b-0"
+            >
               <div className="flex items-center gap-2 bg-nss-surface px-3 py-2.5">
                 <button
                   type="button"

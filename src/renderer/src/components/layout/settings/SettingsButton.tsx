@@ -44,7 +44,7 @@ export function SettingsButton({
         title="Settings (Cmd/Ctrl+,)"
         aria-label="Settings"
         aria-haspopup="dialog"
-        className="h-10 w-10 rounded-md flex items-center justify-center text-nss-muted transition-colors hover:text-nss-text hover:bg-nss-surface"
+        className="nss-touch-target h-10 w-10 rounded-md flex items-center justify-center text-nss-muted transition-colors hover:text-nss-text hover:bg-nss-surface"
       >
         <Settings size={18} />
       </button>

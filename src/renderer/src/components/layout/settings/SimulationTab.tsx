@@ -171,6 +171,7 @@ export function SimulationTab(): React.JSX.Element {
   return (
     <div className="space-y-1">
       <SettingRow
+        id="settings-simulation-duration"
         label="Run duration"
         hint="How long the simulated clock runs before the worker drains and results are finalized."
       >
@@ -183,6 +184,7 @@ export function SimulationTab(): React.JSX.Element {
       </SettingRow>
 
       <SettingRow
+        id="settings-simulation-warmup"
         label="Warmup duration"
         hint="Warmup traffic is excluded from the post-warmup metrics and scorecards."
       >
@@ -195,6 +197,7 @@ export function SimulationTab(): React.JSX.Element {
       </SettingRow>
 
       <SettingRow
+        id="settings-simulation-seed"
         label="Seed"
         hint="Controls deterministic replay. The actual seed used is shown in the results footer after a run."
       >
@@ -220,6 +223,7 @@ export function SimulationTab(): React.JSX.Element {
       <SectionLabel>Workload</SectionLabel>
 
       <SettingRow
+        id="settings-simulation-source"
         label="Source node"
         hint="Auto picks the first workload-configured source on the canvas."
       >
@@ -240,6 +244,7 @@ export function SimulationTab(): React.JSX.Element {
       </SettingRow>
 
       <SettingRow
+        id="settings-simulation-pattern"
         label="Workload pattern"
         hint="Sets the default arrival shape. Pattern-specific fine-tuning remains available in the Run popover."
       >
@@ -252,6 +257,7 @@ export function SimulationTab(): React.JSX.Element {
       </SettingRow>
 
       <SettingRow
+        id="settings-simulation-rps"
         label="Base RPS"
         hint="Offered steady-state request rate before burst/spike multipliers."
       >
@@ -266,6 +272,7 @@ export function SimulationTab(): React.JSX.Element {
       <SectionLabel>Chaos</SectionLabel>
 
       <SettingRow
+        id="settings-simulation-fault"
         label="Inject a fault by default"
         hint={
           faultTargets.length === 0

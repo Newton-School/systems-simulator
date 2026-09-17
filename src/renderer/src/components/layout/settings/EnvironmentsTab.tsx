@@ -29,6 +29,7 @@ export function EnvironmentsTab(): React.JSX.Element {
   return (
     <div className="space-y-1">
       <SettingRow
+        id="settings-environment-mode"
         label="Mode preset"
         hint="Author = full control · Assignment = graded/locked · Practice = free sandbox. Picking a preset resets the options below to that preset's defaults."
       >
@@ -42,6 +43,7 @@ export function EnvironmentsTab(): React.JSX.Element {
       <SectionLabel>Edges</SectionLabel>
 
       <SettingRow
+        id="settings-environment-edge-model"
         label="Edge model"
         hint="Network = edges carry latency/bandwidth and can be inspected. Connector = dumb wires that only show how components connect (no physics, no cost, no properties) so the focus stays on the high-level design."
       >
@@ -56,6 +58,7 @@ export function EnvironmentsTab(): React.JSX.Element {
       </SettingRow>
 
       <SettingRow
+        id="settings-environment-edit-edges"
         label="Edit edge properties"
         hint={
           isConnector
@@ -74,6 +77,7 @@ export function EnvironmentsTab(): React.JSX.Element {
       <SectionLabel>Resources & budget</SectionLabel>
 
       <SettingRow
+        id="settings-environment-resources"
         label="Change resource allocation"
         hint="Instance type and count. Off in graded assignments unless the lesson is allocation itself."
       >
@@ -86,6 +90,7 @@ export function EnvironmentsTab(): React.JSX.Element {
       </SettingRow>
 
       <SettingRow
+        id="settings-environment-execution-profile"
         label="Change execution profile"
         hint="Expose the advanced CPU-bound / IO-bound behavior knob. Best left off in introductory HLD so the focus stays on architecture rather than gaming concurrency assumptions."
       >
@@ -98,6 +103,7 @@ export function EnvironmentsTab(): React.JSX.Element {
       </SettingRow>
 
       <SettingRow
+        id="settings-environment-cost-cap"
         label="Cost cap"
         hint="Max provisioned spend for the whole topology. Empty = unbounded."
       >
@@ -116,6 +122,7 @@ export function EnvironmentsTab(): React.JSX.Element {
       </SettingRow>
 
       <SettingRow
+        id="settings-environment-vcpu"
         label="vCPU quota"
         hint="Total vCPU the topology may provision. Empty = unbounded."
       >
@@ -135,7 +142,11 @@ export function EnvironmentsTab(): React.JSX.Element {
         />
       </SettingRow>
 
-      <SettingRow label="RAM quota" hint="Total RAM the topology may provision. Empty = unbounded.">
+      <SettingRow
+        id="settings-environment-ram"
+        label="RAM quota"
+        hint="Total RAM the topology may provision. Empty = unbounded."
+      >
         <OptionalNumber
           value={caps.resourceBudget?.totalRamGb}
           suffix="GB"
@@ -155,6 +166,7 @@ export function EnvironmentsTab(): React.JSX.Element {
       <SectionLabel>Grading flow</SectionLabel>
 
       <SettingRow
+        id="settings-environment-test-runs"
         label="Test-run limit"
         hint="Max dry runs that can be triggered. Empty = unlimited."
       >
@@ -166,7 +178,11 @@ export function EnvironmentsTab(): React.JSX.Element {
         />
       </SettingRow>
 
-      <SettingRow label="Rubric check visibility" hint="When grading-check results are shown.">
+      <SettingRow
+        id="settings-environment-rubric"
+        label="Rubric check visibility"
+        hint="When grading-check results are shown."
+      >
         <div className="flex items-center gap-1.5">
           <select
             value={profile.visibility.rubricChecks}

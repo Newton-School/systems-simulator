@@ -70,7 +70,11 @@ export function LlmGradingTab(): React.JSX.Element {
 
   return (
     <div className="space-y-4">
-      <div className="rounded-md border border-nss-border bg-nss-surface p-3">
+      <div
+        id="settings-llm-grading"
+        tabIndex={-1}
+        className="rounded-md border border-nss-border bg-nss-surface p-3"
+      >
         <div className="flex items-center gap-2 text-[12px] font-medium text-nss-text">
           <KeyRound size={15} className="text-nss-primary" aria-hidden="true" />
           Justification grading
@@ -96,7 +100,7 @@ export function LlmGradingTab(): React.JSX.Element {
             : 'The browser production build uses deterministic justification grading until the hosted grading API is available.'}
         </p>
       ) : (
-        <div className="space-y-3">
+        <div id="settings-llm-provider" tabIndex={-1} className="space-y-3">
           <label className="block space-y-1.5">
             <span className="text-[12px] font-medium text-nss-text">Provider</span>
             <SelectField

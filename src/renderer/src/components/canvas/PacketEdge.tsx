@@ -224,7 +224,6 @@ export const PacketEdge = ({
   const isRoutingPreviewEdge = routingPreview !== null
   const [now, setNow] = useState(() => Date.now())
   const pathRef = useRef<SVGPathElement | null>(null)
-  const [pathLength, setPathLength] = useState(0)
 
   useEffect(() => {
     if (!isRoutingPreviewEdge && !flow && flowStatus !== 'running' && flowStatus !== 'complete') {
@@ -233,10 +232,6 @@ export const PacketEdge = ({
     const intervalId = window.setInterval(() => setNow(Date.now()), 33)
     return () => window.clearInterval(intervalId)
   }, [flow, flowStatus, isRoutingPreviewEdge])
-
-  useEffect(() => {
-    setPathLength(pathRef.current?.getTotalLength() ?? 0)
-  }, [edgePath])
 
   const visibleEvents =
     flow?.recent.filter(
@@ -393,7 +388,9 @@ export const PacketEdge = ({
   ].join(' ')
 
   const pointForProgress = (progress: number) => {
-    if (!pathRef.current || pathLength <= 0) {
+    const path = pathRef.current
+    const pathLength = path?.getTotalLength() ?? 0
+    if (!path || pathLength <= 0) {
       return {
         x: sourceX + (targetX - sourceX) * progress,
         y: sourceY + (targetY - sourceY) * progress
@@ -402,17 +399,20 @@ export const PacketEdge = ({
     return pathRef.current.getPointAtLength(pathLength * progress)
   }
 
+  const approximatePathLength = Math.hypot(targetX - sourceX, targetY - sourceY)
   const semanticBadgeAnchor =
-    pathLength >= 24 && !isTracing ? pointForProgress(0.62) : { x: labelX, y: labelY }
+    approximatePathLength >= 24 && !isTracing ? pointForProgress(0.62) : { x: labelX, y: labelY }
   const endpointDirection = (() => {
-    if (!pathRef.current || pathLength < 24 || isTracing) return null
+    const path = pathRef.current
+    const pathLength = path?.getTotalLength() ?? 0
+    if (!path || pathLength < 24 || isTracing) return null
 
     // Keep the chevron just outside the target handle/node while still reading as
     // an arrowhead at the end of the connector.
     const tipLength = Math.max(0, pathLength - 11)
-    const point = pathRef.current.getPointAtLength(tipLength)
-    const before = pathRef.current.getPointAtLength(Math.max(0, tipLength - 6))
-    const after = pathRef.current.getPointAtLength(Math.min(pathLength, tipLength + 3))
+    const point = path.getPointAtLength(tipLength)
+    const before = path.getPointAtLength(Math.max(0, tipLength - 6))
+    const after = path.getPointAtLength(Math.min(pathLength, tipLength + 3))
     const angle = (Math.atan2(after.y - before.y, after.x - before.x) * 180) / Math.PI
 
     return { x: point.x, y: point.y, angle }

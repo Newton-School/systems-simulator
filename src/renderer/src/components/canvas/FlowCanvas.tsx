@@ -11,7 +11,8 @@ import ReactFlow, {
   ConnectionLineType,
   SelectionMode,
   updateEdge,
-  Node
+  Node,
+  type Viewport
 } from 'reactflow'
 import 'reactflow/dist/style.css'
 
@@ -32,6 +33,8 @@ import { useHandleProximity } from './hooks/useHandleProximity'
 import MagneticConnectionLine from './MagneticConnectionLine'
 import { MAGNETIC_CONNECTION_RADIUS_PX } from './magneticSnapConfig'
 import { CanvasToolbar, type CanvasTool } from './CanvasToolbar'
+import { CanvasAnnotationLayer } from './CanvasAnnotationLayer'
+import type { AnnotationTool } from '@renderer/types/annotations'
 import {
   TEXT_LABEL_NODE_TYPE,
   type CanvasTextLabelData
@@ -46,6 +49,7 @@ interface FlowCanvasProps {
   showMetricLens?: boolean
   interactionLocked?: boolean
   onNodeDoubleClick?: (event: React.MouseEvent, node: Node) => void
+  onEdgeDoubleClick?: (event: React.MouseEvent, edge: Edge) => void
 }
 
 function createTextLabelNode(position: { x: number; y: number }): Node<CanvasTextLabelData> {
@@ -88,10 +92,13 @@ function collectSelectedNodeIds(nodes: Node[], ignoredNodeIds = new Set<string>(
 const FlowCanvasInternal = ({
   showMetricLens = false,
   interactionLocked = false,
-  onNodeDoubleClick
+  onNodeDoubleClick,
+  onEdgeDoubleClick
 }: FlowCanvasProps) => {
   const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance | null>(null)
   const [selectedTool, setSelectedTool] = useState<CanvasTool>('pan')
+  const [canvasViewport, setCanvasViewport] = useState<Viewport>({ x: 0, y: 0, zoom: 1 })
+  const [tapConnectSourceId, setTapConnectSourceId] = useState<string | null>(null)
   const [temporarySelectActive, setTemporarySelectActive] = useState(false)
   const [temporaryPanActive, setTemporaryPanActive] = useState(false)
   const [isConnectionDragging, setIsConnectionDragging] = useState(false)
@@ -101,7 +108,21 @@ const FlowCanvasInternal = ({
     : temporarySelectActive
       ? 'select'
       : selectedTool
+  const annotationToolActive =
+    activeTool === 'pen' ||
+    activeTool === 'highlighter' ||
+    activeTool === 'arrow' ||
+    activeTool === 'note' ||
+    activeTool === 'eraser'
   const edgeRoutingStyle = useStore((state) => state.displaySettings.edgeRoutingStyle)
+  const canAnnotate = useStore((state) => state.environmentProfile.capabilities.canAnnotate)
+  const annotations = useStore((state) => state.annotations)
+  const annotationHistory = useStore((state) => state.annotationHistory)
+  const pendingNodePlacement = useStore((state) => state.pendingNodePlacement)
+  const setPendingNodePlacement = useStore((state) => state.setPendingNodePlacement)
+  const clearAnnotations = useStore((state) => state.clearAnnotations)
+  const undoAnnotation = useStore((state) => state.undoAnnotation)
+  const redoAnnotation = useStore((state) => state.redoAnnotation)
 
   const {
     nodes,
@@ -207,7 +228,7 @@ const FlowCanvasInternal = ({
     ]
   )
 
-  const { onDragOver, onDrop, onNodeDragStop } = useFlowDnD({
+  const { onDragOver, onDrop, onNodeDragStop, placeNode } = useFlowDnD({
     nodes,
     addNode,
     setNodes,
@@ -263,12 +284,20 @@ const FlowCanvasInternal = ({
   }, [nodes.length, reactFlowInstance])
 
   useEffect(() => {
-    if (!interactionLocked || selectedTool !== 'text') {
+    const annotationTool =
+      selectedTool === 'text' ||
+      selectedTool === 'pen' ||
+      selectedTool === 'laser' ||
+      selectedTool === 'highlighter' ||
+      selectedTool === 'arrow' ||
+      selectedTool === 'note' ||
+      selectedTool === 'eraser'
+    if ((!interactionLocked && (canAnnotate || !annotationTool)) || !annotationTool) {
       return
     }
 
     setSelectedTool('pan')
-  }, [interactionLocked, selectedTool])
+  }, [canAnnotate, interactionLocked, selectedTool])
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -330,7 +359,13 @@ const FlowCanvasInternal = ({
   const onEdgeClick = useCallback(
     (event: React.MouseEvent, edge: Edge) => {
       event.stopPropagation()
-      if (activeTool !== 'select') return
+      // React Flow's SVG edge wrapper can swallow `dblclick` for some custom
+      // edge renderers. The second click still carries detail=2, so use it as
+      // a reliable fallback for opening the connector inspector.
+      if (event.detail >= 2) {
+        onEdgeDoubleClick?.(event, edge)
+      }
+      if (activeTool !== 'select' && activeTool !== 'pan') return
 
       const shouldToggleSelection = event.metaKey || event.ctrlKey || event.shiftKey
 
@@ -344,12 +379,24 @@ const FlowCanvasInternal = ({
 
       selectGraphElements({ edgeId: edge.id })
     },
-    [activeTool, edges, selectGraphElements, setEdges]
+    [activeTool, edges, onEdgeDoubleClick, selectGraphElements, setEdges]
   )
 
   const onPaneClick = useCallback(
     (event: React.MouseEvent) => {
       setValidationError(null)
+
+      if (pendingNodePlacement && reactFlowInstance && !interactionLocked) {
+        const position = reactFlowInstance.screenToFlowPosition({
+          x: event.clientX,
+          y: event.clientY
+        })
+        if (placeNode(pendingNodePlacement.type, pendingNodePlacement.templateId, position)) {
+          setPendingNodePlacement(null)
+          setSelectedTool('pan')
+        }
+        return
+      }
 
       if (interactionLocked) {
         if (activeTool === 'select') {
@@ -371,11 +418,48 @@ const FlowCanvasInternal = ({
         return
       }
 
-      if (activeTool === 'select') {
+      if (activeTool === 'select' || activeTool === 'pan') {
         selectGraphElements({})
       }
     },
-    [activeTool, edges, interactionLocked, nodes, reactFlowInstance, selectGraphElements, setGraph]
+    [
+      activeTool,
+      edges,
+      interactionLocked,
+      nodes,
+      pendingNodePlacement,
+      placeNode,
+      reactFlowInstance,
+      selectGraphElements,
+      setGraph,
+      setPendingNodePlacement
+    ]
+  )
+
+  const onNodeClick = useCallback(
+    (event: React.MouseEvent, node: Node) => {
+      if (activeTool !== 'connect' || interactionLocked) return
+      event.preventDefault()
+      event.stopPropagation()
+
+      if (!tapConnectSourceId) {
+        setTapConnectSourceId(node.id)
+        selectGraphElements({ nodeId: node.id })
+        return
+      }
+
+      if (tapConnectSourceId !== node.id) {
+        onConnect({
+          source: tapConnectSourceId,
+          target: node.id,
+          sourceHandle: 'right-1-source',
+          targetHandle: 'left-1-target'
+        })
+      }
+      setTapConnectSourceId(null)
+      selectGraphElements({})
+    },
+    [activeTool, interactionLocked, onConnect, selectGraphElements, tapConnectSourceId]
   )
 
   const deleteSelection = useCallback(() => {
@@ -512,9 +596,17 @@ const FlowCanvasInternal = ({
         event.preventDefault()
         if (attemptStatus !== 'LOCKED' && !interactionLocked) {
           if (event.shiftKey) {
-            redoGraph()
+            if (annotationHistory.future.length > 0 && (annotationToolActive || !canRedoGraph)) {
+              redoAnnotation()
+            } else {
+              redoGraph()
+            }
           } else {
-            undoGraph()
+            if (annotationHistory.past.length > 0 && (annotationToolActive || !canUndoGraph)) {
+              undoAnnotation()
+            } else {
+              undoGraph()
+            }
           }
         }
         return
@@ -523,7 +615,11 @@ const FlowCanvasInternal = ({
       if (event.ctrlKey && key === 'y') {
         event.preventDefault()
         if (attemptStatus !== 'LOCKED' && !interactionLocked) {
-          redoGraph()
+          if (annotationHistory.future.length > 0 && (annotationToolActive || !canRedoGraph)) {
+            redoAnnotation()
+          } else {
+            redoGraph()
+          }
         }
         return
       }
@@ -550,7 +646,15 @@ const FlowCanvasInternal = ({
         return
       }
 
-      if (!isModifierPressed && !event.altKey && (key === 't' || key === '3')) {
+      if (!isModifierPressed && !event.altKey && key === '3') {
+        if (!interactionLocked && window.matchMedia('(pointer: coarse)').matches) {
+          event.preventDefault()
+          setSelectedTool('connect')
+        }
+        return
+      }
+
+      if (!isModifierPressed && !event.altKey && key === 't') {
         if (!interactionLocked) {
           event.preventDefault()
           setSelectedTool('text')
@@ -598,6 +702,11 @@ const FlowCanvasInternal = ({
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [
     attemptStatus,
+    annotationHistory.future.length,
+    annotationHistory.past.length,
+    annotationToolActive,
+    canRedoGraph,
+    canUndoGraph,
     deleteSelection,
     edges,
     hasSelection,
@@ -605,16 +714,43 @@ const FlowCanvasInternal = ({
     nodes,
     reactFlowInstance,
     redoGraph,
+    redoAnnotation,
     selectGraphElements,
     setGraph,
-    undoGraph
+    undoGraph,
+    undoAnnotation
   ])
 
   const isPanTool = activeTool === 'pan'
   const isSelectTool = activeTool === 'select'
   const isTextTool = activeTool === 'text'
+  const isConnectTool = activeTool === 'connect'
+  const activeAnnotationTool: AnnotationTool | null =
+    activeTool === 'pen' ||
+    activeTool === 'laser' ||
+    activeTool === 'highlighter' ||
+    activeTool === 'arrow' ||
+    activeTool === 'note' ||
+    activeTool === 'eraser'
+      ? activeTool
+      : null
+  const annotationModeActive = activeAnnotationTool !== null
+  const persistentAnnotationModeActive =
+    activeAnnotationTool !== null && activeAnnotationTool !== 'laser'
+  const useAnnotationHistory =
+    annotationHistory.past.length > 0 && (persistentAnnotationModeActive || !canUndoGraph)
+  const useAnnotationFuture =
+    annotationHistory.future.length > 0 && (persistentAnnotationModeActive || !canRedoGraph)
   const flowClassName = [
-    isPanTool ? 'cursor-grab' : isTextTool ? 'cursor-text' : 'cursor-default',
+    isPanTool
+      ? 'cursor-grab'
+      : isTextTool
+        ? 'cursor-text'
+        : isConnectTool
+          ? 'cursor-crosshair'
+          : 'cursor-default',
+    isPanTool ? 'nss-pan-tool' : '',
+    isConnectTool ? 'nss-connect-tool' : '',
     isConnectionDragging ? 'nss-connection-dragging' : ''
   ]
     .filter(Boolean)
@@ -624,14 +760,20 @@ const FlowCanvasInternal = ({
     <div style={{ width: '100%', height: '100%' }} className="bg-nss-bg relative">
       <CanvasToolbar
         activeTool={activeTool}
-        canRedo={attemptStatus !== 'LOCKED' && canRedoGraph}
-        canUndo={attemptStatus !== 'LOCKED' && canUndoGraph}
+        canAnnotate={canAnnotate}
+        canRedo={attemptStatus !== 'LOCKED' && (useAnnotationFuture || canRedoGraph)}
+        canUndo={attemptStatus !== 'LOCKED' && (useAnnotationHistory || canUndoGraph)}
         editingDisabled={interactionLocked}
+        hasAnnotations={annotations.length > 0}
         hasCanvasContent={hasCanvasContent}
         hasSelection={hasSelection}
-        onToolChange={setSelectedTool}
-        onUndo={undoGraph}
-        onRedo={redoGraph}
+        onClearAnnotations={clearAnnotations}
+        onToolChange={(tool) => {
+          setSelectedTool(tool)
+          setTapConnectSourceId(null)
+        }}
+        onUndo={useAnnotationHistory ? undoAnnotation : undoGraph}
+        onRedo={useAnnotationFuture ? redoAnnotation : redoGraph}
         onResetCanvas={resetCanvas}
         onDeleteSelection={deleteSelection}
       />
@@ -665,25 +807,50 @@ const FlowCanvasInternal = ({
         onDragOver={onDragOver}
         onNodeDragStop={onNodeDragStop}
         onEdgeClick={onEdgeClick}
+        onEdgeDoubleClick={onEdgeDoubleClick}
         onPaneClick={onPaneClick}
+        onNodeClick={onNodeClick}
         onNodeDoubleClick={onNodeDoubleClick}
+        onMove={(_, viewport) => setCanvasViewport(viewport)}
         deleteKeyCode={null}
-        panOnDrag={isPanTool ? true : [1, 2]}
+        panOnDrag={annotationModeActive ? false : isPanTool ? true : [1, 2]}
         panOnScroll={isPanTool}
         selectionOnDrag={isSelectTool}
         selectionMode={SelectionMode.Partial}
         multiSelectionKeyCode="Shift"
         selectNodesOnDrag={false}
         elementsSelectable
-        nodesDraggable={!isTextTool && !interactionLocked}
-        nodesConnectable={!isTextTool && !interactionLocked}
-        edgesUpdatable={!isTextTool && !interactionLocked}
+        nodesDraggable={
+          !isTextTool && !isConnectTool && !annotationModeActive && !interactionLocked
+        }
+        nodesConnectable={!isTextTool && !annotationModeActive && !interactionLocked}
+        edgesUpdatable={!isTextTool && !annotationModeActive && !interactionLocked}
         className={flowClassName}
       >
         <Background variant={BackgroundVariant.Dots} gap={30} size={1.2} color={GRID_COLOR} />
         <Controls className="!bg-nss-surface !border-nss-border" />
-        <MiniMap className="!bg-nss-surface !border-nss-border" />
+        <MiniMap className="nss-compact-minimap !bg-nss-surface !border-nss-border" />
       </ReactFlow>
+      {canAnnotate ? (
+        <CanvasAnnotationLayer activeTool={activeAnnotationTool} viewport={canvasViewport} />
+      ) : null}
+      {pendingNodePlacement ? (
+        <div className="pointer-events-auto absolute left-1/2 top-3 z-30 flex -translate-x-1/2 items-center gap-3 rounded-full border border-nss-primary/30 bg-nss-panel/95 px-4 py-2 text-xs font-medium text-nss-text shadow-lg backdrop-blur">
+          Tap the canvas to place {pendingNodePlacement.label}
+          <button
+            type="button"
+            onClick={() => setPendingNodePlacement(null)}
+            className="text-nss-muted hover:text-nss-text"
+          >
+            Cancel
+          </button>
+        </div>
+      ) : null}
+      {isConnectTool && tapConnectSourceId ? (
+        <div className="pointer-events-none absolute left-1/2 top-3 z-30 -translate-x-1/2 rounded-full border border-nss-primary/30 bg-nss-panel/95 px-4 py-2 text-xs font-medium text-nss-text shadow-lg backdrop-blur">
+          Tap a destination node
+        </div>
+      ) : null}
       {!isEmpty && showMetricLens && <MetricLensSwitcher />}
       {!isEmpty && showMetricLens && <CanvasLegend />}
       <RequestTraceOverlay />

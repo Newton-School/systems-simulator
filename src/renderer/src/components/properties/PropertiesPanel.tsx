@@ -136,7 +136,7 @@ const CanvasLabelInspector = ({
   }
 
   return (
-    <div className="h-full w-full bg-nss-panel border-l border-nss-border flex flex-col text-nss-text font-sans shadow-xl">
+    <div className="nss-properties-panel h-full w-full bg-nss-panel border-l border-nss-border flex flex-col text-nss-text font-sans shadow-xl">
       <div className="p-5 border-b border-nss-border bg-nss-panel">
         <div className="flex items-center gap-4">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-nss-primary/10 text-nss-primary">
@@ -874,7 +874,7 @@ function RunInspector({
   const outcomeTotal = results?.requestOutcomeTotal ?? 0
 
   return (
-    <div className="h-full w-full bg-nss-panel border-l border-nss-border flex flex-col text-nss-text font-sans shadow-xl">
+    <div className="nss-properties-panel h-full w-full bg-nss-panel border-l border-nss-border flex flex-col text-nss-text font-sans shadow-xl">
       <div className="border-b border-nss-border bg-nss-panel p-5">
         <div className="flex items-center gap-4">
           <div className="shrink-0 rounded-lg bg-nss-primary/10 p-2 text-nss-primary shadow-sm">
@@ -1041,7 +1041,10 @@ function RunInspector({
                         <CardBadge label={health.label} className={health.className} />
                       </div>
                       <div
-                        className={clsx('mt-3 grid gap-3', source ? 'grid-cols-3' : 'grid-cols-4')}
+                        className={clsx(
+                          'nss-inspector-metric-grid mt-3 grid gap-3',
+                          source ? 'grid-cols-3' : 'grid-cols-4'
+                        )}
                       >
                         {source ? (
                           <>
@@ -1127,7 +1130,7 @@ function RunInspector({
                         </div>
                         <CardBadge label={health.label} className={health.className} />
                       </div>
-                      <div className="mt-3 grid grid-cols-3 gap-3">
+                      <div className="nss-inspector-metric-grid mt-3 grid grid-cols-3 gap-3">
                         <MiniMetric label="Attempts" value={formatNumber(flow.totalAttempted)} />
                         <MiniMetric
                           label="Success"
@@ -1209,7 +1212,7 @@ function RunInspector({
                                   />
                                 ) : null}
                               </div>
-                              <div className="mt-2 grid grid-cols-3 gap-3">
+                              <div className="nss-inspector-metric-grid mt-2 grid grid-cols-3 gap-3">
                                 <MiniMetric
                                   label="Runtime Nodes"
                                   value={group.runtimeNodeCount.toLocaleString()}
@@ -1598,7 +1601,7 @@ export const PropertiesPanel = ({ results = null }: { results?: SimulationOutput
         : undefined
 
     return (
-      <div className="h-full w-full bg-nss-panel border-l border-nss-border flex flex-col text-nss-text font-sans shadow-xl">
+      <div className="nss-properties-panel h-full w-full bg-nss-panel border-l border-nss-border flex flex-col text-nss-text font-sans shadow-xl">
         <PropertiesHeader
           data={data}
           leadingAction={
