@@ -4,6 +4,7 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import packageJson from '../../package.json'
 import { dirname, parse, resolve } from 'node:path'
 import { SimulationEngine } from '../engine/engine'
+import { runSimulation } from '../engine/runSimulation'
 import {
   buildQuestionEvaluationBatch,
   buildQuestionEvaluationErrorContract,
@@ -519,7 +520,7 @@ function runSuiteEvaluate(args: string[]): void {
 
   const batch = evaluateSuite(
     prepared,
-    (topology) => new SimulationEngine(topology).run(),
+    (topology) => runSimulation(topology),
     typeof suite.name === 'string' ? suite.name : undefined
   )
 

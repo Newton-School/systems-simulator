@@ -136,7 +136,7 @@ const TERMINAL_TOMBSTONE_RETENTION_US = msToMicro(60_000)
 const MAX_TERMINAL_TOMBSTONES = 100_000
 const LOAD_BALANCER_UNHEALTHY_COOLDOWN_US = msToMicro(5_000)
 
-interface SimulationEngineOptions {
+export interface SimulationEngineOptions {
   resolveTraits?: TraitResolver
   /**
    * When true, GGcKNode invariants (inSystem identity, K ceiling, heldBlackhole

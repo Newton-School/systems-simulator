@@ -1,4 +1,10 @@
-import type { FaultSpec, GlobalConfig, TopologyJSON, WorkloadProfile } from '../core/types'
+import type {
+  FaultSpec,
+  GlobalConfig,
+  InvariantCheck,
+  TopologyJSON,
+  WorkloadProfile
+} from '../core/types'
 import type { SimulationOutput } from './output'
 import { projectToVerdict, type SimulationVerdict } from './verdict'
 import { validateTopology } from '../validation/validator'
@@ -14,6 +20,8 @@ export interface ScenarioOverrides {
   global?: Partial<GlobalConfig>
   workload?: Partial<WorkloadProfile>
   faults?: FaultSpec[]
+  /** Grading invariants to inject into the candidate topology for this case. */
+  invariants?: InvariantCheck[]
 }
 
 export interface ScenarioSpec {
@@ -86,6 +94,13 @@ export function mergeTopologyWithOverrides(
       ? { faults: overrides.faults }
       : base.faults
         ? { faults: base.faults }
+        : {}),
+    // Grading invariants injected per-case are appended to any the topology
+    // already carries, so an authored headroom rule reaches the candidate run.
+    ...(overrides.invariants
+      ? { invariants: [...(base.invariants ?? []), ...overrides.invariants] }
+      : base.invariants
+        ? { invariants: base.invariants }
         : {})
   }
 }

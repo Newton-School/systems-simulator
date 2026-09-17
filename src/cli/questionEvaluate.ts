@@ -1,7 +1,7 @@
 import { buildQuestionEvaluationContract } from '../engine/analysis/evaluationContract'
 import { gradeAttempt, type QuestionPackage } from '../engine/analysis/question'
 import type { TopologyJSON } from '../engine/core/types'
-import { SimulationEngine } from '../engine/engine'
+import { runSimulation } from '../engine/runSimulation'
 
 export interface QuestionEvaluationOptions {
   simulatorVersion?: string
@@ -17,7 +17,7 @@ export function evaluateQuestionSubmission(
   options: QuestionEvaluationOptions = {}
 ) {
   const grade = gradeAttempt(question, topology, (candidateTopology) =>
-    new SimulationEngine(candidateTopology).run()
+    runSimulation(candidateTopology)
   )
 
   return buildQuestionEvaluationContract(question, topology, grade, options)

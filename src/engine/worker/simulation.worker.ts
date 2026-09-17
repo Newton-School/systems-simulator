@@ -1,5 +1,8 @@
 import { SimulationEngine } from '../engine'
+import { runSimulation, resolveEvaluationMode } from '../runSimulation'
+import { runFluidSimulation, fluidRepresentativeTraffic } from '../analysis/fluidSimulation'
 import { gradeAttemptWithArtifacts } from '../analysis/question'
+import type { TopologyJSON } from '../core/types'
 import type { EdgeFlowEvent } from '../core/events'
 import type { SimulationOutput, TimeSeriesSnapshot } from '../analysis/output'
 import type { RequestOutcomeRecord } from '../core/event-stream'
@@ -158,6 +161,33 @@ async function runChunked(): Promise<void> {
   }
 }
 
+/**
+ * Analytic run: no per-request simulation. Compute the steady-state output with
+ * the fluid model, stream a capped set of representative edge-flow dots (so the
+ * canvas still animates), then post the completed output. The dots are cosmetic —
+ * the real numbers are in `output`, and `output.requestsPerDot` tells the UI how
+ * many requests each dot stands for.
+ */
+function runAnalytic(topology: TopologyJSON): void {
+  try {
+    const output = runFluidSimulation(topology)
+    const { events } = fluidRepresentativeTraffic(topology)
+
+    // Stream the dots in bounded batches, spaced to yield to the message loop.
+    const BATCH = 500
+    for (let i = 0; i < events.length; i += BATCH) {
+      post({ type: 'edge-flow-batch', payload: { events: events.slice(i, i + BATCH) } })
+    }
+
+    post({ type: 'complete', payload: { output: prepareOutputForTransport(output), stopped } })
+  } catch (err) {
+    const e = err as Error
+    post({ type: 'error', payload: { message: e.message, stack: e.stack } })
+  } finally {
+    reset()
+  }
+}
+
 // ─── Message loop ─────────────────────────────────────────────────────────────
 
 self.onmessage = (event: MessageEvent<WorkerInboundMessage>) => {
@@ -172,6 +202,13 @@ self.onmessage = (event: MessageEvent<WorkerInboundMessage>) => {
 
       reset()
       running = true
+
+      // Heavy load the event engine cannot simulate in reasonable time: compute
+      // the run analytically and stream a small, representative dot animation.
+      if (resolveEvaluationMode(msg.payload.topology) === 'analytic') {
+        runAnalytic(msg.payload.topology)
+        break
+      }
 
       try {
         engine = new SimulationEngine(msg.payload.topology)
@@ -211,7 +248,7 @@ self.onmessage = (event: MessageEvent<WorkerInboundMessage>) => {
         const { grade, cases } = gradeAttemptWithArtifacts(
           msg.payload.question,
           msg.payload.topology,
-          (topology) => new SimulationEngine(topology).run(),
+          (topology) => runSimulation(topology),
           msg.payload.justificationAnswers ?? []
         )
         post({ type: 'grade-complete', payload: { grade, cases } })
