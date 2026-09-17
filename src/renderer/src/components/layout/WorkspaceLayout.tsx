@@ -93,6 +93,10 @@ import {
 } from '@renderer/types/ui'
 import { generateRunSeed } from '@renderer/components/simulation/simulationControlModel'
 import { PRE_RUN_LENSES, RUNTIME_LENSES } from '@renderer/config/metricLensConfig'
+import {
+  useCompactWorkspace,
+  useVisualViewportHeight
+} from '@renderer/hooks/useResponsiveWorkspace'
 
 type RunIssueTone = 'warning' | 'error'
 
@@ -320,6 +324,9 @@ function buildLiveNodeMetrics({
 }
 
 export const WorkspaceLayout = () => {
+  const isCompactWorkspace = useCompactWorkspace()
+  useVisualViewportHeight()
+
   // Sidebar State
   const [isLeftOpen, setIsLeftOpen] = useState(true)
   const [leftSidebarTab, setLeftSidebarTab] = useState<LibrarySidebarTab>('library')
@@ -342,14 +349,16 @@ export const WorkspaceLayout = () => {
   const rightPanelRef = useRef<ImperativePanelHandle>(null)
 
   useEffect(() => {
+    if (isCompactWorkspace) return
     if (isLeftOpen) leftPanelRef.current?.expand()
     else leftPanelRef.current?.collapse()
-  }, [isLeftOpen])
+  }, [isCompactWorkspace, isLeftOpen])
 
   useEffect(() => {
+    if (isCompactWorkspace) return
     if (isRightOpen) rightPanelRef.current?.expand()
     else rightPanelRef.current?.collapse()
-  }, [isRightOpen])
+  }, [isCompactWorkspace, isRightOpen])
 
   const fileName = useStore((s) => s.fileName)
   const isUnsaved = useStore((s) => s.isUnsaved)
@@ -452,10 +461,27 @@ export const WorkspaceLayout = () => {
   const selectedNodeId = nodes.find((n) => n.selected)?.id
   const selectedEdgeId = edges.find((e) => e.selected)?.id
   const hasElectronCloseBridge = typeof window.nssimulator?.onCloseRequest === 'function'
-  const handleLeftSidebarTabSelect = useCallback((tab: LibrarySidebarTab) => {
-    setLeftSidebarTab(tab)
-    setIsLeftOpen(true)
-  }, [])
+  const handleLeftSidebarTabSelect = useCallback(
+    (tab: LibrarySidebarTab) => {
+      setLeftSidebarTab(tab)
+      setIsLeftOpen(true)
+      if (isCompactWorkspace) setIsRightOpen(false)
+    },
+    [isCompactWorkspace]
+  )
+
+  useEffect(() => {
+    if (!isCompactWorkspace) return
+    setIsLeftOpen(false)
+    setIsRightOpen(false)
+  }, [isCompactWorkspace])
+
+  const pendingNodePlacement = useStore((state) => state.pendingNodePlacement)
+  useEffect(() => {
+    if (isCompactWorkspace && pendingNodePlacement) {
+      setIsLeftOpen(false)
+    }
+  }, [isCompactWorkspace, pendingNodePlacement])
 
   useEffect(() => {
     if (!isUnsaved || hasElectronCloseBridge) {
@@ -506,18 +532,26 @@ export const WorkspaceLayout = () => {
   }, [runInspectorPinned, selectedNodeId, selectedEdgeId])
 
   useEffect(() => {
-    if (runInspectorPinned) {
+    if (runInspectorPinned && !isCompactWorkspace) {
       setIsRightOpen(true)
     }
-  }, [runInspectorPinned])
+  }, [isCompactWorkspace, runInspectorPinned])
 
   // Selecting an edge opens the inspector on its properties, mirroring how
   // double-clicking a node opens the node config.
   useEffect(() => {
     if (selectedEdgeId) {
       setIsRightOpen(true)
+      if (isCompactWorkspace) setIsLeftOpen(false)
     }
-  }, [selectedEdgeId])
+  }, [isCompactWorkspace, selectedEdgeId])
+
+  useEffect(() => {
+    if (isCompactWorkspace && showResults) {
+      setIsLeftOpen(false)
+      setIsRightOpen(false)
+    }
+  }, [isCompactWorkspace, showResults])
 
   // Simulation
   const sim = useSimulation()
@@ -844,10 +878,14 @@ export const WorkspaceLayout = () => {
       setRoutingVisualization(null)
       selectGraphElements({})
       setIsRightOpen(false)
+      if (isCompactWorkspace) {
+        setIsLeftOpen(false)
+      }
     },
     [
       clearQuestionSession,
       clearSimulationMetrics,
+      isCompactWorkspace,
       loadFromData,
       selectGraphElements,
       setRoutingVisualization,
@@ -885,9 +923,12 @@ export const WorkspaceLayout = () => {
     if (!runInspectorPinned && !selectedNodeId && !selectedEdgeId) {
       setRunInspectorPinned(true)
     }
-    setIsRightOpen(true)
+    if (!isCompactWorkspace) {
+      setIsRightOpen(true)
+    }
   }, [
     edges,
+    isCompactWorkspace,
     nodes,
     runInspectorPinned,
     selectedEdgeId,
@@ -901,7 +942,9 @@ export const WorkspaceLayout = () => {
 
   useEffect(() => {
     if (!sim.results) return
-    setIsRightOpen(true)
+    if (!isCompactWorkspace) {
+      setIsRightOpen(true)
+    }
     const inFlightByNode = new Map(
       sim.results.conservationCheck.map((result) => [result.nodeId, result.inFlight])
     )
@@ -945,7 +988,7 @@ export const WorkspaceLayout = () => {
     )
 
     setSimulationMetrics(metricsByNode)
-  }, [sim.results, setSimulationMetrics])
+  }, [isCompactWorkspace, sim.results, setSimulationMetrics])
 
   useEffect(() => {
     if (sim.status === 'idle') {
@@ -1004,13 +1047,14 @@ export const WorkspaceLayout = () => {
     flowStore.setEdgeFlowStatus('running')
     runSimulation(topology)
     flowStore.setRunInspectorPinned(true)
-    setIsRightOpen(true)
+    setIsRightOpen(!isCompactWorkspace)
   }, [
     activeQuestion,
     clearSimulationMetrics,
     displaySettings.autoOpenSimulationTray,
     edges,
     environmentProfile,
+    isCompactWorkspace,
     nodes,
     scenario,
     serialize,
@@ -1246,12 +1290,112 @@ export const WorkspaceLayout = () => {
       }
     })
 
+  const libraryContent = (
+    <LibrarySidebarContent
+      activeTab={leftSidebarTab}
+      onLoadScenario={handleLoadScenario}
+      focusSearchVersion={componentLibrarySearchFocusVersion}
+    />
+  )
+
+  const propertiesContent = (
+    <Suspense fallback={<PanelFallback label="Loading inspector..." />}>
+      <PropertiesPanel results={sim.results} />
+    </Suspense>
+  )
+
+  const canvasContent = (
+    <div className="relative h-full min-h-0">
+      <ErrorBoundary
+        label="FlowCanvas"
+        fallback={(error, reset) => (
+          <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
+            <p className="text-sm font-semibold text-nss-danger">
+              The canvas hit a rendering error.
+            </p>
+            <p className="max-w-md text-xs text-nss-muted">
+              Your topology is safe. This is usually a transient issue with one node or edge —
+              reload the canvas to continue.
+            </p>
+            <p className="max-w-md break-words font-mono text-[10px] text-nss-muted/80">
+              {error.message}
+            </p>
+            <button
+              type="button"
+              onClick={reset}
+              className="min-h-11 rounded border border-nss-border px-3 py-1.5 text-xs font-semibold text-nss-text transition-colors hover:border-nss-primary hover:text-nss-primary"
+            >
+              Reload canvas
+            </button>
+          </div>
+        )}
+      >
+        <Suspense fallback={<PanelFallback label="Loading canvas..." />}>
+          <FlowCanvas
+            showMetricLens={environmentProfile.visibility.liveMetrics}
+            interactionLocked={experienceEnvelope.canvasLocked}
+            onNodeDoubleClick={(_, node) => {
+              selectGraphElements({ nodeId: node.id })
+              setIsRightOpen(true)
+              if (isCompactWorkspace) setIsLeftOpen(false)
+            }}
+            onEdgeDoubleClick={(_, edge) => {
+              selectGraphElements({ edgeId: edge.id })
+              setIsRightOpen(true)
+              if (isCompactWorkspace) setIsLeftOpen(false)
+            }}
+          />
+        </Suspense>
+      </ErrorBoundary>
+
+      {!showResults && sim.results && (
+        <button
+          type="button"
+          onClick={() => setShowResults(true)}
+          className="nss-results-reopen absolute bottom-4 left-1/2 z-20 min-h-11 -translate-x-1/2 rounded-full border border-nss-border bg-nss-panel/95 px-4 py-2 text-sm font-semibold text-nss-text shadow-lg backdrop-blur transition-colors hover:border-nss-primary/50 hover:text-nss-primary"
+        >
+          {experienceEnvelope.resultsButtonLabel}
+        </button>
+      )}
+    </div>
+  )
+
+  const resultsContent =
+    showResults && sim.status !== 'idle' ? (
+      <Suspense fallback={<PanelFallback label="Loading simulation results..." />}>
+        <ResultsTray
+          status={sim.status}
+          stopped={sim.stopped}
+          progress={sim.progress}
+          eventsProcessed={sim.eventsProcessed}
+          runStartedAtMs={sim.runStartedAtMs}
+          snapshot={sim.snapshot}
+          results={sim.results}
+          error={sim.error}
+          runContext={lastRunContext}
+          onClose={() => setShowResults(false)}
+        />
+      </Suspense>
+    ) : null
+
+  const toggleLeft = () => {
+    const next = !isLeftOpen
+    setIsLeftOpen(next)
+    if (next && isCompactWorkspace) setIsRightOpen(false)
+  }
+
+  const toggleRight = () => {
+    const next = !isRightOpen
+    setIsRightOpen(next)
+    if (next && isCompactWorkspace) setIsLeftOpen(false)
+  }
+
   return (
-    <div className="h-screen w-screen flex flex-col overflow-hidden bg-nss-bg text-nss-text">
+    <div className="nss-app-shell flex w-screen min-h-0 flex-col overflow-hidden bg-nss-bg text-nss-text">
       {/* Header */}
       <Header
-        toggleLeft={() => setIsLeftOpen((prev) => !prev)}
-        toggleRight={() => setIsRightOpen((prev) => !prev)}
+        toggleLeft={toggleLeft}
+        toggleRight={toggleRight}
         isLeftOpen={isLeftOpen}
         isRightOpen={isRightOpen}
         onSave={handleSave}
@@ -1308,7 +1452,7 @@ export const WorkspaceLayout = () => {
       )}
 
       {/* Main Content Area */}
-      <div className="flex-1 overflow-hidden relative h-full flex">
+      <div className="relative flex min-h-0 flex-1 overflow-hidden">
         <LibraryActivityRail
           activeTab={leftSidebarTab}
           experience={experienceEnvelope}
@@ -1317,126 +1461,88 @@ export const WorkspaceLayout = () => {
           settingsOpenRequestVersion={settingsOpenRequestVersion}
         />
 
-        <PanelGroup
-          direction="horizontal"
-          autoSaveId="main-layout-horizontal"
-          className="min-w-0 flex-1"
-        >
-          {/* Left library content - the activity rail stays outside this collapsible panel */}
-          <Panel
-            ref={leftPanelRef}
-            collapsible
-            defaultSize={LEFT_LIBRARY_DEFAULT_SIZE}
-            minSize={LEFT_LIBRARY_MIN_SIZE}
-            maxSize={LEFT_LIBRARY_MAX_SIZE}
-            order={1}
-            id="left-panel"
+        {isCompactWorkspace ? (
+          <main className="relative min-w-0 flex-1 overflow-hidden">
+            <div className="h-full min-h-0">{resultsContent ?? canvasContent}</div>
+
+            {isLeftOpen ? (
+              <>
+                <button
+                  type="button"
+                  aria-label="Close library drawer"
+                  onClick={() => setIsLeftOpen(false)}
+                  className="absolute inset-0 z-30 bg-black/15"
+                />
+                <aside className="absolute inset-y-0 left-0 z-40 w-[min(22rem,calc(100%-3rem))] overflow-hidden bg-nss-panel shadow-2xl">
+                  {libraryContent}
+                </aside>
+              </>
+            ) : null}
+
+            {isRightOpen ? (
+              <>
+                <button
+                  type="button"
+                  aria-label="Close inspector drawer"
+                  onClick={() => setIsRightOpen(false)}
+                  className="absolute inset-0 z-30 bg-black/15"
+                />
+                <aside className="absolute inset-y-0 right-0 z-40 w-[min(24rem,calc(100%-3rem))] overflow-hidden bg-nss-panel shadow-2xl">
+                  {propertiesContent}
+                </aside>
+              </>
+            ) : null}
+          </main>
+        ) : (
+          <PanelGroup
+            direction="horizontal"
+            autoSaveId="main-layout-horizontal"
+            className="min-w-0 flex-1"
           >
-            <LibrarySidebarContent
-              activeTab={leftSidebarTab}
-              onLoadScenario={handleLoadScenario}
-              focusSearchVersion={componentLibrarySearchFocusVersion}
-            />
-          </Panel>
-          <ResizeHandle vertical id="resize-left-catalog" />
+            <Panel
+              ref={leftPanelRef}
+              collapsible
+              defaultSize={LEFT_LIBRARY_DEFAULT_SIZE}
+              minSize={LEFT_LIBRARY_MIN_SIZE}
+              maxSize={LEFT_LIBRARY_MAX_SIZE}
+              order={1}
+              id="left-panel"
+            >
+              {libraryContent}
+            </Panel>
+            <ResizeHandle vertical id="resize-left-catalog" />
 
-          {/* Center Column */}
-          <Panel order={2} minSize={30} id="center-panel">
-            <PanelGroup direction="vertical" autoSaveId="main-layout-vertical">
-              {/* Canvas */}
-              <Panel defaultSize={showResults ? 65 : 100} minSize={10} order={1}>
-                <div className="relative h-full">
-                  <ErrorBoundary
-                    label="FlowCanvas"
-                    fallback={(error, reset) => (
-                      <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
-                        <p className="text-sm font-semibold text-nss-danger">
-                          The canvas hit a rendering error.
-                        </p>
-                        <p className="max-w-md text-xs text-nss-muted">
-                          Your topology is safe. This is usually a transient issue with one node or
-                          edge — reload the canvas to continue.
-                        </p>
-                        <p className="max-w-md break-words font-mono text-[10px] text-nss-muted/80">
-                          {error.message}
-                        </p>
-                        <button
-                          type="button"
-                          onClick={reset}
-                          className="rounded border border-nss-border px-3 py-1.5 text-xs font-semibold text-nss-text transition-colors hover:border-nss-primary hover:text-nss-primary"
-                        >
-                          Reload canvas
-                        </button>
-                      </div>
-                    )}
-                  >
-                    <Suspense fallback={<PanelFallback label="Loading canvas..." />}>
-                      <FlowCanvas
-                        showMetricLens={environmentProfile.visibility.liveMetrics}
-                        interactionLocked={experienceEnvelope.canvasLocked}
-                        onNodeDoubleClick={(_, node) => {
-                          selectGraphElements({ nodeId: node.id })
-                          setIsRightOpen(true)
-                        }}
-                      />
-                    </Suspense>
-                  </ErrorBoundary>
+            <Panel order={2} minSize={30} id="center-panel">
+              <PanelGroup direction="vertical" autoSaveId="main-layout-vertical">
+                <Panel defaultSize={showResults ? 65 : 100} minSize={10} order={1}>
+                  {canvasContent}
+                </Panel>
 
-                  {!showResults && sim.results && (
-                    <button
-                      type="button"
-                      onClick={() => setShowResults(true)}
-                      className="absolute bottom-4 left-1/2 z-20 -translate-x-1/2 rounded-full border border-nss-border bg-nss-panel/95 px-4 py-2 text-sm font-semibold text-nss-text shadow-lg backdrop-blur transition-colors hover:border-nss-primary/50 hover:text-nss-primary"
-                    >
-                      {experienceEnvelope.resultsButtonLabel}
-                    </button>
-                  )}
-                </div>
-              </Panel>
+                {resultsContent ? (
+                  <>
+                    <ResizeHandle id="resize-results" />
+                    <Panel defaultSize={35} minSize={15} maxSize={90} order={2}>
+                      {resultsContent}
+                    </Panel>
+                  </>
+                ) : null}
+              </PanelGroup>
+            </Panel>
 
-              {/* Results Tray */}
-              {showResults && sim.status !== 'idle' && (
-                <>
-                  <ResizeHandle id="resize-results" />
-                  <Panel defaultSize={35} minSize={15} maxSize={90} order={2}>
-                    <Suspense fallback={<PanelFallback label="Loading simulation results..." />}>
-                      <ResultsTray
-                        status={sim.status}
-                        stopped={sim.stopped}
-                        progress={sim.progress}
-                        eventsProcessed={sim.eventsProcessed}
-                        runStartedAtMs={sim.runStartedAtMs}
-                        snapshot={sim.snapshot}
-                        results={sim.results}
-                        error={sim.error}
-                        runContext={lastRunContext}
-                        onClose={() => {
-                          setShowResults(false)
-                        }}
-                      />
-                    </Suspense>
-                  </Panel>
-                </>
-              )}
-            </PanelGroup>
-          </Panel>
-
-          {/* Right Sidebar - always in DOM, collapsed/expanded via ref */}
-          <ResizeHandle vertical id="resize-right-inspector" />
-          <Panel
-            ref={rightPanelRef}
-            collapsible
-            defaultSize={25}
-            minSize={15}
-            maxSize={40}
-            order={3}
-            id="right-panel"
-          >
-            <Suspense fallback={<PanelFallback label="Loading inspector..." />}>
-              <PropertiesPanel results={sim.results} />
-            </Suspense>
-          </Panel>
-        </PanelGroup>
+            <ResizeHandle vertical id="resize-right-inspector" />
+            <Panel
+              ref={rightPanelRef}
+              collapsible
+              defaultSize={25}
+              minSize={15}
+              maxSize={40}
+              order={3}
+              id="right-panel"
+            >
+              {propertiesContent}
+            </Panel>
+          </PanelGroup>
+        )}
       </div>
 
       {showSamples && (

@@ -238,7 +238,7 @@ export function RequestTraceOverlay() {
   )
 
   const panel = (body: React.ReactNode) => (
-    <div className="pointer-events-auto absolute bottom-4 left-1/2 z-30 -translate-x-1/2 rounded-xl border border-nss-border bg-nss-surface/95 px-3 py-2 shadow-lg backdrop-blur">
+    <div className="nss-request-trace-overlay pointer-events-auto absolute bottom-4 left-1/2 z-30 -translate-x-1/2 rounded-xl border border-nss-border bg-nss-surface/95 px-3 py-2 shadow-lg backdrop-blur">
       <div className="flex items-center gap-2">
         <div className="text-[11px] text-nss-text">{body}</div>
         {controls}

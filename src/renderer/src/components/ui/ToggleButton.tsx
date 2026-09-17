@@ -7,7 +7,7 @@ interface ToggleButtonProps {
 
 export const ToggleButton = ({ onClick, isOpen, icon, label }: ToggleButtonProps) => {
   const baseClass =
-    'p-2 rounded transition-colors duration-200 flex items-center justify-center focus:outline-none focus:ring-1 focus:ring-nss-primary'
+    'nss-touch-target p-2 rounded transition-colors duration-200 flex items-center justify-center focus:outline-none focus:ring-1 focus:ring-nss-primary'
   const activeClass = 'bg-nss-border text-nss-primary'
   const inactiveClass = 'text-nss-muted hover:bg-nss-surface hover:text-nss-text'
 

@@ -95,7 +95,7 @@ const ActivityButton = memo(function ActivityButton({
       title={`${tab.label} (Cmd/Ctrl+${tab.shortcutIndex})`}
       aria-label={`${tab.label}, shortcut Cmd or Ctrl plus ${tab.shortcutIndex}`}
       aria-pressed={isActive}
-      className={`group relative h-10 w-10 rounded-md flex items-center justify-center transition-colors ${
+      className={`nss-touch-target group relative h-10 w-10 rounded-md flex items-center justify-center transition-colors ${
         isActive
           ? 'bg-nss-surface text-nss-text'
           : 'text-nss-muted hover:text-nss-text hover:bg-nss-surface'
@@ -129,21 +129,23 @@ export const LibraryActivityRail = memo(function LibraryActivityRail({
   return (
     <nav
       aria-label="Library views"
-      className="h-full w-12 shrink-0 bg-nss-bg border-r border-nss-border flex flex-col items-center py-2 gap-1"
+      className="nss-activity-rail h-full min-h-0 w-12 shrink-0 bg-nss-bg border-r border-nss-border flex flex-col items-center py-2 gap-1 overflow-hidden"
     >
-      {tabs.map((tab) => (
-        <ActivityButton key={tab.id} tab={tab} activeTab={activeTab} onSelect={onSelect} />
-      ))}
+      <div className="flex min-h-0 flex-1 flex-col items-center gap-1 overflow-y-auto overflow-x-hidden">
+        {tabs.map((tab) => (
+          <ActivityButton key={tab.id} tab={tab} activeTab={activeTab} onSelect={onSelect} />
+        ))}
+      </div>
 
       {/* Utility actions — pinned to the bottom of the rail, below the tabs. */}
-      <div className="mt-auto flex flex-col items-center gap-1">
+      <div className="mt-auto flex shrink-0 flex-col items-center gap-1">
         <button
           type="button"
           onClick={onShowShortcuts}
           title="Keyboard shortcuts (?)"
           aria-label="Keyboard shortcuts"
           aria-haspopup="dialog"
-          className="h-10 w-10 rounded-md flex items-center justify-center text-nss-muted transition-colors hover:text-nss-text hover:bg-nss-surface"
+          className="nss-touch-target h-10 w-10 rounded-md flex items-center justify-center text-nss-muted transition-colors hover:text-nss-text hover:bg-nss-surface"
         >
           <Keyboard size={18} />
         </button>

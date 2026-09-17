@@ -567,3 +567,52 @@ describe('useStore host lifecycle (lock / reveal)', () => {
     expect(useStore.getState().resultsRevealed).toBe(true)
   })
 })
+
+describe('useStore annotation history', () => {
+  beforeEach(() => {
+    useStore.getState().setAnnotations([])
+  })
+
+  it('undoes and redoes teaching annotations independently of the topology', () => {
+    useStore.getState().addAnnotation({
+      id: 'pen-1',
+      kind: 'pen',
+      color: '#2563eb',
+      width: 2.5,
+      points: [
+        { x: 10, y: 10 },
+        { x: 30, y: 30 }
+      ]
+    })
+
+    expect(useStore.getState().annotations).toHaveLength(1)
+    expect(useStore.getState().annotationHistory.past).toHaveLength(1)
+
+    useStore.getState().undoAnnotation()
+    expect(useStore.getState().annotations).toEqual([])
+    expect(useStore.getState().annotationHistory.future).toHaveLength(1)
+
+    useStore.getState().redoAnnotation()
+    expect(useStore.getState().annotations.map((annotation) => annotation.id)).toEqual(['pen-1'])
+  })
+
+  it('edits sticky-note text without adding an undo entry for every keystroke', () => {
+    useStore.getState().addAnnotation({
+      id: 'note-1',
+      kind: 'note',
+      color: '#fef3c7',
+      position: { x: 20, y: 30 },
+      text: ''
+    })
+
+    useStore.getState().updateNoteAnnotation('note-1', 'Explain the retry boundary')
+
+    expect(useStore.getState().annotations).toContainEqual(
+      expect.objectContaining({ id: 'note-1', text: 'Explain the retry boundary' })
+    )
+    expect(useStore.getState().annotationHistory.past).toHaveLength(1)
+
+    useStore.getState().undoAnnotation()
+    expect(useStore.getState().annotations).toEqual([])
+  })
+})

@@ -64,14 +64,20 @@ export const useFlowPersistence = (
   const setUnsaved = useStore((s) => s.setUnsaved)
   const scenario = useStore((s) => s.scenario)
   const setScenario = useStore((s) => s.setScenario)
+  const annotations = useStore((s) => s.annotations)
+  const setAnnotations = useStore((s) => s.setAnnotations)
 
   const isLoadingRef = useRef(false)
   const lastPersistedContentRef = useRef<string | null>(null)
 
   const handleGetFileData = useCallback(() => {
-    const { nodes, edges } = useStore.getState()
+    const { nodes, edges, annotations } = useStore.getState()
     const nestedNodes = convertFlatToNested(nodes)
-    return JSON.stringify({ version: '2.0.0', nodes: nestedNodes, edges, scenario }, null, 2)
+    return JSON.stringify(
+      { version: '2.0.0', nodes: nestedNodes, edges, scenario, annotations },
+      null,
+      2
+    )
   }, [scenario])
 
   const handleLoadFileData = useCallback(
@@ -91,7 +97,8 @@ export const useFlowPersistence = (
             version: '2.0.0',
             nodes: convertFlatToNested(flatNodes),
             edges: data.edges || [],
-            scenario: normalizedScenario
+            scenario: normalizedScenario,
+            annotations: data.annotations ?? []
           },
           null,
           2
@@ -102,6 +109,7 @@ export const useFlowPersistence = (
 
         setGraph(flatNodes, data.edges || [], { history: 'skip', resetHistory: true })
         setScenario(normalizedScenario)
+        setAnnotations(data.annotations ?? [])
         setUnsaved(false)
 
         if (fileName && typeof fileName === 'string') {
@@ -120,7 +128,7 @@ export const useFlowPersistence = (
         return false
       }
     },
-    [setFileName, setGraph, setScenario, setUnsaved]
+    [setAnnotations, setFileName, setGraph, setScenario, setUnsaved]
   )
 
   const { handleSave: innerSave, handleOpen } = useFileHandlers(
@@ -185,7 +193,7 @@ export const useFlowPersistence = (
     if (isLoadingRef.current) return
 
     setUnsaved(currentSnapshot !== lastPersistedContentRef.current)
-  }, [edges, handleGetFileData, nodes, scenario, setUnsaved])
+  }, [annotations, edges, handleGetFileData, nodes, scenario, setUnsaved])
 
   return { handleSave: handleSaveWrapper, handleOpen: handleOpenWithCheckIfSaved, loadFromData }
 }

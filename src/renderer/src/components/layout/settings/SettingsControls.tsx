@@ -6,11 +6,13 @@
 import { EditableNumberInput } from '@renderer/components/ui/EditableNumberInput'
 
 export function SettingRow({
+  id,
   label,
   hint,
   children,
   disabled
 }: {
+  id?: string
   label: string
   hint?: string
   children: React.ReactNode
@@ -18,6 +20,8 @@ export function SettingRow({
 }): React.JSX.Element {
   return (
     <div
+      id={id}
+      tabIndex={id ? -1 : undefined}
       className={`flex items-start justify-between gap-4 py-2.5 ${disabled ? 'opacity-50' : ''}`}
     >
       <div className="min-w-0 flex-1">

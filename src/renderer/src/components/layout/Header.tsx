@@ -119,7 +119,7 @@ export const Header = memo(
     return (
       <header
         ref={headerRef}
-        className="relative h-12 bg-nss-panel text-nss-text flex items-center justify-between px-4 shrink-0 border-b border-nss-border transition-colors duration-200 overflow-visible"
+        className="nss-app-header relative flex h-12 shrink-0 items-center justify-between overflow-visible border-b border-nss-border bg-nss-panel px-4 text-nss-text transition-colors duration-200"
       >
         {/* LEFT: Branding & left sidebar toggle */}
         <div ref={leftGroupRef} className="flex items-center gap-1 shrink-0">
@@ -131,8 +131,10 @@ export const Header = memo(
             label="Toggle left sidebar"
             icon={<Sidebar size={18} />}
           />
-          <Divider />
-          <CostChip />
+          <div className="nss-desktop-only contents">
+            <Divider />
+            <CostChip />
+          </div>
           <Divider />
           <ModeBadge />
         </div>
@@ -142,11 +144,15 @@ export const Header = memo(
           ref={centerGroupRef}
           className={
             centerControlsPinned
-              ? 'absolute left-1/2 top-1/2 z-10 flex -translate-x-1/2 -translate-y-1/2 items-center gap-3'
-              : 'flex items-center gap-3'
+              ? 'absolute left-1/2 top-1/2 z-10 flex -translate-x-1/2 -translate-y-1/2 items-center gap-2'
+              : 'flex items-center gap-2'
           }
         >
-          {!minimal && <FileStatus fileName={fileName} isUnsaved={isUnsaved} />}
+          {!minimal && (
+            <div className="nss-desktop-only">
+              <FileStatus fileName={fileName} isUnsaved={isUnsaved} />
+            </div>
+          )}
 
           <div className="flex items-center gap-1">
             {canOpen && (
@@ -158,7 +164,9 @@ export const Header = memo(
             <IconButton onClick={onAutoLayout} icon={<Workflow size={18} />} label="Auto Layout" />
           </div>
 
-          <Divider />
+          <div className="nss-desktop-only">
+            <Divider />
+          </div>
 
           <SimulationControls
             onRun={onRun}
@@ -178,7 +186,7 @@ export const Header = memo(
         </div>
 
         {/* RIGHT: Theme & right sidebar toggle */}
-        <div ref={rightGroupRef} className="flex items-center gap-3 shrink-0">
+        <div ref={rightGroupRef} className="flex shrink-0 items-center gap-1">
           <ThemeToggle />
           <Divider />
           <ToggleButton

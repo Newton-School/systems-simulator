@@ -5132,7 +5132,7 @@ export function ResultsTray({
         <>
           {visibleTabs.length > 0 && (
             <div className="shrink-0 border-b border-nss-border px-4 py-2">
-              <div className="flex w-full items-center gap-2">
+              <div className="nss-results-tabs-bar flex w-full items-center gap-2">
                 <div className="flex items-center gap-2 overflow-x-auto">
                   {visibleTabs.map((tab) => (
                     <TabButton
@@ -5146,7 +5146,7 @@ export function ResultsTray({
                 <button
                   type="button"
                   onClick={toggleRequestFlow}
-                  className="ml-auto shrink-0 rounded border border-nss-border px-2 py-0.5 text-[11px] font-semibold text-nss-muted transition-colors hover:border-nss-primary hover:text-nss-primary"
+                  className="nss-touch-target ml-auto shrink-0 rounded border border-nss-border px-2 py-0.5 text-[11px] font-semibold text-nss-muted transition-colors hover:border-nss-primary hover:text-nss-primary"
                   title="Animate a representative sample of real requests flowing across the topology — showing where they route, get cached, fan out, or are rejected"
                 >
                   {isTracingFlow ? '■ Stop request flow' : '▶ Show request flow'}

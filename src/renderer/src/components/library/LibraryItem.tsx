@@ -6,6 +6,7 @@ interface LibraryItemProps {
   item: CatalogItem
   onActivate?: (item: CatalogItem) => void
   draggableItem?: boolean
+  selected?: boolean
 }
 
 function LibraryItemTooltipContent({ item }: LibraryItemProps) {
@@ -55,7 +56,12 @@ function LibraryItemTooltipContent({ item }: LibraryItemProps) {
   )
 }
 
-export const LibraryItem = ({ item, onActivate, draggableItem = true }: LibraryItemProps) => {
+export const LibraryItem = ({
+  item,
+  onActivate,
+  draggableItem = true,
+  selected = false
+}: LibraryItemProps) => {
   const { icon: Icon, label, color, type, templateId } = item
   const { bg, text } = color
 
@@ -77,6 +83,7 @@ export const LibraryItem = ({ item, onActivate, draggableItem = true }: LibraryI
           {...triggerProps}
           role={onActivate ? 'button' : undefined}
           tabIndex={onActivate ? 0 : undefined}
+          aria-pressed={onActivate ? selected : undefined}
           onClick={() => onActivate?.(item)}
           onKeyDown={(event) => {
             if (!onActivate) return
@@ -96,6 +103,7 @@ export const LibraryItem = ({ item, onActivate, draggableItem = true }: LibraryI
             border border-transparent hover:border-nss-border
             transition-all duration-200
             focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nss-primary/50
+            ${selected ? 'border-nss-primary/60 bg-nss-primary/10' : ''}
             ${draggableItem ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'}
           `}
         >

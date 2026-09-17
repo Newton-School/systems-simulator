@@ -1,5 +1,6 @@
 import { Node, Edge } from 'reactflow'
 import type { ScenarioState } from '@renderer/types/ui'
+import type { CanvasAnnotation } from '@renderer/types/annotations'
 
 // --- Types ---
 export type NestedNode = Node & {
@@ -10,6 +11,8 @@ export type NestedFileData = {
   nodes: NestedNode[]
   edges: Edge[]
   scenario?: ScenarioState
+  /** Teaching marks are presentation-only and never enter the simulation topology. */
+  annotations?: CanvasAnnotation[]
 }
 
 // --- Transformers ---

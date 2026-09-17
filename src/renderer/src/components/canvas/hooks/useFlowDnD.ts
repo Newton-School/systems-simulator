@@ -18,23 +18,8 @@ interface UseFlowDnDProps {
 }
 
 export const useFlowDnD = ({ nodes, addNode, setNodes, instance, onError }: UseFlowDnDProps) => {
-  const onDragOver = useCallback((event: React.DragEvent) => {
-    event.preventDefault()
-    event.dataTransfer.dropEffect = 'move'
-  }, [])
-
-  const onDrop = useCallback(
-    (event: React.DragEvent) => {
-      event.preventDefault()
-      const type = event.dataTransfer.getData('application/reactflow/type')
-      const templateId = event.dataTransfer.getData('application/reactflow/template-id')
-
-      if (!type || !templateId) return
-      const position = instance?.screenToFlowPosition({
-        x: event.clientX,
-        y: event.clientY
-      }) || { x: 0, y: 0 }
-
+  const placeNode = useCallback(
+    (type: string, templateId: string, position: { x: number; y: number }): boolean => {
       const targetContainer = findTargetContainer(nodes, position, undefined, templateId)
       const parentTemplateId = targetContainer
         ? ((targetContainer.data as { templateId?: string })?.templateId ?? null)
@@ -43,7 +28,7 @@ export const useFlowDnD = ({ nodes, addNode, setNodes, instance, onError }: UseF
 
       if (!validation.valid) {
         onError?.(validation.error ?? 'Invalid placement.')
-        return
+        return false
       }
 
       onError?.(null)
@@ -67,12 +52,38 @@ export const useFlowDnD = ({ nodes, addNode, setNodes, instance, onError }: UseF
       }
 
       addNode(newNode)
+      return true
     },
-    [addNode, instance, nodes, onError]
+    [addNode, nodes, onError]
+  )
+
+  const onDragOver = useCallback((event: React.DragEvent) => {
+    event.preventDefault()
+    event.dataTransfer.dropEffect = 'move'
+  }, [])
+
+  const onDrop = useCallback(
+    (event: React.DragEvent) => {
+      event.preventDefault()
+      const type = event.dataTransfer.getData('application/reactflow/type')
+      const templateId = event.dataTransfer.getData('application/reactflow/template-id')
+
+      if (!type || !templateId) return
+      const position = instance?.screenToFlowPosition({
+        x: event.clientX,
+        y: event.clientY
+      }) || { x: 0, y: 0 }
+
+      placeNode(type, templateId, position)
+    },
+    [instance, placeNode]
   )
 
   const onNodeDragStop: NodeDragHandler = useCallback(
     (_, node) => {
+      // React Flow can emit a final drag-stop during a hot reload/unmount without
+      // the node payload. Treat it as a cancelled drag instead of crashing the canvas.
+      if (!node) return
       const withDraggedPosition = nodes.map((candidate) =>
         candidate.id === node.id
           ? { ...candidate, position: node.position, parentNode: node.parentNode }
@@ -84,5 +95,5 @@ export const useFlowDnD = ({ nodes, addNode, setNodes, instance, onError }: UseF
     [nodes, setNodes]
   )
 
-  return { onDragOver, onDrop, onNodeDragStop }
+  return { onDragOver, onDrop, onNodeDragStop, placeNode }
 }

@@ -20,7 +20,7 @@ const CONTROL_BASE =
   'h-7 w-full rounded-md border border-nss-border bg-nss-input-bg text-nss-text text-xs font-sans px-2 outline-none disabled:opacity-50 disabled:cursor-not-allowed focus:border-nss-primary'
 
 const ACTION_BUTTON_BASE =
-  'h-7 px-3 text-xs font-semibold font-sans rounded-md border transition-colors disabled:opacity-40 disabled:cursor-not-allowed'
+  'nss-touch-target h-7 px-3 text-xs font-semibold font-sans rounded-md border transition-colors disabled:opacity-40 disabled:cursor-not-allowed'
 
 const WORKLOAD_PANEL_WIDTH_PX = 320
 const WORKLOAD_PANEL_GUTTER_PX = 16

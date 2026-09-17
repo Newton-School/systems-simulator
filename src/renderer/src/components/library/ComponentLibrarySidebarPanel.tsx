@@ -49,6 +49,8 @@ export function ComponentLibrarySidebarPanel({
   const hiddenComponentLibraryTemplateIds = useStore(
     (state) => state.displaySettings.hiddenComponentLibraryTemplateIds
   )
+  const pendingNodePlacement = useStore((state) => state.pendingNodePlacement)
+  const setPendingNodePlacement = useStore((state) => state.setPendingNodePlacement)
 
   // Focus the search box as soon as the library mounts, so opening the app
   // lands the caret in the component search — type a node name and drag away
@@ -135,9 +137,18 @@ export function ComponentLibrarySidebarPanel({
     questionForbiddenNodeTypes
   ])
 
-  const handleBuilderActivate = (item: CatalogItem): void => {
+  const handleItemActivate = (item: CatalogItem): void => {
     const mode = BUILDER_TEMPLATE_MODES[item.templateId]
-    if (mode) setBuilderMode(mode)
+    if (mode) {
+      setBuilderMode(mode)
+      return
+    }
+
+    setPendingNodePlacement({
+      type: item.type,
+      templateId: item.templateId,
+      label: item.label
+    })
   }
 
   return (
@@ -205,7 +216,8 @@ export function ComponentLibrarySidebarPanel({
                       key={item.id}
                       item={item}
                       draggableItem={!builderModeForItem}
-                      onActivate={builderModeForItem ? handleBuilderActivate : undefined}
+                      onActivate={handleItemActivate}
+                      selected={pendingNodePlacement?.templateId === item.templateId}
                     />
                   )
                 })}

@@ -36,6 +36,8 @@ export interface EnvironmentVisibility {
 }
 
 export interface EnvironmentCapabilities {
+  /** Whether the separate teaching-annotation layer is available on the canvas. */
+  canAnnotate: boolean
   /** Allowed palette node types (null = all, [] = none). */
   editPaletteList: string[] | null
   /** Whether scaffold-provided nodes can be edited. */
@@ -123,6 +125,7 @@ export const AUTHOR_ENVIRONMENT_PROFILE: EnvironmentProfile = {
     rubricChecks: 'LIVE_DURING_BUILD'
   },
   capabilities: {
+    canAnnotate: true,
     editPaletteList: null,
     canEditScaffoldNodes: true,
     canTriggerTestRuns: true,
@@ -145,6 +148,7 @@ export const ASSIGNMENT_ENVIRONMENT_PROFILE: EnvironmentProfile = {
     rubricChecks: 'LIVE_DURING_BUILD'
   },
   capabilities: {
+    canAnnotate: false,
     editPaletteList: null,
     canEditScaffoldNodes: false,
     canTriggerTestRuns: true,
@@ -167,6 +171,7 @@ export const PRACTICE_ENVIRONMENT_PROFILE: EnvironmentProfile = {
     rubricChecks: 'LIVE_DURING_BUILD'
   },
   capabilities: {
+    canAnnotate: true,
     editPaletteList: null,
     canEditScaffoldNodes: true,
     canTriggerTestRuns: true,
@@ -213,6 +218,7 @@ const InputObjectSchema = z
       .optional(),
     capabilities: z
       .object({
+        canAnnotate: z.boolean().optional(),
         editPaletteList: z.array(z.string()).nullable().optional(),
         canEditScaffoldNodes: z.boolean().optional(),
         canTriggerTestRuns: z.boolean().optional(),

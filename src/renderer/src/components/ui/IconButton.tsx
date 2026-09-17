@@ -9,8 +9,7 @@ export const IconButton = ({ icon, label, className = '', ...props }: IconButton
   <button
     type="button"
     title={label}
-    className={`p-2 rounded hover:bg-nss-text/10 text-nss-text transition-colors 
-        focus:outline-none focus:ring-2 focus:ring-nss-primary ${className}`}
+    className={`nss-touch-target rounded p-2 text-nss-text transition-colors hover:bg-nss-text/10 focus:outline-none focus:ring-2 focus:ring-nss-primary ${className}`}
     {...props}
   >
     {icon}

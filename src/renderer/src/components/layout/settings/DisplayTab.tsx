@@ -25,6 +25,7 @@ export function DisplayTab(): React.JSX.Element {
   return (
     <div className="space-y-1">
       <SettingRow
+        id="settings-display-theme"
         label="Theme"
         hint="The same light/dark appearance control that is also available in the header."
       >
@@ -39,6 +40,7 @@ export function DisplayTab(): React.JSX.Element {
       </SettingRow>
 
       <SettingRow
+        id="settings-display-density"
         label="Chrome density"
         hint="Controls how much of the surrounding shell stays visible while you work."
       >
@@ -54,7 +56,7 @@ export function DisplayTab(): React.JSX.Element {
 
       <SectionLabel>Canvas</SectionLabel>
 
-      <div className="py-2.5">
+      <div id="settings-display-edge-path" tabIndex={-1} className="py-2.5">
         <div className="text-[12px] font-medium text-nss-text">Edge path</div>
         <div className="mt-0.5 text-[11px] leading-relaxed text-nss-muted">
           Sets the canvas default. Normal traffic, connection previews, and request traces follow
@@ -71,6 +73,7 @@ export function DisplayTab(): React.JSX.Element {
       </div>
 
       <SettingRow
+        id="settings-display-lens"
         label="Default build lens"
         hint="Which pre-run lens the canvas returns to after you clear a run or open the app."
       >
@@ -84,6 +87,7 @@ export function DisplayTab(): React.JSX.Element {
       </SettingRow>
 
       <SettingRow
+        id="settings-display-percentile"
         label="Latency lens percentile"
         hint="Which percentile the node cards show as the headline value when the Latency lens is active."
       >
@@ -97,6 +101,7 @@ export function DisplayTab(): React.JSX.Element {
       </SettingRow>
 
       <SettingRow
+        id="settings-display-spof"
         label="Single point of failure badges"
         hint="When on, nodes flagged as a single point of failure by the last run show the SPOF badge and a red ring on the canvas."
       >
@@ -109,6 +114,7 @@ export function DisplayTab(): React.JSX.Element {
       </SettingRow>
 
       <SettingRow
+        id="settings-display-request-dots"
         label="Color request dots by key"
         hint="When on, request dots on edges are tinted by their affinity/partition key. A key's color stays on one edge under sticky or shard routing and scatters across edges under round-robin — so you can see the distribution pattern, not just the volume."
       >
@@ -123,6 +129,7 @@ export function DisplayTab(): React.JSX.Element {
       <SectionLabel>Results</SectionLabel>
 
       <SettingRow
+        id="settings-display-results-open"
         label="Auto-open simulation tray"
         hint="When on, the bottom simulation tray opens automatically during a run and stays open for the final results."
       >
@@ -135,6 +142,7 @@ export function DisplayTab(): React.JSX.Element {
       </SettingRow>
 
       <SettingRow
+        id="settings-display-results-tab"
         label="Default results tab"
         hint="Which section the results tray lands on when a completed run first opens."
       >

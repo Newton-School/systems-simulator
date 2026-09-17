@@ -21,6 +21,7 @@ import type {
   DisplaySettings
 } from '@renderer/types/ui'
 import type { CanvasTextLabelData } from '../../../engine/catalog/canvasAnnotations'
+import type { CanvasAnnotation } from '@renderer/types/annotations'
 import { DEFAULT_SCENARIO_STATE } from '@renderer/types/ui'
 import type { EdgeFailureCause, EdgeFlowEvent } from '../../../engine/core/events'
 import type { WorkloadProfile } from '../../../engine/core/types'
@@ -174,6 +175,17 @@ type GraphHistoryState = {
   dragSession: GraphDragSession | null
 }
 
+type AnnotationHistoryState = {
+  past: CanvasAnnotation[][]
+  future: CanvasAnnotation[][]
+}
+
+export interface PendingNodePlacement {
+  type: string
+  templateId: string
+  label: string
+}
+
 const RUNTIME_METRIC_LENSES: ReadonlySet<MetricLens> = new Set([
   'traffic',
   'saturation',
@@ -252,6 +264,11 @@ const EMPTY_GRAPH_HISTORY: GraphHistoryState = {
   past: [],
   future: [],
   dragSession: null
+}
+
+const EMPTY_ANNOTATION_HISTORY: AnnotationHistoryState = {
+  past: [],
+  future: []
 }
 
 const EMPTY_EDGE_FLOW_STATE: EdgeFlowState = {
@@ -1141,6 +1158,10 @@ type RFState = {
   runInspectorPinned: boolean
   runInspectorDrilldownActive: boolean
   routingStrategyVisualization: RoutingStrategyVisualizationState | null
+  /** Presentation-only teaching marks; excluded from validation and simulation. */
+  annotations: CanvasAnnotation[]
+  annotationHistory: AnnotationHistoryState
+  pendingNodePlacement: PendingNodePlacement | null
 
   // --- File State ---
   fileName: string | null
@@ -1205,6 +1226,14 @@ type RFState = {
   setTraceSpeed: (speed: 'normal' | 'slow') => void
   viewportFitVersion: number
   requestViewportFit: () => void
+  setPendingNodePlacement: (placement: PendingNodePlacement | null) => void
+  setAnnotations: (annotations: CanvasAnnotation[]) => void
+  addAnnotation: (annotation: CanvasAnnotation) => void
+  updateNoteAnnotation: (annotationId: string, text: string) => void
+  removeAnnotation: (annotationId: string) => void
+  clearAnnotations: () => void
+  undoAnnotation: () => void
+  redoAnnotation: () => void
 
   // --- Actions ---
   onNodesChange: OnNodesChange
@@ -1259,6 +1288,9 @@ const useStore = create<RFState>((set, get) => ({
   routingStrategyVisualization: null,
   graphHistory: EMPTY_GRAPH_HISTORY,
   graphRevision: 0,
+  annotations: [],
+  annotationHistory: EMPTY_ANNOTATION_HISTORY,
+  pendingNodePlacement: null,
 
   // Initial File State
   fileName: 'Untitled',
@@ -1920,6 +1952,83 @@ const useStore = create<RFState>((set, get) => ({
     set((state) => ({
       viewportFitVersion: state.viewportFitVersion + 1
     })),
+  setPendingNodePlacement: (pendingNodePlacement) => set({ pendingNodePlacement }),
+  setAnnotations: (annotations) =>
+    set({ annotations, annotationHistory: EMPTY_ANNOTATION_HISTORY }),
+  addAnnotation: (annotation) =>
+    set((state) => ({
+      annotations: [...state.annotations, annotation],
+      annotationHistory: {
+        past: [...state.annotationHistory.past, state.annotations].slice(-GRAPH_HISTORY_LIMIT),
+        future: []
+      }
+    })),
+  updateNoteAnnotation: (annotationId, text) =>
+    set((state) => {
+      let changed = false
+      const annotations = state.annotations.map((annotation) => {
+        if (
+          annotation.id !== annotationId ||
+          annotation.kind !== 'note' ||
+          annotation.text === text
+        ) {
+          return annotation
+        }
+        changed = true
+        return { ...annotation, text }
+      })
+      return changed ? { annotations } : {}
+    }),
+  removeAnnotation: (annotationId) =>
+    set((state) => {
+      const annotations = state.annotations.filter((annotation) => annotation.id !== annotationId)
+      if (annotations.length === state.annotations.length) return {}
+      return {
+        annotations,
+        annotationHistory: {
+          past: [...state.annotationHistory.past, state.annotations].slice(-GRAPH_HISTORY_LIMIT),
+          future: []
+        }
+      }
+    }),
+  clearAnnotations: () =>
+    set((state) =>
+      state.annotations.length === 0
+        ? {}
+        : {
+            annotations: [],
+            annotationHistory: {
+              past: [...state.annotationHistory.past, state.annotations].slice(
+                -GRAPH_HISTORY_LIMIT
+              ),
+              future: []
+            }
+          }
+    ),
+  undoAnnotation: () =>
+    set((state) => {
+      const previous = state.annotationHistory.past[state.annotationHistory.past.length - 1]
+      if (!previous) return {}
+      return {
+        annotations: previous,
+        annotationHistory: {
+          past: state.annotationHistory.past.slice(0, -1),
+          future: [state.annotations, ...state.annotationHistory.future]
+        }
+      }
+    }),
+  redoAnnotation: () =>
+    set((state) => {
+      const next = state.annotationHistory.future[0]
+      if (!next) return {}
+      return {
+        annotations: next,
+        annotationHistory: {
+          past: [...state.annotationHistory.past, state.annotations].slice(-GRAPH_HISTORY_LIMIT),
+          future: state.annotationHistory.future.slice(1)
+        }
+      }
+    }),
   updateScenario: (updater) => set((state) => ({ scenario: updater(state.scenario) })),
   updateDisplaySettings: (updater) =>
     set((state) => {
