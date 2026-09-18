@@ -10,7 +10,7 @@ function server(id: string, capacityRps: number): ComponentNode {
     category: 'compute',
     label: id,
     position: { x: 0, y: 0 },
-    config: { capacityRps }
+    config: { capacityRps, capacityAuthored: true }
   }
 }
 

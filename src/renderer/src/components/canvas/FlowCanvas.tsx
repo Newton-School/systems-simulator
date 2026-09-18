@@ -817,7 +817,12 @@ const FlowCanvasInternal = ({
         panOnScroll={isPanTool}
         selectionOnDrag={isSelectTool}
         selectionMode={SelectionMode.Partial}
-        multiSelectionKeyCode="Shift"
+        // Shift drives the marquee (box) selection; Cmd/Ctrl adds to the
+        // selection. These MUST differ — when selectionKeyCode and
+        // multiSelectionKeyCode are the same key, React Flow's box-select and
+        // multi-select collide and the marquee grabs the entire graph.
+        selectionKeyCode="Shift"
+        multiSelectionKeyCode={['Meta', 'Control']}
         selectNodesOnDrag={false}
         elementsSelectable
         nodesDraggable={

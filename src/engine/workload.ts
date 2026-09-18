@@ -12,6 +12,8 @@ const DEFAULT_RAMP_DURATION_MS = 10_000
 export interface WorkloadGeneratorOptions {
   defaultTimeoutMs?: number
   simulationDurationMs?: number
+  /** Stop scheduling new arrivals after this many source requests (request-budget mode). */
+  maxRequests?: number
 }
 
 export class WorkloadGenerator {
@@ -21,6 +23,8 @@ export class WorkloadGenerator {
   private readonly distributions: Distributions
   private readonly defaultTimeoutMs: number
   private readonly simulationDurationUs: bigint | null
+  /** Source-request cap (request-budget mode); `null` means unbounded by count. */
+  private readonly maxRequests: number | null
 
   private requestCounter = 0
   private startTime = 0n
@@ -43,6 +47,10 @@ export class WorkloadGenerator {
     this.defaultTimeoutMs = options.defaultTimeoutMs ?? DEFAULT_TIMEOUT_MS
     this.simulationDurationUs =
       options.simulationDurationMs === undefined ? null : msToMicro(options.simulationDurationMs)
+    this.maxRequests =
+      options.maxRequests !== undefined && options.maxRequests > 0
+        ? Math.floor(options.maxRequests)
+        : null
   }
 
   initialize(startTime: bigint): void {
@@ -73,6 +81,12 @@ export class WorkloadGenerator {
   }
 
   private scheduleRequestGeneratedAt(timestamp: bigint): void {
+    // Request-budget mode: once `maxRequests` source requests have been created,
+    // stop scheduling. The run then drains in-flight work and ends naturally.
+    if (this.maxRequests !== null && this.requestCounter >= this.maxRequests) {
+      return
+    }
+
     if (this.simulationDurationUs !== null) {
       const endExclusive = this.startTime + this.simulationDurationUs
       if (timestamp >= endExclusive) {

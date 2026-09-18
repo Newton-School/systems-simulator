@@ -22,9 +22,11 @@ import { evaluateInvariantViolations } from './invariants'
 import { generateSimulationOutput, type SimulationOutput } from './output'
 import { evaluateFluidModel, type FluidModelOptions } from './fluidModel'
 import { generateRepresentativeTraffic } from './representativeTraffic'
+import { buildRepresentativeOutcomes } from './representativeOutcomes'
 import { approxResponsePercentileMs as approxPct } from './queueingLatency'
 import { MetricsCollector } from '../metrics'
 import { RequestTracer } from '../tracer'
+import { resolveStopCondition } from '../core/stopCondition'
 import type { TopologyJSON } from '../core/types'
 
 /**
@@ -50,7 +52,14 @@ export function runFluidSimulation(
 
   const base = generateSimulationOutput(metrics, tracer, [], null, [], topology.global, 0)
 
-  const durationSec = Math.max(0, base.summary.postWarmupDurationSec)
+  // Honor the workload stop condition. In request-budget mode the run lasts only
+  // as long as it takes to emit `maxRequests` at the offered rate, and the totals
+  // reflect that exact budget rather than rate × the authored duration.
+  const stop = resolveStopCondition(topology)
+  const durationSec =
+    stop.maxRequests !== null && fluid.offeredRps > 0
+      ? stop.maxRequests / fluid.offeredRps
+      : Math.max(0, base.summary.postWarmupDurationSec)
   // Latency ceiling for unstable (ρ ≥ 1) nodes: a request that can never clear the
   // queue instead burns its timeout, so report that rather than Infinity (which
   // would not survive JSON transport or chart rendering).
@@ -132,14 +141,36 @@ export function runFluidSimulation(
     }
   }
 
-  const representative = generateRepresentativeTraffic(topology, fluid)
+  const representative = generateRepresentativeTraffic(topology, fluid, {
+    durationMs: durationSec * 1000
+  })
+
+  // Steady-state saturation is known in closed form: if the guard is armed and the
+  // bottleneck is at/over the threshold, the design is saturated from the start.
+  const saturated =
+    stop.haltUtilization !== null && fluid.headroom.maxUtilization >= stop.haltUtilization
+  const stopReason: 'duration' | 'request-budget' | 'saturation' = saturated
+    ? 'saturation'
+    : stop.mode === 'requestBudget'
+      ? 'request-budget'
+      : 'duration'
+
+  // Full-path illustrative traces so the canvas "Show request flow" tracer has
+  // something to animate on analytic runs (the fluid path emits no per-request
+  // ledger of its own). Cosmetic — the authoritative numbers stay in `summary`/
+  // `perNode`, never in these synthetic rows.
+  const requestOutcomes = buildRepresentativeOutcomes(topology, fluid)
 
   return {
     ...base,
+    requestOutcomes,
+    requestOutcomeTotal: requestOutcomes.length,
     invariantViolations: evaluateInvariantViolations(topology.invariants, base),
     singlePointsOfFailure: detectSinglePointsOfFailure(topology),
     evaluationMode: 'analytic',
-    requestsPerDot: representative.requestsPerDot
+    requestsPerDot: representative.requestsPerDot,
+    stopReason,
+    stoppedAtMs: saturated ? 0 : durationSec * 1000
   }
 }
 

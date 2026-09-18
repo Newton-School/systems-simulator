@@ -20,7 +20,7 @@ function server(id: string): ComponentNode {
     label: id,
     position: { x: 0, y: 0 },
     // "Each backend server can handle a maximum of 100,000 requests per second."
-    config: { capacityRps: 100_000 }
+    config: { capacityRps: 100_000, capacityAuthored: true }
   }
 }
 

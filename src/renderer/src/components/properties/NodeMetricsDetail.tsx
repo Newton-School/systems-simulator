@@ -51,6 +51,15 @@ function fmtRatioPercent(value?: number): string {
   return `${((value ?? 0) * 100).toFixed(1)}%`
 }
 
+// LOGIC: Request counts are integers by definition. The fluid/analytic model
+// produces them as rate × duration products (e.g. 142857.142…), so round to
+// whole requests and group thousands before display. Rates and latencies stay
+// fractional and are not passed through here.
+function fmtCount(value?: number | null): string | undefined {
+  if (value === undefined || value === null) return undefined
+  return Math.round(value).toLocaleString()
+}
+
 const TRAIT_COUNTER_LABELS: Record<string, string> = {
   memoryPressureEvents: 'Requests under memory pressure',
   workingSetPressureEvents: 'Requests with working-set spill',
@@ -178,12 +187,12 @@ export const NodeMetricsDetail = ({
           <MetricItem label="Utilization" value={metrics.utilization} unit="%" />
           <MetricItem
             label={isBroadcastFanout ? 'Messages received' : 'Arrived'}
-            value={metrics.postWarmupArrived}
+            value={fmtCount(metrics.postWarmupArrived)}
             unit={isBroadcastFanout ? 'msg' : 'req'}
           />
           <MetricItem
             label={isBroadcastFanout ? 'Subscriber deliveries' : 'Completed'}
-            value={metrics.postWarmupProcessed}
+            value={fmtCount(metrics.postWarmupProcessed)}
             unit={isBroadcastFanout ? 'deliveries' : 'req'}
           />
           {isBroadcastFanout && amplification > 0 && (
@@ -195,19 +204,19 @@ export const NodeMetricsDetail = ({
           )}
           <MetricItem
             label="In Flight"
-            value={metrics.postWarmupInFlight}
+            value={fmtCount(metrics.postWarmupInFlight)}
             unit="req"
             textColor={inFlightColour}
           />
           <MetricItem
             label="Rejected"
-            value={metrics.postWarmupRejected}
+            value={fmtCount(metrics.postWarmupRejected)}
             unit="req"
             textColor="text-nss-warning"
           />
           <MetricItem
             label="Timed Out"
-            value={metrics.postWarmupTimedOut}
+            value={fmtCount(metrics.postWarmupTimedOut)}
             unit="req"
             textColor="text-nss-danger"
           />

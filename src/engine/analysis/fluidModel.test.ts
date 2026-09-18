@@ -22,7 +22,7 @@ function serverNode(id: string, capacityRps: number, instanceCount = 1): Compone
     label: id,
     position: { x: 0, y: 0 },
     resources: { instanceCount },
-    config: { capacityRps }
+    config: { capacityRps, capacityAuthored: true }
   }
 }
 
@@ -144,6 +144,27 @@ describe('nodeCapacityRps', () => {
 
   it('treats a load balancer as infinite-capacity passthrough', () => {
     expect(nodeCapacityRps(loadBalancer('lb'))).toBe(Number.POSITIVE_INFINITY)
+  })
+
+  it('ignores capacityRps that is not author-flagged (anti-gaming gate)', () => {
+    // A student-set capacityRps with no capacityAuthored flag must NOT be honored;
+    // capacity falls back to the derived value (here: no service model → passthrough).
+    const node: ComponentNode = {
+      id: 's',
+      type: 'service',
+      category: 'compute',
+      label: 's',
+      position: { x: 0, y: 0 },
+      config: { capacityRps: 999_999_999 } // no capacityAuthored
+    }
+    expect(nodeCapacityRps(node)).not.toBe(999_999_999)
+
+    // With the author flag, the same value IS honored.
+    const authored: ComponentNode = {
+      ...node,
+      config: { capacityRps: 999_999_999, capacityAuthored: true }
+    }
+    expect(nodeCapacityRps(authored)).toBe(999_999_999)
   })
 })
 

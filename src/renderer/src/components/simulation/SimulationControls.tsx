@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Pause, Play, RotateCcw, Square, X } from 'lucide-react'
 import type { FaultTargetOption, ScenarioState, SourceNodeOption } from '@renderer/types/ui'
+import type { WorkloadStopCondition } from '../../../../engine/core/types'
 import { EditableNumberInput } from '@renderer/components/ui/EditableNumberInput'
 import { mergeWorkloadDefaults } from '@renderer/utils/workloadDefaults'
 import {
@@ -191,6 +192,41 @@ export function SimulationControls({
   }
 
   const hasSourceNodes = sourceNodes.length > 0
+
+  // Stop condition (workload-level): how the run ends and the saturation guard.
+  const stopCondition = effectiveWorkload?.stopCondition
+  const stopMode = stopCondition?.mode ?? 'duration'
+  const stopMaxRequests = stopCondition?.maxRequests ?? 1_000_000
+  const haltOnSaturation = Boolean(stopCondition?.haltOnSaturation)
+  const writeStopCondition = (next: WorkloadStopCondition | undefined) =>
+    setWorkloadField('stopCondition', next)
+  const setStopMode = (mode: 'duration' | 'requestBudget') => {
+    if (mode === 'duration' && !haltOnSaturation) {
+      writeStopCondition(undefined) // back to the plain default
+      return
+    }
+    writeStopCondition({
+      mode,
+      ...(mode === 'requestBudget' ? { maxRequests: stopMaxRequests } : {}),
+      ...(haltOnSaturation ? { haltOnSaturation: stopCondition?.haltOnSaturation ?? {} } : {})
+    })
+  }
+  const setStopMaxRequests = (maxRequests: number) =>
+    writeStopCondition({
+      mode: 'requestBudget',
+      maxRequests,
+      ...(haltOnSaturation ? { haltOnSaturation: stopCondition?.haltOnSaturation ?? {} } : {})
+    })
+  const setHaltOnSaturation = (enabled: boolean) =>
+    writeStopCondition(
+      stopMode === 'duration' && !enabled
+        ? undefined
+        : {
+            mode: stopMode,
+            ...(stopMode === 'requestBudget' ? { maxRequests: stopMaxRequests } : {}),
+            ...(enabled ? { haltOnSaturation: {} } : {})
+          }
+    )
 
   // Single injected fault, derived from / written back to scenario.faults[0].
   const currentFault = scenario.faults?.[0]
@@ -467,6 +503,57 @@ export function SimulationControls({
                 />
               </Field>
             </div>
+
+            <div className="h-px bg-nss-border my-3" />
+
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-nss-muted mb-2">
+              Stop condition
+            </p>
+
+            <Field label="Stop when">
+              <select
+                value={stopMode}
+                onChange={(event) =>
+                  setStopMode(event.target.value as 'duration' | 'requestBudget')
+                }
+                className={CONTROL_BASE}
+                disabled={!hasSourceNodes}
+              >
+                <option value="duration">Duration elapses</option>
+                <option value="requestBudget">Request budget reached</option>
+              </select>
+            </Field>
+
+            {stopMode === 'requestBudget' && (
+              <Field label="Max requests" className="mt-2">
+                <NumberInput
+                  value={stopMaxRequests}
+                  min={1}
+                  onChange={setStopMaxRequests}
+                  disabled={!hasSourceNodes}
+                />
+              </Field>
+            )}
+
+            <p className="mt-1 text-[10px] leading-snug text-nss-muted">
+              {stopMode === 'requestBudget'
+                ? 'Runs until exactly this many requests are generated, then drains. The duration above is ignored.'
+                : 'Runs for the full duration above.'}
+            </p>
+
+            <label className="mt-2 flex items-center justify-between cursor-pointer">
+              <span className="text-[11px] text-nss-text">
+                Halt early if a node is saturated (≥100%)
+              </span>
+              <input
+                type="checkbox"
+                checked={haltOnSaturation}
+                onChange={(event) => setHaltOnSaturation(event.target.checked)}
+                disabled={!hasSourceNodes}
+              />
+            </label>
+
+            <div className="h-px bg-nss-border my-3" />
 
             <Field label="Seed" className="mb-3">
               <input

@@ -37,6 +37,7 @@ import type {
 } from '../core/types'
 import { deriveNodeConcurrency } from '../nodes/resourceDerivation'
 import { approxResponsePercentileMs, mmcLatency } from './queueingLatency'
+import { resolveStopCondition } from '../core/stopCondition'
 
 /** Component types that forward traffic without a service bottleneck of their own. */
 const PASSTHROUGH_TYPES = new Set<string>([
@@ -193,16 +194,26 @@ export function distributionMean(dist: DistributionConfig | undefined): number {
  * Maximum request rate (req/s) a node can serve.
  *
  * Precedence:
- *   1. an explicit authored `config.capacityRps` (e.g. "each server handles
- *      100,000 rps" — the instructor's wording, stated directly);
+ *   1. an authored capacity constant — `config.capacityRps` — but ONLY when the
+ *      node also carries `config.capacityAuthored === true`. This is the gate: a
+ *      capacity constant is a *given* an author declares (e.g. "each server handles
+ *      100,000 rps"), never something a student can type in build mode. Without the
+ *      flag the value is ignored, so a raw `capacityRps` a student somehow set
+ *      cannot short-circuit the honest derivation.
  *   2. derived from the queueing model: effective concurrency `c` divided by the
- *      mean service time, i.e. `c / serviceTimeSeconds`;
+ *      mean service time, i.e. `c / serviceTimeSeconds` — the real, un-gameable
+ *      capacity a chosen instance produces.
  *   3. `Infinity` for passthrough components (load balancers, gateways, CDNs, the
  *      client/source), which forward without a service bottleneck.
  */
 export function nodeCapacityRps(node: ComponentNode): number {
   const authored = node.config?.capacityRps
-  if (typeof authored === 'number' && Number.isFinite(authored) && authored > 0) {
+  if (
+    node.config?.capacityAuthored === true &&
+    typeof authored === 'number' &&
+    Number.isFinite(authored) &&
+    authored > 0
+  ) {
     return authored
   }
 
@@ -471,9 +482,13 @@ export function evaluateFluidModel(
  */
 export function estimateDiscreteEventCount(topology: TopologyJSON): number {
   const rps = peakOfferedRps(topology.workload)
-  const durationSec = (topology.global?.simulationDuration ?? 0) / 1000
+  const stop = resolveStopCondition(topology)
   const hops = Math.max(1, topology.nodes.length)
-  return rps * durationSec * hops
+  // Request-budget mode bounds arrivals at exactly `maxRequests`; otherwise it is
+  // rate × the (effective) run window.
+  const arrivals =
+    stop.maxRequests !== null ? stop.maxRequests : rps * (stop.effectiveDurationMs / 1000)
+  return arrivals * hops
 }
 
 /** Default ceiling on simulated events before the fluid path takes over. */

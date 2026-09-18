@@ -288,6 +288,14 @@ export interface SimulationOutput {
    * ("1 dot ≈ N req/s"). Absent for discrete runs (dots are 1:1 with requests).
    */
   requestsPerDot?: number
+  /**
+   * Why the run ended: `'duration'` (time bound), `'request-budget'` (the source
+   * request cap was reached), or `'saturation'` (the early-abort guard fired
+   * because a node was exhausted). Absent on legacy runs (treat as `'duration'`).
+   */
+  stopReason?: 'duration' | 'request-budget' | 'saturation'
+  /** Sim time (ms) the run ended at — earlier than the window when saturation halted it. */
+  stoppedAtMs?: number
 }
 
 export interface OriginMetrics {

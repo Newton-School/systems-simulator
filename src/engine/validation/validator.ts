@@ -594,6 +594,22 @@ export const WorkloadProfileSchema = z.object({
       peakRps: z.number().nonnegative(),
       rampDuration: z.number().nonnegative()
     })
+    .optional(),
+
+  stopCondition: z
+    .object({
+      mode: z.enum(['duration', 'requestBudget']),
+      maxRequests: z.number().int().positive().optional(),
+      haltOnSaturation: z
+        .object({
+          utilization: z.number().positive().optional(),
+          errorRate: z.number().min(0).max(1).optional()
+        })
+        .optional()
+    })
+    .refine((s) => s.mode !== 'requestBudget' || (s.maxRequests ?? 0) > 0, {
+      message: "stopCondition.maxRequests is required (and > 0) when mode is 'requestBudget'"
+    })
     .optional()
 })
 
