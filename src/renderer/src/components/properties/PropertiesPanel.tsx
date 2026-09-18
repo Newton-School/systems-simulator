@@ -46,6 +46,10 @@ import { PropertiesForm } from './PropertiesForm'
 import { CustomDefinitionSection } from './CustomDefinitionSection'
 import { IdAllocationSection } from './IdAllocationSection'
 import { ConnectionCapacitySection } from './ConnectionCapacitySection'
+import {
+  deriveDisplayThroughputCapacity,
+  formatCapacityRps
+} from '@renderer/utils/nodeThroughputCapacity'
 import { NodeMetricsDetail, SourceNodeMetricsDetail } from './NodeMetricsDetail'
 import { MetricItem } from './MetricItem'
 import type { EdgePropertiesPanelValue } from '../ui/EdgePropertiesPanel'
@@ -1543,6 +1547,12 @@ export const PropertiesPanel = ({ results = null }: { results?: SimulationOutput
   if (selectedNode) {
     const data = selectedNode.data as AnyNodeData
 
+    // Read-only derived throughput ceiling (null for passthrough / no service model).
+    const throughputCapacity = deriveDisplayThroughputCapacity(
+      (data as { componentType?: ComponentType }).componentType,
+      data.sim
+    )
+
     const handleUpdate = (path: FieldPath, value: unknown) => {
       updateNodeData(selectedNode.id, setPathValue(data, path, value))
     }
@@ -1640,6 +1650,22 @@ export const PropertiesPanel = ({ results = null }: { results?: SimulationOutput
             )
           ) : (
             <>
+              {throughputCapacity ? (
+                <div className="mb-3 rounded-md border border-nss-border bg-nss-panel/60 px-3 py-2">
+                  <div className="flex items-baseline justify-between">
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-nss-muted">
+                      Throughput capacity
+                    </span>
+                    <span className="text-sm font-semibold text-nss-text">
+                      ≈ {formatCapacityRps(throughputCapacity.capacityRps)} req/s
+                    </span>
+                  </div>
+                  <p className="mt-0.5 text-[10px] leading-snug text-nss-muted">
+                    Derived from {throughputCapacity.provenance} — it follows your instance and
+                    service-time choices; you can’t set it directly.
+                  </p>
+                </div>
+              ) : null}
               {data.sim?.connection ? (
                 <ConnectionCapacitySection
                   connection={data.sim.connection}

@@ -275,6 +275,27 @@ export interface SimulationOutput {
    * the topology (no run needed); surfaced in the results tray + on the canvas.
    */
   singlePointsOfFailure: SpofFinding[]
+  /**
+   * Which engine produced this output. `'analytic'` means the load was too large
+   * to event-simulate and was computed with the rate-based fluid model; the
+   * canvas traffic for such a run is representative, not literal (see
+   * `requestsPerDot`). Absent/`'discrete'` for a normal per-request run.
+   */
+  evaluationMode?: 'discrete' | 'analytic'
+  /**
+   * For an `'analytic'` run: how many real requests/second one animated traffic
+   * dot represents. Surfaced in the UI so viewers know the animation is scaled
+   * ("1 dot ≈ N req/s"). Absent for discrete runs (dots are 1:1 with requests).
+   */
+  requestsPerDot?: number
+  /**
+   * Why the run ended: `'duration'` (time bound), `'request-budget'` (the source
+   * request cap was reached), or `'saturation'` (the early-abort guard fired
+   * because a node was exhausted). Absent on legacy runs (treat as `'duration'`).
+   */
+  stopReason?: 'duration' | 'request-budget' | 'saturation'
+  /** Sim time (ms) the run ended at — earlier than the window when saturation halted it. */
+  stoppedAtMs?: number
 }
 
 export interface OriginMetrics {

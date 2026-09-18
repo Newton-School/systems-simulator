@@ -1,5 +1,11 @@
 import { z } from 'zod'
-import type { FaultSpec, GlobalConfig, TopologyJSON, WorkloadProfile } from '../core/types'
+import type {
+  FaultSpec,
+  GlobalConfig,
+  InvariantCheck,
+  TopologyJSON,
+  WorkloadProfile
+} from '../core/types'
 import type { SimulationOutput } from './output'
 import {
   evaluateSuite,
@@ -64,6 +70,7 @@ import {
   EdgeDefinitionSchema,
   FaultSpecSchema,
   GlobalConfigSchema,
+  InvariantCheckSchema,
   TopologyJSONSchema,
   WorkloadProfileSchema
 } from '../validation/validator'
@@ -165,6 +172,13 @@ export interface QuestionSuiteCase {
   global?: Partial<GlobalConfig>
   workload?: Partial<WorkloadProfile>
   faults?: FaultSpec[]
+  /**
+   * Grading invariants injected into the candidate topology for this case.
+   * Students never author invariants, so headroom/SLO rules the question wants
+   * enforced (e.g. `perNode.maxUtilization <= 0.8`) are declared here and checked
+   * via an `invariant`-kind rubric check against `invariantViolations.count`.
+   */
+  invariants?: InvariantCheck[]
 }
 
 export interface QuestionSuite {
@@ -924,7 +938,8 @@ const QuestionSuiteCaseSchema = z.object({
   description: z.string().min(1).optional(),
   global: GlobalConfigSchema.partial().optional(),
   workload: WorkloadProfileSchema.partial().optional(),
-  faults: z.array(FaultSpecSchema).optional()
+  faults: z.array(FaultSpecSchema).optional(),
+  invariants: z.array(InvariantCheckSchema).optional()
 })
 
 const RubricCheckSchema: z.ZodType<RubricCheck> = z
@@ -2146,7 +2161,8 @@ export function gradeAttemptWithArtifacts(
     topology: mergeTopologyWithOverrides(studentTopology, {
       global: testCase.global,
       workload: deriveQuestionScaleWorkload(pkg, studentTopology, testCase.workload),
-      faults: testCase.faults
+      faults: testCase.faults,
+      invariants: testCase.invariants
     })
   }))
 

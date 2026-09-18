@@ -49,6 +49,11 @@ import {
   recordRequestStateTransition
 } from './core/simulationSemantics'
 import { microToMs, msToMicro, secToMicro } from './core/time'
+import {
+  resolveStopCondition,
+  type ResolvedStopCondition,
+  type StopReason
+} from './core/stopCondition'
 import { ComponentNode, EdgeDefinition, EventScheduler, TopologyJSON } from './core/types'
 import {
   getPathTypeLatencyProfile,
@@ -136,7 +141,7 @@ const TERMINAL_TOMBSTONE_RETENTION_US = msToMicro(60_000)
 const MAX_TERMINAL_TOMBSTONES = 100_000
 const LOAD_BALANCER_UNHEALTHY_COOLDOWN_US = msToMicro(5_000)
 
-interface SimulationEngineOptions {
+export interface SimulationEngineOptions {
   resolveTraits?: TraitResolver
   /**
    * When true, GGcKNode invariants (inSystem identity, K ceiling, heldBlackhole
@@ -207,6 +212,11 @@ export class SimulationEngine {
   private readonly requestOutcomeBreakdown = createEmptyRequestOutcomeBreakdown()
   private readonly simulationDurationUs: bigint
   private readonly snapshotIntervalUs = secToMicro(1)
+  private readonly resolvedStop: ResolvedStopCondition
+  /** Why the run ended; upgraded to 'saturation' if the early-abort guard fires. */
+  private stopReason: StopReason = 'duration'
+  /** Sim time (µs) the run was aborted at, when saturation halted it. */
+  private stoppedAtUs: bigint | null = null
 
   private clock = 0n
   private lastSnapshotAt = -1n
@@ -254,7 +264,11 @@ export class SimulationEngine {
       }))
     })
     this.tracer = new RequestTracer({ sampleRate: topology.global.traceSampleRate ?? 0.01 })
-    this.simulationDurationUs = msToMicro(topology.global.simulationDuration)
+    // The stop condition may extend/replace the time bound (request-budget mode)
+    // and arm an early saturation abort.
+    this.resolvedStop = resolveStopCondition(topology)
+    this.simulationDurationUs = msToMicro(this.resolvedStop.effectiveDurationMs)
+    this.stopReason = this.resolvedStop.mode === 'requestBudget' ? 'request-budget' : 'duration'
 
     const scheduler: EventScheduler = {
       schedule: (event) => this.eventQueue.insert(event)
@@ -339,7 +353,8 @@ export class SimulationEngine {
     if (topology.workload) {
       this.workload = new WorkloadGenerator(topology.workload, rng, scheduler, {
         defaultTimeoutMs: topology.global.defaultTimeout,
-        simulationDurationMs: topology.global.simulationDuration
+        simulationDurationMs: this.resolvedStop.effectiveDurationMs,
+        maxRequests: this.resolvedStop.maxRequests ?? undefined
       })
       this.workload.initialize(0n)
     }
@@ -619,6 +634,10 @@ export class SimulationEngine {
         const snapshot = this.takeSnapshot()
         this.timeSeries.push(snapshot)
         this.onSnapshot?.(snapshot)
+        if (this.checkSaturationHalt(snapshot)) {
+          this.running = false
+          break
+        }
       }
 
       this.handleEvent(event)
@@ -2692,6 +2711,28 @@ export class SimulationEngine {
     return hash >>> 0
   }
 
+  /**
+   * Early-abort guard: returns true when the run should stop because the design
+   * is saturated. A node counts as saturated when its instantaneous utilization
+   * is at/above the threshold AND it has a standing backlog (queue > 0) — the
+   * latter distinguishes a genuinely overwhelmed node from one that is merely busy
+   * for an instant. Only armed after warmup so startup transients don't trip it.
+   */
+  private checkSaturationHalt(snapshot: TimeSeriesSnapshot): boolean {
+    const threshold = this.resolvedStop.haltUtilization
+    if (threshold === null) return false
+    if (microToMs(this.clock) < this.topology.global.warmupDuration) return false
+
+    for (const state of Object.values(snapshot.node)) {
+      if (state.utilization >= threshold && state.queueLength > 0) {
+        this.stopReason = 'saturation'
+        this.stoppedAtUs = this.clock
+        return true
+      }
+    }
+    return false
+  }
+
   private takeSnapshot(): TimeSeriesSnapshot {
     this.lastSnapshotAt = this.clock
     const nodes: TimeSeriesSnapshot['node'] = {}
@@ -2773,7 +2814,9 @@ export class SimulationEngine {
     return {
       ...output,
       invariantViolations: evaluateInvariantViolations(this.topology.invariants, output),
-      singlePointsOfFailure: detectSinglePointsOfFailure(this.topology)
+      singlePointsOfFailure: detectSinglePointsOfFailure(this.topology),
+      stopReason: this.stopReason,
+      stoppedAtMs: this.stoppedAtUs !== null ? microToMs(this.stoppedAtUs) : microToMs(this.clock)
     }
   }
 

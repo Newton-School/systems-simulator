@@ -11,6 +11,13 @@ import { getMetricLensLabel } from '@renderer/config/metricLensConfig'
 import { METRIC_LENS_TOOLTIPS } from '@renderer/config/tooltipCatalog'
 import useStore from '@renderer/store/useStore'
 
+/** Compact req/s formatter: 25000 → "25K", 1_000_000 → "1M". */
+function formatRps(rps: number): string {
+  if (rps >= 1_000_000) return `${(rps / 1_000_000).toFixed(rps % 1_000_000 === 0 ? 0 : 1)}M`
+  if (rps >= 1_000) return `${(rps / 1_000).toFixed(rps % 1_000 === 0 ? 0 : 1)}K`
+  return `${Math.round(rps)}`
+}
+
 function LegendSwatch({ item }: { item: CanvasLegendItem }) {
   return (
     <span className="inline-flex items-center gap-1.5 rounded-full border border-nss-border bg-nss-panel px-2 py-1 text-[11px] text-nss-text">
@@ -35,13 +42,19 @@ function LegendSwatch({ item }: { item: CanvasLegendItem }) {
 export function CanvasLegend() {
   const [open, setOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement | null>(null)
-  const { metricLens, hasRuntimeMetrics } = useStore(
+  const { metricLens, hasRuntimeMetrics, requestsPerDot, isAnalytic } = useStore(
     useShallow((state) => ({
       metricLens: state.metricLens,
-      hasRuntimeMetrics: Object.keys(state.simulationMetricsByNode).length > 0
+      hasRuntimeMetrics: Object.keys(state.simulationMetricsByNode).length > 0,
+      requestsPerDot: state.lastRunOutput?.requestsPerDot ?? 0,
+      isAnalytic: state.lastRunOutput?.evaluationMode === 'analytic'
     }))
   )
   const lensLabel = getMetricLensLabel(metricLens)
+  // Analytic runs cannot draw a dot per request (the load is in the millions/s),
+  // so the animation is scaled. Tell the viewer how much each dot stands for.
+  const dotScaleLabel =
+    isAnalytic && requestsPerDot > 0 ? `1 dot ≈ ${formatRps(requestsPerDot)} req/s` : null
 
   useEffect(() => {
     if (!open) return
@@ -69,6 +82,14 @@ export function CanvasLegend() {
 
   return (
     <div ref={containerRef} className="absolute top-4 right-4 z-10 flex flex-col items-end gap-2">
+      {dotScaleLabel ? (
+        <span
+          title="This run was computed analytically because the load is too large to simulate per-request. The animation is representative, not literal."
+          className="inline-flex items-center gap-1 rounded-full border border-nss-warning/50 bg-nss-warning/10 px-2 py-1 text-[11px] font-medium text-nss-warning shadow-sm"
+        >
+          {dotScaleLabel}
+        </span>
+      ) : null}
       <button
         type="button"
         aria-label={open ? 'Close legend' : 'Open legend'}

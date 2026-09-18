@@ -1,0 +1,132 @@
+{
+  "version": "1.0",
+  "id": "quickcart-flash-sale",
+  "title": "Design the Backend for a Flash Sale",
+  "description": "Scale a stateless request tier behind a load balancer to carry a 1,000,000 req/s flash sale while keeping every server within an 80% capacity headroom budget.",
+  "difficulty": "beginner",
+  "type": "scaling",
+  "entryFormat": "blank-canvas",
+  "tags": ["scaling", "load-balancing", "capacity-planning", "headroom"],
+  "estimatedTimeMinutes": 10,
+  "workloadCategory": "read-heavy",
+  "domains": ["compute"],
+  "concepts": ["horizontal-scaling", "capacity-headroom", "load-balancing"],
+  "prompt": {
+    "text": "You are the backend architect for an e-commerce website called **QuickCart**.\n\nQuickCart is running a major flash sale. During the sale, the website is expected to receive up to **1,000,000 requests per second**.\n\nEach backend server can handle a maximum of **100,000 requests per second**. To keep the servers stable, you should use a maximum of **80% of their capacity**.\n\nThe Load Balancer is already configured and can distribute incoming requests evenly across all the servers you add.\n\nDrag and drop the required components to build the backend architecture for QuickCart.",
+    "functionalRequirements": [
+      "Accept incoming user traffic at the load balancer",
+      "Distribute traffic evenly across a pool of backend servers",
+      "Serve the full offered load without dropping requests"
+    ],
+    "nonFunctionalRequirements": [
+      {
+        "metric": "throughput",
+        "operator": ">=",
+        "value": 1000000,
+        "unit": "req_per_sec",
+        "description": "Serve the full 1,000,000 req/s offered load"
+      },
+      {
+        "metric": "error_rate",
+        "operator": "<",
+        "value": 1,
+        "unit": "percent",
+        "description": "Drop no requests under peak load"
+      }
+    ],
+    "scale": {
+      "peakRps": 1000000
+    }
+  },
+  "scaffold": {
+    "type": "empty"
+  },
+  "constraints": {
+    "allowedNodeTypes": ["api-endpoint", "load-balancer", "microservice"],
+    "canModifyScaffold": true,
+    "canRemoveScaffoldNodes": true
+  },
+  "structuralRules": [
+    {
+      "id": "requires-load-balancer",
+      "kind": "requires_component",
+      "description": "The design must include a load balancer.",
+      "componentType": "load-balancer",
+      "minCount": 1
+    }
+  ],
+  "suite": {
+    "name": "quickcart-flash-sale-suite",
+    "visibleToStudent": false,
+    "dryRunCase": {
+      "id": "dry-run",
+      "description": "Representative peak load the student may dry-run against."
+    },
+    "cases": [
+      {
+        "id": "flash-sale-peak",
+        "description": "1,000,000 req/s peak with the 80% headroom rule enforced.",
+        "invariants": [
+          {
+            "id": "headroom-80",
+            "description": "No server may exceed 80% of its capacity during the sale.",
+            "condition": "perNode.maxUtilization <= 0.8"
+          }
+        ]
+      }
+    ]
+  },
+  "rubric": {
+    "id": "quickcart-flash-sale",
+    "passThreshold": 1,
+    "checks": [
+      {
+        "id": "single-source",
+        "kind": "topology",
+        "description": "Exactly one traffic source (Users)",
+        "metric": "topology.sourceCount",
+        "op": "==",
+        "value": 1,
+        "points": 1
+      },
+      {
+        "id": "has-load-balancer",
+        "kind": "topology",
+        "description": "Includes a load balancer",
+        "metric": "topology.componentCounts.load-balancer",
+        "op": ">=",
+        "value": 1,
+        "points": 1
+      },
+      {
+        "id": "has-servers",
+        "kind": "topology",
+        "description": "Includes a pool of backend servers",
+        "metric": "topology.componentCounts.microservice",
+        "op": ">=",
+        "value": 1,
+        "points": 1
+      },
+      {
+        "id": "no-dropped-requests",
+        "kind": "simulation",
+        "description": "Serves peak load without dropping requests",
+        "metric": "summary.errorRate",
+        "op": "<",
+        "value": 0.01,
+        "points": 1
+      },
+      {
+        "id": "within-headroom",
+        "kind": "invariant",
+        "description": "Every server stays within the 80% capacity headroom budget",
+        "metric": "invariantViolations.count",
+        "op": "==",
+        "value": 0,
+        "points": 2
+      }
+    ]
+  },
+  "author": "Claude",
+  "createdAt": "2026-09-17T00:00:00.000Z"
+}

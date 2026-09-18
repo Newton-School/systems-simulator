@@ -501,9 +501,38 @@ export type DiurnalHourlyMultipliers = [
   number
 ]
 
+/**
+ * When a run ends. The author chooses the primary `mode`; `haltOnSaturation` is an
+ * optional early-abort guard that applies on top of either mode.
+ *
+ * - `duration` (default): run for `global.simulationDuration` ms.
+ * - `requestBudget`: run until exactly `maxRequests` source requests have been
+ *   generated, then drain in-flight work. The time bound is ignored (a duration is
+ *   derived only to size the run window). This is how "the sale is N requests" is
+ *   expressed, as opposed to a rate over a fixed time.
+ *
+ * `haltOnSaturation` stops the run early the moment the design is clearly doomed —
+ * a node at/over `utilization` (default 1.0 = 100%) or the system error rate at/over
+ * `errorRate` — so a saturated design reports its verdict at the instant it breaks
+ * instead of grinding out the rest of the window.
+ */
+export interface WorkloadStopCondition {
+  mode: 'duration' | 'requestBudget'
+  /** Required when `mode === 'requestBudget'`: total source requests to generate. */
+  maxRequests?: number
+  haltOnSaturation?: {
+    /** Utilization at/above which to abort. Default 1.0 (100%). */
+    utilization?: number
+    /** System error rate [0,1] at/above which to abort. Optional. */
+    errorRate?: number
+  }
+}
+
 export interface WorkloadProfile {
   sourceNodeId: string
   pattern: 'constant' | 'poisson' | 'bursty' | 'diurnal' | 'spike' | 'sawtooth' | 'replay'
+  /** When the run stops (time, request count, or early on saturation). Default: duration. */
+  stopCondition?: WorkloadStopCondition
   /**
    * Base requests per second for this workload pattern.
    * Must be a positive number (> 0).
