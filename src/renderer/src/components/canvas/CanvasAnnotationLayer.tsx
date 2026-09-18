@@ -210,7 +210,12 @@ export function CanvasAnnotationLayer({
     <svg
       aria-label="Canvas annotations"
       className={`absolute inset-0 z-20 h-full w-full ${interactive ? 'pointer-events-auto' : 'pointer-events-none'} ${activeTool === 'eraser' ? 'cursor-crosshair' : drawing ? 'cursor-crosshair' : ''}`}
-      style={{ touchAction: interactive ? 'none' : 'auto' }}
+      style={{
+        touchAction: interactive ? 'none' : 'auto',
+        userSelect: 'none',
+        WebkitUserSelect: 'none',
+        WebkitTouchCallout: 'none'
+      }}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={finishDrawing}

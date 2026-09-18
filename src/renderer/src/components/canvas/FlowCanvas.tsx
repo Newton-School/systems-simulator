@@ -757,7 +757,20 @@ const FlowCanvasInternal = ({
     .join(' ')
 
   return (
-    <div style={{ width: '100%', height: '100%' }} className="bg-nss-bg relative">
+    <div
+      style={{
+        width: '100%',
+        height: '100%',
+        ...(annotationModeActive
+          ? {
+              userSelect: 'none',
+              WebkitUserSelect: 'none',
+              WebkitTouchCallout: 'none'
+            }
+          : {})
+      }}
+      className="bg-nss-bg relative"
+    >
       <CanvasToolbar
         activeTool={activeTool}
         canAnnotate={canAnnotate}
