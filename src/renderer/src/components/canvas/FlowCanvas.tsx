@@ -861,7 +861,10 @@ const FlowCanvasInternal = ({
       <RequestTraceOverlay />
 
       {/* Empty State */}
-      <EmptyFlowState isEmpty={isEmpty} />
+      <EmptyFlowState
+        isEmpty={isEmpty}
+        hidden={annotationToolActive || activeTool === 'laser' || activeTool === 'text'}
+      />
       {validationError && (
         <RunToast
           messages={[validationError]}
