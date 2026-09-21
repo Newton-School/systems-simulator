@@ -177,7 +177,15 @@ function buildQuestionScore(
   _question: QuestionPackage,
   grade: AttemptGrade
 ): QuestionEvaluationScore {
-  return grade.graded.score
+  const scoredRows = flattenAttemptCheckRows(grade).filter((row) => row.pointsPossible > 0)
+  const possible = scoredRows.reduce((sum, row) => sum + row.pointsPossible, 0)
+  const rawEarned = scoredRows.reduce((sum, row) => sum + row.pointsEarned, 0)
+  const earned = grade.semantic?.hardFailed ? 0 : rawEarned
+  return {
+    earned,
+    possible,
+    fraction: possible === 0 ? 0 : earned / possible
+  }
 }
 
 function buildQuestionTests(grade: AttemptGrade): QuestionEvaluationTestResult[] {

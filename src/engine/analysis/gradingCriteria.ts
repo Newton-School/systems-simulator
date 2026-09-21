@@ -85,6 +85,28 @@ interface CriterionBase {
   hardFail?: boolean
 }
 
+export type ComponentPropertyOperator = 'equals' | 'notEquals' | 'atLeast' | 'atMost'
+export type ComponentPropertyExpectedValue = string | number | boolean
+
+/** Independently scored component presence check used as the parent of configuration checks. */
+export interface ComponentPresenceCriterion extends CriterionBase {
+  kind: 'componentPresence'
+  componentType: ComponentType
+  minCount?: number
+}
+
+/**
+ * A configuration check bound to a componentPresence criterion. The parent supplies
+ * the component type, preventing a property on an unrelated node from earning credit.
+ */
+export interface ComponentPropertyCriterion extends CriterionBase {
+  kind: 'componentProperty'
+  parentId: string
+  property: string
+  operator: ComponentPropertyOperator
+  expected: ComponentPropertyExpectedValue
+}
+
 /**
  * Placement / ordering of a component relative to others, including forbidden
  * positions and ordered pipelines (frontier → fetch → process → extract).
@@ -240,6 +262,8 @@ export interface StateSequenceCriterion extends CriterionBase {
 }
 
 export type SemanticCriterion =
+  | ComponentPresenceCriterion
+  | ComponentPropertyCriterion
   | PlacementCriterion
   | GuardedPathCriterion
   | FanoutCriterion
@@ -401,6 +425,24 @@ const RuntimeStateTransitionMatcherSchema: z.ZodType<RuntimeStateTransitionMatch
   ]) as unknown as z.ZodType<RuntimeStateTransitionMatcher>
 
 export const SemanticCriterionSchema: z.ZodType<SemanticCriterion> = z.discriminatedUnion('kind', [
+  z
+    .object({
+      ...criterionBase,
+      kind: z.literal('componentPresence'),
+      componentType: ComponentTypeSchema,
+      minCount: z.number().int().positive().optional()
+    })
+    .strict(),
+  z
+    .object({
+      ...criterionBase,
+      kind: z.literal('componentProperty'),
+      parentId: z.string().min(1),
+      property: z.string().min(1),
+      operator: z.enum(['equals', 'notEquals', 'atLeast', 'atMost']),
+      expected: z.union([z.string(), z.number().finite(), z.boolean()])
+    })
+    .strict(),
   z.object({
     ...criterionBase,
     kind: z.literal('placement'),

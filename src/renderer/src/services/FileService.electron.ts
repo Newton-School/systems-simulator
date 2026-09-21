@@ -3,10 +3,13 @@ import type { IFileService } from './FileService.types'
 const extractFileName = (filePath: string): string => filePath.split(/[\\/]/).pop() || filePath
 
 export const ElectronFileService: IFileService = {
-  save: async (content, suggestedName) => {
+  save: async (content, suggestedName, options) => {
     try {
-      void suggestedName
-      const result = await window.nssimulator.saveScenario(content)
+      const result = await window.nssimulator.saveScenario(content, {
+        title: options?.dialogTitle,
+        suggestedName: suggestedName ?? undefined,
+        fileDescription: options?.fileDescription
+      })
       if (typeof result === 'string') {
         return { name: extractFileName(result) }
       }
@@ -17,9 +20,12 @@ export const ElectronFileService: IFileService = {
     }
   },
 
-  load: async () => {
+  load: async (options) => {
     try {
-      const result = await window.nssimulator.loadScenario()
+      const result = await window.nssimulator.loadScenario({
+        title: options?.dialogTitle,
+        fileDescription: options?.fileDescription
+      })
       if (!result) return null
 
       if (typeof result === 'string') {

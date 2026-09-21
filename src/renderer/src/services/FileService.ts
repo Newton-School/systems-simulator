@@ -2,7 +2,7 @@ import type { IFileService } from './FileService.types'
 import { ElectronFileService } from './FileService.electron'
 import { WebFileService } from './FileService.web'
 
-export type { FileLoadResult, FileSaveResult } from './FileService.types'
+export type { FileDialogOptions, FileLoadResult, FileSaveResult } from './FileService.types'
 
 const isElectron =
   typeof window !== 'undefined' &&

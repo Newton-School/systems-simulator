@@ -770,6 +770,7 @@ function questionCheckScope(): string {
 }
 
 function normalizeQuestionRowStatus(status: CheckStatus): QuestionTestStatus {
+  if (status === 'skipped') return 'pending'
   return status === 'passed' ? 'passed' : 'failed'
 }
 

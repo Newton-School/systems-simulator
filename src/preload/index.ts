@@ -3,7 +3,10 @@ import { electronAPI } from '@electron-toolkit/preload'
 
 // Custom APIs for renderer
 const api = {
-  saveScenario: (jsonString: string) => {
+  saveScenario: (
+    jsonString: string,
+    options?: { title?: string; suggestedName?: string; fileDescription?: string }
+  ) => {
     // Validate that data is a non-empty string and not excessively long
     if (typeof jsonString !== 'string') {
       console.error('saveScenario: data must be a string')
@@ -17,14 +20,14 @@ const api = {
       console.error('saveScenario: data is too large')
       return Promise.resolve(false)
     }
-    return ipcRenderer.invoke('dialog:save', jsonString).catch((error) => {
+    return ipcRenderer.invoke('dialog:save', jsonString, options).catch((error) => {
       console.error('Error in saveScenario:', error)
       throw error
     })
   },
 
-  loadScenario: () =>
-    ipcRenderer.invoke('dialog:open').catch((error) => {
+  loadScenario: (options?: { title?: string; fileDescription?: string }) =>
+    ipcRenderer.invoke('dialog:open', options).catch((error) => {
       console.error('Error in loadScenario:', error)
       throw error
     }),

@@ -9,8 +9,14 @@ declare global {
 }
 
 export interface NsSimulatorApi {
-  saveScenario: (data: string) => Promise<string | boolean>
-  loadScenario: () => Promise<{ data: string; path: string } | null>
+  saveScenario: (
+    data: string,
+    options?: { title?: string; suggestedName?: string; fileDescription?: string }
+  ) => Promise<string | boolean>
+  loadScenario: (options?: {
+    title?: string
+    fileDescription?: string
+  }) => Promise<{ data: string; path: string } | null>
   runSimulation: (config: any) => void
   confirmDiscard: () => Promise<boolean>
   onCloseRequest: (callback: () => boolean) => () => void

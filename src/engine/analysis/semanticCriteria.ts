@@ -23,6 +23,7 @@ import type {
   StateTransitionCriterion
 } from './gradingCriteria'
 import type { SimulationOutput } from './output'
+import { getComponentPropertyDefinition } from './componentPropertyCatalog'
 
 export const SEMANTIC_CRITERIA_VERSION = '1.0' as const
 
@@ -79,6 +80,98 @@ function nodeIdsOfType(topology: TopologyJSON, type: ComponentType): string[] {
 
 function hasType(topology: TopologyJSON, type: ComponentType): boolean {
   return topology.nodes.some((node) => node.type === type)
+}
+
+function evalComponentPresence(
+  topology: TopologyJSON,
+  c: Extract<SemanticCriterion, { kind: 'componentPresence' }>
+): RawOutcome {
+  const minCount = c.minCount ?? 1
+  const count = topology.nodes.filter((node) => node.type === c.componentType).length
+  return count >= minCount
+    ? { outcome: 'passed' }
+    : {
+        outcome: 'failed',
+        detail: `Expected at least ${minCount} ${c.componentType} component${minCount === 1 ? '' : 's'}, found ${count}.`
+      }
+}
+
+function propertyMatches(
+  actual: unknown,
+  operator: Extract<SemanticCriterion, { kind: 'componentProperty' }>['operator'],
+  expected: Extract<SemanticCriterion, { kind: 'componentProperty' }>['expected']
+): boolean {
+  if (actual === undefined) return false
+  if (operator === 'equals') return actual === expected
+  if (operator === 'notEquals') return actual !== expected
+  if (typeof actual !== 'number' || typeof expected !== 'number') return false
+  return operator === 'atLeast' ? actual >= expected : actual <= expected
+}
+
+function propertyOperatorPhrase(
+  operator: Extract<SemanticCriterion, { kind: 'componentProperty' }>['operator']
+): string {
+  switch (operator) {
+    case 'equals':
+      return 'equal'
+    case 'notEquals':
+      return 'not equal'
+    case 'atLeast':
+      return 'be at least'
+    case 'atMost':
+      return 'be at most'
+  }
+}
+
+function evalComponentProperty(
+  topology: TopologyJSON,
+  c: Extract<SemanticCriterion, { kind: 'componentProperty' }>,
+  criteria: readonly SemanticCriterion[]
+): RawOutcome {
+  const parent = criteria.find(
+    (candidate): candidate is Extract<SemanticCriterion, { kind: 'componentPresence' }> =>
+      candidate.id === c.parentId && candidate.kind === 'componentPresence'
+  )
+  if (!parent) {
+    return {
+      outcome: 'failed',
+      detail: `Configuration requirement parent "${c.parentId}" was not found.`
+    }
+  }
+
+  const definition = getComponentPropertyDefinition(c.property)
+  if (!definition) {
+    return { outcome: 'failed', detail: `Configuration property "${c.property}" is not supported.` }
+  }
+  if (definition.componentTypes && !definition.componentTypes.includes(parent.componentType)) {
+    return {
+      outcome: 'failed',
+      detail: `${definition.label} is not an authorable property of ${parent.componentType}.`
+    }
+  }
+
+  const candidates = topology.nodes.filter((node) => node.type === parent.componentType)
+  if (candidates.length === 0) {
+    return {
+      outcome: 'failed',
+      detail: `No ${parent.componentType} component is available for the ${definition.label} check.`
+    }
+  }
+
+  const matching = candidates.filter((node) =>
+    propertyMatches(node.config?.[c.property], c.operator, c.expected)
+  )
+  const requiredMatches = parent.minCount ?? 1
+  if (matching.length >= requiredMatches) return { outcome: 'passed' }
+
+  const observed = candidates
+    .map((node) => node.config?.[c.property])
+    .filter((value) => value !== undefined)
+    .map(String)
+  return {
+    outcome: 'failed',
+    detail: `${definition.label} must ${propertyOperatorPhrase(c.operator)} ${String(c.expected)} on at least ${requiredMatches} ${parent.componentType} component${requiredMatches === 1 ? '' : 's'}${observed.length > 0 ? `; observed ${observed.join(', ')}` : '; no value was configured'}.`
+  }
 }
 
 function nodeTypeById(topology: TopologyJSON): Map<string, ComponentType> {
@@ -583,9 +676,14 @@ function evalStateSequence(
 function evaluateCriterion(
   topology: TopologyJSON,
   criterion: SemanticCriterion,
-  ctx: SemanticContext
+  ctx: SemanticContext,
+  criteria: readonly SemanticCriterion[]
 ): RawOutcome {
   switch (criterion.kind) {
+    case 'componentPresence':
+      return evalComponentPresence(topology, criterion)
+    case 'componentProperty':
+      return evalComponentProperty(topology, criterion, criteria)
     case 'guardedPath':
       return evalGuardedPath(topology, criterion)
     case 'placement':
@@ -619,7 +717,7 @@ export function evaluateSemanticCriteria(
   let pointsPossible = 0
 
   const results: SemanticCriterionResult[] = criteria.map((criterion) => {
-    const raw = evaluateCriterion(topology, criterion, ctx)
+    const raw = evaluateCriterion(topology, criterion, ctx, criteria)
     const pointsEarnedForCriterion = pointsFor(raw.outcome, criterion.points)
     const hardFailed = criterion.hardFail === true && raw.outcome === 'failed'
     pointsEarned += pointsEarnedForCriterion

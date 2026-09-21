@@ -185,15 +185,15 @@ app.whenReady().then(() => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
 
-  ipcMain.handle('dialog:save', async (event, content) => {
-    const filepath = await registerIpcHandlers.handleSaveScenario(event, content)
+  ipcMain.handle('dialog:save', async (event, content, options) => {
+    const filepath = await registerIpcHandlers.handleSaveScenario(event, content, options)
 
     console.log('Saved to', filepath)
     return filepath
   })
 
-  ipcMain.handle('dialog:open', async (event) => {
-    const content = await registerIpcHandlers.handleOpenScenario(event)
+  ipcMain.handle('dialog:open', async (event, options) => {
+    const content = await registerIpcHandlers.handleOpenScenario(event, options)
     return content
   })
 

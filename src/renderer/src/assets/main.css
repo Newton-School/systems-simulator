@@ -64,6 +64,31 @@
     overflow: hidden;
   }
 
+  /*
+   * This is a canvas / whiteboard teaching tool: dragging a pen or finger
+   * across the UI must never trigger native text selection or the iOS
+   * "Copy / Search / Explain" callout, which interrupts a live demo.
+   * Disable selection app-wide, then re-enable it only where the user
+   * genuinely types or needs to select text.
+   */
+  html,
+  body,
+  #root {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+
+  input,
+  textarea,
+  select,
+  [contenteditable='true'],
+  [contenteditable='']:not([contenteditable='false']) {
+    -webkit-user-select: text;
+    user-select: text;
+    -webkit-touch-callout: default;
+  }
+
   body {
     position: fixed;
     inset: 0;

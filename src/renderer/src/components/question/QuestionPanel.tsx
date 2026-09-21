@@ -279,7 +279,7 @@ export const QuestionPanel = () => {
     setSerializeError(null)
     setPendingRun(null)
     setPanelView('brief')
-  }, [activeQuestion?.id, resetGrader])
+  }, [activeQuestion, resetGrader])
 
   useEffect(() => {
     if (!activeQuestion || pendingRun || graderStatus === 'grading') {

@@ -17,6 +17,8 @@ import type {
 } from '../src/engine/core/types'
 import type { InstanceType } from '../src/engine/catalog/instanceCatalog'
 import { buildReproducingResources } from '../src/engine/catalog/resourceDefaults'
+import { parseQuestionPackage } from '../src/engine/analysis/question'
+import { buildDjangoAssignmentGuide } from './generate-django-admin-assignment-guides'
 
 // Self-contained: each question's package now lives in its own directory. The
 // builders only patch it idempotently, so re-running regenerates topologies in
@@ -1192,15 +1194,6 @@ const CONCEPTS: Record<string, string[]> = {
   'sensor-store': ['store-fit'],
   'web-crawler': ['dedup-gate']
 }
-const DOMAIN_LABEL: Record<string, string> = {
-  compute: 'Compute & Capacity (node-bottleneck)',
-  storage: 'Storage & State (data-bottleneck)',
-  network: 'Network & Edge (connection-bottleneck)',
-  resilience: 'Resilience & Chaos (fault-bottleneck)',
-  correctness: 'Correctness (concurrency-bottleneck)',
-  cost: 'Cost (meta-constraint)'
-}
-
 for (const [id, build] of Object.entries(builders)) {
   if (DEFERRED_V2.has(id)) continue
   const trio = build()
@@ -1237,118 +1230,8 @@ for (const [id, build] of Object.entries(builders)) {
       rmSync(join(dir, f), { force: true })
     }
   }
-  writeFileSync(join(dir, djangoName), djangoAdmin(id, q, domains))
+  writeFileSync(join(dir, djangoName), buildDjangoAssignmentGuide(parseQuestionPackage(q)))
   console.log(`wrote ${id}/ - intended failure: ${trio.intended}`)
-}
-
-// ── Django-admin authoring guide (Newton GAME assignment mode) ────────────────
-// Fully derived from question.json, so it stays in sync. Justify prompts are hidden
-// for V1 (stored as `_justify`), so they are NOT emitted into the SIMULATOR_CONFIG.
-function questionTextHtml(q: any): string {
-  const paras = String(q.prompt.text)
-    .split(/\n\n+/)
-    .map((p: string) => `<p>${p.trim().replace(/\s*\n\s*/g, ' ')}</p>`)
-    .join('\n')
-  const list = (title: string, items: string[]) =>
-    items.length
-      ? `<h3>${title}</h3>\n<ul>\n${items.map((i) => `  <li>${i}</li>`).join('\n')}\n</ul>`
-      : ''
-  const frs = list('Functional Requirements', q.prompt.functionalRequirements ?? [])
-  const nfrs = list(
-    'Non-Functional Targets',
-    (q.prompt.nonFunctionalRequirements ?? []).map((n: any) => n.description)
-  )
-  const s = q.prompt.scale ?? {}
-  const scaleItems: string[] = []
-  if (s.dau !== undefined) scaleItems.push(`<strong>DAU:</strong> ${s.dau.toLocaleString('en-US')}`)
-  if (s.peakRps !== undefined)
-    scaleItems.push(`<strong>Peak RPS:</strong> ${s.peakRps.toLocaleString('en-US')}`)
-  if (s.readWriteRatio !== undefined)
-    scaleItems.push(`<strong>Read / Write:</strong> ${s.readWriteRatio}:${100 - s.readWriteRatio}`)
-  const scale = list('Scale', scaleItems)
-  return [paras, frs, nfrs, scale].filter(Boolean).join('\n')
-}
-
-function djangoRow(n: number, title: string, input: unknown): string {
-  return `## Row ${n}\n\n- \`title\`: \`${title}\`\n- \`input\`:\n\n\`\`\`json\n${JSON.stringify(
-    input,
-    null,
-    2
-  )}\n\`\`\``
-}
-
-function djangoAdmin(id: string, q: any, domains: string[]): string {
-  const rows: string[] = []
-  rows.push(
-    djangoRow(1, `SIMULATOR_CONFIG: ${id}`, {
-      type: 'SIMULATOR_CONFIG',
-      configVersion: '1.0',
-      questionId: id,
-      questionVersion: q.version,
-      questionType: q.type,
-      domains,
-      concepts: q.concepts,
-      difficulty: q.difficulty,
-      workloadCategory: q.workloadCategory,
-      presentationMode: 'raw-html',
-      promptSource: 'question_text',
-      scaffold: q.scaffold,
-      constraints: q.constraints,
-      suite: q.suite,
-      rubric: { id: q.rubric.id, passThreshold: q.rubric.passThreshold }
-    })
-  )
-  let n = 2
-  for (const r of q.structuralRules ?? [])
-    rows.push(djangoRow(n++, `STRUCTURAL_RULE: ${r.id}`, { type: 'STRUCTURAL_RULE', ...r }))
-  for (const c of q.semanticCriteria ?? [])
-    rows.push(djangoRow(n++, `SEMANTIC_CRITERION: ${c.id}`, { type: 'SEMANTIC_CRITERION', ...c }))
-  for (const c of q.rubric.checks ?? [])
-    rows.push(djangoRow(n++, `RUBRIC_CHECK: ${c.id}`, { type: 'RUBRIC_CHECK', ...c }))
-
-  return `# Django Admin Setup: ${q.title}
-
-> Domain(s): ${domains.map((d) => DOMAIN_LABEL[d] ?? d).join(' + ')}. This authoring shape is for Newton assignment mode
-> only (GAME iframe with \`?host=newton\`). Standalone/local authoring at
-> \`https://systems-simulator.newtonschool.co/\` must keep topology open/save available.
->
-> V1 note: justification prompts are hidden (stored as \`_justify\`) and are **not** graded,
-> so they are not emitted below. Budget is not used for V1.
-
-## Frontend contract
-
-- GAME iframe URL: \`https://systems-simulator.newtonschool.co/?host=newton\`
-- Newton-hosted assignment mode must render \`question_text\` as raw Django HTML.
-- The frontend translator must rebuild immutable simulator config from the test-case rows below, not from \`initial_game_state\`.
-- Newton-hosted assignment mode must hide topology \`Open\` / \`Save\` actions and disable \`Ctrl/Cmd+O\` and \`Ctrl/Cmd+S\`.
-- V1: edge configuration is locked in assignment mode (edges are non-editable; the edge config panel is hidden) - students only drag nodes, change storage types, and scale workers/replicas.
-
-## Django fields
-
-- \`question_type\`: \`GAME\`
-- \`question_title\`: \`${q.title}\`
-- \`question_text\`:
-
-\`\`\`html
-${questionTextHtml(q)}
-\`\`\`
-
-- \`initial_game_state\`:
-
-\`\`\`json
-{}
-\`\`\`
-
-- \`initial_game_state\` must stay mutable-only. Do not paste the full \`question.json\` here.
-
-## Test-case mapping rules
-
-- Create the rows in the exact order shown below.
-- For every row: \`hidden = false\`, \`output = ""\`, \`output_file = empty\`.
-- Paste each JSON block into the Django \`input\` field exactly as shown.
-
-${rows.join('\n\n')}
-`
 }
 
 function bucketTable(b: Buckets): string {

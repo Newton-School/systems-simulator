@@ -1,4 +1,9 @@
-import type { FileLoadResult, FileSaveResult, IFileService } from './FileService.types'
+import type {
+  FileDialogOptions,
+  FileLoadResult,
+  FileSaveResult,
+  IFileService
+} from './FileService.types'
 
 type BrowserFileHandle = {
   name: string
@@ -24,14 +29,16 @@ type BrowserFileWindow = Window & {
   }) => Promise<BrowserFileHandle>
 }
 
-const JSON_FILE_TYPES = [
-  {
-    description: 'JSON Files',
-    accept: {
-      'application/json': ['.json']
+function jsonFileTypes(options?: FileDialogOptions) {
+  return [
+    {
+      description: options?.fileDescription ?? 'JSON Files',
+      accept: {
+        'application/json': ['.json']
+      }
     }
-  }
-]
+  ]
+}
 
 let activeFileHandle: BrowserFileHandle | null = null
 
@@ -65,15 +72,23 @@ async function ensureWritePermission(handle: BrowserFileHandle): Promise<boolean
   return true
 }
 
-async function writeToHandle(handle: BrowserFileHandle, content: string): Promise<FileSaveResult> {
+async function writeToHandle(
+  handle: BrowserFileHandle,
+  content: string,
+  rememberHandle = true
+): Promise<FileSaveResult> {
   const writable = await handle.createWritable()
   await writable.write(content)
   await writable.close()
-  activeFileHandle = handle
+  if (rememberHandle) activeFileHandle = handle
   return { name: handle.name }
 }
 
-function downloadFile(content: string, suggestedName?: string | null): FileSaveResult {
+function downloadFile(
+  content: string,
+  suggestedName?: string | null,
+  clearActiveHandle = true
+): FileSaveResult {
   const blob = new Blob([content], { type: 'application/json' })
   const url = URL.createObjectURL(blob)
   const anchor = document.createElement('a')
@@ -88,7 +103,7 @@ function downloadFile(content: string, suggestedName?: string | null): FileSaveR
   anchor.remove()
 
   window.setTimeout(() => URL.revokeObjectURL(url), 0)
-  activeFileHandle = null
+  if (clearActiveHandle) activeFileHandle = null
 
   return { name }
 }
@@ -144,9 +159,10 @@ async function loadWithInputFallback(): Promise<FileLoadResult | null> {
 }
 
 export const WebFileService: IFileService = {
-  save: async (content, suggestedName) => {
+  save: async (content, suggestedName, options) => {
     try {
-      if (activeFileHandle && (await ensureWritePermission(activeFileHandle))) {
+      const saveAsNewFile = options?.saveAsNewFile === true
+      if (!saveAsNewFile && activeFileHandle && (await ensureWritePermission(activeFileHandle))) {
         return await writeToHandle(activeFileHandle, content)
       }
 
@@ -156,13 +172,13 @@ export const WebFileService: IFileService = {
         const handle = await browserWindow.showSaveFilePicker({
           suggestedName: normalizeFileName(suggestedName),
           excludeAcceptAllOption: true,
-          types: JSON_FILE_TYPES
+          types: jsonFileTypes(options)
         })
 
-        return await writeToHandle(handle, content)
+        return await writeToHandle(handle, content, !saveAsNewFile)
       }
 
-      return downloadFile(content, suggestedName)
+      return downloadFile(content, suggestedName, !saveAsNewFile)
     } catch (error) {
       if (isAbortError(error)) {
         return null
@@ -173,7 +189,7 @@ export const WebFileService: IFileService = {
     }
   },
 
-  load: async () => {
+  load: async (options) => {
     try {
       const browserWindow = window as BrowserFileWindow
 
@@ -181,7 +197,7 @@ export const WebFileService: IFileService = {
         const [handle] = await browserWindow.showOpenFilePicker({
           multiple: false,
           excludeAcceptAllOption: true,
-          types: JSON_FILE_TYPES
+          types: jsonFileTypes(options)
         })
 
         if (!handle) {
@@ -206,5 +222,9 @@ export const WebFileService: IFileService = {
       console.error('[FileService] Load failed:', error)
       return null
     }
+  },
+
+  forgetActiveFile: () => {
+    activeFileHandle = null
   }
 }

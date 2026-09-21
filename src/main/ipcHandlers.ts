@@ -1,15 +1,36 @@
 import { BrowserWindow, dialog, IpcMainInvokeEvent } from 'electron'
 import * as fs from 'fs/promises'
 
+interface JsonFileDialogOptions {
+  title?: string
+  suggestedName?: string
+  fileDescription?: string
+}
+
+function safeDialogText(value: unknown, fallback: string): string {
+  return typeof value === 'string' && value.trim().length > 0
+    ? value.trim().slice(0, 160)
+    : fallback
+}
+
+function safeSuggestedName(value: unknown): string {
+  if (typeof value !== 'string') return 'scenario.json'
+  const fileName = value.trim().split(/[\\/]/).pop()
+  return fileName && fileName.length <= 200 ? fileName : 'scenario.json'
+}
+
 async function handleSaveScenario(
   _event: IpcMainInvokeEvent,
-  content: string
+  content: string,
+  options?: JsonFileDialogOptions
 ): Promise<string | boolean> {
   void _event
   const { canceled, filePath } = await dialog.showSaveDialog({
-    title: 'Save Simulation Topology',
-    defaultPath: 'scenario.json',
-    filters: [{ name: 'JSON Files', extensions: ['json'] }]
+    title: safeDialogText(options?.title, 'Save Simulation Topology'),
+    defaultPath: safeSuggestedName(options?.suggestedName),
+    filters: [
+      { name: safeDialogText(options?.fileDescription, 'JSON Files'), extensions: ['json'] }
+    ]
   })
 
   if (canceled || !filePath) {
@@ -26,12 +47,15 @@ async function handleSaveScenario(
 }
 
 async function handleOpenScenario(
-  _event: Electron.IpcMainInvokeEvent
+  _event: Electron.IpcMainInvokeEvent,
+  options?: JsonFileDialogOptions
 ): Promise<{ data: string; path: string } | null> {
   void _event
   const { canceled, filePaths } = await dialog.showOpenDialog({
-    title: 'Open Simulation Topology',
-    filters: [{ name: 'JSON Files', extensions: ['json'] }],
+    title: safeDialogText(options?.title, 'Open Simulation Topology'),
+    filters: [
+      { name: safeDialogText(options?.fileDescription, 'JSON Files'), extensions: ['json'] }
+    ],
     properties: ['openFile']
   })
 

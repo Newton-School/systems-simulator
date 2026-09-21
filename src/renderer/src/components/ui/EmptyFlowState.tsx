@@ -1,12 +1,6 @@
 import { SquareDashed } from 'lucide-react'
 
-const EmptyFlowState = ({
-  isEmpty,
-  hidden = false
-}: {
-  isEmpty: boolean
-  hidden?: boolean
-}) => {
+const EmptyFlowState = ({ isEmpty, hidden = false }: { isEmpty: boolean; hidden?: boolean }) => {
   const visible = isEmpty && !hidden
   return (
     <div
