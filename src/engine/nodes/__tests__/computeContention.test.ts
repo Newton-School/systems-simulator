@@ -102,9 +102,11 @@ describe('two-tier compute contention', () => {
     expect(completions.get('a')! < 10_000n).toBe(true)
   })
 
-  it('an io-bound override on a microservice does not inherit cpu-bound saturation', () => {
+  it('an io-bound override on a cpu-bound type does not inherit cpu-bound saturation', () => {
     const { scheduler, completions } = capturingScheduler()
-    const node = makeNode('microservice', 'io-bound', scheduler, 'c5.large')
+    // batch-worker is cpu-bound by default (microservice now defaults io-bound),
+    // so io-bound here is a genuine override that takes the locked-low fraction.
+    const node = makeNode('batch-worker', 'io-bound', scheduler, 'c5.large')
     for (let i = 1; i <= 4; i++) node.handleArrival(makeRequest(`m${i}`), 0n)
 
     const state = node.getState()

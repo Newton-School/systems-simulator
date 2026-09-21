@@ -311,7 +311,9 @@ describe('default simulation config resources', () => {
     expect(sim.resources).toMatchObject({
       instanceType: 'c5.large',
       instanceCount: 1,
-      workloadKind: 'cpu-bound',
+      // General app/API servers default to io-bound so they aren't capped to
+      // ~1 worker per vCPU (see resourceDefaults microservice).
+      workloadKind: 'io-bound',
       perRequestMemMb: 16
     })
   })

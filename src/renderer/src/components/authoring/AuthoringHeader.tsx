@@ -6,6 +6,7 @@ import {
   FolderOpen,
   LoaderCircle,
   Save,
+  Settings,
   Sparkles
 } from 'lucide-react'
 
@@ -22,6 +23,7 @@ interface AuthoringHeaderProps {
   canExport: boolean
   isExporting: boolean
   onExport: () => void
+  onOpenSettings: () => void
 }
 
 export function AuthoringHeader({
@@ -34,7 +36,8 @@ export function AuthoringHeader({
   onSave,
   canExport,
   isExporting,
-  onExport
+  onExport,
+  onOpenSettings
 }: AuthoringHeaderProps): React.JSX.Element {
   const displayTitle = questionTitle.trim() || 'Untitled question'
   const busy = fileStatus === 'saving' || fileStatus === 'opening'
@@ -116,6 +119,15 @@ export function AuthoringHeader({
         >
           <Eye size={14} aria-hidden="true" />
           Preview learner
+        </button>
+        <button
+          type="button"
+          onClick={onOpenSettings}
+          aria-label="Open settings"
+          title="Environments, simulation, and display settings"
+          className="flex items-center justify-center rounded-md border border-nss-border p-1.5 text-nss-text hover:bg-nss-surface"
+        >
+          <Settings size={14} aria-hidden="true" />
         </button>
         <button
           type="button"
