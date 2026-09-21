@@ -15,6 +15,11 @@ import type { QuestionPackage } from './question'
 import type { QuestionDomain } from './gradingCriteria'
 import { inferRubricCheckKind } from './rubric'
 import {
+  INVARIANT_RUBRIC_METRICS,
+  NFR_METRIC_TO_RUBRIC_METRIC,
+  SIMULATION_RUBRIC_METRICS
+} from './authoringCapabilities'
+import {
   buildSupportLedgerMessage,
   getConceptSupport,
   getDomainSupport,
@@ -28,57 +33,6 @@ export interface AuthoringDiagnostic {
   code: string
   message: string
   path?: string
-}
-
-/** Known-good verdict metric leaves for `simulation` checks. */
-const SIMULATION_METRICS = new Set<string>([
-  'summary.latency.p50',
-  'summary.latency.p90',
-  'summary.latency.p95',
-  'summary.latency.p99',
-  'summary.latency.min',
-  'summary.latency.max',
-  'summary.latency.mean',
-  'summary.errorRate',
-  'summary.throughput',
-  'summary.totalRequests',
-  'summary.successfulRequests',
-  'summary.failedRequests',
-  'summary.rejectedRequests',
-  'summary.timedOutRequests',
-  'summary.connectionResetRequests',
-  'perNode.maxUtilization',
-  'perNode.maxErrorRate',
-  'perNode.maxLatencyP99',
-  'reservations.commits',
-  'reservations.conflicts',
-  'reservations.oversells',
-  'locks.acquires',
-  'locks.contentions',
-  'locks.keyless',
-  'retries.attempts',
-  'retries.budgetExhausted',
-  'rateLimit.admitted',
-  'rateLimit.rejected',
-  'rateLimit.breaches',
-  'rateLimit.keyless'
-])
-
-/** Known-good invariant metric keys. */
-const INVARIANT_METRICS = new Set<string>([
-  'invariantViolations.count',
-  'sloBreaches.count',
-  'conservation.unbalanced',
-  'littlesLaw.violations'
-])
-
-/** NFR `metric` enum → the verdict metric a rubric check should use. */
-const NFR_TO_VERDICT: Record<string, string> = {
-  latency_p99: 'summary.latency.p99',
-  latency_p50: 'summary.latency.p50',
-  error_rate: 'summary.errorRate',
-  throughput: 'summary.throughput'
-  // `availability` has no direct verdict metric (≈ 1 - errorRate) — handled below.
 }
 
 function err(code: string, message: string, path?: string): AuthoringDiagnostic {
@@ -116,7 +70,7 @@ function validateMetric(
   }
   if (kind === 'invariant') {
     if (
-      !INVARIANT_METRICS.has(metric) &&
+      !INVARIANT_RUBRIC_METRICS.has(metric) &&
       !/^(invariantViolations|conservation|littlesLaw)\./.test(metric)
     ) {
       out.push(
@@ -136,7 +90,7 @@ function validateMetric(
     )
     return
   }
-  if (SIMULATION_METRICS.has(metric)) {
+  if (SIMULATION_RUBRIC_METRICS.has(metric)) {
     return
   }
   if (metric.startsWith('summary.') || metric.startsWith('perNode.')) {
@@ -520,7 +474,7 @@ export function validateAuthoredQuestion(pkg: QuestionPackage): AuthoringDiagnos
       }
       return
     }
-    const expected = NFR_TO_VERDICT[nfr.metric]
+    const expected = NFR_METRIC_TO_RUBRIC_METRIC[nfr.metric]
     if (expected && !rubricMetrics.has(expected)) {
       out.push(
         warn(

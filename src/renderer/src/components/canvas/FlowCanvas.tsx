@@ -48,8 +48,17 @@ import {
 interface FlowCanvasProps {
   showMetricLens?: boolean
   interactionLocked?: boolean
+  presentationMode?: boolean
   onNodeDoubleClick?: (event: React.MouseEvent, node: Node) => void
   onEdgeDoubleClick?: (event: React.MouseEvent, edge: Edge) => void
+}
+
+function handleReactFlowError(code: string, message: string): void {
+  // The renderer maps live at module scope and keep stable identity in production.
+  // Vite hot replacement recreates the module while React Flow retains its dev
+  // comparison ref, producing warning 002 even though render-time identity is stable.
+  if (code === '002') return
+  console.warn(`[React Flow ${code}] ${message}`)
 }
 
 function createTextLabelNode(position: { x: number; y: number }): Node<CanvasTextLabelData> {
@@ -92,6 +101,7 @@ function collectSelectedNodeIds(nodes: Node[], ignoredNodeIds = new Set<string>(
 const FlowCanvasInternal = ({
   showMetricLens = false,
   interactionLocked = false,
+  presentationMode = false,
   onNodeDoubleClick,
   onEdgeDoubleClick
 }: FlowCanvasProps) => {
@@ -756,6 +766,14 @@ const FlowCanvasInternal = ({
     .filter(Boolean)
     .join(' ')
 
+  useEffect(() => {
+    if (!presentationMode || !reactFlowInstance || nodes.length === 0) return
+    const frame = window.requestAnimationFrame(() => {
+      void reactFlowInstance.fitView({ padding: 0.18, maxZoom: 1, duration: 0 })
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [nodes, presentationMode, reactFlowInstance])
+
   return (
     <div
       style={{
@@ -771,25 +789,27 @@ const FlowCanvasInternal = ({
       }}
       className="bg-nss-bg relative"
     >
-      <CanvasToolbar
-        activeTool={activeTool}
-        canAnnotate={canAnnotate}
-        canRedo={attemptStatus !== 'LOCKED' && (useAnnotationFuture || canRedoGraph)}
-        canUndo={attemptStatus !== 'LOCKED' && (useAnnotationHistory || canUndoGraph)}
-        editingDisabled={interactionLocked}
-        hasAnnotations={annotations.length > 0}
-        hasCanvasContent={hasCanvasContent}
-        hasSelection={hasSelection}
-        onClearAnnotations={clearAnnotations}
-        onToolChange={(tool) => {
-          setSelectedTool(tool)
-          setTapConnectSourceId(null)
-        }}
-        onUndo={useAnnotationHistory ? undoAnnotation : undoGraph}
-        onRedo={useAnnotationFuture ? redoAnnotation : redoGraph}
-        onResetCanvas={resetCanvas}
-        onDeleteSelection={deleteSelection}
-      />
+      {!presentationMode && (
+        <CanvasToolbar
+          activeTool={activeTool}
+          canAnnotate={canAnnotate}
+          canRedo={attemptStatus !== 'LOCKED' && (useAnnotationFuture || canRedoGraph)}
+          canUndo={attemptStatus !== 'LOCKED' && (useAnnotationHistory || canUndoGraph)}
+          editingDisabled={interactionLocked}
+          hasAnnotations={annotations.length > 0}
+          hasCanvasContent={hasCanvasContent}
+          hasSelection={hasSelection}
+          onClearAnnotations={clearAnnotations}
+          onToolChange={(tool) => {
+            setSelectedTool(tool)
+            setTapConnectSourceId(null)
+          }}
+          onUndo={useAnnotationHistory ? undoAnnotation : undoGraph}
+          onRedo={useAnnotationFuture ? redoAnnotation : redoGraph}
+          onResetCanvas={resetCanvas}
+          onDeleteSelection={deleteSelection}
+        />
+      )}
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -799,6 +819,7 @@ const FlowCanvasInternal = ({
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         defaultEdgeOptions={defaultEdgeOptions}
+        onError={handleReactFlowError}
         connectionLineType={
           edgeRoutingStyle === 'bezier'
             ? ConnectionLineType.Bezier
@@ -826,9 +847,11 @@ const FlowCanvasInternal = ({
         onNodeDoubleClick={onNodeDoubleClick}
         onMove={(_, viewport) => setCanvasViewport(viewport)}
         deleteKeyCode={null}
-        panOnDrag={annotationModeActive ? false : isPanTool ? true : [1, 2]}
-        panOnScroll={isPanTool}
-        selectionOnDrag={isSelectTool}
+        panOnDrag={
+          presentationMode ? false : annotationModeActive ? false : isPanTool ? true : [1, 2]
+        }
+        panOnScroll={!presentationMode && isPanTool}
+        selectionOnDrag={!presentationMode && isSelectTool}
         selectionMode={SelectionMode.Partial}
         // Shift drives the marquee (box) selection; Cmd/Ctrl adds to the
         // selection. These MUST differ — when selectionKeyCode and
@@ -837,7 +860,7 @@ const FlowCanvasInternal = ({
         selectionKeyCode="Shift"
         multiSelectionKeyCode={['Meta', 'Control']}
         selectNodesOnDrag={false}
-        elementsSelectable
+        elementsSelectable={!presentationMode}
         nodesDraggable={
           !isTextTool && !isConnectTool && !annotationModeActive && !interactionLocked
         }
@@ -846,10 +869,12 @@ const FlowCanvasInternal = ({
         className={flowClassName}
       >
         <Background variant={BackgroundVariant.Dots} gap={30} size={1.2} color={GRID_COLOR} />
-        <Controls className="!bg-nss-surface !border-nss-border" />
-        <MiniMap className="nss-compact-minimap !bg-nss-surface !border-nss-border" />
+        {!presentationMode && <Controls className="!bg-nss-surface !border-nss-border" />}
+        {!presentationMode && (
+          <MiniMap className="nss-compact-minimap !bg-nss-surface !border-nss-border" />
+        )}
       </ReactFlow>
-      {canAnnotate ? (
+      {canAnnotate && !presentationMode ? (
         <CanvasAnnotationLayer activeTool={activeAnnotationTool} viewport={canvasViewport} />
       ) : null}
       {pendingNodePlacement ? (
