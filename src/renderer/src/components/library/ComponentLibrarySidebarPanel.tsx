@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import useStore from '../../store/useStore'
 import { CATALOG_CONFIG } from '../../config/catalogConfig'
 import { PALETTE_TEMPLATES } from '../../../../engine/catalog/paletteTemplates'
+import { CANONICAL_TEMPLATE_ID_BY_COMPONENT_TYPE } from '../../../../engine/analysis/authoringCapabilities'
 import { isComponentLibraryItemVisible } from '../../config/componentLibraryVisibility'
 import { LibraryItem } from './LibraryItem'
 import { CustomDefinitionCreator, type DefinitionBuilderMode } from './CustomDefinitionCreator'
@@ -87,31 +88,41 @@ export function ComponentLibrarySidebarPanel({
     [activeQuestion]
   )
 
+  // A question allow-list turns the palette into a strict, curated set: only the
+  // author's chosen types, one canonical item each, and no Common/All scoping.
+  const hasQuestionAllowlist = questionAllowedNodeTypes !== null
+
   const filtered = useMemo(() => {
     const trimmed = query.trim().toLowerCase()
 
     return CATALOG_CONFIG.map((category) => ({
       ...category,
       items: category.items.filter((item) => {
-        // An active search spans the whole catalog: you should never have to switch
-        // from "Common" to "All" just to find a node by name. With no query, the
-        // Common/All tab still scopes the browsing list as before.
-        const matchesFilter = filter === 'all' || trimmed.length > 0 || COMMON_IDS.has(item.id)
+        const componentType = PALETTE_TEMPLATES[item.id]?.componentType
+        // With an allow-list, ignore the Common/All tab entirely — the curated
+        // set is the whole palette. Otherwise an active search spans the whole
+        // catalog so you never have to switch tabs to find a node by name.
+        const matchesFilter =
+          hasQuestionAllowlist || filter === 'all' || trimmed.length > 0 || COMMON_IDS.has(item.id)
         const matchesSearch =
           !trimmed ||
           item.label.toLowerCase().includes(trimmed) ||
           item.subLabel.toLowerCase().includes(trimmed)
         const matchesPalette =
           allowedPalette === null || allowedPalette.has(item.type) || allowedPalette.has(item.id)
-        const componentType = PALETTE_TEMPLATES[item.id]?.componentType
         const matchesLibraryVisibility = isComponentLibraryItemVisible({
           templateId: item.id,
           mode: componentLibraryMode,
           hiddenTemplateIds: hiddenComponentLibraryTemplateIds
         })
+        // Show exactly the author's picks: the one canonical template per allowed
+        // type (so allowing `microservice` shows "API Server" only, not every
+        // same-type template or placeholder/builder helper).
         const matchesQuestionAllowlist =
           questionAllowedNodeTypes === null ||
-          (componentType !== undefined && questionAllowedNodeTypes.has(componentType))
+          (componentType !== undefined &&
+            questionAllowedNodeTypes.has(componentType) &&
+            CANONICAL_TEMPLATE_ID_BY_COMPONENT_TYPE[componentType] === item.id)
         const matchesQuestionDenylist =
           questionForbiddenNodeTypes === null ||
           componentType === undefined ||
@@ -131,6 +142,7 @@ export function ComponentLibrarySidebarPanel({
     allowedPalette,
     componentLibraryMode,
     filter,
+    hasQuestionAllowlist,
     hiddenComponentLibraryTemplateIds,
     query,
     questionAllowedNodeTypes,
@@ -180,25 +192,27 @@ export function ComponentLibrarySidebarPanel({
           </span>
         </div>
 
-        <div className="flex gap-1 rounded-md bg-nss-bg p-0.5">
-          {FILTERS.map((currentFilter) => (
-            <button
-              key={currentFilter}
-              type="button"
-              onClick={() => onFilterChange(currentFilter)}
-              className={`
-                h-6 flex-1 rounded text-[11px] font-semibold capitalize transition-colors
-                ${
-                  filter === currentFilter
-                    ? 'bg-nss-surface text-nss-text shadow-sm'
-                    : 'text-nss-muted hover:text-nss-text'
-                }
-              `}
-            >
-              {currentFilter === 'common' ? 'Common' : 'All'}
-            </button>
-          ))}
-        </div>
+        {!hasQuestionAllowlist && (
+          <div className="flex gap-1 rounded-md bg-nss-bg p-0.5">
+            {FILTERS.map((currentFilter) => (
+              <button
+                key={currentFilter}
+                type="button"
+                onClick={() => onFilterChange(currentFilter)}
+                className={`
+                  h-6 flex-1 rounded text-[11px] font-semibold capitalize transition-colors
+                  ${
+                    filter === currentFilter
+                      ? 'bg-nss-surface text-nss-text shadow-sm'
+                      : 'text-nss-muted hover:text-nss-text'
+                  }
+                `}
+              >
+                {currentFilter === 'common' ? 'Common' : 'All'}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="flex-1 space-y-4 overflow-y-auto p-2">
