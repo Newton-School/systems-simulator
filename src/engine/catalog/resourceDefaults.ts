@@ -118,11 +118,20 @@ export const RESOURCE_DEFAULTS: Partial<Record<ComponentType, ResourceTypeDefaul
   },
   microservice: {
     instanceType: 'c5.large',
-    workloadKind: 'cpu-bound',
+    // General application/API servers spend most of a request waiting on
+    // downstream stores, caches, and services, so they default to io-bound: a
+    // vCPU multiplexes many concurrent waits (IO_WORKERS_PER_VCPU) instead of
+    // being capped to ~1 worker per vCPU. This keeps introductory scaling
+    // questions solvable at their intended load; authors can still flip an
+    // individual node to cpu-bound when the service is genuinely compute-heavy.
+    workloadKind: 'io-bound',
     workersPerInstance: 16,
     queueSlots: 256,
     perRequestMemMb: 16,
-    cpuBoundFraction: 1.0
+    // io-bound app server: most service time is downstream I/O wait, so on-core
+    // contention is low (matches IO_BOUND_OVERRIDE_CPU_FRACTION). A node toggled
+    // to cpu-bound is treated as fully on-core (fraction 1.0) by the derivation.
+    cpuBoundFraction: 0.1
   },
   'batch-worker': {
     instanceType: 'c5.large',
@@ -311,11 +320,14 @@ export const RESOURCE_DEFAULTS: Partial<Record<ComponentType, ResourceTypeDefaul
   },
   container: {
     instanceType: 'c5.large',
-    workloadKind: 'cpu-bound',
+    // Same rationale as `microservice`: a general containerized app server is
+    // io-bound by default so it isn't throttled to ~1 worker per vCPU, with low
+    // on-core contention (toggling to cpu-bound restores fraction 1.0).
+    workloadKind: 'io-bound',
     workersPerInstance: 16,
     queueSlots: 256,
     perRequestMemMb: 16,
-    cpuBoundFraction: 1.0
+    cpuBoundFraction: 0.1
   },
   'vm-instance': {
     instanceType: 'm5.large',

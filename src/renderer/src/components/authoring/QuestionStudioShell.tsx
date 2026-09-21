@@ -71,6 +71,7 @@ import {
   saveQuestionAuthoringProject
 } from '../../services/questionProjectPersistence'
 import { AuthoringHeader, type AuthoringFileStatus } from './AuthoringHeader'
+import { SettingsModal } from '../layout/settings/SettingsModal'
 import { AuthoringReadinessPanel } from './AuthoringReadinessPanel'
 import { AuthoringStageRail } from './AuthoringStageRail'
 import { GeneratedOutputPreview } from './GeneratedOutputPreview'
@@ -130,6 +131,7 @@ export function QuestionStudioShell({
   const [capturingBaseline, setCapturingBaseline] = useState(false)
   const [fileError, setFileError] = useState(false)
   const [notice, setNotice] = useState<{ tone: 'success' | 'error'; message: string } | null>(null)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const editRevisionRef = useRef(0)
   const { confirm, dialog } = useConfirmDialog()
   const activeStage = project.ui.activeStage
@@ -598,6 +600,7 @@ export function QuestionStudioShell({
         canExport={canExport}
         isExporting={operation === 'exporting'}
         onExport={() => void handleDownloadArtifacts()}
+        onOpenSettings={() => setSettingsOpen(true)}
       />
 
       <div className="grid min-h-0 flex-1 grid-cols-[13.5rem_minmax(0,1fr)_16rem] max-[900px]:grid-cols-[11rem_minmax(0,1fr)] max-[680px]:grid-cols-1">
@@ -845,6 +848,7 @@ export function QuestionStudioShell({
           hasGrading={hasGrading}
         />
       </div>
+      {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
       {dialog}
     </div>
   )

@@ -154,8 +154,13 @@ export const ASSIGNMENT_ENVIRONMENT_PROFILE: EnvironmentProfile = {
     canTriggerTestRuns: true,
     edgeModel: 'connector',
     canEditEdges: false,
-    canEditResources: false,
-    canEditExecutionProfile: false
+    // Resource allocation stays editable even in graded assignments — instance
+    // sizing is part of the design surface here, not a locked knob.
+    canEditResources: true,
+    // Compute nodes default to io-bound; a graded student may still switch a
+    // node's execution profile to cpu-bound when the question calls for it (e.g.
+    // a latency-sensitive design that wants fast-core service time).
+    canEditExecutionProfile: true
   },
   graded: true,
   chromeDensity: 'minimal'
@@ -180,7 +185,9 @@ export const PRACTICE_ENVIRONMENT_PROFILE: EnvironmentProfile = {
     edgeModel: 'connector',
     canEditEdges: true,
     canEditResources: true,
-    canEditExecutionProfile: false
+    // The execution-profile knob is always available so learners can match a
+    // node's cpu-/io-bound behavior to the question.
+    canEditExecutionProfile: true
   },
   graded: false,
   chromeDensity: 'minimal'

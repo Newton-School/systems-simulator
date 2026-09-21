@@ -27,13 +27,15 @@ describe('environment profile presets', () => {
     expect(ASSIGNMENT_ENVIRONMENT_PROFILE.visibility.rubricChecks).toBe('LIVE_DURING_BUILD')
     expect(ASSIGNMENT_ENVIRONMENT_PROFILE.visibility.gradingSuiteDetails).toBe(false)
     expect(ASSIGNMENT_ENVIRONMENT_PROFILE.capabilities.canEditScaffoldNodes).toBe(false)
-    expect(ASSIGNMENT_ENVIRONMENT_PROFILE.capabilities.canEditExecutionProfile).toBe(false)
+    // Graded students may still switch a node's execution profile (compute is
+    // io-bound by default; some questions need a cpu-bound override).
+    expect(ASSIGNMENT_ENVIRONMENT_PROFILE.capabilities.canEditExecutionProfile).toBe(true)
     expect(ASSIGNMENT_ENVIRONMENT_PROFILE.capabilities.canAnnotate).toBe(false)
     expect(ASSIGNMENT_ENVIRONMENT_PROFILE.capabilities.maxTestRuns).toBeUndefined()
 
     expect(PRACTICE_ENVIRONMENT_PROFILE.graded).toBe(false)
     expect(PRACTICE_ENVIRONMENT_PROFILE.visibility.rubricChecks).toBe('LIVE_DURING_BUILD')
-    expect(PRACTICE_ENVIRONMENT_PROFILE.capabilities.canEditExecutionProfile).toBe(false)
+    expect(PRACTICE_ENVIRONMENT_PROFILE.capabilities.canEditExecutionProfile).toBe(true)
     expect(PRACTICE_ENVIRONMENT_PROFILE.capabilities.canAnnotate).toBe(true)
   })
 })
@@ -224,14 +226,14 @@ describe('resolveEdgeModel', () => {
 describe('canEditResourcesForQuestion', () => {
   const assignment = resolveEnvironmentProfile('ASSIGNMENT')
 
-  it('locks resources under ASSIGNMENT for non-cost questions', () => {
-    expect(canEditResourcesForQuestion(assignment, { domains: ['compute'] })).toBe(false)
-    expect(canEditResourcesForQuestion(assignment, { domains: ['storage', 'compute'] })).toBe(false)
-    expect(canEditResourcesForQuestion(assignment, null)).toBe(false)
-    expect(canEditResourcesForQuestion(assignment, {})).toBe(false)
+  it('allows resource editing under ASSIGNMENT (instance sizing is part of the design surface)', () => {
+    expect(canEditResourcesForQuestion(assignment, { domains: ['compute'] })).toBe(true)
+    expect(canEditResourcesForQuestion(assignment, { domains: ['storage', 'compute'] })).toBe(true)
+    expect(canEditResourcesForQuestion(assignment, null)).toBe(true)
+    expect(canEditResourcesForQuestion(assignment, {})).toBe(true)
   })
 
-  it('unlocks resources when the question lesson is allocation (cost domain)', () => {
+  it('also allows resources when the question lesson is allocation (cost domain)', () => {
     expect(canEditResourcesForQuestion(assignment, { domains: ['cost'] })).toBe(true)
     expect(canEditResourcesForQuestion(assignment, { domains: ['compute', 'cost'] })).toBe(true)
   })

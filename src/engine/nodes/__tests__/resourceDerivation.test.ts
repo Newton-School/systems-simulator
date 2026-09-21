@@ -86,8 +86,11 @@ describe('deriveNodeConcurrency', () => {
     })
 
     it('uses a locked low contention fraction when a cpu-bound type is authored io-bound', () => {
+      // batch-worker is cpu-bound by default (microservice now defaults io-bound),
+      // so authoring io-bound here is a genuine override.
       const d = deriveNodeConcurrency(
         node({
+          type: 'batch-worker',
           resources: { instanceType: 'c5.large', instanceCount: 1, workloadKind: 'io-bound' }
         })
       )

@@ -8,6 +8,16 @@ import { QuestionStudioShell } from './QuestionStudioShell'
 vi.mock('../canvas/FlowCanvas', () => ({
   FlowCanvas: () => <div data-testid="flow-canvas-mock">Canvas</div>
 }))
+// Stub the heavy lazy-loaded scaffold panels: their real modules resolve slowly
+// enough in CI that the suspense settles after the test's act() window, logging a
+// console warning during worker teardown ("Closing rpc while onUserConsoleLog was
+// pending"). The quick-add buttons the tests use live in LearnerStartEditor itself.
+vi.mock('../library/ComponentLibrarySidebarPanel', () => ({
+  ComponentLibrarySidebarPanel: () => null
+}))
+vi.mock('../properties/PropertiesPanel', () => ({
+  PropertiesPanel: () => null
+}))
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 let root: Root | null = null

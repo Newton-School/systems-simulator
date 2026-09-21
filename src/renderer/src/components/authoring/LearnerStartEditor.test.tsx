@@ -9,6 +9,15 @@ import { LearnerStartEditor } from './LearnerStartEditor'
 vi.mock('../canvas/FlowCanvas', () => ({
   FlowCanvas: () => <div data-testid="flow-canvas-mock">Canvas</div>
 }))
+// Stub the heavy lazy-loaded scaffold panels so their suspense resolves fast and
+// inside the test's act() window (see QuestionStudioShell.test for the rationale).
+// The 'API server' / 'Traffic source' quick-add buttons live in LearnerStartEditor.
+vi.mock('../library/ComponentLibrarySidebarPanel', () => ({
+  ComponentLibrarySidebarPanel: () => null
+}))
+vi.mock('../properties/PropertiesPanel', () => ({
+  PropertiesPanel: () => null
+}))
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 let root: Root | null = null
