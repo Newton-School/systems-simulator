@@ -1,0 +1,37 @@
+name: Package Standalone Skills
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - master
+    paths:
+      - 'skills/**'
+      - 'scripts/package-skill.sh'
+      - 'package.json'
+      - '.github/workflows/package-skills.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  package-simulator-question-author:
+    name: Package simulator-question-author
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Package standalone skill
+        run: bash scripts/package-skill.sh simulator-question-author
+
+      - name: Upload ZIP and checksum
+        uses: actions/upload-artifact@v4
+        with:
+          name: simulator-question-author
+          path: |
+            dist/skills/simulator-question-author.zip
+            dist/skills/simulator-question-author.zip.sha256
+          if-no-files-found: error
+          retention-days: 30
