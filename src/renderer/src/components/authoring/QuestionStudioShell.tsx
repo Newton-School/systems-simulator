@@ -63,6 +63,7 @@ import {
 import { getRubricMetricCapability } from '../../../../engine/analysis/authoringCapabilities'
 import type { TopologyJSON } from '../../../../engine/core/types'
 import { useConfirmDialog } from '../../hooks/useConfirmDialog'
+import { FileService } from '../../services/FileService'
 import type { IFileService } from '../../services/FileService.types'
 import { downloadQuestionAuthoringArtifacts } from '../../services/questionArtifactExport'
 import {
@@ -120,7 +121,7 @@ const FRAME_PREVIEW = [
 
 export function QuestionStudioShell({
   simulatorHref = './',
-  fileService
+  fileService = FileService
 }: QuestionStudioShellProps): React.JSX.Element {
   const [project, setProject] = useState(createQuestionAuthoringProject)
   const [isDirty, setIsDirty] = useState(false)
@@ -540,6 +541,33 @@ export function QuestionStudioShell({
     }
   }, [fileService, project])
 
+  const handleDownloadQuestionPackage = useCallback(async () => {
+    if (generatedPreview.status !== 'ready') return
+    setFileError(false)
+    setNotice(null)
+    try {
+      const saved = await fileService.save(
+        generatedPreview.packageJson,
+        `${generatedPreview.questionPackage.id}.question.json`,
+        {
+          dialogTitle: 'Download Question Package',
+          fileDescription: 'Simulator Question Packages',
+          saveAsNewFile: true
+        }
+      )
+      if (saved) {
+        setNotice({
+          tone: 'success',
+          message: `Downloaded ${saved.name}. Load it in the simulator with “Load question (.json)…”.`
+        })
+      }
+    } catch (error) {
+      console.error('[QuestionStudio] Question package download failed:', error)
+      setFileError(true)
+      setNotice({ tone: 'error', message: 'Could not download the question package.' })
+    }
+  }, [fileService, generatedPreview])
+
   useEffect(() => {
     if (!isDirty || typeof window.nssimulator?.onCloseRequest === 'function') return
 
@@ -558,7 +586,7 @@ export function QuestionStudioShell({
   }, [isDirty])
 
   return (
-    <div className="nss-app-shell flex min-h-0 flex-col bg-nss-bg text-nss-text">
+    <div className="nss-app-shell nss-selectable-surface flex min-h-0 flex-col bg-nss-bg text-nss-text">
       <AuthoringHeader
         simulatorHref={simulatorHref}
         questionTitle={questionTitle}
@@ -774,6 +802,7 @@ export function QuestionStudioShell({
                   preview={generatedPreview}
                   onNavigate={handleStageChange}
                   onDownload={handleDownloadArtifacts}
+                  onDownloadQuestion={handleDownloadQuestionPackage}
                 />
               </div>
             ) : (

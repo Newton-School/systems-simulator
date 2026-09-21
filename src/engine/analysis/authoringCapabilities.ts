@@ -337,6 +337,27 @@ function buildComponentCapabilities(): AuthoringComponentCapability[] {
 
 export const AUTHORING_COMPONENT_CAPABILITIES = buildComponentCapabilities()
 
+/**
+ * Canonical palette template per component type: the first template of each
+ * type, matching how {@link buildComponentCapabilities} picks the single
+ * authoring row a component type is chosen by. The learner palette uses this so
+ * that a question's `allowedNodeTypes` surfaces exactly the item the author
+ * selected — not every same-type template (e.g. allowing `microservice` shows
+ * "API Server" only, not also "ID Generator", "Service", "My Service").
+ */
+function buildCanonicalTemplateIds(): Record<string, string> {
+  const byType: Record<string, string> = {}
+  for (const template of Object.values(PALETTE_TEMPLATES)) {
+    if (!template.componentType || !template.category) continue
+    if (byType[template.componentType]) continue
+    byType[template.componentType] = template.id
+  }
+  return byType
+}
+
+export const CANONICAL_TEMPLATE_ID_BY_COMPONENT_TYPE: Readonly<Record<string, string>> =
+  buildCanonicalTemplateIds()
+
 export const AUTHORING_OBLIGATION_CAPABILITIES: readonly AuthoringCapabilityDefinition[] = [
   ...STRUCTURAL_AUTHORING_CAPABILITIES,
   ...SEMANTIC_AUTHORING_CAPABILITIES

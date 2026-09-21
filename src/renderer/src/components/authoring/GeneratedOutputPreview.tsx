@@ -19,6 +19,7 @@ interface GeneratedOutputPreviewProps {
   preview: QuestionAuthoringPreview
   onNavigate: (stage: AuthoringStageId) => void
   onDownload: () => Promise<void>
+  onDownloadQuestion: () => Promise<void>
   copyText?: (text: string) => Promise<void>
 }
 
@@ -84,10 +85,12 @@ export function GeneratedOutputPreview({
   preview,
   onNavigate,
   onDownload,
+  onDownloadQuestion,
   copyText = writeClipboardText
 }: GeneratedOutputPreviewProps): React.JSX.Element {
   const [activeOutput, setActiveOutput] = useState<'package' | 'rows' | 'django'>('package')
   const [isDownloading, setIsDownloading] = useState(false)
+  const [isDownloadingQuestion, setIsDownloadingQuestion] = useState(false)
   const [actionNotice, setActionNotice] = useState<{
     tone: 'success' | 'error'
     message: string
@@ -109,6 +112,16 @@ export function GeneratedOutputPreview({
       await onDownload()
     } finally {
       setIsDownloading(false)
+    }
+  }
+
+  const handleDownloadQuestion = async (): Promise<void> => {
+    setIsDownloadingQuestion(true)
+    setActionNotice(null)
+    try {
+      await onDownloadQuestion()
+    } finally {
+      setIsDownloadingQuestion(false)
     }
   }
 
@@ -199,9 +212,22 @@ export function GeneratedOutputPreview({
             </button>
             <button
               type="button"
+              disabled={isDownloadingQuestion}
+              onClick={() => void handleDownloadQuestion()}
+              className="flex items-center gap-1.5 rounded-md bg-nss-primary px-2.5 py-1.5 text-[11px] font-semibold text-white hover:bg-nss-primary/90 disabled:cursor-wait disabled:opacity-60"
+            >
+              {isDownloadingQuestion ? (
+                <LoaderCircle size={13} className="animate-spin" aria-hidden="true" />
+              ) : (
+                <Download size={13} aria-hidden="true" />
+              )}
+              Download question (.json)
+            </button>
+            <button
+              type="button"
               disabled={isDownloading}
               onClick={() => void handleDownload()}
-              className="flex items-center gap-1.5 rounded-md bg-nss-primary px-2.5 py-1.5 text-[11px] font-semibold text-white hover:bg-nss-primary/90 disabled:cursor-wait disabled:opacity-60"
+              className="flex items-center gap-1.5 rounded-md border border-nss-border bg-nss-panel px-2.5 py-1.5 text-[11px] font-semibold text-nss-text hover:border-nss-primary/40 hover:text-nss-primary disabled:cursor-wait disabled:opacity-60"
             >
               {isDownloading ? (
                 <LoaderCircle size={13} className="animate-spin" aria-hidden="true" />
@@ -211,7 +237,7 @@ export function GeneratedOutputPreview({
               Download Django bundle
             </button>
             <span className="text-[10px] text-nss-success">
-              Includes assignment fields, ordered rows, and the admin guide
+              Load the .json in the simulator, or hand off the Django bundle
             </span>
           </div>
 

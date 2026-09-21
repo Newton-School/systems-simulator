@@ -21,7 +21,8 @@ function renderPreview(
   preview: ReturnType<typeof compileQuestionAuthoringPreview>,
   onNavigate = vi.fn(),
   onDownload = vi.fn(async () => undefined),
-  copyText = vi.fn(async () => undefined)
+  copyText = vi.fn(async () => undefined),
+  onDownloadQuestion = vi.fn(async () => undefined)
 ): HTMLDivElement {
   container = document.createElement('div')
   document.body.append(container)
@@ -32,6 +33,7 @@ function renderPreview(
         preview={preview}
         onNavigate={onNavigate}
         onDownload={onDownload}
+        onDownloadQuestion={onDownloadQuestion}
         copyText={copyText}
       />
     )
@@ -152,5 +154,19 @@ describe('GeneratedOutputPreview', () => {
       await Promise.resolve()
     })
     expect(onDownload).toHaveBeenCalledTimes(1)
+  })
+
+  it('downloads the simulator-loadable question package', async () => {
+    const onDownloadQuestion = vi.fn(async () => undefined)
+    const view = renderPreview(completePreview(), vi.fn(), vi.fn(), vi.fn(), onDownloadQuestion)
+
+    await act(async () => {
+      buttonNamed(view, 'Download question (.json)').dispatchEvent(
+        new MouseEvent('click', { bubbles: true })
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    expect(onDownloadQuestion).toHaveBeenCalledTimes(1)
   })
 })

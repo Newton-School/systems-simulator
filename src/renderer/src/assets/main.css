@@ -89,6 +89,20 @@
     -webkit-touch-callout: default;
   }
 
+  /*
+   * Question Studio is a document/authoring surface (briefs, generated JSON,
+   * Newton rows) where selecting and copying text is expected, unlike the
+   * simulator canvas. Re-enable selection for that whole subtree; canvas
+   * elements nested inside it (e.g. the Start-stage FlowCanvas) still opt out
+   * with their own inline `user-select: none`.
+   */
+  .nss-selectable-surface,
+  .nss-selectable-surface *:not([style*='user-select: none']) {
+    -webkit-user-select: text;
+    user-select: text;
+    -webkit-touch-callout: default;
+  }
+
   body {
     position: fixed;
     inset: 0;

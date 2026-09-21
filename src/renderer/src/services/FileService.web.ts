@@ -169,13 +169,22 @@ export const WebFileService: IFileService = {
       const browserWindow = window as BrowserFileWindow
 
       if (browserWindow.showSaveFilePicker) {
-        const handle = await browserWindow.showSaveFilePicker({
-          suggestedName: normalizeFileName(suggestedName),
-          excludeAcceptAllOption: true,
-          types: jsonFileTypes(options)
-        })
+        try {
+          const handle = await browserWindow.showSaveFilePicker({
+            suggestedName: normalizeFileName(suggestedName),
+            excludeAcceptAllOption: true,
+            types: jsonFileTypes(options)
+          })
 
-        return await writeToHandle(handle, content, !saveAsNewFile)
+          return await writeToHandle(handle, content, !saveAsNewFile)
+        } catch (error) {
+          // The user cancelling the picker is a no-op, not a failure.
+          if (isAbortError(error)) return null
+          // The picker can be unavailable even when the API exists — e.g. when
+          // the app runs in a cross-origin iframe or the browser blocks it. Fall
+          // back to a plain download so the file is always delivered.
+          console.warn('[FileService] Save picker unavailable, using download fallback:', error)
+        }
       }
 
       return downloadFile(content, suggestedName, !saveAsNewFile)
