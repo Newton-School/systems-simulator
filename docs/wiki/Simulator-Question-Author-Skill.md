@@ -8,8 +8,9 @@ consistent Markdown guides:
 
 It contains the workflow, templates, simulator feasibility model, component/type
 mapping, grading DSL, authoring-stage guide, consistency rules, and a worked
-QuickCart example. Recipients do not need access to the systems-simulator
-repository.
+QuickCart example. It also bundles the full Evaluation Authoring Reference Manual
+and Test-Case Catalog for exact DSL/row lookup. Recipients do not need access to
+the systems-simulator repository.
 
 ## Download and share
 

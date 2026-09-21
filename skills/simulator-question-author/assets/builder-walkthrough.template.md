@@ -1,6 +1,6 @@
 # {{QUESTION_TITLE}} — Builder Walkthrough ({{LESSON_SUMMARY}})
 
-Build and verify {{ONE_SENTENCE_DESIGN_GOAL}} in the DSDS simulator.
+Build and verify {{ONE_SENTENCE_DESIGN_GOAL}} in the system design simulator.
 
 > This is the learner/canonical-design guide. To author the question itself, see
 > [Question Studio Walkthrough](question-studio-walkthrough.md).

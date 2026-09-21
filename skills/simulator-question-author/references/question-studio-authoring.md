@@ -18,14 +18,9 @@ Header actions:
 - **Preview learner**
 - **Django bundle** / **Export**
 
-Draft filenames derive from the question title:
-
-```text
-<derived-question-id>.dsds-question-project.json
-```
-
-The title also determines the question ID. Choose the final title before building
-rules and use a title whose slug is the intended stable ID.
+Draft filenames derive from the question title and use the project suffix emitted
+by the current Studio. The title also determines the question ID. Choose the final
+title before building rules and use a title whose slug is the intended stable ID.
 
 Do not recommend opening an older question package without verifying that it
 passes the current project import. Legacy topology rubric metrics or an ID that
