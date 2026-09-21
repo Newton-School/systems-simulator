@@ -1,4 +1,4 @@
 interface:
-  display_name: "Simulator Question Author"
-  short_description: "Create paired DSDS walkthroughs from a design prompt."
-  default_prompt: "Use $simulator-question-author to turn this system-design question into a learner builder walkthrough and a Question Studio walkthrough."
+  display_name: 'Simulator Question Author'
+  short_description: 'Create paired system design simulator walkthroughs.'
+  default_prompt: 'Use $simulator-question-author to turn this system-design question into a learner builder walkthrough and a Question Studio walkthrough.'

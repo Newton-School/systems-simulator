@@ -1,6 +1,6 @@
 ---
 name: simulator-question-author
-description: 'Convert a system-design question into two DSDS simulator Markdown guides: a learner-facing builder walkthrough and an author-facing Question Studio walkthrough. Use when mapping an interview or curriculum prompt to simulator components, workloads, test-case rows, grading rules, evaluation evidence, and honest modeling boundaries.'
+description: 'Convert a system-design question into two system design simulator Markdown guides: a learner-facing builder walkthrough and an author-facing Question Studio walkthrough. Use when mapping an interview or curriculum prompt to simulator components, workloads, test-case rows, grading rules, evaluation evidence, and honest modeling boundaries.'
 ---
 
 # Simulator Question Author
@@ -48,6 +48,23 @@ Use the bundled references in this order:
 4. [Question Studio authoring](references/question-studio-authoring.md)
 5. [Walkthrough pair contract](references/walkthrough-pair-contract.md)
 
+For advanced or exact authoring details, load these deep references only when
+the task needs them:
+
+- [Evaluation Authoring Reference Manual](references/evaluation-authoring-reference-manual.md)
+  for discriminatory authoring, workload modeling, node sizing, environment
+  profiles, validation behavior, and the Django/Newton handoff.
+- [Test-Case Catalog](references/test-case-catalog.md) for exact row JSON,
+  rule/criterion/check fields, `SIMULATOR_CONFIG`, workload examples, and
+  component vocabulary.
+
+The two deep references are bundled snapshots of larger source manuals and may
+contain historical guidance or provenance paths. They do not require those
+external paths. If they conflict with the first five curated references, this
+`SKILL.md`, or controls visible in a newer target Studio, prefer the newer/curated
+contract. In particular, do not apply the manuals' 2,000–5,000 RPS discrete-run
+guidance to a supported high-rate analytic/fluid capacity question.
+
 The QuickCart files under `examples/quickcart/` are a worked pattern, not a
 template to copy blindly.
 
@@ -84,6 +101,10 @@ consistency guarantees, or metrics not described in this package.
 If the dominant lesson is not honestly representable, explain the nearest
 supported reframing instead of writing misleading walkthroughs.
 
+Read the full evaluation manual only when the question depends on advanced node
+sizing, environment profiles, cost/budget semantics, contention, runtime state,
+or Django/Newton row handoff.
+
 ### 3. Create one internal authoring contract
 
 Before drafting either document, establish one shared contract in working notes:
@@ -113,6 +134,9 @@ Both outputs must be derived from this same contract.
 - Keep human UI units distinct from raw DSL units. For example, Studio error
   rate `1%` corresponds to raw `summary.errorRate < 0.01`.
 - Ensure every runtime metric has a scenario capable of producing it.
+- Consult the full test-case catalog when exact row JSON or less-common fields are
+  required; do not copy an example without checking it against the curated
+  grading and feasibility references.
 
 ### 5. Write the builder walkthrough
 

@@ -1,7 +1,7 @@
 # Standalone Simulator Question Author Skill
 
-This folder is a self-contained prompt package for creating two DSDS documents
-from a system-design question:
+This folder is a self-contained prompt package for creating two system design
+simulator documents from a system-design question:
 
 - `builder-walkthrough.md`
 - `question-studio-walkthrough.md`
@@ -9,7 +9,8 @@ from a system-design question:
 Recipients do not need access to the original simulator or documentation
 repository. The package includes its workflow, templates, simulator feasibility
 rules, component/metric catalog, grading DSL, Question Studio field guide, pair
-consistency contract, and a worked QuickCart example.
+consistency contract, the full evaluation-authoring and test-case manuals, and a
+worked QuickCart example.
 
 ## Use with any LLM
 
@@ -38,7 +39,7 @@ simulator-question-author/
 ├── README.md
 ├── agents/openai.yaml                 # optional OpenAI/Codex discovery metadata
 ├── assets/                            # output templates
-├── references/                        # self-contained domain knowledge
+├── references/                        # curated guidance + full deep-reference manuals
 └── examples/quickcart/                # worked two-document example
 ```
 

@@ -36,8 +36,8 @@ servers carry about 76,923 req/s each (76.9%) and pass.
 2. Click **New** in the header.
 3. Work through the seven stages in the left rail: **Frame**, **Brief**,
    **Start**, **Scenarios**, **Grading**, **Preview**, and **Export**.
-4. Click **Save draft** regularly. With the title below, the default filename is
-   `quickcart-flash-sale.dsds-question-project.json`.
+4. Click **Save draft** regularly. Confirm that the saved project's filename uses
+   the `quickcart-flash-sale` title-derived ID.
 
 > Do not begin from a legacy question-package fixture. Older packages may contain
 > an ID that does not match the title-derived slug or topology rubric metrics that
