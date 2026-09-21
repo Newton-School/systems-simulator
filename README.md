@@ -255,6 +255,25 @@ git submodule update --init --recursive
 
 ---
 
+## Reusable LLM Skills
+
+Standalone skills maintained by this repository live under [`skills/`](skills/).
+Unlike the broader workflow skills in the documentation submodule, each root-level
+skill is packaged so it can be shared without repository access.
+
+The Simulator Question Author skill turns one system-design question into a
+learner builder walkthrough and a Question Studio authoring walkthrough. Package
+it with:
+
+```bash
+npm run package:simulator-question-author
+```
+
+This writes an ignored ZIP and SHA-256 checksum under `dist/skills/`. See
+[`skills/README.md`](skills/README.md) for maintenance and distribution guidance.
+
+---
+
 ## Getting Started
 
 ### Prerequisites

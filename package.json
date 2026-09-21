@@ -28,6 +28,7 @@
     "check:web-bundle-budget": "node scripts/check-web-bundle-budget.mjs",
     "audit:question-authoring": "tsx scripts/audit-question-authoring-coverage.ts",
     "generate:django-guides": "tsx scripts/generate-django-admin-assignment-guides.ts",
+    "package:simulator-question-author": "bash scripts/package-skill.sh simulator-question-author",
     "validate:question-bank": "tsx scripts/validate-question-dir.ts ns-simulator-docs/examples/question-bank/*",
     "migration:snapshot": "tsx scripts/compute-contention-migration.ts snapshot",
     "migration:diff": "tsx scripts/compute-contention-migration.ts diff",
