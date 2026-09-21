@@ -1,3 +1,4 @@
+import { copyFileSync, existsSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import type { ServerResponse } from 'node:http'
 import { fileURLToPath } from 'node:url'
@@ -48,6 +49,24 @@ const rendererCspPlugin = (): PluginOption => ({
         injectTo: 'head'
       }
     ]
+  }
+})
+
+/**
+ * GitHub Pages serves a physical file per URL, so client-routed deep links like
+ * `/question-studio` 404 unless a fallback exists. Emitting `404.html` as a copy
+ * of `index.html` lets Pages serve the app for any unmatched path; because the
+ * bundle uses a relative base and AppShell reads `window.location.pathname`, the
+ * correct surface mounts with the original URL preserved (no redirect).
+ */
+const spaFallbackPlugin = (outDir: string): PluginOption => ({
+  name: 'spa-404-fallback',
+  apply: 'build',
+  closeBundle() {
+    const indexHtml = resolve(outDir, 'index.html')
+    if (existsSync(indexHtml)) {
+      copyFileSync(indexHtml, resolve(outDir, '404.html'))
+    }
   }
 })
 
@@ -164,11 +183,17 @@ export default defineConfig(({ mode }) => {
   // `loadEnv` is used only by the Node dev server. No values are injected into
   // the browser bundle because none use the `VITE_` public prefix.
   const environment = { ...process.env, ...loadEnv(mode, projectRoot, '') }
+  const outDir = resolve(projectRoot, 'dist')
 
   return {
     root: rendererRoot,
     base: './',
-    plugins: [react({}), rendererCspPlugin(), llmDevelopmentProxyPlugin(environment)],
+    plugins: [
+      react({}),
+      rendererCspPlugin(),
+      llmDevelopmentProxyPlugin(environment),
+      spaFallbackPlugin(outDir)
+    ],
     resolve: {
       alias: {
         '@renderer': resolve(rendererRoot, 'src')
