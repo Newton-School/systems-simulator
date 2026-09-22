@@ -913,5 +913,16 @@
       "id": "reactflow__edge-lb-srv_13",
       "selected": false
     }
-  ]
+  ],
+  "scenario": {
+    "global": {
+      "simulationDuration": 5000,
+      "warmupDuration": 0,
+      "seed": "quickcart-flash-sale-v1",
+      "defaultTimeout": 5000,
+      "traceSampleRate": 0.01
+    },
+    "selectedSourceNodeId": "src",
+    "workloadOverride": {}
+  }
 }
