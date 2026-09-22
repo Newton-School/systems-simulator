@@ -83,6 +83,12 @@ function buttonNamed(view: HTMLElement, name: string): HTMLButtonElement {
   return button
 }
 
+function editCodeBlock(element: HTMLTextAreaElement, value: string): void {
+  const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set
+  setter?.call(element, value)
+  element.dispatchEvent(new Event('input', { bubbles: true }))
+}
+
 describe('GeneratedOutputPreview', () => {
   it('shows actionable diagnostics and no partial JSON for an incomplete draft', () => {
     const onNavigate = vi.fn()
@@ -102,14 +108,34 @@ describe('GeneratedOutputPreview', () => {
     expect(onNavigate).toHaveBeenCalledWith('frame')
   })
 
-  it('switches between deterministic package and Newton row payloads', () => {
+  it('switches between deterministic package, question HTML, and Newton row payloads', () => {
     const view = renderPreview(completePreview())
-    const output = view.querySelector('[data-testid="generated-output-json"]') as HTMLElement
 
     expect(view.textContent).toContain('Generated output is current')
     expect(view.textContent).toContain('3 Newton rows')
+    expect(view.querySelector('[data-testid="django-test-case-rows"]')).not.toBeNull()
+
+    act(() =>
+      buttonNamed(view, 'Question package').dispatchEvent(
+        new MouseEvent('click', { bubbles: true })
+      )
+    )
+    const output = view.querySelector('[data-testid="generated-output-json"]') as HTMLElement
     expect(output.textContent).toContain('"id": "design-a-durable-queue"')
-    expect(view.querySelector('textarea')).toBeNull()
+    expect(output).toBeInstanceOf(HTMLTextAreaElement)
+    expect((output as HTMLTextAreaElement).readOnly).toBe(false)
+
+    act(() =>
+      buttonNamed(view, 'Question text HTML').dispatchEvent(
+        new MouseEvent('click', { bubbles: true })
+      )
+    )
+    const questionHtml = view.querySelector(
+      '[data-testid="generated-question-text-html"]'
+    ) as HTMLTextAreaElement
+    expect(questionHtml.value).toContain(
+      '<p>Keep accepted messages durable during worker restarts.</p>'
+    )
 
     act(() =>
       buttonNamed(view, 'Newton rows (3)').dispatchEvent(new MouseEvent('click', { bubbles: true }))
@@ -120,15 +146,20 @@ describe('GeneratedOutputPreview', () => {
     expect(output.textContent).toContain('"type": "RUBRIC_CHECK"')
   })
 
-  it('copies the visible artifact and individual Django rows, then downloads the bundle', async () => {
+  it('copies generated blocks and individual Django test cases, then downloads the bundle', async () => {
     const copyText = vi.fn(async () => undefined)
     const onDownload = vi.fn(async () => undefined)
     const view = renderPreview(completePreview(), vi.fn(), onDownload, copyText)
 
-    await act(async () => {
-      buttonNamed(view, 'Copy visible JSON').dispatchEvent(
+    act(() =>
+      buttonNamed(view, 'Question package').dispatchEvent(
         new MouseEvent('click', { bubbles: true })
       )
+    )
+    await act(async () => {
+      ;(
+        view.querySelector('button[aria-label="Copy question package JSON"]') as HTMLButtonElement
+      ).dispatchEvent(new MouseEvent('click', { bubbles: true }))
       await Promise.resolve()
     })
     expect(copyText).toHaveBeenLastCalledWith(
@@ -137,14 +168,47 @@ describe('GeneratedOutputPreview', () => {
     expect(view.textContent).toContain('Question package JSON copied.')
 
     act(() =>
-      buttonNamed(view, 'Newton rows (3)').dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      buttonNamed(view, 'Question text HTML').dispatchEvent(
+        new MouseEvent('click', { bubbles: true })
+      )
     )
     await act(async () => {
-      buttonNamed(view, 'Copy row 2').dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      ;(
+        view.querySelector('button[aria-label="Copy question text HTML"]') as HTMLButtonElement
+      ).dispatchEvent(new MouseEvent('click', { bubbles: true }))
       await Promise.resolve()
     })
-    expect(copyText).toHaveBeenLastCalledWith(expect.stringContaining('"STRUCTURAL_RULE"'))
-    expect(view.textContent).toContain('Row 2 copied.')
+    expect(copyText).toHaveBeenLastCalledWith(
+      expect.stringContaining('<p>Keep accepted messages durable during worker restarts.</p>')
+    )
+    expect(view.textContent).toContain('Question text HTML copied.')
+
+    act(() =>
+      buttonNamed(view, 'Django test cases (3)').dispatchEvent(
+        new MouseEvent('click', { bubbles: true })
+      )
+    )
+    const titleFields = [...view.querySelectorAll('input[readonly]')] as HTMLInputElement[]
+    expect(titleFields).toHaveLength(3)
+    expect(titleFields[1].value).toBe('STRUCTURAL_RULE: single-source')
+    expect(view.querySelectorAll('textarea[aria-label$="input JSON"]')).toHaveLength(3)
+
+    act(() => {
+      editCodeBlock(
+        view.querySelector('textarea[aria-label="Row 2 input JSON"]') as HTMLTextAreaElement,
+        '{\n  "type": "STRUCTURAL_RULE",\n  "edited": true\n}\n'
+      )
+    })
+    expect(view.textContent).toContain('Edited locally')
+
+    await act(async () => {
+      ;(
+        view.querySelector('button[aria-label="Copy row 2 input JSON"]') as HTMLButtonElement
+      ).dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      await Promise.resolve()
+    })
+    expect(copyText).toHaveBeenLastCalledWith(expect.stringContaining('"edited": true'))
+    expect(view.textContent).toContain('Row 2 input JSON copied.')
 
     await act(async () => {
       buttonNamed(view, 'Download Django bundle').dispatchEvent(

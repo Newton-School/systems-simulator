@@ -124,7 +124,7 @@ or Django/Newton row handoff.
 
 ### 3. Create one internal authoring contract
 
-Before drafting either document, establish one shared contract in working notes:
+Before drafting the artifacts, establish one shared contract in working notes:
 
 - stable title and title-derived slug;
 - question type, entry format, difficulty, domains, concepts, and workload;
@@ -137,7 +137,7 @@ Before drafting either document, establish one shared contract in working notes:
 - one passing design, one plausible near miss, and one anti-gaming design;
 - unsupported or narrative-only concerns.
 
-Both outputs must be derived from this same contract.
+All outputs must be derived from this same contract.
 
 ### 4. Design grading and compiled row intent
 
