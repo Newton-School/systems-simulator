@@ -234,7 +234,9 @@ describe('QuestionStudioShell', () => {
     await clickAndFlush(buttonNamed(view, 'Save draft'))
 
     expect(view.textContent).toContain('Design a Durable Queue · Saved')
-    expect(view.textContent).toContain('Saved design-a-durable-queue.simulator-question-project.json')
+    expect(view.textContent).toContain(
+      'Saved design-a-durable-queue.simulator-question-project.json'
+    )
 
     act(() =>
       buttonNamed(view, '5. Grading').dispatchEvent(new MouseEvent('click', { bubbles: true }))
@@ -278,7 +280,9 @@ describe('QuestionStudioShell', () => {
     expect(view.textContent).toContain('Stage 7 of 7')
     expect(view.textContent).toContain('Generated output is current')
     expect(view.textContent).toContain('3 Newton rows')
-    expect(view.textContent).toContain('Opened design-a-durable-queue.simulator-question-project.json')
+    expect(view.textContent).toContain(
+      'Opened design-a-durable-queue.simulator-question-project.json'
+    )
     expect(view.textContent).toContain('Design a Durable Queue · Saved')
 
     act(() =>
