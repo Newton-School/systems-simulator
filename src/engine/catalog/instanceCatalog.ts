@@ -110,32 +110,164 @@ export const INSTANCE_CATALOG: Readonly<Record<InstanceType, InstanceSpec>> = Ob
   'm5.24xlarge': { vcpu: 96, ramGb: 384, family: 'general', pricePerHour: 4.608, perfFactor: 1.0 },
 
   // ── Compute optimized (c5) · perf 1.3 · 2 GB/vCPU · 0.0425/vCpu·hr ──
-  'c5.large': { vcpu: 2, ramGb: 4, family: 'compute-optimized', pricePerHour: 0.085, perfFactor: 1.3 },
-  'c5.xlarge': { vcpu: 4, ramGb: 8, family: 'compute-optimized', pricePerHour: 0.17, perfFactor: 1.3 },
-  'c5.2xlarge': { vcpu: 8, ramGb: 16, family: 'compute-optimized', pricePerHour: 0.34, perfFactor: 1.3 },
-  'c5.4xlarge': { vcpu: 16, ramGb: 32, family: 'compute-optimized', pricePerHour: 0.68, perfFactor: 1.3 },
-  'c5.9xlarge': { vcpu: 36, ramGb: 72, family: 'compute-optimized', pricePerHour: 1.53, perfFactor: 1.3 },
-  'c5.12xlarge': { vcpu: 48, ramGb: 96, family: 'compute-optimized', pricePerHour: 2.04, perfFactor: 1.3 },
-  'c5.18xlarge': { vcpu: 72, ramGb: 144, family: 'compute-optimized', pricePerHour: 3.06, perfFactor: 1.3 },
-  'c5.24xlarge': { vcpu: 96, ramGb: 192, family: 'compute-optimized', pricePerHour: 4.08, perfFactor: 1.3 },
+  'c5.large': {
+    vcpu: 2,
+    ramGb: 4,
+    family: 'compute-optimized',
+    pricePerHour: 0.085,
+    perfFactor: 1.3
+  },
+  'c5.xlarge': {
+    vcpu: 4,
+    ramGb: 8,
+    family: 'compute-optimized',
+    pricePerHour: 0.17,
+    perfFactor: 1.3
+  },
+  'c5.2xlarge': {
+    vcpu: 8,
+    ramGb: 16,
+    family: 'compute-optimized',
+    pricePerHour: 0.34,
+    perfFactor: 1.3
+  },
+  'c5.4xlarge': {
+    vcpu: 16,
+    ramGb: 32,
+    family: 'compute-optimized',
+    pricePerHour: 0.68,
+    perfFactor: 1.3
+  },
+  'c5.9xlarge': {
+    vcpu: 36,
+    ramGb: 72,
+    family: 'compute-optimized',
+    pricePerHour: 1.53,
+    perfFactor: 1.3
+  },
+  'c5.12xlarge': {
+    vcpu: 48,
+    ramGb: 96,
+    family: 'compute-optimized',
+    pricePerHour: 2.04,
+    perfFactor: 1.3
+  },
+  'c5.18xlarge': {
+    vcpu: 72,
+    ramGb: 144,
+    family: 'compute-optimized',
+    pricePerHour: 3.06,
+    perfFactor: 1.3
+  },
+  'c5.24xlarge': {
+    vcpu: 96,
+    ramGb: 192,
+    family: 'compute-optimized',
+    pricePerHour: 4.08,
+    perfFactor: 1.3
+  },
 
   // ── Memory optimized (r5) · perf 1.0 · 8 GB/vCPU · 0.063/vCpu·hr ──
-  'r5.large': { vcpu: 2, ramGb: 16, family: 'memory-optimized', pricePerHour: 0.126, perfFactor: 1.0 },
-  'r5.xlarge': { vcpu: 4, ramGb: 32, family: 'memory-optimized', pricePerHour: 0.252, perfFactor: 1.0 },
-  'r5.2xlarge': { vcpu: 8, ramGb: 64, family: 'memory-optimized', pricePerHour: 0.504, perfFactor: 1.0 },
-  'r5.4xlarge': { vcpu: 16, ramGb: 128, family: 'memory-optimized', pricePerHour: 1.008, perfFactor: 1.0 },
-  'r5.8xlarge': { vcpu: 32, ramGb: 256, family: 'memory-optimized', pricePerHour: 2.016, perfFactor: 1.0 },
-  'r5.12xlarge': { vcpu: 48, ramGb: 384, family: 'memory-optimized', pricePerHour: 3.024, perfFactor: 1.0 },
-  'r5.16xlarge': { vcpu: 64, ramGb: 512, family: 'memory-optimized', pricePerHour: 4.032, perfFactor: 1.0 },
-  'r5.24xlarge': { vcpu: 96, ramGb: 768, family: 'memory-optimized', pricePerHour: 6.048, perfFactor: 1.0 },
+  'r5.large': {
+    vcpu: 2,
+    ramGb: 16,
+    family: 'memory-optimized',
+    pricePerHour: 0.126,
+    perfFactor: 1.0
+  },
+  'r5.xlarge': {
+    vcpu: 4,
+    ramGb: 32,
+    family: 'memory-optimized',
+    pricePerHour: 0.252,
+    perfFactor: 1.0
+  },
+  'r5.2xlarge': {
+    vcpu: 8,
+    ramGb: 64,
+    family: 'memory-optimized',
+    pricePerHour: 0.504,
+    perfFactor: 1.0
+  },
+  'r5.4xlarge': {
+    vcpu: 16,
+    ramGb: 128,
+    family: 'memory-optimized',
+    pricePerHour: 1.008,
+    perfFactor: 1.0
+  },
+  'r5.8xlarge': {
+    vcpu: 32,
+    ramGb: 256,
+    family: 'memory-optimized',
+    pricePerHour: 2.016,
+    perfFactor: 1.0
+  },
+  'r5.12xlarge': {
+    vcpu: 48,
+    ramGb: 384,
+    family: 'memory-optimized',
+    pricePerHour: 3.024,
+    perfFactor: 1.0
+  },
+  'r5.16xlarge': {
+    vcpu: 64,
+    ramGb: 512,
+    family: 'memory-optimized',
+    pricePerHour: 4.032,
+    perfFactor: 1.0
+  },
+  'r5.24xlarge': {
+    vcpu: 96,
+    ramGb: 768,
+    family: 'memory-optimized',
+    pricePerHour: 6.048,
+    perfFactor: 1.0
+  },
 
   // ── Memory extreme (x1e) · perf 1.0 · ~30 GB/vCPU · 0.2085/vCpu·hr (premium) ──
-  'x1e.xlarge': { vcpu: 4, ramGb: 122, family: 'memory-extreme', pricePerHour: 0.834, perfFactor: 1.0 },
-  'x1e.2xlarge': { vcpu: 8, ramGb: 244, family: 'memory-extreme', pricePerHour: 1.668, perfFactor: 1.0 },
-  'x1e.4xlarge': { vcpu: 16, ramGb: 488, family: 'memory-extreme', pricePerHour: 3.336, perfFactor: 1.0 },
-  'x1e.8xlarge': { vcpu: 32, ramGb: 976, family: 'memory-extreme', pricePerHour: 6.672, perfFactor: 1.0 },
-  'x1e.16xlarge': { vcpu: 64, ramGb: 1952, family: 'memory-extreme', pricePerHour: 13.344, perfFactor: 1.0 },
-  'x1e.32xlarge': { vcpu: 128, ramGb: 3904, family: 'memory-extreme', pricePerHour: 26.688, perfFactor: 1.0 }
+  'x1e.xlarge': {
+    vcpu: 4,
+    ramGb: 122,
+    family: 'memory-extreme',
+    pricePerHour: 0.834,
+    perfFactor: 1.0
+  },
+  'x1e.2xlarge': {
+    vcpu: 8,
+    ramGb: 244,
+    family: 'memory-extreme',
+    pricePerHour: 1.668,
+    perfFactor: 1.0
+  },
+  'x1e.4xlarge': {
+    vcpu: 16,
+    ramGb: 488,
+    family: 'memory-extreme',
+    pricePerHour: 3.336,
+    perfFactor: 1.0
+  },
+  'x1e.8xlarge': {
+    vcpu: 32,
+    ramGb: 976,
+    family: 'memory-extreme',
+    pricePerHour: 6.672,
+    perfFactor: 1.0
+  },
+  'x1e.16xlarge': {
+    vcpu: 64,
+    ramGb: 1952,
+    family: 'memory-extreme',
+    pricePerHour: 13.344,
+    perfFactor: 1.0
+  },
+  'x1e.32xlarge': {
+    vcpu: 128,
+    ramGb: 3904,
+    family: 'memory-extreme',
+    pricePerHour: 26.688,
+    perfFactor: 1.0
+  }
 })
 
 /** All catalog keys, e.g. for building a zod enum or a palette dropdown. */
