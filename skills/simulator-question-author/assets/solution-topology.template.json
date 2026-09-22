@@ -1,0 +1,115 @@
+{
+  "version": "2.0.0",
+  "nodes": [
+    {
+      "id": "src",
+      "type": "serviceNode",
+      "position": { "x": 700, "y": -360 },
+      "data": {
+        "schemaVersion": 2,
+        "templateId": "input-source",
+        "componentType": "api-endpoint",
+        "structuralRole": "source",
+        "profile": "source",
+        "rendererType": "serviceNode",
+        "label": "Traffic Source",
+        "subLabel": "Entry Point / Ingress",
+        "iconKey": "input-source",
+        "source": {
+          "requestDistribution": [{ "type": "default", "weight": 1, "sizeBytes": 100 }],
+          "defaultWorkload": { "pattern": "constant", "baseRps": 1000000 }
+        }
+      },
+      "width": 256,
+      "height": 127,
+      "positionAbsolute": { "x": 700, "y": -360 },
+      "selected": false,
+      "dragging": false,
+      "nodes": []
+    },
+    {
+      "id": "lb",
+      "type": "serviceNode",
+      "position": { "x": 700, "y": -140 },
+      "data": {
+        "schemaVersion": 2,
+        "templateId": "load-balancer-l7",
+        "componentType": "load-balancer-l7",
+        "structuralRole": "router",
+        "profile": "router",
+        "rendererType": "serviceNode",
+        "label": "Load Balancer L7",
+        "subLabel": "HTTP / gRPC",
+        "iconKey": "load-balancer-l7",
+        "routingStrategy": "round-robin",
+        "sim": {
+          "resources": { "instanceType": "c5.2xlarge", "instanceCount": 1, "workloadKind": "io-bound", "perRequestMemMb": 4 },
+          "processing": { "distribution": { "type": "exponential", "lambda": 2.5 }, "timeout": 100 },
+          "queue": { "workers": 256, "capacity": 4096, "discipline": "fifo" }
+        }
+      },
+      "width": 256,
+      "height": 141,
+      "positionAbsolute": { "x": 700, "y": -140 },
+      "selected": false,
+      "dragging": false,
+      "nodes": []
+    },
+    {
+      "id": "srv_1",
+      "type": "serviceNode",
+      "position": { "x": 100, "y": 120 },
+      "data": {
+        "schemaVersion": 2,
+        "templateId": "backend-server",
+        "componentType": "microservice",
+        "structuralRole": "service",
+        "profile": "service",
+        "rendererType": "serviceNode",
+        "label": "API Server 1",
+        "subLabel": "Long-running Process",
+        "iconKey": "SERVER",
+        "sim": {
+          "resources": { "instanceType": "c5.2xlarge", "instanceCount": 1, "workloadKind": "io-bound", "perRequestMemMb": 16 },
+          "processing": { "distribution": { "type": "exponential", "lambda": 0.390625 }, "timeout": 100 },
+          "queue": { "workers": 256, "capacity": 4096, "discipline": "fifo" }
+        }
+      },
+      "width": 256,
+      "height": 141,
+      "positionAbsolute": { "x": 100, "y": 120 },
+      "selected": false,
+      "dragging": false,
+      "nodes": []
+    }
+  ],
+  "edges": [
+    {
+      "id": "reactflow__edge-src-lb",
+      "type": "packet",
+      "animated": true,
+      "style": { "stroke": "#94A3B8", "strokeWidth": 2 },
+      "source": "src",
+      "sourceHandle": "bottom-1-source",
+      "target": "lb",
+      "targetHandle": "top-1-target",
+      "selected": false
+    },
+    {
+      "id": "reactflow__edge-lb-srv_1",
+      "type": "packet",
+      "animated": true,
+      "style": { "stroke": "#94A3B8", "strokeWidth": 2 },
+      "source": "lb",
+      "sourceHandle": "bottom-1-source",
+      "target": "srv_1",
+      "targetHandle": "top-1-target",
+      "selected": false
+    }
+  ],
+  "scenario": {
+    "global": { "simulationDuration": 5000, "warmupDuration": 0, "seed": "{{SLUG}}-v1", "defaultTimeout": 5000, "traceSampleRate": 0.01 },
+    "selectedSourceNodeId": "src",
+    "workloadOverride": {}
+  }
+}

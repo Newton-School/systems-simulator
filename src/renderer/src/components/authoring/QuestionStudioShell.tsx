@@ -550,7 +550,7 @@ export function QuestionStudioShell({
     try {
       const saved = await fileService.save(
         generatedPreview.packageJson,
-        `${generatedPreview.questionPackage.id}.question.json`,
+        `${generatedPreview.questionPackage.id}.question-package.json`,
         {
           dialogTitle: 'Download Question Package',
           fileDescription: 'Simulator Question Packages',

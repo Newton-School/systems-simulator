@@ -257,7 +257,7 @@ describe('QuestionAuthoringProject', () => {
       project
     )
     expect(questionAuthoringProjectFileName(project.question.title)).toBe(
-      'design-a-url-shortener.dsds-question-project.json'
+      'design-a-url-shortener.simulator-question-project.json'
     )
   })
 

@@ -1,0 +1,917 @@
+{
+  "version": "2.0.0",
+  "nodes": [
+    {
+      "id": "src",
+      "type": "serviceNode",
+      "position": {
+        "x": 700,
+        "y": -360
+      },
+      "data": {
+        "schemaVersion": 2,
+        "templateId": "input-source",
+        "componentType": "api-endpoint",
+        "structuralRole": "source",
+        "profile": "source",
+        "rendererType": "serviceNode",
+        "label": "Traffic Source",
+        "subLabel": "Entry Point / Ingress",
+        "iconKey": "input-source",
+        "source": {
+          "requestDistribution": [
+            {
+              "type": "default",
+              "weight": 1,
+              "sizeBytes": 100
+            }
+          ],
+          "defaultWorkload": {
+            "pattern": "constant",
+            "baseRps": 1000000
+          }
+        }
+      },
+      "width": 256,
+      "height": 127,
+      "selected": false,
+      "positionAbsolute": {
+        "x": 700,
+        "y": -360
+      },
+      "dragging": false,
+      "nodes": []
+    },
+    {
+      "id": "lb",
+      "type": "serviceNode",
+      "position": {
+        "x": 700,
+        "y": -140
+      },
+      "data": {
+        "schemaVersion": 2,
+        "templateId": "load-balancer-l7",
+        "componentType": "load-balancer-l7",
+        "structuralRole": "router",
+        "profile": "router",
+        "rendererType": "serviceNode",
+        "label": "Load Balancer L7",
+        "subLabel": "HTTP / gRPC",
+        "iconKey": "load-balancer-l7",
+        "routingStrategy": "round-robin",
+        "sim": {
+          "resources": {
+            "instanceType": "c5.2xlarge",
+            "instanceCount": 1,
+            "workloadKind": "io-bound",
+            "perRequestMemMb": 4
+          },
+          "processing": {
+            "distribution": {
+              "type": "exponential",
+              "lambda": 2.5
+            },
+            "timeout": 100
+          },
+          "queue": {
+            "workers": 256,
+            "capacity": 4096,
+            "discipline": "fifo"
+          }
+        }
+      },
+      "width": 256,
+      "height": 141,
+      "selected": false,
+      "positionAbsolute": {
+        "x": 700,
+        "y": -140
+      },
+      "dragging": false,
+      "nodes": []
+    },
+    {
+      "id": "srv_1",
+      "type": "serviceNode",
+      "position": {
+        "x": 100,
+        "y": 120
+      },
+      "data": {
+        "schemaVersion": 2,
+        "templateId": "backend-server",
+        "componentType": "microservice",
+        "structuralRole": "service",
+        "profile": "service",
+        "rendererType": "serviceNode",
+        "label": "API Server 1",
+        "subLabel": "Long-running Process",
+        "iconKey": "SERVER",
+        "sim": {
+          "resources": {
+            "instanceType": "c5.2xlarge",
+            "instanceCount": 1,
+            "workloadKind": "io-bound",
+            "perRequestMemMb": 16
+          },
+          "processing": {
+            "distribution": {
+              "type": "exponential",
+              "lambda": 0.390625
+            },
+            "timeout": 100
+          },
+          "queue": {
+            "workers": 256,
+            "capacity": 4096,
+            "discipline": "fifo"
+          }
+        }
+      },
+      "width": 256,
+      "height": 141,
+      "selected": false,
+      "positionAbsolute": {
+        "x": 100,
+        "y": 120
+      },
+      "dragging": false,
+      "nodes": []
+    },
+    {
+      "id": "srv_2",
+      "type": "serviceNode",
+      "position": {
+        "x": 400,
+        "y": 120
+      },
+      "data": {
+        "schemaVersion": 2,
+        "templateId": "backend-server",
+        "componentType": "microservice",
+        "structuralRole": "service",
+        "profile": "service",
+        "rendererType": "serviceNode",
+        "label": "API Server 2",
+        "subLabel": "Long-running Process",
+        "iconKey": "SERVER",
+        "sim": {
+          "resources": {
+            "instanceType": "c5.2xlarge",
+            "instanceCount": 1,
+            "workloadKind": "io-bound",
+            "perRequestMemMb": 16
+          },
+          "processing": {
+            "distribution": {
+              "type": "exponential",
+              "lambda": 0.390625
+            },
+            "timeout": 100
+          },
+          "queue": {
+            "workers": 256,
+            "capacity": 4096,
+            "discipline": "fifo"
+          }
+        }
+      },
+      "width": 256,
+      "height": 141,
+      "selected": false,
+      "positionAbsolute": {
+        "x": 400,
+        "y": 120
+      },
+      "dragging": false,
+      "nodes": []
+    },
+    {
+      "id": "srv_3",
+      "type": "serviceNode",
+      "position": {
+        "x": 700,
+        "y": 120
+      },
+      "data": {
+        "schemaVersion": 2,
+        "templateId": "backend-server",
+        "componentType": "microservice",
+        "structuralRole": "service",
+        "profile": "service",
+        "rendererType": "serviceNode",
+        "label": "API Server 3",
+        "subLabel": "Long-running Process",
+        "iconKey": "SERVER",
+        "sim": {
+          "resources": {
+            "instanceType": "c5.2xlarge",
+            "instanceCount": 1,
+            "workloadKind": "io-bound",
+            "perRequestMemMb": 16
+          },
+          "processing": {
+            "distribution": {
+              "type": "exponential",
+              "lambda": 0.390625
+            },
+            "timeout": 100
+          },
+          "queue": {
+            "workers": 256,
+            "capacity": 4096,
+            "discipline": "fifo"
+          }
+        }
+      },
+      "width": 256,
+      "height": 141,
+      "selected": false,
+      "positionAbsolute": {
+        "x": 700,
+        "y": 120
+      },
+      "dragging": false,
+      "nodes": []
+    },
+    {
+      "id": "srv_4",
+      "type": "serviceNode",
+      "position": {
+        "x": 1000,
+        "y": 120
+      },
+      "data": {
+        "schemaVersion": 2,
+        "templateId": "backend-server",
+        "componentType": "microservice",
+        "structuralRole": "service",
+        "profile": "service",
+        "rendererType": "serviceNode",
+        "label": "API Server 4",
+        "subLabel": "Long-running Process",
+        "iconKey": "SERVER",
+        "sim": {
+          "resources": {
+            "instanceType": "c5.2xlarge",
+            "instanceCount": 1,
+            "workloadKind": "io-bound",
+            "perRequestMemMb": 16
+          },
+          "processing": {
+            "distribution": {
+              "type": "exponential",
+              "lambda": 0.390625
+            },
+            "timeout": 100
+          },
+          "queue": {
+            "workers": 256,
+            "capacity": 4096,
+            "discipline": "fifo"
+          }
+        }
+      },
+      "width": 256,
+      "height": 141,
+      "selected": false,
+      "positionAbsolute": {
+        "x": 1000,
+        "y": 120
+      },
+      "dragging": false,
+      "nodes": []
+    },
+    {
+      "id": "srv_5",
+      "type": "serviceNode",
+      "position": {
+        "x": 1300,
+        "y": 120
+      },
+      "data": {
+        "schemaVersion": 2,
+        "templateId": "backend-server",
+        "componentType": "microservice",
+        "structuralRole": "service",
+        "profile": "service",
+        "rendererType": "serviceNode",
+        "label": "API Server 5",
+        "subLabel": "Long-running Process",
+        "iconKey": "SERVER",
+        "sim": {
+          "resources": {
+            "instanceType": "c5.2xlarge",
+            "instanceCount": 1,
+            "workloadKind": "io-bound",
+            "perRequestMemMb": 16
+          },
+          "processing": {
+            "distribution": {
+              "type": "exponential",
+              "lambda": 0.390625
+            },
+            "timeout": 100
+          },
+          "queue": {
+            "workers": 256,
+            "capacity": 4096,
+            "discipline": "fifo"
+          }
+        }
+      },
+      "width": 256,
+      "height": 141,
+      "selected": false,
+      "positionAbsolute": {
+        "x": 1300,
+        "y": 120
+      },
+      "dragging": false,
+      "nodes": []
+    },
+    {
+      "id": "srv_6",
+      "type": "serviceNode",
+      "position": {
+        "x": 1600,
+        "y": 120
+      },
+      "data": {
+        "schemaVersion": 2,
+        "templateId": "backend-server",
+        "componentType": "microservice",
+        "structuralRole": "service",
+        "profile": "service",
+        "rendererType": "serviceNode",
+        "label": "API Server 6",
+        "subLabel": "Long-running Process",
+        "iconKey": "SERVER",
+        "sim": {
+          "resources": {
+            "instanceType": "c5.2xlarge",
+            "instanceCount": 1,
+            "workloadKind": "io-bound",
+            "perRequestMemMb": 16
+          },
+          "processing": {
+            "distribution": {
+              "type": "exponential",
+              "lambda": 0.390625
+            },
+            "timeout": 100
+          },
+          "queue": {
+            "workers": 256,
+            "capacity": 4096,
+            "discipline": "fifo"
+          }
+        }
+      },
+      "width": 256,
+      "height": 141,
+      "selected": false,
+      "positionAbsolute": {
+        "x": 1600,
+        "y": 120
+      },
+      "dragging": false,
+      "nodes": []
+    },
+    {
+      "id": "srv_7",
+      "type": "serviceNode",
+      "position": {
+        "x": 1900,
+        "y": 120
+      },
+      "data": {
+        "schemaVersion": 2,
+        "templateId": "backend-server",
+        "componentType": "microservice",
+        "structuralRole": "service",
+        "profile": "service",
+        "rendererType": "serviceNode",
+        "label": "API Server 7",
+        "subLabel": "Long-running Process",
+        "iconKey": "SERVER",
+        "sim": {
+          "resources": {
+            "instanceType": "c5.2xlarge",
+            "instanceCount": 1,
+            "workloadKind": "io-bound",
+            "perRequestMemMb": 16
+          },
+          "processing": {
+            "distribution": {
+              "type": "exponential",
+              "lambda": 0.390625
+            },
+            "timeout": 100
+          },
+          "queue": {
+            "workers": 256,
+            "capacity": 4096,
+            "discipline": "fifo"
+          }
+        }
+      },
+      "width": 256,
+      "height": 141,
+      "selected": false,
+      "positionAbsolute": {
+        "x": 1900,
+        "y": 120
+      },
+      "dragging": false,
+      "nodes": []
+    },
+    {
+      "id": "srv_8",
+      "type": "serviceNode",
+      "position": {
+        "x": 100,
+        "y": 340
+      },
+      "data": {
+        "schemaVersion": 2,
+        "templateId": "backend-server",
+        "componentType": "microservice",
+        "structuralRole": "service",
+        "profile": "service",
+        "rendererType": "serviceNode",
+        "label": "API Server 8",
+        "subLabel": "Long-running Process",
+        "iconKey": "SERVER",
+        "sim": {
+          "resources": {
+            "instanceType": "c5.2xlarge",
+            "instanceCount": 1,
+            "workloadKind": "io-bound",
+            "perRequestMemMb": 16
+          },
+          "processing": {
+            "distribution": {
+              "type": "exponential",
+              "lambda": 0.390625
+            },
+            "timeout": 100
+          },
+          "queue": {
+            "workers": 256,
+            "capacity": 4096,
+            "discipline": "fifo"
+          }
+        }
+      },
+      "width": 256,
+      "height": 141,
+      "selected": false,
+      "positionAbsolute": {
+        "x": 100,
+        "y": 340
+      },
+      "dragging": false,
+      "nodes": []
+    },
+    {
+      "id": "srv_9",
+      "type": "serviceNode",
+      "position": {
+        "x": 400,
+        "y": 340
+      },
+      "data": {
+        "schemaVersion": 2,
+        "templateId": "backend-server",
+        "componentType": "microservice",
+        "structuralRole": "service",
+        "profile": "service",
+        "rendererType": "serviceNode",
+        "label": "API Server 9",
+        "subLabel": "Long-running Process",
+        "iconKey": "SERVER",
+        "sim": {
+          "resources": {
+            "instanceType": "c5.2xlarge",
+            "instanceCount": 1,
+            "workloadKind": "io-bound",
+            "perRequestMemMb": 16
+          },
+          "processing": {
+            "distribution": {
+              "type": "exponential",
+              "lambda": 0.390625
+            },
+            "timeout": 100
+          },
+          "queue": {
+            "workers": 256,
+            "capacity": 4096,
+            "discipline": "fifo"
+          }
+        }
+      },
+      "width": 256,
+      "height": 141,
+      "selected": false,
+      "positionAbsolute": {
+        "x": 400,
+        "y": 340
+      },
+      "dragging": false,
+      "nodes": []
+    },
+    {
+      "id": "srv_10",
+      "type": "serviceNode",
+      "position": {
+        "x": 700,
+        "y": 340
+      },
+      "data": {
+        "schemaVersion": 2,
+        "templateId": "backend-server",
+        "componentType": "microservice",
+        "structuralRole": "service",
+        "profile": "service",
+        "rendererType": "serviceNode",
+        "label": "API Server 10",
+        "subLabel": "Long-running Process",
+        "iconKey": "SERVER",
+        "sim": {
+          "resources": {
+            "instanceType": "c5.2xlarge",
+            "instanceCount": 1,
+            "workloadKind": "io-bound",
+            "perRequestMemMb": 16
+          },
+          "processing": {
+            "distribution": {
+              "type": "exponential",
+              "lambda": 0.390625
+            },
+            "timeout": 100
+          },
+          "queue": {
+            "workers": 256,
+            "capacity": 4096,
+            "discipline": "fifo"
+          }
+        }
+      },
+      "width": 256,
+      "height": 141,
+      "selected": false,
+      "positionAbsolute": {
+        "x": 700,
+        "y": 340
+      },
+      "dragging": false,
+      "nodes": []
+    },
+    {
+      "id": "srv_11",
+      "type": "serviceNode",
+      "position": {
+        "x": 1000,
+        "y": 340
+      },
+      "data": {
+        "schemaVersion": 2,
+        "templateId": "backend-server",
+        "componentType": "microservice",
+        "structuralRole": "service",
+        "profile": "service",
+        "rendererType": "serviceNode",
+        "label": "API Server 11",
+        "subLabel": "Long-running Process",
+        "iconKey": "SERVER",
+        "sim": {
+          "resources": {
+            "instanceType": "c5.2xlarge",
+            "instanceCount": 1,
+            "workloadKind": "io-bound",
+            "perRequestMemMb": 16
+          },
+          "processing": {
+            "distribution": {
+              "type": "exponential",
+              "lambda": 0.390625
+            },
+            "timeout": 100
+          },
+          "queue": {
+            "workers": 256,
+            "capacity": 4096,
+            "discipline": "fifo"
+          }
+        }
+      },
+      "width": 256,
+      "height": 141,
+      "selected": false,
+      "positionAbsolute": {
+        "x": 1000,
+        "y": 340
+      },
+      "dragging": false,
+      "nodes": []
+    },
+    {
+      "id": "srv_12",
+      "type": "serviceNode",
+      "position": {
+        "x": 1300,
+        "y": 340
+      },
+      "data": {
+        "schemaVersion": 2,
+        "templateId": "backend-server",
+        "componentType": "microservice",
+        "structuralRole": "service",
+        "profile": "service",
+        "rendererType": "serviceNode",
+        "label": "API Server 12",
+        "subLabel": "Long-running Process",
+        "iconKey": "SERVER",
+        "sim": {
+          "resources": {
+            "instanceType": "c5.2xlarge",
+            "instanceCount": 1,
+            "workloadKind": "io-bound",
+            "perRequestMemMb": 16
+          },
+          "processing": {
+            "distribution": {
+              "type": "exponential",
+              "lambda": 0.390625
+            },
+            "timeout": 100
+          },
+          "queue": {
+            "workers": 256,
+            "capacity": 4096,
+            "discipline": "fifo"
+          }
+        }
+      },
+      "width": 256,
+      "height": 141,
+      "selected": false,
+      "positionAbsolute": {
+        "x": 1300,
+        "y": 340
+      },
+      "dragging": false,
+      "nodes": []
+    },
+    {
+      "id": "srv_13",
+      "type": "serviceNode",
+      "position": {
+        "x": 1600,
+        "y": 340
+      },
+      "data": {
+        "schemaVersion": 2,
+        "templateId": "backend-server",
+        "componentType": "microservice",
+        "structuralRole": "service",
+        "profile": "service",
+        "rendererType": "serviceNode",
+        "label": "API Server 13",
+        "subLabel": "Long-running Process",
+        "iconKey": "SERVER",
+        "sim": {
+          "resources": {
+            "instanceType": "c5.2xlarge",
+            "instanceCount": 1,
+            "workloadKind": "io-bound",
+            "perRequestMemMb": 16
+          },
+          "processing": {
+            "distribution": {
+              "type": "exponential",
+              "lambda": 0.390625
+            },
+            "timeout": 100
+          },
+          "queue": {
+            "workers": 256,
+            "capacity": 4096,
+            "discipline": "fifo"
+          }
+        }
+      },
+      "width": 256,
+      "height": 141,
+      "selected": false,
+      "positionAbsolute": {
+        "x": 1600,
+        "y": 340
+      },
+      "dragging": false,
+      "nodes": []
+    }
+  ],
+  "edges": [
+    {
+      "type": "packet",
+      "animated": true,
+      "style": {
+        "stroke": "#94A3B8",
+        "strokeWidth": 2
+      },
+      "source": "src",
+      "sourceHandle": "bottom-1-source",
+      "target": "lb",
+      "targetHandle": "top-1-target",
+      "id": "reactflow__edge-src-lb",
+      "selected": false
+    },
+    {
+      "type": "packet",
+      "animated": true,
+      "style": {
+        "stroke": "#94A3B8",
+        "strokeWidth": 2
+      },
+      "source": "lb",
+      "sourceHandle": "bottom-1-source",
+      "target": "srv_1",
+      "targetHandle": "top-1-target",
+      "id": "reactflow__edge-lb-srv_1",
+      "selected": false
+    },
+    {
+      "type": "packet",
+      "animated": true,
+      "style": {
+        "stroke": "#94A3B8",
+        "strokeWidth": 2
+      },
+      "source": "lb",
+      "sourceHandle": "bottom-1-source",
+      "target": "srv_2",
+      "targetHandle": "top-1-target",
+      "id": "reactflow__edge-lb-srv_2",
+      "selected": false
+    },
+    {
+      "type": "packet",
+      "animated": true,
+      "style": {
+        "stroke": "#94A3B8",
+        "strokeWidth": 2
+      },
+      "source": "lb",
+      "sourceHandle": "bottom-1-source",
+      "target": "srv_3",
+      "targetHandle": "top-1-target",
+      "id": "reactflow__edge-lb-srv_3",
+      "selected": false
+    },
+    {
+      "type": "packet",
+      "animated": true,
+      "style": {
+        "stroke": "#94A3B8",
+        "strokeWidth": 2
+      },
+      "source": "lb",
+      "sourceHandle": "bottom-1-source",
+      "target": "srv_4",
+      "targetHandle": "top-1-target",
+      "id": "reactflow__edge-lb-srv_4",
+      "selected": false
+    },
+    {
+      "type": "packet",
+      "animated": true,
+      "style": {
+        "stroke": "#94A3B8",
+        "strokeWidth": 2
+      },
+      "source": "lb",
+      "sourceHandle": "bottom-1-source",
+      "target": "srv_5",
+      "targetHandle": "top-1-target",
+      "id": "reactflow__edge-lb-srv_5",
+      "selected": false
+    },
+    {
+      "type": "packet",
+      "animated": true,
+      "style": {
+        "stroke": "#94A3B8",
+        "strokeWidth": 2
+      },
+      "source": "lb",
+      "sourceHandle": "bottom-1-source",
+      "target": "srv_6",
+      "targetHandle": "top-1-target",
+      "id": "reactflow__edge-lb-srv_6",
+      "selected": false
+    },
+    {
+      "type": "packet",
+      "animated": true,
+      "style": {
+        "stroke": "#94A3B8",
+        "strokeWidth": 2
+      },
+      "source": "lb",
+      "sourceHandle": "bottom-1-source",
+      "target": "srv_7",
+      "targetHandle": "top-1-target",
+      "id": "reactflow__edge-lb-srv_7",
+      "selected": false
+    },
+    {
+      "type": "packet",
+      "animated": true,
+      "style": {
+        "stroke": "#94A3B8",
+        "strokeWidth": 2
+      },
+      "source": "lb",
+      "sourceHandle": "bottom-1-source",
+      "target": "srv_8",
+      "targetHandle": "top-1-target",
+      "id": "reactflow__edge-lb-srv_8",
+      "selected": false
+    },
+    {
+      "type": "packet",
+      "animated": true,
+      "style": {
+        "stroke": "#94A3B8",
+        "strokeWidth": 2
+      },
+      "source": "lb",
+      "sourceHandle": "bottom-1-source",
+      "target": "srv_9",
+      "targetHandle": "top-1-target",
+      "id": "reactflow__edge-lb-srv_9",
+      "selected": false
+    },
+    {
+      "type": "packet",
+      "animated": true,
+      "style": {
+        "stroke": "#94A3B8",
+        "strokeWidth": 2
+      },
+      "source": "lb",
+      "sourceHandle": "bottom-1-source",
+      "target": "srv_10",
+      "targetHandle": "top-1-target",
+      "id": "reactflow__edge-lb-srv_10",
+      "selected": false
+    },
+    {
+      "type": "packet",
+      "animated": true,
+      "style": {
+        "stroke": "#94A3B8",
+        "strokeWidth": 2
+      },
+      "source": "lb",
+      "sourceHandle": "bottom-1-source",
+      "target": "srv_11",
+      "targetHandle": "top-1-target",
+      "id": "reactflow__edge-lb-srv_11",
+      "selected": false
+    },
+    {
+      "type": "packet",
+      "animated": true,
+      "style": {
+        "stroke": "#94A3B8",
+        "strokeWidth": 2
+      },
+      "source": "lb",
+      "sourceHandle": "bottom-1-source",
+      "target": "srv_12",
+      "targetHandle": "top-1-target",
+      "id": "reactflow__edge-lb-srv_12",
+      "selected": false
+    },
+    {
+      "type": "packet",
+      "animated": true,
+      "style": {
+        "stroke": "#94A3B8",
+        "strokeWidth": 2
+      },
+      "source": "lb",
+      "sourceHandle": "bottom-1-source",
+      "target": "srv_13",
+      "targetHandle": "top-1-target",
+      "id": "reactflow__edge-lb-srv_13",
+      "selected": false
+    }
+  ]
+}

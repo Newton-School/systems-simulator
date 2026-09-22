@@ -33,7 +33,7 @@ describe('Question Studio verdict-metric composer', () => {
       })
     ).toEqual({
       id: 'no-violations',
-      description: expect.stringContaining('=='),
+      description: expect.stringContaining('must be exactly'),
       kind: 'invariant',
       metric: 'invariantViolations.count',
       op: '==',

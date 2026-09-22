@@ -1,0 +1,157 @@
+{
+  "artifact": "dsds-question-project",
+  "artifactVersion": "1.0",
+  "projectId": "8c2b7fd5-464e-4bea-970f-1916d4f382a9",
+  "updatedAt": "2026-09-21T13:00:06.813Z",
+  "question": {
+    "id": "quickcart-flash-sale",
+    "title": "QuickCart Flash Sale",
+    "description": "Scale a stateless request tier behind a load balancer to carry a 1,000,000 req/s flash sale while  keeping every server within an 80% capacity headroom budget.",
+    "tags": [],
+    "author": "Hritvik Mohan",
+    "createdAt": "2026-09-21T00:00:00.000Z",
+    "setup": {
+      "difficulty": "beginner",
+      "type": "scaling",
+      "entryFormat": "blank-canvas",
+      "domains": [
+        "compute"
+      ],
+      "concepts": [
+        "horizontal-scaling",
+        "capacity-headroom",
+        "load-balancing"
+      ],
+      "workloadCategory": "read-heavy",
+      "estimatedTimeMinutes": 10,
+      "passThreshold": 0.81,
+      "suiteVisibleToStudent": true,
+      "constraints": {
+        "allowedNodeTypes": [
+          "microservice",
+          "api-endpoint",
+          "load-balancer-l7"
+        ],
+        "canModifyScaffold": true,
+        "canRemoveScaffoldNodes": true
+      }
+    },
+    "prompt": {
+      "text": "You are the backend architect for an e-commerce website called QuickCart.\n\nQuickCart is running a major flash sale. During the sale, the website is expected to receive up to 1,000,000 requests per second.\n\nEach backend server can handle a maximum of 100,000 requests per second. To keep the servers stable, use no more than 80% of each server's capacity.\n\nThe load balancer distributes incoming requests evenly across every backend server you add.\n\nBuild the backend architecture for QuickCart from available components.",
+      "scale": {
+        "peakRps": 1000000,
+        "readWriteRatio": 100
+      },
+      "functionalRequirements": [
+        {
+          "id": "fr-fee0ae1e-7078-4eea-854a-10492fc52362",
+          "text": "Accept incoming user traffic through a load balancer."
+        },
+        {
+          "id": "fr-641fe22d-4023-4453-b1b4-e30ea24b5aa6",
+          "text": "Distribute traffic evenly across a pool of backend servers."
+        },
+        {
+          "id": "fr-c7b07710-7e6f-4986-9175-e2a3e1404d01",
+          "text": "Serve the full offered load without dropping requests."
+        }
+      ],
+      "nonFunctionalRequirements": [
+        {
+          "id": "nfr-d3998a98-c959-4b7b-9e14-48162c425f02",
+          "metric": "throughput",
+          "operator": ">=",
+          "value": 1000000,
+          "unit": "req_per_sec"
+        },
+        {
+          "id": "nfr-f46e38fa-1ed7-46ba-9f9f-42d4e3b6d03c",
+          "metric": "error_rate",
+          "operator": "<",
+          "value": 1,
+          "unit": "percent"
+        }
+      ]
+    },
+    "dryRunScenarioId": "baseline",
+    "justify": [],
+    "scenarios": [
+      {
+        "id": "baseline",
+        "description": "Sustain the 1,000,000 req/s flash-sale peak within the 80% server headroom budget.",
+        "seed": "quickcart-flash-sale-v1",
+        "pattern": "constant",
+        "durationSeconds": 5,
+        "warmupSeconds": 0,
+        "baseRps": 1000000,
+        "readPercent": 100,
+        "requestSizeBytes": 100,
+        "sourceNodeId": "",
+        "burstRps": 2500,
+        "burstDurationSeconds": 10,
+        "normalDurationSeconds": 20,
+        "spikeTimeSeconds": 20,
+        "spikeRps": 5000,
+        "spikeDurationSeconds": 10,
+        "sawtoothPeakRps": 3000,
+        "rampDurationSeconds": 20,
+        "diurnalPeakMultiplier": 2,
+        "keyspaceField": "",
+        "keyspaceSize": null,
+        "keyspaceSkew": null,
+        "faults": [],
+        "invariants": [
+          {
+            "id": "invariant-1",
+            "description": "No server may exceed 80% of its capacity during the scale.",
+            "condition": "perNode.maxUtilization <= 0.8"
+          }
+        ]
+      }
+    ],
+    "structuralRules": [
+      {
+        "id": "structural-rule-2",
+        "kind": "requires_component",
+        "componentType": "load-balancer-l7",
+        "minCount": 1
+      },
+      {
+        "id": "structural-rule-5",
+        "kind": "requires_connected_graph"
+      }
+    ],
+    "semanticRules": [],
+    "metricRules": [
+      {
+        "id": "metric-target",
+        "metric": "error_rate",
+        "operator": "<",
+        "value": 1,
+        "unit": "percent"
+      }
+    ],
+    "rubricChecks": [
+      {
+        "id": "rubric-check-1",
+        "metric": "summary.throughput",
+        "op": ">=",
+        "value": 1000000,
+        "points": 1
+      },
+      {
+        "id": "rubric-check-2",
+        "metric": "invariantViolations.count",
+        "op": "==",
+        "value": 0,
+        "points": 2
+      }
+    ]
+  },
+  "assets": {
+    "gamedTopologies": []
+  },
+  "ui": {
+    "activeStage": "export"
+  }
+}

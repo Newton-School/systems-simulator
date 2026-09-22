@@ -4,12 +4,15 @@ export function NodeMetricCell({
   label,
   value,
   tone = 'text-nss-text',
-  tooltip
+  tooltip,
+  title
 }: {
   label: string
   value: string
   tone?: string
   tooltip?: string
+  /** Full, unabbreviated value shown on hover when `value` is a compact form. */
+  title?: string
 }) {
   return (
     <div className="min-w-0">
@@ -26,7 +29,10 @@ export function NodeMetricCell({
           />
         ) : null}
       </div>
-      <div className={`mt-1 text-[12px] leading-tight tabular-nums whitespace-nowrap ${tone}`}>
+      <div
+        className={`mt-1 overflow-hidden text-ellipsis whitespace-nowrap text-[12px] leading-tight tabular-nums ${tone}`}
+        title={title ?? value}
+      >
         {value}
       </div>
     </div>
