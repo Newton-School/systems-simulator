@@ -18,6 +18,8 @@ export interface AuthoringRubricCheckDraft {
   op: CheckOp
   value: number | null
   points: number | null
+  /** Optional learner-facing label. Falls back to a sentence derived from the assertion. */
+  description?: string
 }
 
 export type AuthoringRubricCheckAction =
@@ -26,6 +28,7 @@ export type AuthoringRubricCheckAction =
   | { type: 'update-op'; id: string; op: CheckOp }
   | { type: 'update-value'; id: string; value: number | null }
   | { type: 'update-points'; id: string; points: number | null }
+  | { type: 'update-description'; id: string; description: string }
   | { type: 'remove'; id: string }
 
 export const AUTHORING_RUBRIC_METRIC_CAPABILITIES: readonly RubricMetricCapability[] =
@@ -96,7 +99,8 @@ export function compileAuthoringRubricCheck(draft: AuthoringRubricCheckDraft): R
 
   return {
     id,
-    description: describeRubricCheck(capability.label, draft.op, draft.value),
+    description:
+      draft.description?.trim() || describeRubricCheck(capability.label, draft.op, draft.value),
     kind: capability.kind,
     metric: capability.id,
     op: draft.op,
@@ -133,6 +137,10 @@ export function authoringRubricCheckReducer(
     case 'update-points':
       return checks.map((check) =>
         check.id === action.id ? { ...check, points: action.points } : check
+      )
+    case 'update-description':
+      return checks.map((check) =>
+        check.id === action.id ? { ...check, description: action.description } : check
       )
     case 'remove':
       return checks.filter((check) => check.id !== action.id)

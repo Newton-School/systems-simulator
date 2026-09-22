@@ -29,12 +29,22 @@
     "prompt": {
       "text": "{{LEARNER_PROMPT}}",
       "scale": { "peakRps": 1000000, "readWriteRatio": 100 },
-      "functionalRequirements": [
-        { "id": "fr-{{UUID_1}}", "text": "{{FUNCTIONAL_REQUIREMENT_1}}" }
-      ],
+      "functionalRequirements": [{ "id": "fr-{{UUID_1}}", "text": "{{FUNCTIONAL_REQUIREMENT_1}}" }],
       "nonFunctionalRequirements": [
-        { "id": "nfr-{{UUID_1}}", "metric": "throughput", "operator": ">=", "value": 1000000, "unit": "req_per_sec" },
-        { "id": "nfr-{{UUID_2}}", "metric": "error_rate", "operator": "<", "value": 1, "unit": "percent" }
+        {
+          "id": "nfr-{{UUID_1}}",
+          "metric": "throughput",
+          "operator": ">=",
+          "value": 1000000,
+          "unit": "req_per_sec"
+        },
+        {
+          "id": "nfr-{{UUID_2}}",
+          "metric": "error_rate",
+          "operator": "<",
+          "value": 1,
+          "unit": "percent"
+        }
       ]
     },
     "dryRunScenarioId": "baseline",
@@ -64,19 +74,45 @@
     "structuralRules": [
       {
         "id": "structural-rule-2",
+        "description": "{{LOAD_BALANCER_RULE_DESCRIPTION}}",
         "kind": "requires_component",
         "componentType": "load-balancer-l7",
         "minCount": 1
       },
-      { "id": "structural-rule-5", "kind": "requires_connected_graph" }
+      {
+        "id": "structural-rule-5",
+        "description": "{{CONNECTED_GRAPH_RULE_DESCRIPTION}}",
+        "kind": "requires_connected_graph"
+      }
     ],
     "semanticRules": [],
     "metricRules": [
-      { "id": "metric-target", "metric": "error_rate", "operator": "<", "value": 1, "unit": "percent" }
+      {
+        "id": "metric-target",
+        "description": "{{ERROR_CHECK_DESCRIPTION}}",
+        "metric": "error_rate",
+        "operator": "<",
+        "value": 1,
+        "unit": "percent"
+      }
     ],
     "rubricChecks": [
-      { "id": "rubric-check-1", "metric": "summary.throughput", "op": ">=", "value": 1000000, "points": 1 },
-      { "id": "rubric-check-2", "metric": "invariantViolations.count", "op": "==", "value": 0, "points": 2 }
+      {
+        "id": "rubric-check-1",
+        "description": "{{THROUGHPUT_CHECK_DESCRIPTION}}",
+        "metric": "summary.throughput",
+        "op": ">=",
+        "value": 1000000,
+        "points": 1
+      },
+      {
+        "id": "rubric-check-2",
+        "description": "{{HEADROOM_CHECK_DESCRIPTION}}",
+        "metric": "invariantViolations.count",
+        "op": "==",
+        "value": 0,
+        "points": 2
+      }
     ]
   },
   "assets": { "gamedTopologies": [] },

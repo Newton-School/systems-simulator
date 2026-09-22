@@ -297,6 +297,7 @@ const AuthoringStructuralRuleDraftSchema: z.ZodType<AuthoringStructuralRuleDraft
   .object({
     id: z.string().min(1),
     kind: z.custom<AuthoringStructuralRuleDraft['kind']>(isAuthoringStructuralRuleKind),
+    description: z.string().optional(),
     componentType: z.string().optional(),
     justifyId: z.string().optional(),
     category: z.enum(AUTHORING_STRUCTURAL_CATEGORIES).optional(),
@@ -315,6 +316,7 @@ const AuthoringSemanticRuleDraftSchema: z.ZodType<AuthoringSemanticRuleDraft> = 
     id: z.string().min(1),
     kind: z.custom<AuthoringSemanticRuleDraft['kind']>(isAuthoringSemanticRuleKind),
     points: DraftFiniteNumberSchema,
+    description: z.string().optional(),
     hardFail: z.boolean().optional(),
     parentId: z.string().optional(),
     property: z.string().optional(),
@@ -395,7 +397,8 @@ const AuthoringMetricRuleDraftSchema: z.ZodType<AuthoringMetricRuleDraft> = z
     metric: z.custom<AuthoringMetricRuleDraft['metric']>(isAuthoringMetricRuleMetric),
     operator: z.custom<AuthoringMetricRuleDraft['operator']>(isAuthoringNfrOperator),
     value: DraftFiniteNumberSchema,
-    unit: z.custom<AuthoringMetricRuleDraft['unit']>(isAuthoringNfrUnit)
+    unit: z.custom<AuthoringMetricRuleDraft['unit']>(isAuthoringNfrUnit),
+    description: z.string().optional()
   })
   .strict()
   .refine(isValidAuthoringMetricRuleCombination, {
@@ -408,7 +411,8 @@ const AuthoringRubricCheckDraftSchema: z.ZodType<AuthoringRubricCheckDraft> = z
     metric: z.string().refine(isAuthoringRubricMetric, 'Unknown verdict metric'),
     op: z.enum(['<', '<=', '>', '>=', '==', '!=']),
     value: DraftFiniteNumberSchema,
-    points: DraftFiniteNumberSchema
+    points: DraftFiniteNumberSchema,
+    description: z.string().optional()
   })
   .strict()
 

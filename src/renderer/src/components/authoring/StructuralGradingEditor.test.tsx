@@ -55,6 +55,13 @@ function select(selectElement: HTMLSelectElement, value: string): void {
   })
 }
 
+function enter(input: HTMLInputElement, value: string): void {
+  act(() => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(input, value)
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+}
+
 describe('StructuralGradingEditor', () => {
   it('adds a valid zero-config rule and explains its exact topology meaning', () => {
     const view = renderEditor()
@@ -85,5 +92,19 @@ describe('StructuralGradingEditor', () => {
 
     click(buttonNamed(view, 'Remove structural test'))
     expect(view.textContent).toContain('No structural tests yet')
+  })
+
+  it('lets an author override the learner-facing test description', () => {
+    const view = renderEditor()
+    click(buttonNamed(view, 'Add structural test'))
+
+    enter(
+      view.querySelector(
+        'input[aria-label="Learner-facing description for structural-rule-1"]'
+      ) as HTMLInputElement,
+      'Include exactly one Users traffic source.'
+    )
+
+    expect(view.textContent).toContain('Include exactly one Users traffic source.')
   })
 })

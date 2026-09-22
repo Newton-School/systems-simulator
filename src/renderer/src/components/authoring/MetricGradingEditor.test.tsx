@@ -99,4 +99,18 @@ describe('MetricGradingEditor', () => {
     click(buttonNamed(view, 'Remove metric test'))
     expect(view.textContent).toContain('No metric tests yet')
   })
+
+  it('lets an author override the learner-facing test description', () => {
+    const view = renderEditor()
+    click(buttonNamed(view, 'Add metric test'))
+
+    enter(
+      view.querySelector(
+        'input[aria-label="Learner-facing description for metric-target"]'
+      ) as HTMLInputElement,
+      'Keep p99 latency below 100 ms at peak.'
+    )
+
+    expect(view.textContent).toContain('Keep p99 latency below 100 ms at peak.')
+  })
 })

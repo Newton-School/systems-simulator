@@ -45,6 +45,8 @@ export const AUTHORING_STRUCTURAL_CATEGORIES = [
 export interface AuthoringStructuralRuleDraft {
   id: string
   kind: AuthoringStructuralRuleKind
+  /** Optional learner-facing label. Falls back to a sentence derived from the rule. */
+  description?: string
   /** requires_component / max_component_count / requires_redundancy / forbids_component */
   componentType?: string
   /** requires_category */
@@ -148,6 +150,9 @@ function positiveInt(value: number | null | undefined): number | null {
 
 /** Human-readable description; the runtime `StructuralRule.description` is required. */
 export function describeAuthoringStructuralRule(draft: AuthoringStructuralRuleDraft): string {
+  const authoredDescription = draft.description?.trim()
+  if (authoredDescription) return authoredDescription
+
   const c = draft.componentType?.trim() || 'component'
   switch (draft.kind) {
     case 'requires_component':
@@ -253,7 +258,10 @@ function resetForKind(
   rule: AuthoringStructuralRuleDraft,
   kind: AuthoringStructuralRuleKind
 ): AuthoringStructuralRuleDraft {
-  return createAuthoringStructuralRule(kind, rule.id)
+  return {
+    ...createAuthoringStructuralRule(kind, rule.id),
+    ...(rule.description !== undefined ? { description: rule.description } : {})
+  }
 }
 
 export function authoringStructuralRuleReducer(

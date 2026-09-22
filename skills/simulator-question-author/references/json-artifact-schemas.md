@@ -1,17 +1,17 @@
 # JSON Artifact Schemas
 
 This reference defines the **three openable JSON files** the skill emits for one
-question. All three describe the *same* question and must agree (see
+question. All three describe the _same_ question and must agree (see
 [the consistency contract](#4-cross-file-consistency-contract)). Field shapes were
 verified against the simulator on **2026-09-22**.
 
 Emit these exact filenames from one title-derived slug `<slug>`:
 
-| # | File | Opens in | Purpose |
-|---|------|----------|---------|
-| 1 | `<slug>.simulator-question-project.json` | **Question Studio** (Open project) | The editable authoring project. Same name Question Studio writes on Save. |
-| 2 | `<slug>.question-package.json` | **Simulator** (Open question package) | The compiled, gradeable question a learner attempts. |
-| 3 | `<slug>.solution-topology.json` | **Simulator** (Open design/topology) | A reference solution canvas that passes every check. |
+| #   | File                                     | Opens in                              | Purpose                                                                   |
+| --- | ---------------------------------------- | ------------------------------------- | ------------------------------------------------------------------------- |
+| 1   | `<slug>.simulator-question-project.json` | **Question Studio** (Open project)    | The editable authoring project. Same name Question Studio writes on Save. |
+| 2   | `<slug>.question-package.json`           | **Simulator** (Open question package) | The compiled, gradeable question a learner attempts.                      |
+| 3   | `<slug>.solution-topology.json`          | **Simulator** (Open design/topology)  | A reference solution canvas that passes every check.                      |
 
 `<slug>` is derived from the question title (QuickCart is only the worked example).
 The filename suffix is what identifies each file to a human; the simulator itself
@@ -32,10 +32,10 @@ it in Question Studio restores every editor stage.
 
 ```jsonc
 {
-  "artifact": "dsds-question-project",   // REQUIRED literal — the open handler keys on this
-  "artifactVersion": "1.0",              // REQUIRED literal
-  "projectId": "<uuid>",                 // any stable unique id
-  "updatedAt": "<ISO-8601>",             // e.g. "2026-09-22T00:00:00.000Z"
+  "artifact": "dsds-question-project", // REQUIRED literal — the open handler keys on this
+  "artifactVersion": "1.0", // REQUIRED literal
+  "projectId": "<uuid>", // any stable unique id
+  "updatedAt": "<ISO-8601>", // e.g. "2026-09-22T00:00:00.000Z"
   "question": {
     "id": "<slug>",
     "title": "<Title>",
@@ -51,7 +51,7 @@ it in Question Studio restores every editor stage.
       "concepts": ["horizontal-scaling", "capacity-headroom", "load-balancing"],
       "workloadCategory": "read-heavy | write-heavy | mixed",
       "estimatedTimeMinutes": 10,
-      "passThreshold": 0.81,             // MUST equal question.json rubric.passThreshold
+      "passThreshold": 0.81, // MUST equal question.json rubric.passThreshold
       "suiteVisibleToStudent": true,
       "constraints": {
         "allowedNodeTypes": ["microservice", "api-endpoint", "load-balancer-l7"],
@@ -64,20 +64,51 @@ it in Question Studio restores every editor stage.
       "scale": { "peakRps": 1000000, "readWriteRatio": 100 },
       "functionalRequirements": [{ "id": "fr-<uuid>", "text": "..." }],
       "nonFunctionalRequirements": [
-        { "id": "nfr-<uuid>", "metric": "throughput", "operator": ">=", "value": 1000000, "unit": "req_per_sec" }
+        {
+          "id": "nfr-<uuid>",
+          "metric": "throughput",
+          "operator": ">=",
+          "value": 1000000,
+          "unit": "req_per_sec"
+        }
       ]
     },
     "dryRunScenarioId": "baseline",
     "justify": [],
-    "scenarios": [ /* see scenario shape below; author-side superset of suite.cases */ ],
-    "structuralRules": [ /* see §rules */ ],
+    "scenarios": [
+      /* see scenario shape below; author-side superset of suite.cases */
+    ],
+    "structuralRules": [
+      /* see §rules */
+    ],
     "semanticRules": [],
     "metricRules": [
-      { "id": "metric-target", "metric": "error_rate", "operator": "<", "value": 1, "unit": "percent" }
+      {
+        "id": "metric-target",
+        "description": "Keep errors under 1%...",
+        "metric": "error_rate",
+        "operator": "<",
+        "value": 1,
+        "unit": "percent"
+      }
     ],
     "rubricChecks": [
-      { "id": "rubric-check-1", "metric": "summary.throughput", "op": ">=", "value": 1000000, "points": 1 },
-      { "id": "rubric-check-2", "metric": "invariantViolations.count", "op": "==", "value": 0, "points": 2 }
+      {
+        "id": "rubric-check-1",
+        "description": "Serve the full flash-sale load...",
+        "metric": "summary.throughput",
+        "op": ">=",
+        "value": 1000000,
+        "points": 1
+      },
+      {
+        "id": "rubric-check-2",
+        "description": "Stay within the headroom budget...",
+        "metric": "invariantViolations.count",
+        "op": "==",
+        "value": 0,
+        "points": 2
+      }
     ]
   },
   "assets": { "gamedTopologies": [] },
@@ -101,7 +132,11 @@ Scenario shape (project side — human units where noted):
   "sourceNodeId": "",
   "faults": [],
   "invariants": [
-    { "id": "invariant-1", "description": "No server may exceed 80% of its capacity.", "condition": "perNode.maxUtilization <= 0.8" }
+    {
+      "id": "invariant-1",
+      "description": "No server may exceed 80% of its capacity.",
+      "condition": "perNode.maxUtilization <= 0.8"
+    }
   ]
 }
 ```
@@ -132,8 +167,20 @@ rubric. This is the runtime source of truth.
     "text": "...",
     "functionalRequirements": ["...", "..."],
     "nonFunctionalRequirements": [
-      { "metric": "throughput", "operator": ">=", "value": 1000000, "unit": "req_per_sec", "description": "..." },
-      { "metric": "error_rate", "operator": "<", "value": 1, "unit": "percent", "description": "..." }
+      {
+        "metric": "throughput",
+        "operator": ">=",
+        "value": 1000000,
+        "unit": "req_per_sec",
+        "description": "..."
+      },
+      {
+        "metric": "error_rate",
+        "operator": "<",
+        "value": 1,
+        "unit": "percent",
+        "description": "..."
+      }
     ],
     "scale": { "peakRps": 1000000, "readWriteRatio": 100 }
   },
@@ -143,7 +190,9 @@ rubric. This is the runtime source of truth.
     "canModifyScaffold": true,
     "canRemoveScaffoldNodes": true
   },
-  "structuralRules": [ /* see §rules — these carry a human `description` */ ],
+  "structuralRules": [
+    /* see §rules — these carry a human `description` */
+  ],
   "workloadCategory": "read-heavy",
   "domains": ["compute"],
   "concepts": ["horizontal-scaling", "capacity-headroom", "load-balancing"],
@@ -163,21 +212,50 @@ rubric. This is the runtime source of truth.
           ]
         },
         "invariants": [
-          { "id": "headroom-80", "description": "No server may exceed 80% of its capacity during the sale", "condition": "perNode.maxUtilization <= 0.8" }
+          {
+            "id": "headroom-80",
+            "description": "No server may exceed 80% of its capacity during the sale",
+            "condition": "perNode.maxUtilization <= 0.8"
+          }
         ]
       }
     ],
     "visibleToStudent": true,
-    "dryRunCase": { /* usually a copy of the primary case */ }
+    "dryRunCase": {
+      /* usually a copy of the primary case */
+    }
   },
   "rubric": {
     "version": "1.0",
     "id": "<slug>-rubric",
     "passThreshold": 0.81,
     "checks": [
-      { "id": "metric-target", "description": "Keep errors under 1%...", "kind": "simulation", "metric": "summary.errorRate", "op": "<", "value": 0.01 },
-      { "id": "rubric-check-1", "description": "Serve the full flash-sale load...", "kind": "simulation", "metric": "summary.throughput", "op": ">=", "value": 1000000, "points": 1 },
-      { "id": "rubric-check-2", "description": "Stay within the headroom budget...", "kind": "invariant", "metric": "invariantViolations.count", "op": "==", "value": 0, "points": 2 }
+      {
+        "id": "metric-target",
+        "description": "Keep errors under 1%...",
+        "kind": "simulation",
+        "metric": "summary.errorRate",
+        "op": "<",
+        "value": 0.01
+      },
+      {
+        "id": "rubric-check-1",
+        "description": "Serve the full flash-sale load...",
+        "kind": "simulation",
+        "metric": "summary.throughput",
+        "op": ">=",
+        "value": 1000000,
+        "points": 1
+      },
+      {
+        "id": "rubric-check-2",
+        "description": "Stay within the headroom budget...",
+        "kind": "invariant",
+        "metric": "invariantViolations.count",
+        "op": "==",
+        "value": 0,
+        "points": 2
+      }
     ]
   },
   "author": "<author>",
@@ -208,11 +286,22 @@ must reproduce a full pass. The open handler recognises a design by the presence
 
 ```jsonc
 {
-  "version": "2.0.0",                 // REQUIRED literal — the canvas schema version
-  "nodes": [ /* see node shape */ ],
-  "edges": [ /* see edge shape */ ],
-  "scenario": {                        // optional; include so it runs standalone
-    "global": { "simulationDuration": 5000, "warmupDuration": 0, "seed": "<slug>-v1", "defaultTimeout": 5000, "traceSampleRate": 0.01 },
+  "version": "2.0.0", // REQUIRED literal — the canvas schema version
+  "nodes": [
+    /* see node shape */
+  ],
+  "edges": [
+    /* see edge shape */
+  ],
+  "scenario": {
+    // optional; include so it runs standalone
+    "global": {
+      "simulationDuration": 5000,
+      "warmupDuration": 0,
+      "seed": "<slug>-v1",
+      "defaultTimeout": 5000,
+      "traceSampleRate": 0.01
+    },
     "selectedSourceNodeId": "<source node id>",
     "workloadOverride": {}
   }
@@ -223,20 +312,30 @@ Source node (traffic origin — one per design; `structuralRole: "source"`):
 
 ```jsonc
 {
-  "id": "src", "type": "serviceNode",
+  "id": "src",
+  "type": "serviceNode",
   "position": { "x": 700, "y": -360 },
   "data": {
-    "schemaVersion": 2, "templateId": "input-source",
-    "componentType": "api-endpoint", "structuralRole": "source", "profile": "source",
-    "rendererType": "serviceNode", "label": "Traffic Source",
-    "subLabel": "Entry Point / Ingress", "iconKey": "input-source",
+    "schemaVersion": 2,
+    "templateId": "input-source",
+    "componentType": "api-endpoint",
+    "structuralRole": "source",
+    "profile": "source",
+    "rendererType": "serviceNode",
+    "label": "Traffic Source",
+    "subLabel": "Entry Point / Ingress",
+    "iconKey": "input-source",
     "source": {
       "requestDistribution": [{ "type": "default", "weight": 1, "sizeBytes": 100 }],
       "defaultWorkload": { "pattern": "constant", "baseRps": 1000000 }
     }
   },
-  "width": 256, "height": 127,
-  "positionAbsolute": { "x": 700, "y": -360 }, "selected": false, "dragging": false, "nodes": []
+  "width": 256,
+  "height": 127,
+  "positionAbsolute": { "x": 700, "y": -360 },
+  "selected": false,
+  "dragging": false,
+  "nodes": []
 }
 ```
 
@@ -244,21 +343,39 @@ Service / compute node (a backend server; `structuralRole: "service"`):
 
 ```jsonc
 {
-  "id": "srv_1", "type": "serviceNode",
+  "id": "srv_1",
+  "type": "serviceNode",
   "position": { "x": 100, "y": 120 },
   "data": {
-    "schemaVersion": 2, "templateId": "backend-server",
-    "componentType": "microservice", "structuralRole": "service", "profile": "service",
-    "rendererType": "serviceNode", "label": "API Server 1",
-    "subLabel": "Long-running Process", "iconKey": "SERVER",
+    "schemaVersion": 2,
+    "templateId": "backend-server",
+    "componentType": "microservice",
+    "structuralRole": "service",
+    "profile": "service",
+    "rendererType": "serviceNode",
+    "label": "API Server 1",
+    "subLabel": "Long-running Process",
+    "iconKey": "SERVER",
     "sim": {
-      "resources": { "instanceType": "c5.2xlarge", "instanceCount": 1, "workloadKind": "io-bound", "perRequestMemMb": 16 },
-      "processing": { "distribution": { "type": "exponential", "lambda": 0.390625 }, "timeout": 100 },
+      "resources": {
+        "instanceType": "c5.2xlarge",
+        "instanceCount": 1,
+        "workloadKind": "io-bound",
+        "perRequestMemMb": 16
+      },
+      "processing": {
+        "distribution": { "type": "exponential", "lambda": 0.390625 },
+        "timeout": 100
+      },
       "queue": { "workers": 256, "capacity": 4096, "discipline": "fifo" }
     }
   },
-  "width": 256, "height": 141,
-  "positionAbsolute": { "x": 100, "y": 120 }, "selected": false, "dragging": false, "nodes": []
+  "width": 256,
+  "height": 141,
+  "positionAbsolute": { "x": 100, "y": 120 },
+  "selected": false,
+  "dragging": false,
+  "nodes": []
 }
 ```
 
@@ -267,21 +384,37 @@ never a bottleneck):
 
 ```jsonc
 {
-  "id": "lb", "type": "serviceNode",
+  "id": "lb",
+  "type": "serviceNode",
   "position": { "x": 700, "y": -140 },
   "data": {
-    "schemaVersion": 2, "templateId": "load-balancer-l7",
-    "componentType": "load-balancer-l7", "structuralRole": "router", "profile": "router",
-    "rendererType": "serviceNode", "label": "Load Balancer L7",
-    "subLabel": "HTTP / gRPC", "iconKey": "load-balancer-l7", "routingStrategy": "round-robin",
+    "schemaVersion": 2,
+    "templateId": "load-balancer-l7",
+    "componentType": "load-balancer-l7",
+    "structuralRole": "router",
+    "profile": "router",
+    "rendererType": "serviceNode",
+    "label": "Load Balancer L7",
+    "subLabel": "HTTP / gRPC",
+    "iconKey": "load-balancer-l7",
+    "routingStrategy": "round-robin",
     "sim": {
-      "resources": { "instanceType": "c5.2xlarge", "instanceCount": 1, "workloadKind": "io-bound", "perRequestMemMb": 4 },
+      "resources": {
+        "instanceType": "c5.2xlarge",
+        "instanceCount": 1,
+        "workloadKind": "io-bound",
+        "perRequestMemMb": 4
+      },
       "processing": { "distribution": { "type": "exponential", "lambda": 2.5 }, "timeout": 100 },
       "queue": { "workers": 256, "capacity": 4096, "discipline": "fifo" }
     }
   },
-  "width": 256, "height": 141,
-  "positionAbsolute": { "x": 700, "y": -140 }, "selected": false, "dragging": false, "nodes": []
+  "width": 256,
+  "height": 141,
+  "positionAbsolute": { "x": 700, "y": -140 },
+  "selected": false,
+  "dragging": false,
+  "nodes": []
 }
 ```
 
@@ -289,10 +422,15 @@ Edge (round-robin fan-out is even by default; omit `weight` unless skewing):
 
 ```jsonc
 {
-  "id": "reactflow__edge-lb-srv_1", "type": "packet", "animated": true,
+  "id": "reactflow__edge-lb-srv_1",
+  "type": "packet",
+  "animated": true,
   "style": { "stroke": "#94A3B8", "strokeWidth": 2 },
-  "source": "lb", "sourceHandle": "bottom-1-source",
-  "target": "srv_1", "targetHandle": "top-1-target", "selected": false
+  "source": "lb",
+  "sourceHandle": "bottom-1-source",
+  "target": "srv_1",
+  "targetHandle": "top-1-target",
+  "selected": false
 }
 ```
 
@@ -324,8 +462,10 @@ Before emitting, verify every row agrees across the three files:
 
 - `id` / `title` / `description` identical in #1.question, #2, and implied by #3's labels.
 - `passThreshold` equal in #1 `setup.passThreshold` and #2 `rubric.passThreshold`.
-- Every `#1.rubricChecks[*]` has a matching `#2.rubric.checks[*]` (same metric/op/value),
-  now carrying a human `description`.
+- Every `#1.structuralRules[*]` and `#1.semanticRules[*]` has a matching #2 rule or
+  criterion with the same ID, behavior fields, and learner-facing `description`.
+- Every `#1.metricRules[*]` / `#1.rubricChecks[*]` has a matching
+  `#2.rubric.checks[*]` (same metric/op/value and exact human `description`).
 - Every invariant a rubric check counts is declared in `#2.suite.cases[*].invariants`.
 - `allowedNodeTypes` in #1 and #2 match, and **every `componentType` used in #3 is
   in that list** (or the solution violates the question's own constraints).

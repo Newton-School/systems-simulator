@@ -223,26 +223,46 @@ export function RubricCheckEditor({
                 </div>
 
                 {!compact && (
-                  <div
-                    className={`mt-4 rounded-md border px-3 py-2.5 ${
-                      compiled
-                        ? 'border-nss-primary/20 bg-nss-primary/5'
-                        : 'border-nss-warning/30 bg-nss-warning/10'
-                    }`}
-                  >
-                    <p
-                      className={`text-[10px] font-semibold uppercase tracking-wide ${
-                        compiled ? 'text-nss-primary' : 'text-nss-warning'
+                  <>
+                    <label className="mt-3 flex flex-col gap-1">
+                      <span className="text-[10px] font-semibold uppercase tracking-wide text-nss-muted">
+                        Learner-facing description (optional)
+                      </span>
+                      <input
+                        aria-label={`Learner-facing description for ${check.id}`}
+                        value={check.description ?? ''}
+                        placeholder="Leave blank to use the generated description"
+                        onChange={(event) =>
+                          onAction({
+                            type: 'update-description',
+                            id: check.id,
+                            description: event.currentTarget.value
+                          })
+                        }
+                        className="rounded-md border border-nss-border bg-nss-input-bg px-2 py-1.5 text-xs text-nss-text outline-none placeholder:text-nss-muted/70 focus:border-nss-primary focus:ring-2 focus:ring-nss-primary/15"
+                      />
+                    </label>
+                    <div
+                      className={`mt-4 rounded-md border px-3 py-2.5 ${
+                        compiled
+                          ? 'border-nss-primary/20 bg-nss-primary/5'
+                          : 'border-nss-warning/30 bg-nss-warning/10'
                       }`}
                     >
-                      {compiled ? 'Compiled verdict check' : 'Check incomplete'}
-                    </p>
-                    <output className="mt-1 block text-xs leading-5 text-nss-text">
-                      {compiled
-                        ? `${compiled.metric} ${compiled.op} ${compiled.value} · ${compiled.points} pt`
-                        : 'Choose a metric, comparison, and value.'}
-                    </output>
-                  </div>
+                      <p
+                        className={`text-[10px] font-semibold uppercase tracking-wide ${
+                          compiled ? 'text-nss-primary' : 'text-nss-warning'
+                        }`}
+                      >
+                        {compiled ? 'Compiled verdict check' : 'Check incomplete'}
+                      </p>
+                      <output className="mt-1 block text-xs leading-5 text-nss-text">
+                        {compiled
+                          ? `${compiled.description} ${compiled.metric} ${compiled.op} ${compiled.value} · ${compiled.points} pt`
+                          : 'Choose a metric, comparison, and value.'}
+                      </output>
+                    </div>
+                  </>
                 )}
               </li>
             )

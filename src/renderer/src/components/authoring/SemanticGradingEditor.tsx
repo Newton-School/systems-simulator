@@ -1008,51 +1008,71 @@ export function SemanticGradingEditor({
                   >
                     <RuleFields rule={rule} onAction={onAction} />
                     {!compact && (
-                      <div className="mt-3 flex flex-wrap items-end gap-5">
-                        <label className="flex w-28 flex-col gap-1">
+                      <div className="mt-3 space-y-3">
+                        <label className="flex flex-col gap-1">
                           <span className="text-[10px] font-semibold uppercase tracking-wide text-nss-muted">
-                            Points <RequiredIndicator />
+                            Learner-facing description (optional)
                           </span>
                           <input
-                            id={`${fieldPrefix}-points`}
-                            aria-label="Points"
-                            type="number"
-                            min="1"
-                            step="1"
-                            value={rule.points ?? ''}
-                            required
+                            aria-label={`Learner-facing description for ${rule.id}`}
+                            value={rule.description ?? ''}
+                            placeholder="Leave blank to use the generated description"
                             onChange={(event) =>
                               onAction({
                                 type: 'update',
                                 id: rule.id,
-                                changes: {
-                                  points:
-                                    event.currentTarget.value === ''
-                                      ? null
-                                      : event.currentTarget.valueAsNumber
-                                }
+                                changes: { description: event.currentTarget.value }
                               })
                             }
-                            className="w-24 rounded-md border border-nss-border bg-nss-input-bg px-2 py-1.5 text-xs tabular-nums text-nss-text outline-none focus:border-nss-primary focus:ring-2 focus:ring-nss-primary/15"
+                            className="rounded-md border border-nss-border bg-nss-input-bg px-2 py-1.5 text-xs text-nss-text outline-none placeholder:text-nss-muted/70 focus:border-nss-primary focus:ring-2 focus:ring-nss-primary/15"
                           />
                         </label>
-                        <label className="flex items-center gap-2 pb-1.5 text-[11px] font-semibold text-nss-text">
-                          <input
-                            id={`${fieldPrefix}-hardfail`}
-                            aria-label="Hard fail"
-                            type="checkbox"
-                            checked={rule.hardFail ?? false}
-                            onChange={(event) =>
-                              onAction({
-                                type: 'update',
-                                id: rule.id,
-                                changes: { hardFail: event.currentTarget.checked }
-                              })
-                            }
-                            className="h-3.5 w-3.5 rounded border-nss-border text-nss-danger focus:ring-nss-danger/40"
-                          />
-                          Hard fail (zeroes the question when violated)
-                        </label>
+                        <div className="flex flex-wrap items-end gap-5">
+                          <label className="flex w-28 flex-col gap-1">
+                            <span className="text-[10px] font-semibold uppercase tracking-wide text-nss-muted">
+                              Points <RequiredIndicator />
+                            </span>
+                            <input
+                              id={`${fieldPrefix}-points`}
+                              aria-label="Points"
+                              type="number"
+                              min="1"
+                              step="1"
+                              value={rule.points ?? ''}
+                              required
+                              onChange={(event) =>
+                                onAction({
+                                  type: 'update',
+                                  id: rule.id,
+                                  changes: {
+                                    points:
+                                      event.currentTarget.value === ''
+                                        ? null
+                                        : event.currentTarget.valueAsNumber
+                                  }
+                                })
+                              }
+                              className="w-24 rounded-md border border-nss-border bg-nss-input-bg px-2 py-1.5 text-xs tabular-nums text-nss-text outline-none focus:border-nss-primary focus:ring-2 focus:ring-nss-primary/15"
+                            />
+                          </label>
+                          <label className="flex items-center gap-2 pb-1.5 text-[11px] font-semibold text-nss-text">
+                            <input
+                              id={`${fieldPrefix}-hardfail`}
+                              aria-label="Hard fail"
+                              type="checkbox"
+                              checked={rule.hardFail ?? false}
+                              onChange={(event) =>
+                                onAction({
+                                  type: 'update',
+                                  id: rule.id,
+                                  changes: { hardFail: event.currentTarget.checked }
+                                })
+                              }
+                              className="h-3.5 w-3.5 rounded border-nss-border text-nss-danger focus:ring-nss-danger/40"
+                            />
+                            Hard fail (zeroes the question when violated)
+                          </label>
+                        </div>
                       </div>
                     )}
                   </div>

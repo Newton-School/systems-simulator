@@ -179,11 +179,16 @@ define the lesson and block obvious icon-placement gaming. Common safeguards:
 - lesson-defining edges/paths;
 - connected design.
 
+Set the optional learner-facing description whenever the generated sentence is
+less precise than the teaching language. This exact text is preserved in the
+compiled package and Django test-case row.
+
 ### Semantic grading
 
 Use when component meaning, placement, property, fan-out, storage fit, guarded
 path, or supported runtime states matter. Provide exact IDs, points, and
-hard-fail behavior where the control exposes them.
+hard-fail behavior where the control exposes them. Preserve any authored
+learner-facing description.
 
 ### Runtime metric grading
 
@@ -194,12 +199,15 @@ The friendly editor authors one common simulation threshold at a time from:
 - throughput.
 
 It works in human units and compiles to the correct verdict selector.
+Use its optional learner-facing description to keep the package and Django copy
+identical.
 
 ### Verdict-metric grading
 
 Use for advanced simulation and invariant metrics. The selector comes from the
 engine-owned capability registry. Topology metrics are not currently in this
-selector; express those as structural rules.
+selector; express those as structural rules. Always set a plain-sentence
+learner-facing description for checks whose generated metric label is too generic.
 
 ### Justification prompts
 
