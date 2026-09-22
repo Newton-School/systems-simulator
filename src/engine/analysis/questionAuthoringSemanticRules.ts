@@ -51,6 +51,8 @@ export interface AuthoringSemanticRuleDraft {
   id: string
   kind: AuthoringSemanticRuleKind
   points: number | null
+  /** Optional learner-facing label preserved into the compiled semantic criterion. */
+  description?: string
   /** Violating a hard-fail criterion zeroes the whole question (catalog: the trap). */
   hardFail?: boolean
   /** componentProperty parent; the parent supplies the component type. */
@@ -215,6 +217,8 @@ export function compileAuthoringSemanticRule(
   const points = draft.points
   if (points === null || !Number.isFinite(points) || points <= 0) return null
   const hardFail = draft.hardFail ? { hardFail: true as const } : {}
+  const authoredDescription = draft.description?.trim()
+  const description = authoredDescription ? { description: authoredDescription } : {}
   const components = (values: string[] | undefined): ComponentType[] =>
     (values ?? [])
       .map((value) => component(value))
@@ -231,7 +235,9 @@ export function compileAuthoringSemanticRule(
         componentType,
         minCount,
         points,
-        description: `Include at least ${minCount} ${componentType} component${minCount === 1 ? '' : 's'}.`,
+        description:
+          authoredDescription ??
+          `Include at least ${minCount} ${componentType} component${minCount === 1 ? '' : 's'}.`,
         ...hardFail
       }
     }
@@ -251,7 +257,9 @@ export function compileAuthoringSemanticRule(
         operator,
         expected: draft.expected,
         points,
-        description: `${definition.label} ${propertyOperatorDescription(operator)} ${String(draft.expected)}.`,
+        description:
+          authoredDescription ??
+          `${definition.label} ${propertyOperatorDescription(operator)} ${String(draft.expected)}.`,
         ...hardFail
       }
     }
@@ -267,6 +275,7 @@ export function compileAuthoringSemanticRule(
         kind: 'placement',
         componentType,
         points,
+        ...description,
         ...hardFail,
         ...(from && to ? { between: [from, to] as [ComponentType, ComponentType] } : {}),
         ...(component(draft.notBefore) ? { notBefore: component(draft.notBefore)! } : {}),
@@ -280,7 +289,16 @@ export function compileAuthoringSemanticRule(
       const guard = component(draft.guard)
       if (!from || !guard) return null
       const to = component(draft.to)
-      return { id, kind: 'guardedPath', from, guard, points, ...hardFail, ...(to ? { to } : {}) }
+      return {
+        id,
+        kind: 'guardedPath',
+        from,
+        guard,
+        points,
+        ...description,
+        ...hardFail,
+        ...(to ? { to } : {})
+      }
     }
     case 'fanout': {
       const broker = component(draft.broker)
@@ -294,6 +312,7 @@ export function compileAuthoringSemanticRule(
         broker,
         minConsumers,
         points,
+        ...description,
         ...hardFail,
         ...(forbiddenBroker ? { forbiddenBroker } : {})
       }
@@ -311,6 +330,7 @@ export function compileAuthoringSemanticRule(
         accessPattern,
         accept,
         points,
+        ...description,
         ...hardFail,
         ...(partial.length > 0 ? { partial } : {}),
         ...(antiPattern.length > 0 ? { antiPattern } : {})
@@ -324,6 +344,7 @@ export function compileAuthoringSemanticRule(
         kind: 'forbidUnjustified',
         componentType,
         points,
+        ...description,
         ...hardFail,
         ...(draft.justifyId?.trim() ? { justifyId: draft.justifyId.trim() } : {})
       }
@@ -334,6 +355,7 @@ export function compileAuthoringSemanticRule(
         id,
         kind: 'stateTransition',
         points,
+        ...description,
         ...hardFail,
         match: {
           scope: draft.runtimeScope,
@@ -376,6 +398,7 @@ export function compileAuthoringSemanticRule(
         id,
         kind: 'stateSequence',
         points,
+        ...description,
         ...hardFail,
         sequence: draft.sequence.map((matcher) => ({
           scope: matcher.scope,
@@ -417,7 +440,11 @@ function resetForKind(
   kind: AuthoringSemanticRuleKind
 ): AuthoringSemanticRuleDraft {
   const next = createAuthoringSemanticRule(kind, rule.id)
-  return { ...next, points: rule.points }
+  return {
+    ...next,
+    points: rule.points,
+    ...(rule.description !== undefined ? { description: rule.description } : {})
+  }
 }
 
 export function authoringSemanticRuleReducer(

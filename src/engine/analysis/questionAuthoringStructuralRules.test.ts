@@ -50,6 +50,15 @@ describe('Question Studio structural obligation composer', () => {
     })
   })
 
+  it('preserves an authored learner-facing description', () => {
+    expect(
+      compileAuthoringStructuralRule({
+        ...createAuthoringStructuralRule('requires_single_source', 'source'),
+        description: 'Include exactly one Users traffic source.'
+      })
+    ).toMatchObject({ description: 'Include exactly one Users traffic source.' })
+  })
+
   it('requires both endpoints for edges and paths', () => {
     const edge = createAuthoringStructuralRule('requires_edge', 'e1')
     expect(compileAuthoringStructuralRule(edge)).toBeNull()
@@ -121,6 +130,12 @@ describe('Question Studio structural obligation composer', () => {
       kind: 'requires_redundancy'
     })
     expect(switched[0]).toEqual({ id: 'rule-1', kind: 'requires_redundancy', minReplicas: 2 })
+
+    const described = authoringStructuralRuleReducer(
+      [{ ...original, description: 'Custom learner copy.' }],
+      { type: 'update-kind', id: 'rule-1', kind: 'requires_redundancy' }
+    )
+    expect(described[0]?.description).toBe('Custom learner copy.')
 
     const removed = authoringStructuralRuleReducer(switched, { type: 'remove', id: 'rule-1' })
     expect(removed).toEqual([])

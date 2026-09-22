@@ -14,24 +14,14 @@
       "difficulty": "beginner",
       "type": "scaling",
       "entryFormat": "blank-canvas",
-      "domains": [
-        "compute"
-      ],
-      "concepts": [
-        "horizontal-scaling",
-        "capacity-headroom",
-        "load-balancing"
-      ],
+      "domains": ["compute"],
+      "concepts": ["horizontal-scaling", "capacity-headroom", "load-balancing"],
       "workloadCategory": "read-heavy",
       "estimatedTimeMinutes": 10,
       "passThreshold": 0.81,
       "suiteVisibleToStudent": true,
       "constraints": {
-        "allowedNodeTypes": [
-          "microservice",
-          "api-endpoint",
-          "load-balancer-l7"
-        ],
+        "allowedNodeTypes": ["microservice", "api-endpoint", "load-balancer-l7"],
         "canModifyScaffold": true,
         "canRemoveScaffoldNodes": true
       }
@@ -112,12 +102,14 @@
     "structuralRules": [
       {
         "id": "structural-rule-2",
+        "description": "Include at least 1 load-balancer-l7.",
         "kind": "requires_component",
         "componentType": "load-balancer-l7",
         "minCount": 1
       },
       {
         "id": "structural-rule-5",
+        "description": "Every node must be reachable (no orphans).",
         "kind": "requires_connected_graph"
       }
     ],
@@ -125,6 +117,7 @@
     "metricRules": [
       {
         "id": "metric-target",
+        "description": "Keep errors under 1%: drop virtually no requests during the sale.",
         "metric": "error_rate",
         "operator": "<",
         "value": 1,
@@ -134,6 +127,7 @@
     "rubricChecks": [
       {
         "id": "rubric-check-1",
+        "description": "Serve the full flash-sale load: total throughput reaches 1,000,000 req/s.",
         "metric": "summary.throughput",
         "op": ">=",
         "value": 1000000,
@@ -141,6 +135,7 @@
       },
       {
         "id": "rubric-check-2",
+        "description": "Stay within the headroom budget: no server runs above 80% of its capacity.",
         "metric": "invariantViolations.count",
         "op": "==",
         "value": 0,

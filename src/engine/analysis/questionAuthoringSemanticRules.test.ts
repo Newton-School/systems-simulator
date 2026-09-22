@@ -41,6 +41,16 @@ describe('Question Studio semantic obligation composer', () => {
     })
   })
 
+  it('preserves an authored learner-facing description', () => {
+    expect(
+      compileAuthoringSemanticRule({
+        ...createAuthoringSemanticRule('componentPresence', 'server'),
+        componentType: 'microservice',
+        description: 'Include at least one backend server.'
+      })
+    ).toMatchObject({ description: 'Include at least one backend server.' })
+  })
+
   it('treats the guarded-path destination as optional', () => {
     const draft: AuthoringSemanticRuleDraft = {
       ...createAuthoringSemanticRule('guardedPath', 'guard-2'),

@@ -20,6 +20,7 @@ function semanticDraft(criterion: SemanticCriterion): AuthoringSemanticRuleDraft
     id: criterion.id,
     kind: criterion.kind,
     points: criterion.points,
+    ...(criterion.description !== undefined ? { description: criterion.description } : {}),
     ...(criterion.hardFail ? { hardFail: true } : {})
   }
   switch (criterion.kind) {
@@ -101,48 +102,45 @@ function semanticDraft(criterion: SemanticCriterion): AuthoringSemanticRuleDraft
 function structuralDraft(
   rule: NonNullable<QuestionPackage['structuralRules']>[number]
 ): AuthoringStructuralRuleDraft {
+  const base = { id: rule.id, kind: rule.kind, description: rule.description }
   switch (rule.kind) {
     case 'requires_component':
       return {
-        id: rule.id,
-        kind: rule.kind,
+        ...base,
         componentType: rule.componentType,
         minCount: rule.minCount
       }
     case 'requires_category':
-      return { id: rule.id, kind: rule.kind, category: rule.category, minCount: rule.minCount }
+      return { ...base, category: rule.category, minCount: rule.minCount }
     case 'requires_edge':
       return {
-        id: rule.id,
-        kind: rule.kind,
+        ...base,
         fromType: rule.fromType,
         toType: rule.toType,
         mode: rule.mode
       }
     case 'requires_path':
-      return { id: rule.id, kind: rule.kind, fromType: rule.fromType, toType: rule.toType }
+      return { ...base, fromType: rule.fromType, toType: rule.toType }
     case 'max_component_count':
       return {
-        id: rule.id,
-        kind: rule.kind,
+        ...base,
         componentType: rule.componentType,
         maxCount: rule.maxCount
       }
     case 'requires_redundancy':
       return {
-        id: rule.id,
-        kind: rule.kind,
+        ...base,
         componentType: rule.componentType,
         minReplicas: rule.minReplicas
       }
     case 'forbids_component':
-      return { id: rule.id, kind: rule.kind, componentType: rule.componentType }
+      return { ...base, componentType: rule.componentType }
     case 'min_node_count':
     case 'max_node_count':
-      return { id: rule.id, kind: rule.kind, count: rule.count }
+      return { ...base, count: rule.count }
     case 'requires_connected_graph':
     case 'requires_single_source':
-      return { id: rule.id, kind: rule.kind }
+      return base
   }
 }
 
@@ -198,7 +196,8 @@ export function createQuestionAuthoringProjectFromPackage(
       metric: check.metric,
       op: check.op,
       value: check.value,
-      points: check.points ?? 1
+      points: check.points ?? 1,
+      description: check.description
     })),
     justify: question.justify,
     scaffoldTopology: question.scaffold.topology

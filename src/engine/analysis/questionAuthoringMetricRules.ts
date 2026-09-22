@@ -23,6 +23,8 @@ export interface AuthoringMetricRuleDraft {
   operator: AuthoringNfrOperator
   value: number | null
   unit: AuthoringNfrUnit
+  /** Optional learner-facing label. Falls back to the controlled metric sentence. */
+  description?: string
 }
 
 export interface AuthoringMetricRuleCapability {
@@ -41,6 +43,7 @@ export type AuthoringMetricRuleAction =
   | { type: 'update-metric'; id: string; metric: AuthoringMetricRuleMetric }
   | { type: 'update-operator'; id: string; operator: AuthoringNfrOperator }
   | { type: 'update-value'; id: string; value: number | null }
+  | { type: 'update-description'; id: string; description: string }
   | { type: 'remove'; id: string }
 
 export const AUTHORING_METRIC_RULE_OPERATOR_LABELS: Readonly<Record<AuthoringNfrOperator, string>> =
@@ -129,7 +132,7 @@ function normalizeRubricValue(rule: AuthoringMetricRuleDraft): number | null {
 
 export function compileAuthoringMetricRule(rule: AuthoringMetricRuleDraft): RubricCheck | null {
   if (!rule.id.trim() || !isValidAuthoringMetricRuleCombination(rule)) return null
-  const description = formatAuthoringNfrDescription(asNfr(rule))
+  const description = rule.description?.trim() || formatAuthoringNfrDescription(asNfr(rule))
   const value = normalizeRubricValue(rule)
   if (!description || value === null || !Number.isFinite(value)) return null
 
@@ -173,6 +176,10 @@ export function authoringMetricRuleReducer(
       })
     case 'update-value':
       return rules.map((rule) => (rule.id === action.id ? { ...rule, value: action.value } : rule))
+    case 'update-description':
+      return rules.map((rule) =>
+        rule.id === action.id ? { ...rule, description: action.description } : rule
+      )
     case 'remove':
       return rules.filter((rule) => rule.id !== action.id)
   }

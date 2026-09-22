@@ -173,8 +173,12 @@ Fill every `{{PLACEHOLDER}}` from the internal authoring contract (step 3). Then
   and confirm the busiest node lands **inside** the invariant target with margin.
 - **Keep routers passthrough.** A load balancer never bottlenecks; only service
   nodes appear in `perNode.maxUtilization`.
-- **Write plain-sentence check descriptions** in `<slug>.question-package.json` (e.g.
-  "Serve the full 1,000,000 req/s"), never `metric op value` jargon.
+- **Write the same plain-sentence learner-facing descriptions in both artifacts**:
+  each rule/check draft in `<slug>.simulator-question-project.json` and its compiled
+  counterpart in `<slug>.question-package.json` must carry identical `description`
+  text (e.g. "Serve the full 1,000,000 req/s"), never `metric op value` jargon.
+  Question Studio preserves these descriptions into the Django rows; omitting them
+  intentionally opts into Studio's generic generated fallback.
 
 ### 6. Enforce the cross-file consistency contract
 

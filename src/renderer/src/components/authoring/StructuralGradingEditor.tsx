@@ -370,6 +370,26 @@ export function StructuralGradingEditor({
                   className={`${compact ? 'mt-3 px-1 pb-1' : 'mt-4 rounded-lg border border-nss-borderHigh bg-nss-panel px-4 py-4'}`}
                 >
                   <RuleFields rule={rule} onAction={onAction} />
+                  {!compact && (
+                    <label className="mt-3 flex flex-col gap-1">
+                      <span className="text-[10px] font-semibold uppercase tracking-wide text-nss-muted">
+                        Learner-facing description (optional)
+                      </span>
+                      <input
+                        aria-label={`Learner-facing description for ${rule.id}`}
+                        value={rule.description ?? ''}
+                        placeholder="Leave blank to use the generated description"
+                        onChange={(event) =>
+                          onAction({
+                            type: 'update',
+                            id: rule.id,
+                            changes: { description: event.currentTarget.value }
+                          })
+                        }
+                        className="rounded-md border border-nss-border bg-nss-input-bg px-2 py-1.5 text-xs text-nss-text outline-none placeholder:text-nss-muted/70 focus:border-nss-primary focus:ring-2 focus:ring-nss-primary/15"
+                      />
+                    </label>
+                  )}
                 </div>
 
                 {!compact && (

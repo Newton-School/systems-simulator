@@ -10,10 +10,9 @@ import {
   type AuthoringMetricRuleDraft,
   type AuthoringMetricRuleMetric
 } from '../../../../engine/analysis/questionAuthoringMetricRules'
-import {
-  formatAuthoringNfrDescription,
-  type AuthoringNfrOperator,
-  type AuthoringNfrUnit
+import type {
+  AuthoringNfrOperator,
+  AuthoringNfrUnit
 } from '../../../../engine/analysis/questionAuthoringNfr'
 
 interface MetricGradingEditorProps {
@@ -85,7 +84,6 @@ export function MetricGradingEditor({
             const capability = getAuthoringMetricRuleCapability(rule.metric)
             const compiled = compileAuthoringMetricRule(rule)
             const valueError = authoringMetricRuleValueError(rule)
-            const description = formatAuthoringNfrDescription(rule)
             const fieldPrefix = `metric-rule-${rule.id}`
 
             return (
@@ -210,10 +208,30 @@ export function MetricGradingEditor({
                     </span>
                   </div>
                   {!compact && (
-                    <p className="mt-3 text-[11px] leading-5 text-nss-muted">
-                      Evaluated independently for every scenario. A scenario fails when its measured
-                      value misses this threshold.
-                    </p>
+                    <>
+                      <label className="mt-3 flex flex-col gap-1">
+                        <span className="text-[10px] font-semibold uppercase tracking-wide text-nss-muted">
+                          Learner-facing description (optional)
+                        </span>
+                        <input
+                          aria-label={`Learner-facing description for ${rule.id}`}
+                          value={rule.description ?? ''}
+                          placeholder="Leave blank to use the controlled sentence"
+                          onChange={(event) =>
+                            onAction({
+                              type: 'update-description',
+                              id: rule.id,
+                              description: event.currentTarget.value
+                            })
+                          }
+                          className="rounded-md border border-nss-border bg-nss-input-bg px-2 py-1.5 text-xs text-nss-text outline-none placeholder:text-nss-muted/70 focus:border-nss-primary focus:ring-2 focus:ring-nss-primary/15"
+                        />
+                      </label>
+                      <p className="mt-3 text-[11px] leading-5 text-nss-muted">
+                        Evaluated independently for every scenario. A scenario fails when its
+                        measured value misses this threshold.
+                      </p>
+                    </>
                   )}
                 </div>
 
@@ -235,7 +253,7 @@ export function MetricGradingEditor({
                     </p>
                     <output className="mt-1 block text-xs leading-5 text-nss-text">
                       {compiled
-                        ? `${description} Runtime check: ${compiled.metric} ${compiled.op} ${compiled.value}.`
+                        ? `${compiled.description} Runtime check: ${compiled.metric} ${compiled.op} ${compiled.value}.`
                         : (valueError ??
                           'Complete the highlighted field before this rule can grade a run.')}
                     </output>

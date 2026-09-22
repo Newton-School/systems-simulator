@@ -80,6 +80,16 @@ describe('Question Studio metric grading rules', () => {
     expect(compileAuthoringMetricRule({ ...createAuthoringMetricRule(), value: null })).toBeNull()
   })
 
+  it('uses an authored learner-facing description when provided', () => {
+    expect(
+      compileAuthoringMetricRule({
+        ...createAuthoringMetricRule('error_rate', 'error-target'),
+        value: 1,
+        description: 'Keep errors under 1% during the sale.'
+      })
+    ).toMatchObject({ description: 'Keep errors under 1% during the sale.' })
+  })
+
   it('normalizes dependent fields on metric changes and preserves stable IDs', () => {
     const original = createAuthoringMetricRule('latency_p99', 'metric-stable')
     const duplicate = authoringMetricRuleReducer([original], {

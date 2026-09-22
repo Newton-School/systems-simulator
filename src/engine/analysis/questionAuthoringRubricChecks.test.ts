@@ -42,6 +42,19 @@ describe('Question Studio verdict-metric composer', () => {
     })
   })
 
+  it('uses an authored learner-facing description when provided', () => {
+    expect(
+      compileAuthoringRubricCheck({
+        id: 'headroom',
+        metric: 'invariantViolations.count',
+        op: '==',
+        value: 0,
+        points: 2,
+        description: 'Stay within the 80% server headroom budget.'
+      })
+    ).toMatchObject({ description: 'Stay within the 80% server headroom budget.' })
+  })
+
   it('rejects an unknown metric, an unsupported op, and missing values', () => {
     expect(
       compileAuthoringRubricCheck({ id: 'x', metric: 'not.a.metric', op: '<', value: 1, points: 1 })

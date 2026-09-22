@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { TopologyJSON } from '../core/types'
 import { parseNewtonRowsToQuestionPackage } from './newtonQuestionRows'
 import { compileQuestionAuthoringPreview } from './questionAuthoringCompiler'
+import { importQuestionAuthoringArtifact } from './questionAuthoringImport'
 import { createQuestionAuthoringProject } from './questionAuthoringProject'
 
 const FIXED_TIME = '2026-09-19T12:00:00.000Z'
@@ -153,6 +154,67 @@ describe('Question Studio generated-output compiler', () => {
     expect(parseNewtonRowsToQuestionPackage(preview.newtonSeed).questionPackage).toEqual(
       preview.questionPackage
     )
+  })
+
+  it('round-trips learner-facing descriptions through project, package, and Django rows', () => {
+    const project = completeProject()
+    project.question.structuralRules[0].description = 'Include exactly one Users traffic source.'
+    project.question.metricRules[0].description = 'Keep p99 latency below 100 ms at peak.'
+    project.question.semanticRules.push({
+      id: 'backend-present',
+      kind: 'componentPresence',
+      componentType: 'microservice',
+      points: 1,
+      description: 'Include at least one backend server.'
+    })
+    project.question.rubricChecks.push({
+      id: 'headroom',
+      metric: 'invariantViolations.count',
+      op: '==',
+      value: 0,
+      points: 2,
+      description: 'Stay within the 80% server headroom budget.'
+    })
+
+    const preview = compileQuestionAuthoringPreview(project)
+    expect(preview.status).toBe('ready')
+    if (preview.status !== 'ready') return
+
+    expect(preview.questionPackage.structuralRules?.[0]?.description).toBe(
+      'Include exactly one Users traffic source.'
+    )
+    expect(preview.questionPackage.semanticCriteria?.[0]?.description).toBe(
+      'Include at least one backend server.'
+    )
+    expect(preview.questionPackage.rubric.checks.map((check) => check.description)).toEqual([
+      'Keep p99 latency below 100 ms at peak.',
+      'Stay within the 80% server headroom budget.'
+    ])
+    expect(
+      preview.compiledRows.rows
+        .filter((row) => row.spec.type !== 'SIMULATOR_CONFIG')
+        .map((row) => row.spec.description)
+    ).toEqual([
+      'Include exactly one Users traffic source.',
+      'Include at least one backend server.',
+      'Keep p99 latency below 100 ms at peak.',
+      'Stay within the 80% server headroom budget.'
+    ])
+
+    const reopened = importQuestionAuthoringArtifact(preview.questionPackage)
+    const recompiled = compileQuestionAuthoringPreview(reopened)
+    expect(recompiled.status).toBe('ready')
+    if (recompiled.status !== 'ready') return
+    expect(recompiled.questionPackage.structuralRules?.[0]?.description).toBe(
+      'Include exactly one Users traffic source.'
+    )
+    expect(recompiled.questionPackage.semanticCriteria?.[0]?.description).toBe(
+      'Include at least one backend server.'
+    )
+    expect(recompiled.questionPackage.rubric.checks.map((check) => check.description)).toEqual([
+      'Keep p99 latency below 100 ms at peak.',
+      'Stay within the 80% server headroom budget.'
+    ])
   })
 
   it('emits deterministic package and Newton payload snapshots', () => {
