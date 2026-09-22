@@ -43,7 +43,8 @@ function ComponentTypeChecklist({
     return AUTHORING_COMPONENT_CAPABILITIES.filter(
       (component) =>
         component.label.toLowerCase().includes(normalized) ||
-        component.id.toLowerCase().includes(normalized)
+        component.id.toLowerCase().includes(normalized) ||
+        component.aliases.some((alias) => alias.toLowerCase().includes(normalized))
     )
   }, [query])
 
@@ -91,7 +92,11 @@ function ComponentTypeChecklist({
                 />
                 <span className="min-w-0">
                   <span className="block font-medium text-nss-text">{component.label}</span>
-                  <span className="block truncate text-[10px] text-nss-muted">{component.id}</span>
+                  <span className="block truncate text-[10px] text-nss-muted">
+                    {component.aliases.length > 0
+                      ? `${component.id} · aka ${component.aliases.join(', ')}`
+                      : component.id}
+                  </span>
                 </span>
               </label>
             )

@@ -314,14 +314,26 @@ export interface AuthoringComponentCapability {
   category: ComponentCategory
   supportTier: SupportTier
   supportSummary: string
+  /**
+   * Alternate palette names that resolve to this same componentType (e.g.
+   * "Traffic Source" and "Client App" both map to `api-endpoint`). One row is
+   * shown per componentType because grading targets the resolved type, but
+   * these aliases keep every palette name searchable.
+   */
+  aliases: readonly string[]
 }
 
 function buildComponentCapabilities(): AuthoringComponentCapability[] {
   const byType = new Map<ComponentType, AuthoringComponentCapability>()
+  const aliasesByType = new Map<ComponentType, Set<string>>()
   for (const template of Object.values(PALETTE_TEMPLATES)) {
     // Composite location/container templates are canvas primitives, not
     // component choices that grading rules can target.
     if (!template.componentType || !template.category) continue
+    const aliases = aliasesByType.get(template.componentType) ?? new Set<string>()
+    if (template.label) aliases.add(template.label)
+    if (template.subLabel) aliases.add(template.subLabel)
+    aliasesByType.set(template.componentType, aliases)
     if (byType.has(template.componentType)) continue
     const support = getComponentCategorySupport(template.category)
     byType.set(template.componentType, {
@@ -329,10 +341,18 @@ function buildComponentCapabilities(): AuthoringComponentCapability[] {
       label: template.label,
       category: template.category,
       supportTier: support.tier,
-      supportSummary: support.summary
+      supportSummary: support.summary,
+      aliases: []
     })
   }
-  return [...byType.values()].sort((left, right) => left.label.localeCompare(right.label))
+  return [...byType.values()]
+    .map((capability) => ({
+      ...capability,
+      aliases: [...(aliasesByType.get(capability.id) ?? [])].filter(
+        (alias) => alias !== capability.label
+      )
+    }))
+    .sort((left, right) => left.label.localeCompare(right.label))
 }
 
 export const AUTHORING_COMPONENT_CAPABILITIES = buildComponentCapabilities()
