@@ -212,7 +212,7 @@ Open the **Workload** panel (click **Run**) and scroll to **STOP CONDITION**:
 
 ## How it grades (authored question)
 
-The authored question (`quickcart-flash-sale.question.json`) checks:
+The authored question (`quickcart-flash-sale.question-package.json`) checks:
 
 | Check               | Kind       | Rule                                         |
 | ------------------- | ---------- | -------------------------------------------- |

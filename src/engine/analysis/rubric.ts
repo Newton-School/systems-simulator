@@ -214,20 +214,34 @@ export function resolveTopologyMetric(topology: TopologyJSON, metric: string): n
   return isFiniteMetricValue(value) ? value : null
 }
 
+/**
+ * Floating-point tolerance for rubric comparisons, scaled to the magnitude of the
+ * operands. Metrics such as `summary.throughput` are summed across many nodes, so
+ * an evenly-offered 1,000,000 rps split 13 ways and re-summed lands at
+ * 999999.9999999998 — dust ~2e-10 below the boundary that would otherwise fail a
+ * correct design on a `>= 1000000` check. A relative epsilon of 1e-9 (with a small
+ * absolute floor for values near zero) absorbs that dust while leaving any genuine
+ * miss — even a fraction of a percent — comfortably outside tolerance.
+ */
+function comparisonTolerance(actual: number, value: number): number {
+  return Math.max(Math.abs(actual), Math.abs(value), 1) * 1e-9
+}
+
 function compare(actual: number, op: CheckOp, value: number): boolean {
+  const tol = comparisonTolerance(actual, value)
   switch (op) {
     case '<':
-      return actual < value
+      return actual < value + tol
     case '<=':
-      return actual <= value
+      return actual <= value + tol
     case '>':
-      return actual > value
+      return actual > value - tol
     case '>=':
-      return actual >= value
+      return actual >= value - tol
     case '==':
-      return actual === value
+      return Math.abs(actual - value) <= tol
     case '!=':
-      return actual !== value
+      return Math.abs(actual - value) > tol
   }
 }
 

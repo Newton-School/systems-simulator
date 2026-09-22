@@ -1,6 +1,6 @@
 ---
 name: simulator-question-author
-description: 'Convert a system-design question into two system design simulator Markdown guides: a learner-facing builder walkthrough and an author-facing Question Studio walkthrough. Use when mapping an interview or curriculum prompt to simulator components, workloads, test-case rows, grading rules, evaluation evidence, and honest modeling boundaries.'
+description: 'Convert a system-design question into three openable System Design Simulator JSON files: a Question Studio authoring project, a compiled question package, and a reference solution topology that passes every check. Optionally also emit the learner and author Markdown walkthroughs. Use when mapping an interview or curriculum prompt to simulator components, workloads, test-case rows, grading rules, capacity math, and honest modeling boundaries.'
 ---
 
 # Simulator Question Author
@@ -15,20 +15,34 @@ prefer that evidence and identify any compatibility change.
 
 ## Output contract
 
-Given one system-design question, create exactly:
+Given one system-design question, create exactly these **three openable JSON
+files**, using one title-derived slug `<slug>`:
 
-1. `builder-walkthrough.md` — how a learner builds, configures, runs, and verifies
-   the design in the simulator.
-2. `question-studio-walkthrough.md` — how an author recreates the question in
-   Question Studio, including scenarios, grading, compiled row intent, preview,
-   export, and discrimination checks.
+1. `<slug>.simulator-question-project.json` — opens in **Question Studio** (Open
+   project); the editable authoring project. This is exactly the filename Question
+   Studio writes on Save draft / Save project.
+2. `<slug>.question-package.json` — opens in the **Simulator** (Open question
+   package); the compiled, gradeable question a learner attempts.
+3. `<slug>.solution-topology.json` — opens in the **Simulator** (Open
+   design/topology); a reference solution canvas that passes every check.
 
-Place both files in the user-selected output location. If no writable filesystem
-is available, return two separately labeled Markdown artifacts with those exact
-filenames. Cross-link them using relative links.
+`<slug>` is derived from the question title, not fixed — QuickCart is only the
+worked example. Generate these for any question.
 
-Do not create topology JSON, Django assignments, screenshots, indexes, or extra
-documents unless the user explicitly requests them.
+The exact schema of each file, the cross-file consistency contract, and the
+capacity math that makes the solution pass are in
+[json-artifact-schemas.md](references/json-artifact-schemas.md). Guaranteed-valid
+worked instances of all three are in [`examples/quickcart/`](examples/quickcart/).
+
+Place the files in the user-selected output location. If no writable filesystem is
+available, return three separately labeled JSON artifacts with those exact
+filenames.
+
+The two Markdown walkthroughs (`builder-walkthrough.md`,
+`question-studio-walkthrough.md`) are now **optional**: produce them only when the
+user asks for docs, following [the walkthrough steps](#optional-emit-the-markdown-walkthroughs).
+Do not create Django assignments, screenshots, or indexes unless explicitly
+requested.
 
 ## Minimum input
 
@@ -46,7 +60,10 @@ Use the bundled references in this order:
 2. [Component and metric catalog](references/component-and-metric-catalog.md)
 3. [Grading DSL and evaluation](references/grading-dsl-and-evaluation.md)
 4. [Question Studio authoring](references/question-studio-authoring.md)
-5. [Walkthrough pair contract](references/walkthrough-pair-contract.md)
+5. [JSON artifact schemas](references/json-artifact-schemas.md) — the exact shape of
+   the three emitted files, the cross-file contract, and the capacity math.
+6. [Walkthrough pair contract](references/walkthrough-pair-contract.md) — only when
+   the user also asks for the Markdown docs.
 
 For advanced or exact authoring details, load these deep references only when
 the task needs them:
@@ -138,48 +155,62 @@ Both outputs must be derived from this same contract.
   required; do not copy an example without checking it against the curated
   grading and feasibility references.
 
-### 5. Write the builder walkthrough
+### 5. Emit the three JSON files
 
-Start from [builder-walkthrough.template.md](assets/builder-walkthrough.template.md).
+Follow [json-artifact-schemas.md](references/json-artifact-schemas.md) and start
+each file from its template in [`assets/`](assets/):
 
-The document must provide exact placement, configuration, connection, run, and
-verification steps; governing arithmetic; expected good and bad results; the
-execution mode; authoritative evidence; and modeling boundaries. Separate
-modeled/graded decisions from narrative tradeoffs.
+- `assets/question-studio-project.template.json` → `<slug>.simulator-question-project.json`
+- `assets/question-package.template.json` → `<slug>.question-package.json`
+- `assets/solution-topology.template.json` → `<slug>.solution-topology.json`
 
-### 6. Write the Question Studio walkthrough
+Fill every `{{PLACEHOLDER}}` from the internal authoring contract (step 3). Then:
 
-Start from
-[question-studio-walkthrough.template.md](assets/question-studio-walkthrough.template.md).
+- **Derive the solution, do not guess it.** Size the service tier with the capacity
+  formula in the schema reference (`capacity = workers ÷ serviceTimeSeconds`;
+  `utilization = (load ÷ fan-out) ÷ capacity`). Replicate the single service node in
+  the template to the number of nodes the budget requires, wire each to the router,
+  and confirm the busiest node lands **inside** the invariant target with margin.
+- **Keep routers passthrough.** A load balancer never bottlenecks; only service
+  nodes appear in `perNode.maxUtilization`.
+- **Write plain-sentence check descriptions** in `<slug>.question-package.json` (e.g.
+  "Serve the full 1,000,000 req/s"), never `metric op value` jargon.
 
-Use the visible stage and control names in the bundled Studio reference. Supply
-exact field values, requirement-to-check traceability, compiled row inventory,
-preview/export checks, and passing/failing/anti-gaming acceptance cases.
+### 6. Enforce the cross-file consistency contract
 
-### 7. Enforce the pair contract
+Apply §4 of [json-artifact-schemas.md](references/json-artifact-schemas.md): id,
+title, thresholds, allowed node types, rubric checks, declared invariants, and the
+workload/seed must agree across all three files, and every `componentType` in the
+solution must be an allowed type.
 
-Follow [walkthrough-pair-contract.md](references/walkthrough-pair-contract.md) and
-compare the files side by side. Titles, slug, scale, component types, topology,
-capacity math, workload, faults, thresholds, and expected evidence must agree.
-
-### 8. Validate honestly
+### 7. Validate honestly
 
 Always perform these offline checks:
 
-- no unresolved template placeholders;
-- reciprocal relative links resolve;
+- all three files parse as JSON with no unresolved `{{PLACEHOLDER}}`;
+- #1 has `"artifact": "dsds-question-project"`; #2 has `version`, `suite`, `rubric`;
+  #3 has `"version": "2.0.0"` and a non-empty `nodes` array;
 - all component tokens, rule kinds, semantic kinds, and metrics occur in the
   bundled catalogs;
-- request weights total 100%;
-- warmup is below duration;
-- raw fraction/percentage conversions are correct;
-- every graded runtime check has an executable scenario;
-- good, near-miss, and anti-gaming designs separate for the intended reason.
+- request weights per case sum to a positive total; warmup is below duration;
+- raw fraction/percentage conversions are correct (UI `1%` → `0.01`);
+- every graded runtime/invariant check has an executable scenario that produces it;
+- the solution's **derived** utilization is strictly inside the budget, and one
+  plausible near-miss (e.g. one fewer server) would fail for the intended reason.
 
-If the target environment allows access to Question Studio, additionally compile
-the project and run the passing and failing designs. Report offline consistency,
-Studio compilation, and behavioral simulation as separate validation levels.
-Never claim a design passes merely because the Markdown is internally coherent.
+If the target environment allows, open #2 as the question and #3 as the design, run
+**Run & Evaluate**, and confirm a full pass. Report offline validation and any
+in-app run as separate levels of evidence. Never claim a design passes merely
+because the JSON is internally coherent.
+
+### Optional: emit the Markdown walkthroughs
+
+Only when the user asks for docs, additionally produce `builder-walkthrough.md`
+(from `assets/builder-walkthrough.template.md`) and `question-studio-walkthrough.md`
+(from `assets/question-studio-walkthrough.template.md`), then reconcile them with
+[walkthrough-pair-contract.md](references/walkthrough-pair-contract.md). They must
+describe the exact same topology, capacity math, workload, and thresholds as the
+three JSON files.
 
 ## Completion standard
 
@@ -187,9 +218,9 @@ The task is complete only when:
 
 - the question has one clear teaching objective;
 - every graded requirement has a supported evidence source;
-- the author can recreate the question without guessing field values;
-- the learner can recreate the intended design without hidden configuration;
-- one good design passes and one plausible wrong design fails for the intended
-  reason;
-- both files use the same modeling boundaries;
-- the response names the two artifacts and states the validation actually done.
+- all three JSON files parse and open in their target surface without edits;
+- the three files agree per the cross-file consistency contract;
+- the solution topology passes every check, and one plausible wrong design fails
+  for the intended reason;
+- any optional walkthroughs use the same modeling boundaries as the JSON;
+- the response names the emitted files and states the validation actually done.

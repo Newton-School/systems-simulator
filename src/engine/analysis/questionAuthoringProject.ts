@@ -49,7 +49,7 @@ import {
 
 export const QUESTION_AUTHORING_PROJECT_ARTIFACT = 'dsds-question-project' as const
 export const QUESTION_AUTHORING_PROJECT_VERSION = '1.0' as const
-export const QUESTION_AUTHORING_PROJECT_FILE_SUFFIX = '.dsds-question-project.json' as const
+export const QUESTION_AUTHORING_PROJECT_FILE_SUFFIX = '.simulator-question-project.json' as const
 
 export const QUESTION_AUTHORING_STAGE_IDS = [
   'frame',

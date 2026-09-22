@@ -1,0 +1,84 @@
+{
+  "artifact": "dsds-question-project",
+  "artifactVersion": "1.0",
+  "projectId": "{{PROJECT_UUID}}",
+  "updatedAt": "{{ISO_TIMESTAMP}}",
+  "question": {
+    "id": "{{SLUG}}",
+    "title": "{{TITLE}}",
+    "description": "{{ONE_PARAGRAPH_SUMMARY}}",
+    "tags": [],
+    "author": "{{AUTHOR}}",
+    "createdAt": "{{ISO_TIMESTAMP}}",
+    "setup": {
+      "difficulty": "beginner",
+      "type": "scaling",
+      "entryFormat": "blank-canvas",
+      "domains": ["compute"],
+      "concepts": ["horizontal-scaling", "capacity-headroom", "load-balancing"],
+      "workloadCategory": "read-heavy",
+      "estimatedTimeMinutes": 10,
+      "passThreshold": 0.81,
+      "suiteVisibleToStudent": true,
+      "constraints": {
+        "allowedNodeTypes": ["microservice", "api-endpoint", "load-balancer-l7"],
+        "canModifyScaffold": true,
+        "canRemoveScaffoldNodes": true
+      }
+    },
+    "prompt": {
+      "text": "{{LEARNER_PROMPT}}",
+      "scale": { "peakRps": 1000000, "readWriteRatio": 100 },
+      "functionalRequirements": [
+        { "id": "fr-{{UUID_1}}", "text": "{{FUNCTIONAL_REQUIREMENT_1}}" }
+      ],
+      "nonFunctionalRequirements": [
+        { "id": "nfr-{{UUID_1}}", "metric": "throughput", "operator": ">=", "value": 1000000, "unit": "req_per_sec" },
+        { "id": "nfr-{{UUID_2}}", "metric": "error_rate", "operator": "<", "value": 1, "unit": "percent" }
+      ]
+    },
+    "dryRunScenarioId": "baseline",
+    "justify": [],
+    "scenarios": [
+      {
+        "id": "baseline",
+        "description": "{{SCENARIO_DESCRIPTION}}",
+        "seed": "{{SLUG}}-v1",
+        "pattern": "constant",
+        "durationSeconds": 5,
+        "warmupSeconds": 0,
+        "baseRps": 1000000,
+        "readPercent": 100,
+        "requestSizeBytes": 100,
+        "sourceNodeId": "",
+        "faults": [],
+        "invariants": [
+          {
+            "id": "invariant-1",
+            "description": "{{INVARIANT_DESCRIPTION}}",
+            "condition": "perNode.maxUtilization <= 0.8"
+          }
+        ]
+      }
+    ],
+    "structuralRules": [
+      {
+        "id": "structural-rule-2",
+        "kind": "requires_component",
+        "componentType": "load-balancer-l7",
+        "minCount": 1
+      },
+      { "id": "structural-rule-5", "kind": "requires_connected_graph" }
+    ],
+    "semanticRules": [],
+    "metricRules": [
+      { "id": "metric-target", "metric": "error_rate", "operator": "<", "value": 1, "unit": "percent" }
+    ],
+    "rubricChecks": [
+      { "id": "rubric-check-1", "metric": "summary.throughput", "op": ">=", "value": 1000000, "points": 1 },
+      { "id": "rubric-check-2", "metric": "invariantViolations.count", "op": "==", "value": 0, "points": 2 }
+    ]
+  },
+  "assets": { "gamedTopologies": [] },
+  "ui": { "activeStage": "export" }
+}

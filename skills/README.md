@@ -10,9 +10,9 @@ generated ZIP files.
 
 ## Available skills
 
-| Skill                     | Purpose                                                                                                   | Entry point                                                                |
-| ------------------------- | --------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| Simulator Question Author | Converts one system-design question into a learner builder walkthrough and a Question Studio walkthrough. | [`simulator-question-author/SKILL.md`](simulator-question-author/SKILL.md) |
+| Skill                     | Purpose                                                                                                                                                      | Entry point                                                                |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| Simulator Question Author | Converts one system-design question into three openable JSON files — a Question Studio project, a compiled question package, and a passing solution topology (Markdown walkthroughs optional). | [`simulator-question-author/SKILL.md`](simulator-question-author/SKILL.md) |
 
 ## Package a skill
 

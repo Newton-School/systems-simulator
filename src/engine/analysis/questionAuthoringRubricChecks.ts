@@ -69,6 +69,22 @@ export function createAuthoringRubricCheck(
   }
 }
 
+/** Reads a comparison operator as words, so a generated check description is a
+ *  sentence ("must be at least 1,000,000") rather than symbols ("&gt;= 1000000"). */
+const OP_PHRASE: Record<CheckOp, string> = {
+  '<': 'must be below',
+  '<=': 'must be at most',
+  '>': 'must be above',
+  '>=': 'must be at least',
+  '==': 'must be exactly',
+  '!=': 'must not be'
+}
+
+/** Default, human-readable description for an auto-generated rubric check. */
+function describeRubricCheck(label: string, op: CheckOp, value: number): string {
+  return `${label} ${OP_PHRASE[op]} ${value.toLocaleString('en-US')}.`
+}
+
 export function compileAuthoringRubricCheck(draft: AuthoringRubricCheckDraft): RubricCheck | null {
   const id = draft.id.trim()
   if (!id) return null
@@ -80,7 +96,7 @@ export function compileAuthoringRubricCheck(draft: AuthoringRubricCheckDraft): R
 
   return {
     id,
-    description: `${capability.label} ${draft.op} ${draft.value}.`,
+    description: describeRubricCheck(capability.label, draft.op, draft.value),
     kind: capability.kind,
     metric: capability.id,
     op: draft.op,

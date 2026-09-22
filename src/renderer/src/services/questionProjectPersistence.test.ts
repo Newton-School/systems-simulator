@@ -17,7 +17,7 @@ describe('Question Studio project file persistence', () => {
         return { name: suggestedName ?? 'project.json' }
       }),
       load: vi.fn(async () => ({
-        name: 'design-a-cache.dsds-question-project.json',
+        name: 'design-a-cache.simulator-question-project.json',
         content: savedContent
       }))
     }
@@ -67,16 +67,16 @@ describe('Question Studio project file persistence', () => {
 
     expect(saveResult).toEqual({
       status: 'saved',
-      fileName: 'design-a-cache.dsds-question-project.json'
+      fileName: 'design-a-cache.simulator-question-project.json'
     })
     expect(openResult).toEqual({
       status: 'opened',
-      fileName: 'design-a-cache.dsds-question-project.json',
+      fileName: 'design-a-cache.simulator-question-project.json',
       project
     })
     expect(fileService.save).toHaveBeenCalledWith(
       expect.stringContaining('"artifact": "dsds-question-project"'),
-      'design-a-cache.dsds-question-project.json',
+      'design-a-cache.simulator-question-project.json',
       expect.objectContaining({ dialogTitle: 'Save Question Studio Project' })
     )
   })

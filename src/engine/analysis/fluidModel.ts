@@ -39,9 +39,21 @@ import { deriveNodeConcurrency } from '../nodes/resourceDerivation'
 import { approxResponsePercentileMs, mmcLatency } from './queueingLatency'
 import { resolveStopCondition } from '../core/stopCondition'
 
-/** Component types that forward traffic without a service bottleneck of their own. */
+/**
+ * Component types that forward traffic without a service bottleneck of their own.
+ *
+ * All load-balancer / router variants belong here: they distribute the offered
+ * load across their downstreams rather than serving it themselves, so modelling
+ * them with a finite `c / serviceTime` capacity turns a single balancer into a
+ * spurious bottleneck (e.g. an L7 balancer capping a 1,000,000 rps flash sale at
+ * its own 640K derivation, then reporting 156% self-utilization). The generic
+ * `load-balancer` was already treated this way; the typed variants must match.
+ */
 const PASSTHROUGH_TYPES = new Set<string>([
   'load-balancer',
+  'load-balancer-l7',
+  'load-balancer-l4',
+  'ingress-controller',
   'api-gateway',
   'reverse-proxy',
   'cdn',
@@ -217,15 +229,21 @@ export function nodeCapacityRps(node: ComponentNode): number {
     return authored
   }
 
+  // Passthrough components (load balancers, gateways, CDNs, the client/source)
+  // forward load rather than serving it, so they have no service bottleneck of
+  // their own — even though they may carry a nominal service time. This must be
+  // checked BEFORE the queueing derivation below, otherwise a balancer's service
+  // time would give it a finite `c / serviceTime` capacity and make it a spurious
+  // bottleneck. An explicit authored capacity (above) still wins.
+  if (PASSTHROUGH_TYPES.has(node.type)) {
+    return Number.POSITIVE_INFINITY
+  }
+
   const serviceMs = distributionMean(node.processing?.distribution)
   if (Number.isFinite(serviceMs) && serviceMs > 0) {
     const { effectiveC } = deriveNodeConcurrency(node)
     const serviceSec = serviceMs / 1000
     return effectiveC / serviceSec
-  }
-
-  if (PASSTHROUGH_TYPES.has(node.type)) {
-    return Number.POSITIVE_INFINITY
   }
 
   // No service model and not a known passthrough: treat as passthrough rather

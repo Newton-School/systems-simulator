@@ -1062,7 +1062,7 @@ export const QuestionPanel = () => {
                       : 'bg-nss-danger/15 text-nss-danger'
                   }`}
                 >
-                  {badgeAllPassed ? 'Passed' : 'Failed'} · {badgePassedTests}/{badgeTotalTests}
+                  {badgePassedTests}/{badgeTotalTests} passed
                 </span>
               </div>
             )}
@@ -1167,7 +1167,7 @@ export const QuestionPanel = () => {
                   key={row.id}
                   className="rounded border border-nss-border/70 bg-nss-surface/40 p-2"
                 >
-                  <div className="flex items-center gap-2 text-xs">
+                  <div className="flex items-start gap-2 text-xs">
                     <span
                       className={
                         row.status === 'passed'
@@ -1179,10 +1179,15 @@ export const QuestionPanel = () => {
                     >
                       {row.status === 'passed' ? '✓' : row.status === 'failed' ? '✗' : '•'}
                     </span>
-                    <span className="min-w-0 flex-1 truncate text-nss-muted" title={row.name}>
+                    <span
+                      className="min-w-0 flex-1 whitespace-normal break-words text-nss-muted"
+                      title={row.name}
+                    >
                       {row.name}
                     </span>
-                    <span className="shrink-0 text-[10px] text-nss-muted/70">{row.scope}</span>
+                    <span className="shrink-0 self-start text-[10px] text-nss-muted/70">
+                      {row.scope}
+                    </span>
                   </div>
                   {row.detail && (
                     <p className="mt-1 pl-5 text-[10px] leading-relaxed text-nss-muted/80">
