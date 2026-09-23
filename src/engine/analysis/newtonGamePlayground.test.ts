@@ -153,6 +153,22 @@ describe('parseNewtonSeed', () => {
     expect(seed.readOnly).toBe(false)
   })
 
+  // The host asks us to draw the back control; absent on older hosts, which still draw a
+  // strip of their own, so the default must leave us drawing nothing.
+  it('defaults showBackButton to false when the host does not ask', () => {
+    expect(parseNewtonSeed(pkg).showBackButton).toBe(false)
+  })
+
+  it('adopts show_back_button from the host seed', () => {
+    const seed = parseNewtonSeed(JSON.stringify({ ...rowAuthoredSeed(), show_back_button: true }))
+    expect(seed.showBackButton).toBe(true)
+  })
+
+  it('treats a non-boolean show_back_button as absent', () => {
+    const seed = parseNewtonSeed(JSON.stringify({ ...rowAuthoredSeed(), show_back_button: 'yes' }))
+    expect(seed.showBackButton).toBe(false)
+  })
+
   it('parses a row-authored Django seed into a QuestionPackage plus raw prompt HTML', () => {
     const seed = parseNewtonSeed(
       JSON.stringify({

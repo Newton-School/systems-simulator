@@ -1,5 +1,5 @@
 import { memo, useLayoutEffect, useRef, useState } from 'react'
-import { FolderOpen, Save, Sidebar, Workflow } from 'lucide-react'
+import { ChevronLeft, FolderOpen, Save, Sidebar, Workflow } from 'lucide-react'
 
 import { Divider } from '../ui/Divider'
 import { IconButton } from '../ui/IconButton'
@@ -13,6 +13,14 @@ import { SimulationControls } from '../simulation/SimulationControls'
 import type { FaultTargetOption, ScenarioState, SourceNodeOption } from '@renderer/types/ui'
 
 interface HeaderProps {
+  /**
+   * Draw a back control at the head of the bar. Set when the Newton host has handed us the
+   * job, so the learner gets one control that belongs to this header instead of a separate
+   * strip stacked above the frame.
+   */
+  showBackButton?: boolean
+  onBackClick?: () => void
+
   // Layout
   toggleLeft: () => void
   isLeftOpen: boolean
@@ -54,6 +62,8 @@ const CENTER_CLEARANCE_PX = 16
 
 export const Header = memo(
   ({
+    showBackButton = false,
+    onBackClick,
     toggleLeft,
     isLeftOpen,
     toggleRight,
@@ -121,8 +131,22 @@ export const Header = memo(
         ref={headerRef}
         className="nss-app-header relative flex h-12 shrink-0 items-center justify-between overflow-visible border-b border-nss-border bg-nss-panel px-4 text-nss-text transition-colors duration-200"
       >
-        {/* LEFT: Branding & left sidebar toggle */}
+        {/* LEFT: Back (host-driven) & branding & left sidebar toggle */}
         <div ref={leftGroupRef} className="flex items-center gap-1 shrink-0">
+          {showBackButton && onBackClick && (
+            <>
+              <button
+                type="button"
+                onClick={onBackClick}
+                aria-label="Back to assignment"
+                className="flex items-center gap-1 rounded px-2 py-1 text-sm text-nss-text transition-colors hover:bg-nss-hover"
+              >
+                <ChevronLeft size={18} />
+                <span className="nss-desktop-only">Back</span>
+              </button>
+              <Divider />
+            </>
+          )}
           <Branding />
           <Divider />
           <ToggleButton
