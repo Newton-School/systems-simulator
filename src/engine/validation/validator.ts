@@ -1,10 +1,17 @@
 import { z } from 'zod'
 import type {
   BaseDistributionConfig,
+  ComponentNode,
   DiurnalHourlyMultipliers,
   DistributionConfig,
+  EdgeDefinition,
+  GeoNetworkModel,
+  GlobalConfig,
+  ResourceConfig,
+  TopologyLocation,
   TrafficOrigin,
-  TopologyJSON
+  TopologyJSON,
+  WorkloadProfile
 } from '../core/types'
 import { inferStructuralRole } from '../catalog/componentSpecs'
 import { isQueueDeliverySemantics } from '../core/simulationSemantics'
@@ -435,6 +442,7 @@ export const EdgeDefinitionSchema = z.object({
   errorRate: z.number().min(0).max(1),
   weight: z.number().optional(),
   condition: z.string().optional(),
+  fanoutFactor: z.number().int().positive().optional(),
   sourceHandle: z.string().optional(),
   targetHandle: z.string().optional(),
   animated: z.boolean().optional(),
@@ -682,6 +690,44 @@ export const TopologyJSONSchema: z.ZodType<TopologyJSON> = z.object({
   invariants: z.array(InvariantCheckSchema).optional(),
   scenarios: z.array(ScenarioRefSchema).optional()
 })
+
+/**
+ * Compile-time key parity between engine types and their schemas. `z.object`
+ * strips unknown keys, and the `z.ZodType<TopologyJSON>` annotation above does
+ * not catch a missing *optional* field, so an engine field absent from a schema
+ * is silently dropped from `validateTopology(...).data` (this is how edge
+ * `fanoutFactor` once worked in the app but not in the CLI or grading). Adding a
+ * field to one of these types without adding it to the schema fails typecheck.
+ */
+type AssertNoSchemaKeyGap<Gap extends never> = Gap
+type SchemaKeyGap<T, S extends z.ZodType> = Exclude<keyof T, keyof z.infer<S>>
+export type SchemaKeyParity = [
+  AssertNoSchemaKeyGap<SchemaKeyGap<TopologyJSON, typeof TopologyJSONSchema>>,
+  AssertNoSchemaKeyGap<SchemaKeyGap<GlobalConfig, typeof GlobalConfigSchema>>,
+  AssertNoSchemaKeyGap<SchemaKeyGap<ComponentNode, typeof ComponentNodeSchema>>,
+  AssertNoSchemaKeyGap<
+    SchemaKeyGap<ResourceConfig, NonNullable<typeof ComponentNodeSchema.shape.resources>>
+  >,
+  AssertNoSchemaKeyGap<SchemaKeyGap<EdgeDefinition, typeof EdgeDefinitionSchema>>,
+  AssertNoSchemaKeyGap<
+    SchemaKeyGap<EdgeDefinition['latency'], typeof EdgeDefinitionSchema.shape.latency>
+  >,
+  AssertNoSchemaKeyGap<SchemaKeyGap<WorkloadProfile, typeof WorkloadProfileSchema>>,
+  AssertNoSchemaKeyGap<
+    Exclude<
+      keyof WorkloadProfile['requestDistribution'][number],
+      keyof z.infer<typeof WorkloadProfileSchema>['requestDistribution'][number]
+    >
+  >,
+  AssertNoSchemaKeyGap<
+    Exclude<
+      keyof NonNullable<WorkloadProfile['stopCondition']>,
+      keyof NonNullable<z.infer<typeof WorkloadProfileSchema>['stopCondition']>
+    >
+  >,
+  AssertNoSchemaKeyGap<SchemaKeyGap<TopologyLocation, typeof TopologyLocationSchema>>,
+  AssertNoSchemaKeyGap<SchemaKeyGap<GeoNetworkModel, typeof GeoNetworkModelSchema>>
+]
 
 //Validation Wrapper
 export interface ValidationError {

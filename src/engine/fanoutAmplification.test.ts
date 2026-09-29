@@ -6,7 +6,10 @@ import type {
   TopologyJSON,
   WorkloadProfile
 } from './core/types'
+import type { SimulationOutput } from './analysis/output'
 import { SimulationEngine } from './engine'
+import { evaluateScenarios } from './analysis/evaluate'
+import { validateTopology } from './validation/validator'
 
 // Source → fan-out service → feed cache. The fan-out service's outgoing write edge
 // carries a fanoutFactor, so one post amplifies into N feed-cache writes (GAP 2).
@@ -111,5 +114,39 @@ describe('fan-out amplification (GAP 2)', () => {
   it('does not amplify when no factor is set', () => {
     const baseline = new SimulationEngine(buildTopology(undefined)).run()
     expect(baseline.perNode.fanout.traitCounters.fanoutAmplifiedWrites ?? 0).toBe(0)
+  })
+})
+
+// Regression: EdgeDefinitionSchema once lacked `fanoutFactor`, so Zod stripped it and
+// every caller that runs `validateTopology(...).data` (CLI, scenario batch, question
+// grading) simulated no amplification while the app, which runs the raw topology, did.
+describe('fan-out amplification through the validated path', () => {
+  it('keeps fanoutFactor on the validated edge', () => {
+    const validation = validateTopology(buildTopology(2000))
+    expect(validation.valid).toBe(true)
+    const fanoutEdge = validation.data?.edges.find((e) => e.id === 'fanout-to-feed-cache')
+    expect(fanoutEdge?.fanoutFactor).toBe(2000)
+  })
+
+  it('amplifies deliveries when graded via evaluateScenarios', () => {
+    const runAndCapture = (topologyFactor: number | undefined): SimulationOutput => {
+      let captured: SimulationOutput | undefined
+      const contract = evaluateScenarios(buildTopology(topologyFactor), [{ id: 'base' }], (t) => {
+        captured = new SimulationEngine(t).run()
+        return captured
+      })
+      expect(contract.verdicts[0].status).toBe('completed')
+      return captured as SimulationOutput
+    }
+
+    const baseArrived = runAndCapture(undefined).perNode['feed-cache'].totalArrived
+    const ampArrived = runAndCapture(50).perNode['feed-cache'].totalArrived
+    expect(baseArrived).toBeGreaterThan(0)
+    expect(ampArrived).toBeGreaterThan(baseArrived * 40)
+  })
+
+  it('rejects a non-integer or non-positive fanoutFactor', () => {
+    expect(validateTopology(buildTopology(0)).valid).toBe(false)
+    expect(validateTopology(buildTopology(2.5)).valid).toBe(false)
   })
 })
