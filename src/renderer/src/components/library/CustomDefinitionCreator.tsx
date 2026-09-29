@@ -1123,6 +1123,15 @@ function DefinitionBuilderModal({
                                     className="mt-1 w-full rounded border border-nss-border bg-nss-input-bg px-2 py-1 text-xs text-nss-text"
                                   />
                                 </label>
+                                <p
+                                  data-testid="capacity-ignored-fields-note"
+                                  className="rounded border border-nss-border bg-nss-panel px-2 py-1.5 text-[10px] leading-relaxed text-nss-warning"
+                                >
+                                  Workers per instance and queue slots are recorded on the
+                                  definition but not used by the simulation: concurrency and queue
+                                  space are derived from the node&apos;s instance type and count.
+                                  Change those to change capacity.
+                                </p>
                               </>
                             ) : null}
                             {trait.traitId === 'workload-profile' ? (
