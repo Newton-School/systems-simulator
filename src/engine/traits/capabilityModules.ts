@@ -590,7 +590,17 @@ const BASE_QUEUE_FIELDS: readonly ConfigField[] = [
     label: 'Queue discipline',
     options: ['fifo', 'lifo', 'priority', 'wfq'],
     altitude: 'advanced',
-    why: 'Controls how waiting work is ordered once it has already queued.'
+    why: 'Controls how waiting work is ordered once it has already queued. wfq (weighted fair queueing) treats each request type as a flow and shares service between backlogged flows, so one busy type cannot starve the others.'
+  },
+  {
+    path: 'sim.queue.weights',
+    type: 'input',
+    inputType: 'text',
+    label: 'Flow weights',
+    renderer: 'queue-weights',
+    altitude: 'advanced',
+    visible: (data) => data.sim?.queue?.discipline === 'wfq',
+    why: 'Relative share of service per request type under wfq; unlisted types weigh 1.'
   }
 ]
 
@@ -608,8 +618,11 @@ const BASE_QUEUE_MODULE: NodeCapabilityModule = {
   },
   defaults: [],
   honesty: {
-    simulates: ['generic G/G/c/K queueing behavior for every runtime node'],
-    notModeled: []
+    simulates: [
+      'generic G/G/c/K queueing behavior for every runtime node',
+      'queue disciplines: fifo, lifo, priority (by request priority) and wfq (self-clocked fair queueing per request type, one unit of cost per request, optional per-type weights)'
+    ],
+    notModeled: ['wfq fairness by service time or bytes (each request counts as one unit)']
   }
 }
 

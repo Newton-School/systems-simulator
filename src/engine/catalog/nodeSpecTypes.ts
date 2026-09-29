@@ -52,6 +52,8 @@ export interface NodeSimulationConfig {
     workers: number
     capacity: number
     discipline: 'fifo' | 'lifo' | 'priority' | 'wfq'
+    /** `wfq` only: relative weight per request type; unlisted types weigh 1. */
+    weights?: Record<string, number>
   }
   processing?: {
     distribution: DistributionConfig

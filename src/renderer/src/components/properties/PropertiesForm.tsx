@@ -21,6 +21,7 @@ import { Select } from '../ui/Select'
 import { FormField } from './FormField'
 import { RequestDistributionEditor } from './RequestDistributionEditor'
 import { TrafficOriginsEditor } from './TrafficOriginsEditor'
+import { QueueWeightsEditor } from './QueueWeightsEditor'
 import { RoutingRulesEditor } from './RoutingRulesEditor'
 import type { ContentRoutingRule } from '../../../../engine/traits/contentRouting'
 import type { LocationProvider } from '../../../../engine/core/types'
@@ -317,6 +318,17 @@ export const PropertiesForm = ({
         <RequestDistributionEditor
           key={field.path}
           entries={entries}
+          onChange={(nextValue) => onUpdate(field.path, nextValue)}
+        />
+      )
+    }
+
+    if (field.renderer === 'queue-weights') {
+      return (
+        <QueueWeightsEditor
+          key={`${nodeId}:${field.path}`}
+          nodeId={nodeId}
+          weights={data.sim?.queue?.weights}
           onChange={(nextValue) => onUpdate(field.path, nextValue)}
         />
       )

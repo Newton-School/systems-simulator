@@ -332,6 +332,12 @@ export interface QueueConfig {
   workers: number
   capacity: number
   discipline: 'fifo' | 'lifo' | 'priority' | 'wfq'
+  /**
+   * `wfq` only: relative weight per request type (the flow key). Unlisted types
+   * weigh 1. While flows are backlogged, a weight-3 flow starts 3 requests for
+   * every 1 of a weight-1 flow. Ignored by the other disciplines.
+   */
+  weights?: Record<string, number>
 }
 
 export interface ProcessingConfig {

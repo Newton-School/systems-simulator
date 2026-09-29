@@ -73,6 +73,19 @@ export class GGcKNode {
   private readonly serviceDistribution: DistributionConfig
   private readonly discipline: 'fifo' | 'lifo' | 'priority' | 'wfq'
 
+  /**
+   * Weighted fair queueing state (self-clocked fair queueing). Each request type
+   * is a flow; each queued request gets a virtual finish tag
+   * `max(flow's last tag, virtual time) + 1 / weight`, and the smallest tag is
+   * served next (ties by arrival). Virtual time is the tag of the request most
+   * recently taken into service. Cost is one unit per request, so a backlogged
+   * flow with weight w gets w shares of service starts relative to weight-1 flows.
+   */
+  private readonly wfqWeights: Readonly<Record<string, number>>
+  private readonly wfqFinishTags = new Map<string, number>()
+  private readonly wfqFlowLastFinish = new Map<string, number>()
+  private wfqVirtualTime = 0
+
   private queue: Request[] = []
   private activeWorkers = 0
   private status: 'idle' | 'busy' | 'saturated' | 'failed' = 'idle'
@@ -174,6 +187,7 @@ export class GGcKNode {
     this.cpuBoundFraction = cpuBoundFraction
     this.physicalCoreCapacity = physicalCores
     this.discipline = discipline
+    this.wfqWeights = config.queue.weights ?? {}
     this.serviceDistribution = config.processing?.distribution ?? { type: 'constant', value: 10 }
     this.distributions = distributions
     this.scheduler = scheduler
@@ -225,7 +239,7 @@ export class GGcKNode {
       return { status: 'processed' }
     }
 
-    this.queue.push(request)
+    this.enqueue(request)
     this.metrics.maxQueueLength = Math.max(this.metrics.maxQueueLength, this.queue.length)
     this.updateStatus()
     return { status: 'queued' }
@@ -316,6 +330,7 @@ export class GGcKNode {
     const queuedIndex = this.queue.findIndex((request) => request.id === requestId)
     if (queuedIndex >= 0) {
       this.queue.splice(queuedIndex, 1)
+      this.wfqFinishTags.delete(requestId)
       this.arrivalTimes.delete(requestId)
       this.startTimes.delete(requestId)
       this.inServiceRequests.delete(requestId)
@@ -379,6 +394,7 @@ export class GGcKNode {
       for (const request of this.inServiceRequests.values()) collect(request)
 
       this.queue = []
+      this.wfqFinishTags.clear()
       this.startTimes.clear()
       this.inServiceRequests.clear()
       this.activeWorkers = 0
@@ -404,6 +420,7 @@ export class GGcKNode {
     )
 
     this.queue = []
+    this.wfqFinishTags.clear()
     this.startTimes.clear()
     this.inServiceRequests.clear()
     this.activeWorkers = 0
@@ -456,7 +473,7 @@ export class GGcKNode {
     const started: Request[] = []
     this.heldHang = []
     for (const request of resumed) {
-      this.queue.push(request)
+      this.enqueue(request)
     }
     while (this.activeWorkers < this.maxWorkers && this.queue.length > 0) {
       const next = this.dequeue()
@@ -688,13 +705,39 @@ export class GGcKNode {
     )
   }
 
+  private enqueue(request: Request): void {
+    this.queue.push(request)
+    if (this.discipline !== 'wfq') return
+
+    const weight = this.wfqWeights[request.type] ?? 1
+    const start = Math.max(this.wfqFlowLastFinish.get(request.type) ?? 0, this.wfqVirtualTime)
+    const finish = start + 1 / weight
+    this.wfqFlowLastFinish.set(request.type, finish)
+    this.wfqFinishTags.set(request.id, finish)
+  }
+
   private dequeue(): Request | undefined {
     if (this.queue.length === 0) return undefined
 
     switch (this.discipline) {
       case 'fifo':
-      case 'wfq':
         return this.queue.shift()
+      case 'wfq': {
+        // Smallest finish tag wins; strict < keeps ties in arrival order.
+        let bestIdx = 0
+        let bestTag = this.wfqFinishTags.get(this.queue[0].id) ?? Infinity
+        for (let i = 1; i < this.queue.length; i++) {
+          const tag = this.wfqFinishTags.get(this.queue[i].id) ?? Infinity
+          if (tag < bestTag) {
+            bestIdx = i
+            bestTag = tag
+          }
+        }
+        const [next] = this.queue.splice(bestIdx, 1)
+        this.wfqFinishTags.delete(next.id)
+        if (Number.isFinite(bestTag)) this.wfqVirtualTime = bestTag
+        return next
+      }
       case 'lifo':
         return this.queue.pop()
       case 'priority': {

@@ -21,6 +21,10 @@ function makeRequest(id: string, priority = 1): Request {
   }
 }
 
+function makeTypedRequest(id: string, type: string): Request {
+  return { ...makeRequest(id), type }
+}
+
 function makeConfig(
   workers: number,
   capacity: number,
@@ -226,7 +230,7 @@ describe('GGcKNode', () => {
       expect(scheduler.events[3].requestId).toBe('r2')
     })
 
-    it('wfq: falls back to FIFO order', () => {
+    it('wfq: a single flow is served in arrival order', () => {
       const scheduler = makeScheduler()
       const node = new GGcKNode(makeConfig(1, 3, 'wfq'), makeDist(), scheduler)
 
@@ -237,6 +241,60 @@ describe('GGcKNode', () => {
 
       node.handleCompletion(r1, 10n)
       expect(scheduler.events[1].requestId).toBe('r2')
+    })
+
+    // Drains a saturated 1-worker node and returns request ids in start order.
+    function drainOrder(node: GGcKNode, scheduler: ReturnType<typeof makeScheduler>): string[] {
+      let t = 100n
+      for (let i = 1; i < 50; i++) {
+        const started = scheduler.events[scheduler.events.length - 1]
+        if (!started?.requestId) break
+        const before = scheduler.events.length
+        node.handleCompletion({ ...makeRequest(started.requestId) }, t)
+        t += 10n
+        if (scheduler.events.length === before) break
+      }
+      return scheduler.events.map((event) => event.requestId as string)
+    }
+
+    it('wfq: interleaves flows instead of serving a burst first', () => {
+      const scheduler = makeScheduler()
+      const node = new GGcKNode(makeConfig(1, 20, 'wfq'), makeDist(), scheduler)
+
+      node.handleArrival(makeTypedRequest('seed', 'read'), 0n)
+      for (let i = 1; i <= 4; i++) node.handleArrival(makeTypedRequest(`r${i}`, 'read'), 1n)
+      for (let i = 1; i <= 2; i++) node.handleArrival(makeTypedRequest(`w${i}`, 'write'), 2n)
+
+      // FIFO would run r1..r4 before any write; WFQ alternates the two flows.
+      expect(drainOrder(node, scheduler)).toEqual(['seed', 'r1', 'w1', 'r2', 'w2', 'r3', 'r4'])
+    })
+
+    it('wfq: a weight-3 flow gets 3 starts per start of a weight-1 flow', () => {
+      const scheduler = makeScheduler()
+      const config = makeConfig(1, 40, 'wfq')
+      config.queue = { ...config.queue!, weights: { read: 3 } }
+      const node = new GGcKNode(config, makeDist(), scheduler)
+
+      node.handleArrival(makeTypedRequest('seed', 'other'), 0n)
+      for (let i = 1; i <= 9; i++) node.handleArrival(makeTypedRequest(`w${i}`, 'write'), 1n)
+      for (let i = 1; i <= 9; i++) node.handleArrival(makeTypedRequest(`r${i}`, 'read'), 2n)
+
+      const order = drainOrder(node, scheduler).slice(1, 13)
+      const reads = order.filter((id) => id.startsWith('r')).length
+      expect(reads).toBe(9)
+      expect(order.length - reads).toBe(3)
+    })
+
+    it('wfq: a cancelled queued request no longer holds its place', () => {
+      const scheduler = makeScheduler()
+      const node = new GGcKNode(makeConfig(1, 10, 'wfq'), makeDist(), scheduler)
+
+      node.handleArrival(makeTypedRequest('seed', 'read'), 0n)
+      node.handleArrival(makeTypedRequest('r1', 'read'), 1n)
+      node.handleArrival(makeTypedRequest('w1', 'write'), 2n)
+      node.cancelRequest('r1', 3n)
+
+      expect(drainOrder(node, scheduler)).toEqual(['seed', 'w1'])
     })
   })
 
