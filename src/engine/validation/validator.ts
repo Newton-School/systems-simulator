@@ -7,6 +7,7 @@ import type {
   EdgeDefinition,
   GeoNetworkModel,
   GlobalConfig,
+  QueueConfig,
   ResourceConfig,
   TopologyLocation,
   TrafficOrigin,
@@ -399,7 +400,8 @@ export const ComponentNodeSchema = z.object({
     .object({
       workers: z.number().int().positive('Workers must be > 0'),
       capacity: z.number().int().nonnegative('Capacity must be >= 0'),
-      discipline: z.enum(['fifo', 'lifo', 'priority', 'wfq'])
+      discipline: z.enum(['fifo', 'lifo', 'priority', 'wfq']),
+      weights: z.record(z.string().min(1), z.number().positive().finite()).optional()
     })
     .optional(),
 
@@ -711,6 +713,9 @@ export type SchemaKeyParity = [
   AssertNoSchemaKeyGap<SchemaKeyGap<ComponentNode, typeof ComponentNodeSchema>>,
   AssertNoSchemaKeyGap<
     SchemaKeyGap<ResourceConfig, NonNullable<typeof ComponentNodeSchema.shape.resources>>
+  >,
+  AssertNoSchemaKeyGap<
+    SchemaKeyGap<QueueConfig, NonNullable<typeof ComponentNodeSchema.shape.queue>>
   >,
   AssertNoSchemaKeyGap<SchemaKeyGap<EdgeDefinition, typeof EdgeDefinitionSchema>>,
   AssertNoSchemaKeyGap<
