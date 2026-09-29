@@ -1,4 +1,5 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { stringifyCliJson } from './json'
 import { join, resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
@@ -39,7 +40,7 @@ function runScenarioVerdictIsolated(
   const topologyPath = resolve(tempDir, 'scenario-topology.json')
 
   try {
-    writeFileSync(topologyPath, JSON.stringify(topology, null, 2), 'utf-8')
+    writeFileSync(topologyPath, stringifyCliJson(topology), 'utf-8')
 
     const child = spawnSync(
       process.execPath,

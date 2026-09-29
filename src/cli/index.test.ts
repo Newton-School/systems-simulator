@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -363,5 +363,38 @@ describe('sim evaluate question-batch CLI', () => {
         evaluationErrors: 0
       }
     })
+  })
+})
+
+describe('sim run CLI JSON output', () => {
+  it('serializes BigInt fields when printing --json to stdout', () => {
+    const dir = tempDir()
+    const topologyPath = resolve(dir, 'topology.json')
+    writeJson(topologyPath, topology('run-json'))
+
+    const result = runCli(['run', topologyPath, '--json'])
+
+    expect(result.stderr).not.toContain('serialize a BigInt')
+    expect(result.status).toBe(CLI_EXIT_SUCCESS)
+    const output = JSON.parse(result.stdout)
+    expect(output.summary.totalRequests).toBeGreaterThan(0)
+    // Trace phase records carry BigInt microsecond timestamps in-engine.
+    const phaseRecord = output.traces.find(
+      (trace: { phaseRecord?: unknown }) => trace.phaseRecord
+    )?.phaseRecord
+    expect(typeof phaseRecord.bornAtUs).toBe('number')
+  })
+
+  it('serializes BigInt fields when writing --output to a file', () => {
+    const dir = tempDir()
+    const topologyPath = resolve(dir, 'topology.json')
+    const outputPath = resolve(dir, 'out.json')
+    writeJson(topologyPath, topology('run-output'))
+
+    const result = runCli(['run', topologyPath, '--json', '--output', outputPath])
+
+    expect(result.status).toBe(CLI_EXIT_SUCCESS)
+    const output = JSON.parse(readFileSync(outputPath, 'utf-8'))
+    expect(output.summary.totalRequests).toBeGreaterThan(0)
   })
 })
