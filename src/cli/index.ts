@@ -20,6 +20,7 @@ import process from 'node:process'
 import { runQuestionBatchIsolated, type PreparedQuestionEvaluationAttempt } from './questionBatch'
 import { evaluateQuestionSubmission } from './questionEvaluate'
 import { runScenarioBatchIsolated } from './scenarioBatch'
+import { stringifyCliJson } from './json'
 import {
   CLI_EXIT_EVALUATION_ERROR,
   CLI_EXIT_EVALUATION_FAILED,
@@ -143,13 +144,13 @@ function runSingle(args: string[]): void {
   const structuredOutput = outputVerdict ? projectToVerdict(output) : output
 
   if (outputPath) {
-    const json = JSON.stringify(structuredOutput, null, 2)
+    const json = stringifyCliJson(structuredOutput)
     writeFileSync(resolve(outputPath), json, 'utf-8')
     if (!outputJson && !outputVerdict) {
       console.error(`${GREEN}✓ Results written to ${outputPath}${RESET}\n`)
     }
   } else if (outputJson || outputVerdict) {
-    process.stdout.write(JSON.stringify(structuredOutput, null, 2) + '\n')
+    process.stdout.write(stringifyCliJson(structuredOutput) + '\n')
   } else {
     printResults(output, wallMs)
   }
@@ -377,7 +378,7 @@ function emitQuestionEvaluationResult(
   result: QuestionEvaluationContract,
   outputPath?: string
 ): number {
-  const json = JSON.stringify(result, null, 2)
+  const json = stringifyCliJson(result)
   if (outputPath) {
     writeFileSync(resolve(outputPath), json, 'utf-8')
     console.error(`${GREEN}✓ Evaluation written to ${outputPath}${RESET}`)
@@ -526,7 +527,7 @@ function runSuiteEvaluate(args: string[]): void {
 
   // Without a rubric, emit the raw verdict batch; with one, emit the graded batch.
   const payload = rubric ? gradeBatch(rubric, batch) : batch
-  const json = JSON.stringify(payload, null, 2)
+  const json = stringifyCliJson(payload)
   if (outputPath) {
     writeFileSync(resolve(outputPath), json, 'utf-8')
     console.error(`${GREEN}✓ Evaluation written to ${outputPath}${RESET}`)
@@ -662,7 +663,7 @@ function runScenarioEvaluate(args: string[]): void {
     ...(batchTimeoutMs !== undefined ? { timeoutMs: batchTimeoutMs } : {})
   })
 
-  const json = JSON.stringify(batch, null, 2)
+  const json = stringifyCliJson(batch)
   if (outputPath) {
     writeFileSync(resolve(outputPath), json, 'utf-8')
     console.error(`${GREEN}✓ Evaluation written to ${outputPath}${RESET}`)
@@ -1008,7 +1009,7 @@ function runQuestionBatchEvaluate(args: string[]): void {
     simulatorVersion: packageJson.version,
     evaluatedAt
   })
-  const json = JSON.stringify(batch, null, 2)
+  const json = stringifyCliJson(batch)
 
   if (outputPath) {
     writeFileSync(resolve(outputPath), json, 'utf-8')

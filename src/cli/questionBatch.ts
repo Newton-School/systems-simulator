@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { stringifyCliJson } from './json'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import {
@@ -64,8 +65,8 @@ function runQuestionEvaluationIsolated(
   const metadata = attemptMetadata(attempt, fallbackIndex)
 
   try {
-    writeFileSync(questionPath, JSON.stringify(attempt.question, null, 2), 'utf-8')
-    writeFileSync(topologyPath, JSON.stringify(attempt.topology, null, 2), 'utf-8')
+    writeFileSync(questionPath, stringifyCliJson(attempt.question), 'utf-8')
+    writeFileSync(topologyPath, stringifyCliJson(attempt.topology), 'utf-8')
 
     const child = spawnSync(
       process.execPath,
