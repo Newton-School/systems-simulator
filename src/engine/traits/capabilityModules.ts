@@ -590,7 +590,17 @@ const BASE_QUEUE_FIELDS: readonly ConfigField[] = [
     label: 'Queue discipline',
     options: ['fifo', 'lifo', 'priority', 'wfq'],
     altitude: 'advanced',
-    why: 'Controls how waiting work is ordered once it has already queued. wfq (weighted fair queueing) treats each request type as a flow and shares service between backlogged flows, so one busy type cannot starve the others; types are weighted equally unless the topology sets queue weights.'
+    why: 'Controls how waiting work is ordered once it has already queued. wfq (weighted fair queueing) treats each request type as a flow and shares service between backlogged flows, so one busy type cannot starve the others.'
+  },
+  {
+    path: 'sim.queue.weights',
+    type: 'input',
+    inputType: 'text',
+    label: 'Flow weights',
+    renderer: 'queue-weights',
+    altitude: 'advanced',
+    visible: (data) => data.sim?.queue?.discipline === 'wfq',
+    why: 'Relative share of service per request type under wfq; unlisted types weigh 1.'
   }
 ]
 

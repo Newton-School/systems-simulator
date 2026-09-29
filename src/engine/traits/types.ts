@@ -21,6 +21,7 @@ export type ConfigCustomRenderer =
   | 'health-preset'
   | 'request-distribution'
   | 'traffic-origins'
+  | 'queue-weights'
 export type ConfigInputType = 'number' | 'text'
 
 export interface ConfigDisplayTransform {
