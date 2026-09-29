@@ -989,3 +989,40 @@ describe('validateTopology advanced trait validation', () => {
     )
   })
 })
+
+describe('validateTopology ignored resource fields', () => {
+  function runWith(resources: ComponentNode['resources']) {
+    const source = makeSourceNode('client', 'Client App')
+    const service = { ...makeProcessorNode('orders', 'Order Service'), resources }
+    return validateTopology(
+      makeTopology({
+        nodes: [source, service],
+        edges: [makeEdge('client-orders', source.id, service.id)],
+        sourceNodeId: source.id
+      })
+    )
+  }
+
+  it('warns that workersPerInstance and queueSlots are derived under the instance model', () => {
+    const result = runWith({ instanceType: 'c5.large', workersPerInstance: 80, queueSlots: 500 })
+
+    expect(result.valid).toBe(true)
+    expect(result.warnings).toContain(
+      "Node 'Order Service' sets resources.workersPerInstance and resources.queueSlots, which the simulator ignores: workers and queue space are derived from its instance type and count."
+    )
+  })
+
+  it('points legacy nodes at queue.workers and queue.capacity', () => {
+    const result = runWith({ queueSlots: 500 })
+
+    expect(result.warnings).toContain(
+      "Node 'Order Service' sets resources.queueSlots, which the simulator ignores: without an instance type, workers and capacity come from queue.workers and queue.capacity."
+    )
+  })
+
+  it('does not warn when neither field is set', () => {
+    const result = runWith({ instanceType: 'c5.large', instanceCount: 2 })
+
+    expect((result.warnings ?? []).some((warning) => warning.includes('ignores'))).toBe(false)
+  })
+})
