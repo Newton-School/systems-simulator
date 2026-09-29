@@ -1,12 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import { getComponentSpec } from './componentSpecs'
 import { instantiateTemplate } from './paletteTemplates'
+import { resolveCapacityTraitDefaults } from './customCapacityDefaults'
 import {
   applyDefinitionTraits,
+  createDefaultTraits,
   defaultCustomNodeOperations,
   defaultServiceOperations,
   RUNTIME_TEMPLATES,
-  type CustomNodeDefinition
+  type CustomNodeDefinition,
+  type RuntimeTemplateId
 } from './customDefinitions'
 
 describe('custom node definitions', () => {
@@ -178,5 +181,25 @@ describe('custom node definitions', () => {
     expect(getComponentSpec('microservice')?.validateCanvas(data)).toContain(
       'Custom definition requires Serverless function, not microservice.'
     )
+  })
+  it('creates nodes whose capacity matches the builder-displayed defaults when left unset', () => {
+    for (const runtimeTemplate of Object.keys(RUNTIME_TEMPLATES) as RuntimeTemplateId[]) {
+      const template = RUNTIME_TEMPLATES[runtimeTemplate]
+      if (!template.traitPacks.includes('capacity')) continue
+      const displayed = resolveCapacityTraitDefaults(runtimeTemplate)
+      const data = instantiateTemplate(template.paletteTemplateId)
+      applyDefinitionTraits(data, {
+        kind: template.allowedDefinitionKinds[0],
+        runtimeTemplate,
+        operations: defaultCustomNodeOperations(),
+        traits: createDefaultTraits(runtimeTemplate)
+      })
+      expect(data.sim?.resources?.workloadKind, runtimeTemplate).toBe(displayed.workloadKind)
+      expect(data.sim?.resources?.instanceCount ?? 1, runtimeTemplate).toBe(displayed.instanceCount)
+    }
+  })
+
+  it('displays cpu-bound for a background worker because batch-worker seeds cpu-bound', () => {
+    expect(resolveCapacityTraitDefaults('background-worker').workloadKind).toBe('cpu-bound')
   })
 })
