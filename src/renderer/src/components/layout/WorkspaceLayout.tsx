@@ -23,6 +23,8 @@ import {
 import {
   isNewtonHostMode,
   parseNewtonSeedMessage,
+  postNewtonBackButtonReady,
+  postNewtonBackClicked,
   postNewtonReady,
   postNewtonSave,
   repostLastNewtonSave
@@ -341,6 +343,12 @@ export const WorkspaceLayout = () => {
     tone: 'warning'
   })
   const [lastRunContext, setLastRunContext] = useState<ScenarioRunContext | null>(null)
+  /**
+   * The Newton host asked us to draw the back control in our own header rather than stacking
+   * a strip above the iframe. Off unless a seed says otherwise, so an older host that still
+   * draws its own is never left with two.
+   */
+  const [showHostBackButton, setShowHostBackButton] = useState(false)
   const lastLiveNodeMetricsSnapshotAtRef = useRef<number | null>(null)
 
   // Panel refs - panels stay in the DOM always; we collapse/expand imperatively
@@ -719,6 +727,13 @@ export const WorkspaceLayout = () => {
           return
         }
         rememberTrustedHostOrigin(event.origin)
+        setShowHostBackButton(seed.showBackButton)
+        // Ack only once the origin is pinned, so the reply has somewhere trusted to go. The
+        // host drops its fallback strip on this, so staying silent is the safe failure: it
+        // keeps drawing its own rather than leaving the learner with no way back.
+        if (seed.showBackButton) {
+          postNewtonBackButtonReady()
+        }
         setEnvironmentProfile(resolveEnvironmentProfile(seed.environmentProfile ?? 'ASSIGNMENT'))
         setResultsRevealed(false)
         // Prompt preview (grading config missing/invalid) surfaces as a non-blocking
@@ -1394,6 +1409,8 @@ export const WorkspaceLayout = () => {
     <div className="nss-app-shell flex w-screen min-h-0 flex-col overflow-hidden bg-nss-bg text-nss-text">
       {/* Header */}
       <Header
+        showBackButton={showHostBackButton}
+        onBackClick={postNewtonBackClicked}
         toggleLeft={toggleLeft}
         toggleRight={toggleRight}
         isLeftOpen={isLeftOpen}

@@ -9,6 +9,8 @@
  * frame) so the two adapters agree on who the host is.
  */
 import {
+  NEWTON_BACK_CLICKED_EVENT,
+  NEWTON_BACK_BUTTON_READY_EVENT,
   NEWTON_READY_EVENT,
   parseNewtonSeed,
   type NewtonGameSeed,
@@ -54,6 +56,36 @@ export function postNewtonReady(): void {
     return
   }
   window.parent.postMessage(NEWTON_READY_EVENT, readyTargetOrigin())
+}
+
+/**
+ * Posts a bare control message to the host. Same JSON-string envelope as a save, because the
+ * host `JSON.parse`s whatever it receives — it routes on `type` and returns before its save
+ * path, so these never land in `game_json`.
+ *
+ * Targets the pinned host origin and drops if none is established; a control message is not
+ * worth broadcasting to `'*'`.
+ */
+function postNewtonControlMessage(type: string): void {
+  if (typeof window === 'undefined' || window.parent === window) {
+    return
+  }
+  const target = getTrustedHostOrigin()
+  if (!target) {
+    console.warn(`[ns-simulator] Dropped Newton '${type}' - no trusted host origin established.`)
+    return
+  }
+  window.parent.postMessage(JSON.stringify({ type }), target)
+}
+
+/** Tells the host we drew the back control, so it can drop its own fallback strip. */
+export function postNewtonBackButtonReady(): void {
+  postNewtonControlMessage(NEWTON_BACK_BUTTON_READY_EVENT)
+}
+
+/** Tells the host the learner pressed back. The host decides where that goes. */
+export function postNewtonBackClicked(): void {
+  postNewtonControlMessage(NEWTON_BACK_CLICKED_EVENT)
 }
 
 // The last state posted, so a host `'save'` request can re-emit it verbatim.

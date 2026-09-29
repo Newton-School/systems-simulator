@@ -51,6 +51,16 @@ export { AUTO_PLACEHOLDER_RUBRIC_CHECK_ID } from './newtonQuestionRows'
 export const NEWTON_READY_EVENT = 'ready-event' as const
 /** The raw string the host posts to ask the game to persist current state. */
 export const NEWTON_SAVE_COMMAND = 'save' as const
+/**
+ * Back-button handoff. The host used to draw a strip above the iframe, which read as bolted
+ * on now that we draw a full header of our own. When the seed carries `show_back_button` we
+ * render the control inside our header instead, ack with `back-button-ready` so the host drops
+ * its strip, and post `back-clicked` when the learner presses it.
+ *
+ * The host keeps navigation — we never receive a destination and never move the top frame.
+ */
+export const NEWTON_BACK_BUTTON_READY_EVENT = 'back-button-ready' as const
+export const NEWTON_BACK_CLICKED_EVENT = 'back-clicked' as const
 export const NEWTON_SAVE_BLOB_VERSION = '1.0' as const
 export type NewtonSaveMode = 'legacy-package' | 'mutable-only'
 
@@ -63,6 +73,11 @@ export interface NewtonGameSeed {
   seedTopology?: TopologyJSON
   /** Mentor / locked view — editing and submitting must be disabled. */
   readOnly: boolean
+  /**
+   * The host is not drawing its own back affordance and is asking us to. Absent on older
+   * hosts, which still draw their own — so this defaults to false rather than true.
+   */
+  showBackButton: boolean
   /** The learner's playground hash, when the host provided one. */
   playgroundHash?: string
   /** Raw learner-visible Django HTML for assignment-mode rendering. */
@@ -208,6 +223,7 @@ export function parseNewtonSeed(raw: unknown): NewtonGameSeed {
   }
 
   const readOnly = seed.read_only === true
+  const showBackButton = seed.show_back_button === true
   const playgroundHash =
     typeof seed.playgroundHash === 'string' && seed.playgroundHash.length > 0
       ? seed.playgroundHash
@@ -227,6 +243,7 @@ export function parseNewtonSeed(raw: unknown): NewtonGameSeed {
         ...(priorAttempt ? { priorAttempt } : {}),
         ...(seedTopology ? { seedTopology } : {}),
         readOnly,
+        showBackButton,
         ...(playgroundHash ? { playgroundHash } : {}),
         ...(promptHtml ? { promptHtml } : {}),
         ...(environmentProfile !== undefined ? { environmentProfile } : {}),
@@ -242,6 +259,7 @@ export function parseNewtonSeed(raw: unknown): NewtonGameSeed {
           questionPackage: preview.questionPackage,
           ...(seedTopology ? { seedTopology } : {}),
           readOnly,
+          showBackButton,
           ...(playgroundHash ? { playgroundHash } : {}),
           ...(preview.promptHtml ? { promptHtml: preview.promptHtml } : {}),
           saveMode: 'mutable-only',
@@ -264,6 +282,7 @@ export function parseNewtonSeed(raw: unknown): NewtonGameSeed {
       ...(priorAttempt ? { priorAttempt } : {}),
       ...(legacySeedTopology ? { seedTopology: legacySeedTopology } : {}),
       readOnly,
+      showBackButton,
       ...(playgroundHash ? { playgroundHash } : {}),
       saveMode: 'legacy-package'
     }
@@ -278,6 +297,7 @@ export function parseNewtonSeed(raw: unknown): NewtonGameSeed {
       questionPackage: preview.questionPackage,
       ...(seedTopology ? { seedTopology } : {}),
       readOnly,
+      showBackButton,
       ...(playgroundHash ? { playgroundHash } : {}),
       ...(preview.promptHtml ? { promptHtml: preview.promptHtml } : {}),
       saveMode: 'mutable-only',
