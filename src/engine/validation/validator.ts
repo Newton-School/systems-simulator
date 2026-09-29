@@ -675,7 +675,9 @@ export const GeoNetworkModelSchema = z.object({
     .optional()
 })
 
-export const TopologyJSONSchema: z.ZodType<TopologyJSON> = z.object({
+// Kept unannotated so the key-parity check below sees the schema's own keys; the
+// annotated export re-checks value types against TopologyJSON.
+const TopologyJSONObjectSchema = z.object({
   id: z.string(),
   name: z.string(),
   version: z.string(),
@@ -691,18 +693,20 @@ export const TopologyJSONSchema: z.ZodType<TopologyJSON> = z.object({
   scenarios: z.array(ScenarioRefSchema).optional()
 })
 
+export const TopologyJSONSchema: z.ZodType<TopologyJSON> = TopologyJSONObjectSchema
+
 /**
  * Compile-time key parity between engine types and their schemas. `z.object`
- * strips unknown keys, and the `z.ZodType<TopologyJSON>` annotation above does
- * not catch a missing *optional* field, so an engine field absent from a schema
- * is silently dropped from `validateTopology(...).data` (this is how edge
+ * strips unknown keys, and a `z.ZodType<TopologyJSON>` annotation does not catch
+ * a missing *optional* field, so an engine field absent from a schema is silently
+ * dropped from `validateTopology(...).data` (this is how edge
  * `fanoutFactor` once worked in the app but not in the CLI or grading). Adding a
  * field to one of these types without adding it to the schema fails typecheck.
  */
 type AssertNoSchemaKeyGap<Gap extends never> = Gap
 type SchemaKeyGap<T, S extends z.ZodType> = Exclude<keyof T, keyof z.infer<S>>
 export type SchemaKeyParity = [
-  AssertNoSchemaKeyGap<SchemaKeyGap<TopologyJSON, typeof TopologyJSONSchema>>,
+  AssertNoSchemaKeyGap<SchemaKeyGap<TopologyJSON, typeof TopologyJSONObjectSchema>>,
   AssertNoSchemaKeyGap<SchemaKeyGap<GlobalConfig, typeof GlobalConfigSchema>>,
   AssertNoSchemaKeyGap<SchemaKeyGap<ComponentNode, typeof ComponentNodeSchema>>,
   AssertNoSchemaKeyGap<
