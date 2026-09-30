@@ -155,6 +155,17 @@ export interface PerNodeMetrics {
   totalConnectionReset: number
   /** Requests connection-reset whose event time is post-warmup. */
   postWarmupConnectionReset: number
+  /**
+   * Requests that finished service at this node and were then failed by it
+   * (e.g. `nodeErrorRate`). They count as rejected / timed out / reset, never as
+   * processed, so success throughput stays honest; this makes the work they
+   * consumed visible instead of silently dropping it.
+   */
+  totalFailedAfterService: number
+  /** Failed-after-service requests whose span.arrivalTime is post-warmup. */
+  postWarmupFailedAfterService: number
+  /** Mean node-local time (queue wait + service), ms, of post-warmup failed-after-service requests. */
+  avgFailedAfterServiceTimeMs: number
   avgQueueLength: number
   avgServiceTime: number
   avgQueueWait: number
@@ -288,6 +299,9 @@ interface InternalNodeMetrics {
   postWarmupTimedOut: number
   totalConnectionReset: number
   postWarmupConnectionReset: number
+  totalFailedAfterService: number
+  postWarmupFailedAfterService: number
+  postWarmupFailedAfterServiceTimeSumMs: number
   queueSamples: number
   queueLengthSum: number
   queueWaitSumMs: number
@@ -510,9 +524,11 @@ export class MetricsCollector {
     this.recordTerminalLatency(rejectionCause, context.requestCreatedAt, context.terminationTimeUs)
     this.recordFailureLocus(rejectionCause, context)
 
-    this.recordCompletedSpans(context.completedSpans ?? [], {
-      excludeLastSpanAtNodeId: observationPoint === 'node' ? nodeId : undefined
-    })
+    this.recordFailedAfterService(
+      this.recordCompletedSpans(context.completedSpans ?? [], {
+        excludeLastSpanAtNodeId: observationPoint === 'node' ? nodeId : undefined
+      })
+    )
 
     if (observationPoint !== 'node') {
       return
@@ -546,9 +562,11 @@ export class MetricsCollector {
     this.recordTerminalLatency('timeout', context.requestCreatedAt, context.terminationTimeUs)
     this.recordFailureLocus('timeout', context)
 
-    this.recordCompletedSpans(context.completedSpans ?? [], {
-      excludeLastSpanAtNodeId: observationPoint === 'node' ? nodeId : undefined
-    })
+    this.recordFailedAfterService(
+      this.recordCompletedSpans(context.completedSpans ?? [], {
+        excludeLastSpanAtNodeId: observationPoint === 'node' ? nodeId : undefined
+      })
+    )
 
     if (observationPoint !== 'node') {
       return
@@ -588,9 +606,11 @@ export class MetricsCollector {
     )
     this.recordFailureLocus('connection_reset', context)
 
-    this.recordCompletedSpans(context.completedSpans ?? [], {
-      excludeLastSpanAtNodeId: observationPoint === 'node' ? nodeId : undefined
-    })
+    this.recordFailedAfterService(
+      this.recordCompletedSpans(context.completedSpans ?? [], {
+        excludeLastSpanAtNodeId: observationPoint === 'node' ? nodeId : undefined
+      })
+    )
 
     if (observationPoint !== 'node') {
       return
@@ -827,6 +847,12 @@ export class MetricsCollector {
         postWarmupTimedOut,
         totalConnectionReset,
         postWarmupConnectionReset,
+        totalFailedAfterService: metrics?.totalFailedAfterService ?? 0,
+        postWarmupFailedAfterService: metrics?.postWarmupFailedAfterService ?? 0,
+        avgFailedAfterServiceTimeMs:
+          metrics && metrics.postWarmupFailedAfterService > 0
+            ? metrics.postWarmupFailedAfterServiceTimeSumMs / metrics.postWarmupFailedAfterService
+            : 0,
         avgQueueLength:
           metrics && metrics.queueSamples > 0 ? metrics.queueLengthSum / metrics.queueSamples : 0,
         avgServiceTime:
@@ -1190,16 +1216,21 @@ export class MetricsCollector {
     return eventTime !== undefined && eventTime >= this.warmupDurationUs
   }
 
+  /**
+   * Feed completed spans into per-node processed counts and latency. When
+   * `excludeLastSpanAtNodeId` names the node that failed the request, its own
+   * terminal span is left out (a request it failed is not "processed" there)
+   * and returned, so the caller can count it as failed-after-service.
+   */
   private recordCompletedSpans(
     spans: RequestSpan[],
     options: { excludeLastSpanAtNodeId?: string } = {}
-  ): void {
+  ): RequestSpan | undefined {
     const { excludeLastSpanAtNodeId } = options
     const lastSpan = spans[spans.length - 1]
-    const limit =
-      excludeLastSpanAtNodeId && lastSpan?.nodeId === excludeLastSpanAtNodeId
-        ? spans.length - 1
-        : spans.length
+    const excluded =
+      excludeLastSpanAtNodeId && lastSpan?.nodeId === excludeLastSpanAtNodeId ? lastSpan : undefined
+    const limit = excluded ? spans.length - 1 : spans.length
 
     for (let i = 0; i < limit; i++) {
       const span = spans[i]
@@ -1226,6 +1257,19 @@ export class MetricsCollector {
         node.postWarmupQueueWaitSumMs += microToMs(span.queueWait)
         node.postWarmupServiceTimeSumMs += microToMs(span.serviceTime)
       }
+    }
+
+    return excluded
+  }
+
+  /** Count a request that finished service at its node and was then failed there. */
+  private recordFailedAfterService(span: RequestSpan | undefined): void {
+    if (!span) return
+    const node = this.ensureNodeMetrics(span.nodeId)
+    node.totalFailedAfterService++
+    if (span.arrivalTime >= this.warmupDurationUs) {
+      node.postWarmupFailedAfterService++
+      node.postWarmupFailedAfterServiceTimeSumMs += microToMs(span.queueWait + span.serviceTime)
     }
   }
 
@@ -1268,6 +1312,9 @@ export class MetricsCollector {
       postWarmupTimedOut: 0,
       totalConnectionReset: 0,
       postWarmupConnectionReset: 0,
+      totalFailedAfterService: 0,
+      postWarmupFailedAfterService: 0,
+      postWarmupFailedAfterServiceTimeSumMs: 0,
       queueSamples: 0,
       queueLengthSum: 0,
       queueWaitSumMs: 0,

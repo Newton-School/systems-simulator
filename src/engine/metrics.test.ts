@@ -514,7 +514,34 @@ describe('MetricsCollector', () => {
       totalProcessed: 0,
       postWarmupProcessed: 0,
       totalRejected: 1,
-      postWarmupRejected: 1
+      postWarmupRejected: 1,
+      // The node did the work before failing it: visible, but not as processed (#146).
+      totalFailedAfterService: 1,
+      postWarmupFailedAfterService: 1
+    })
+    expect(node?.avgFailedAfterServiceTimeMs).toBeCloseTo(1, 5)
+  })
+
+  it('does not count a rejection on arrival as failed-after-service', () => {
+    const metrics = new MetricsCollector({ warmupDuration: 0 })
+
+    // Upstream node served the request; node-b rejected it on arrival (no span there).
+    metrics.recordNodeArrival('node-a', 0n)
+    metrics.recordNodeArrival('node-b', 1_000n)
+    metrics.recordRejection('node-b', 'queue_full', {
+      requestCreatedAt: 0n,
+      nodeArrivalTime: 1_000n,
+      observationPoint: 'node',
+      completedSpans: [makeSpan('node-a', 0n, 0n, 1_000n)]
+    })
+
+    const perNode = metrics.getPerNodeMetrics(1_000)
+    expect(perNode.get('node-a')).toMatchObject({ totalProcessed: 1, totalFailedAfterService: 0 })
+    expect(perNode.get('node-b')).toMatchObject({
+      totalProcessed: 0,
+      totalRejected: 1,
+      totalFailedAfterService: 0,
+      avgFailedAfterServiceTimeMs: 0
     })
   })
 

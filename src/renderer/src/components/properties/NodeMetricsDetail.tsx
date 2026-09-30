@@ -220,6 +220,14 @@ export const NodeMetricsDetail = ({
             unit="req"
             textColor="text-nss-danger"
           />
+          {(metrics.postWarmupFailedAfterService ?? 0) > 0 && (
+            <MetricItem
+              label="Failed after service"
+              value={fmtCount(metrics.postWarmupFailedAfterService)}
+              unit="req"
+              textColor="text-nss-warning"
+            />
+          )}
         </div>
       </Section>
 

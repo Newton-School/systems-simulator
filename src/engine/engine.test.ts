@@ -2097,6 +2097,34 @@ describe('SimulationEngine', () => {
     })
   })
 
+  it('counts work failed by nodeErrorRate as failed-after-service, not processed (#146)', () => {
+    const svc: ComponentNode = {
+      ...makeNode('svc'),
+      queue: { workers: 50, capacity: 1_000, discipline: 'fifo' },
+      processing: { distribution: { type: 'constant', value: 2 }, timeout: 1_000 },
+      config: { nodeErrorRate: 0.5 }
+    }
+    const topology = makeTopology({
+      global: { simulationDuration: 2_000, defaultTimeout: 1_000, seed: 'failed-after-service' },
+      nodes: [makeNode('source'), svc],
+      edges: [makeEdge('source-to-svc', 'source', 'svc')],
+      workload: {
+        sourceNodeId: 'source',
+        pattern: 'constant',
+        baseRps: 200,
+        requestDistribution: [{ type: 'GET', weight: 1, sizeBytes: 100 }]
+      }
+    })
+
+    const m = new SimulationEngine(topology).run().perNode.svc
+
+    // Ample capacity: every arrival is served, then kept or failed by nodeErrorRate.
+    expect(m.postWarmupFailedAfterService).toBeGreaterThan(0)
+    expect(m.postWarmupFailedAfterService).toBe(m.postWarmupRejected)
+    expect(m.postWarmupProcessed + m.postWarmupFailedAfterService).toBe(m.postWarmupArrived)
+    expect(m.avgFailedAfterServiceTimeMs).toBeGreaterThan(0)
+  })
+
   it('preserves upstream completions when a downstream node is still in-flight at cutoff', () => {
     const mid: ComponentNode = {
       ...makeNode('mid'),

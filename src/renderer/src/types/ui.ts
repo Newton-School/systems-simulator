@@ -53,6 +53,8 @@ export interface NodeSimulationMetrics {
   postWarmupRejected?: number
   postWarmupTimedOut?: number
   postWarmupConnectionReset?: number
+  /** Served at this node, then failed by it (e.g. nodeErrorRate); counted in the failures above, never in processed. */
+  postWarmupFailedAfterService?: number
   postWarmupInFlight?: number
   queueDepth?: number
   utilization?: number

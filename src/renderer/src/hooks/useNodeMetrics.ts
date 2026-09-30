@@ -41,6 +41,7 @@ export function useNodeMetrics(id: string) {
     postWarmupRejected: runtime?.postWarmupRejected,
     postWarmupTimedOut: runtime?.postWarmupTimedOut,
     postWarmupConnectionReset: runtime?.postWarmupConnectionReset,
+    postWarmupFailedAfterService: runtime?.postWarmupFailedAfterService,
     postWarmupInFlight: runtime?.postWarmupInFlight,
     hasRuntime,
     active
