@@ -959,6 +959,7 @@ export const WorkspaceLayout = () => {
           postWarmupRejected: metrics.postWarmupRejected,
           postWarmupTimedOut: metrics.postWarmupTimedOut,
           postWarmupConnectionReset: metrics.postWarmupConnectionReset,
+          postWarmupFailedAfterService: metrics.postWarmupFailedAfterService,
           postWarmupInFlight: inFlightByNode.get(nodeId) ?? 0,
           queueDepth: Math.round(metrics.avgQueueLength * 10) / 10,
           utilization: Math.round(metrics.utilization * 1000) / 10,
