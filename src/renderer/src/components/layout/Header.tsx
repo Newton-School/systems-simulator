@@ -1,4 +1,4 @@
-import { memo, useLayoutEffect, useRef, useState } from 'react'
+import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { ChevronLeft, FolderOpen, Save, Sidebar, Workflow } from 'lucide-react'
 
 import { Divider } from '../ui/Divider'
@@ -20,6 +20,8 @@ interface HeaderProps {
    */
   showBackButton?: boolean
   onBackClick?: () => void
+  /** Called once the back control is on screen, so the host is only told after it exists. */
+  onBackButtonDrawn?: () => void
 
   // Layout
   toggleLeft: () => void
@@ -60,10 +62,31 @@ interface HeaderProps {
 const HEADER_HORIZONTAL_PADDING_PX = 32
 const CENTER_CLEARANCE_PX = 16
 
+const HostBackButton = ({ onClick, onDrawn }: { onClick: () => void; onDrawn?: () => void }) => {
+  // Report only after commit, so the host drops its own strip for a control that exists. If
+  // this never mounts, staying silent leaves the host's strip in place.
+  useEffect(() => {
+    onDrawn?.()
+  }, [onDrawn])
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label="Back to assignment"
+      className="flex items-center gap-1 rounded px-2 py-1 text-sm text-nss-text transition-colors hover:bg-nss-hover"
+    >
+      <ChevronLeft size={18} />
+      <span className="nss-desktop-only">Back</span>
+    </button>
+  )
+}
+
 export const Header = memo(
   ({
     showBackButton = false,
     onBackClick,
+    onBackButtonDrawn,
     toggleLeft,
     isLeftOpen,
     toggleRight,
@@ -135,15 +158,7 @@ export const Header = memo(
         <div ref={leftGroupRef} className="flex items-center gap-1 shrink-0">
           {showBackButton && onBackClick && (
             <>
-              <button
-                type="button"
-                onClick={onBackClick}
-                aria-label="Back to assignment"
-                className="flex items-center gap-1 rounded px-2 py-1 text-sm text-nss-text transition-colors hover:bg-nss-hover"
-              >
-                <ChevronLeft size={18} />
-                <span className="nss-desktop-only">Back</span>
-              </button>
+              <HostBackButton onClick={onBackClick} onDrawn={onBackButtonDrawn} />
               <Divider />
             </>
           )}

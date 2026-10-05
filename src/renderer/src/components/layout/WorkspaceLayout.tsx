@@ -727,13 +727,10 @@ export const WorkspaceLayout = () => {
           return
         }
         rememberTrustedHostOrigin(event.origin)
+        // Set only once the origin is pinned: the header acks after drawing the control, and
+        // that ack needs a trusted target. The host drops its fallback strip on it, so staying
+        // silent is the safe failure - it keeps drawing its own back.
         setShowHostBackButton(seed.showBackButton)
-        // Ack only once the origin is pinned, so the reply has somewhere trusted to go. The
-        // host drops its fallback strip on this, so staying silent is the safe failure: it
-        // keeps drawing its own rather than leaving the learner with no way back.
-        if (seed.showBackButton) {
-          postNewtonBackButtonReady()
-        }
         setEnvironmentProfile(resolveEnvironmentProfile(seed.environmentProfile ?? 'ASSIGNMENT'))
         setResultsRevealed(false)
         // Prompt preview (grading config missing/invalid) surfaces as a non-blocking
@@ -1411,6 +1408,7 @@ export const WorkspaceLayout = () => {
       <Header
         showBackButton={showHostBackButton}
         onBackClick={postNewtonBackClicked}
+        onBackButtonDrawn={postNewtonBackButtonReady}
         toggleLeft={toggleLeft}
         toggleRight={toggleRight}
         isLeftOpen={isLeftOpen}
