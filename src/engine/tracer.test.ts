@@ -77,4 +77,39 @@ describe('RequestTracer', () => {
     expect(traces[0].spans.map((s) => s.edgeLatency)).toEqual([0, 0, 2])
     expect(traces[0].totalLatency).toBe(13)
   })
+
+  it('keeps a request that failed before completing any span, timed to its terminal step', () => {
+    const tracer = new RequestTracer({ sampleRate: 1 })
+    tracer.setRequestCreatedAt('req-failed', 1_000n)
+    tracer.markStatus('req-failed', 'timeout')
+    tracer.setPhaseRecord('req-failed', {
+      bornAtUs: 1_000n,
+      nodes: [{ nodeId: 'api', nodeArrivalUs: 3_000n }],
+      edges: [],
+      terminal: { timeUs: 251_000n, cause: 'timeout', locus: 'api', locusKind: 'node' }
+    })
+
+    const traces = tracer.getTraces()
+    expect(traces).toHaveLength(1)
+    expect(traces[0].spans).toEqual([])
+    expect(traces[0].status).toBe('timeout')
+    expect(traces[0].totalLatency).toBe(250)
+  })
+
+  it('measures a failed request to its terminal step, not its last completed hop', () => {
+    const tracer = new RequestTracer({ sampleRate: 1 })
+    tracer.setRequestCreatedAt('req-late', 0n)
+    tracer.recordSpan('req-late', makeSpan('gw', 2_000n, 0n, 8_000n))
+    tracer.setPhaseRecord('req-late', {
+      bornAtUs: 0n,
+      nodes: [
+        { nodeId: 'gw', nodeArrivalUs: 2_000n, serviceStartUs: 2_000n, departureUs: 10_000n },
+        { nodeId: 'db', nodeArrivalUs: 12_000n }
+      ],
+      edges: [],
+      terminal: { timeUs: 1_012_000n, cause: 'timeout', locus: 'db', locusKind: 'node' }
+    })
+
+    expect(tracer.getTraces()[0].totalLatency).toBe(1012)
+  })
 })

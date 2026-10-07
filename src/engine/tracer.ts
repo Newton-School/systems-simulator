@@ -98,7 +98,11 @@ export class RequestTracer {
     const traces: RequestTrace[] = []
 
     for (const state of this.traces.values()) {
-      if (state.spans.length === 0) {
+      // A request that failed at its first node never completes a span, but its
+      // phase record still says where and when it ended; keep it so failed
+      // requests are not silently missing from the sample.
+      const hasPhaseNodes = (state.phaseRecord?.nodes.length ?? 0) > 0
+      if (state.spans.length === 0 && !hasPhaseNodes) {
         continue
       }
 
@@ -108,7 +112,12 @@ export class RequestTracer {
         return 0
       })
 
-      const baseline = state.createdAtUs ?? orderedSpans[0].arrivalTime
+      const baseline =
+        state.createdAtUs ??
+        orderedSpans[0]?.arrivalTime ??
+        state.phaseRecord?.bornAtUs ??
+        state.phaseRecord?.nodes[0]?.nodeArrivalUs ??
+        0n
       let prevEnd = 0
       const converted: RequestTraceSpan[] = orderedSpans.map((span, index) => {
         const start = microToMs(span.arrivalTime - baseline)
@@ -128,7 +137,11 @@ export class RequestTracer {
         }
       })
 
-      const totalLatency = prevEnd
+      // End-to-end time runs to the terminal step when one was recorded (a
+      // timed-out request ends at its timeout, not at its last completed hop).
+      const terminalUs = state.phaseRecord?.terminal?.timeUs
+      const totalLatency =
+        terminalUs !== undefined ? Math.max(prevEnd, microToMs(terminalUs - baseline)) : prevEnd
 
       traces.push({
         requestId: state.requestId,

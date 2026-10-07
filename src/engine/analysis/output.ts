@@ -65,6 +65,24 @@ export interface CausalGraph {
     cascadeDepth: number
     timeToFullCascade: number
   }
+  /**
+   * Per-node detail for every affected node, in first-affected order. Optional
+   * so older serialized outputs (and the analytic fluid tier, which reports
+   * `causalGraph: null`) stay valid.
+   */
+  nodes?: CausalGraphNode[]
+}
+
+export interface CausalGraphNode {
+  nodeId: string
+  /** `failed` = an injected fault; `degraded` = failure signals only. */
+  severity: 'failed' | 'degraded'
+  firstAffectedMs: number
+  faultMode: string | null
+  rejected: number
+  timedOut: number
+  circuitOpens: number
+  dominantReason: string | null
 }
 
 export interface InvariantViolation {

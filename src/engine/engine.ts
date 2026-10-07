@@ -9,6 +9,7 @@ import {
 import { evaluateInvariantViolations } from './analysis/invariants'
 import { detectSinglePointsOfFailure } from './analysis/singlePointOfFailure'
 import { replayEventStream } from './analysis/replay'
+import { CausalGraphRecorder } from './analysis/causalGraph'
 import {
   AdmissionDecision,
   AdmissionDecisionStatus,
@@ -175,6 +176,7 @@ export class SimulationEngine {
   onEdgeFlowEvent?: (event: EdgeFlowEvent) => void
 
   private readonly eventQueue = new MinHeap<SimulationEvent>()
+  private readonly causalGraphRecorder = new CausalGraphRecorder()
   private readonly eventRecorder = new EventStreamRecorder({
     maxRetainedEvents: DEFAULT_MAX_RETAINED_EVENT_STREAM_EVENTS,
     onRecord: (record) => this.handleRecordedCanonicalEvent(record)
@@ -553,6 +555,7 @@ export class SimulationEngine {
   }
 
   private recordCanonicalEvent(input: AppendEventInput): CanonicalEventRecord {
+    this.causalGraphRecorder.observe(input)
     return this.eventRecorder.append(input)
   }
 
@@ -2835,7 +2838,7 @@ export class SimulationEngine {
       this.metrics,
       this.tracer,
       this.timeSeries,
-      null,
+      this.causalGraphRecorder.build(this.topology.edges),
       [],
       this.topology.global,
       this.eventsProcessed,
