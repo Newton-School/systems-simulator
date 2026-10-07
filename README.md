@@ -2,7 +2,7 @@
 
 > Draw a distributed system. Press Run. Watch it break — before you ship it.
 
-A React + Vite application for simulating, stress-testing, and analysing high-level system designs using **Discrete Event Simulation (DES)**. It runs both as a browser SPA and inside an Electron desktop shell, powered by a G/G/c/K queueing engine under the hood.
+A React + Vite application for simulating, stress-testing, and analysing high-level system designs using **Discrete Event Simulation (DES)**. It runs as a browser SPA, powered by a G/G/c/K queueing engine under the hood.
 
 ---
 
@@ -75,8 +75,8 @@ flowchart TD
         B3["Draw edge → onConnect() → addEdge()"]
         B4["Select node → PropertiesPanel reads store"]
         B5["Edit config → updateNodeData() → store"]
-        B6["Save → JSON.stringify(nodes + edges) → FileService → browser API or Electron dialog"]
-        B7["Open → file picker or Electron dialog → FileService → setNodes() & setEdges()"]
+        B6["Save → JSON.stringify(nodes + edges) → FileService → browser download or File System Access API"]
+        B7["Open → browser file picker → FileService → setNodes() & setEdges()"]
         B1 --> B2 --> B3 --> B4 --> B5
         B5 --> B6
     end
@@ -89,8 +89,8 @@ flowchart TD
 3. Connect nodes → `addEdge()` updates store.
 4. Select a node → `PropertiesPanel` reads state.
 5. Edit config → `updateNodeData()` updates state.
-6. Save → serialized JSON → FileService → browser file API or Electron dialog.
-7. Open → browser file picker or Electron dialog → state restored.
+6. Save → serialized JSON → FileService → browser file API (File System Access API where supported, otherwise a download).
+7. Open → browser file picker → state restored.
 
 ---
 
@@ -163,8 +163,8 @@ flowchart LR
 
 | Layer             | Technology                                |
 | ----------------- | ----------------------------------------- |
-| App shell         | Browser SPA + Electron 38 desktop shell   |
-| Build system      | Vite 7 + electron-vite 4                  |
+| App shell         | Browser SPA                               |
+| Build system      | Vite 7                                    |
 | UI framework      | React 19 + TypeScript 5                   |
 | Styling           | Tailwind CSS 3                            |
 | Canvas            | React Flow 11                             |
@@ -290,8 +290,7 @@ npm install
 ### Development
 
 ```bash
-npm run dev:web       # browser SPA
-npm run dev:electron  # Electron desktop shell
+npm run dev           # browser SPA (alias: npm run dev:web)
 ```
 
 ### Type check
@@ -303,14 +302,8 @@ npm run typecheck
 ### Build
 
 ```bash
-npm run build:web       # browser production bundle
-npm run build:electron  # Electron production bundle
-npm run build:all       # both targets, same path used in CI
-
-# Electron installers
-npm run build:electron:mac
-npm run build:electron:win
-npm run build:electron:linux
+npm run build:web   # browser production bundle in dist/ (alias: npm run build), same path used in CI
+npm run preview     # serve the built bundle locally
 ```
 
 ### Test
@@ -387,14 +380,13 @@ Fields that are not wired to runtime behavior are hidden from the default inspec
 | Area                                                    | Status  |
 | ------------------------------------------------------- | ------- |
 | Browser SPA target                                      | Done    |
-| Electron desktop target                                 | Done    |
 | React Flow canvas (nodes + edges)                       | Done    |
 | Drag-and-drop node palette                              | Done    |
 | Node types (Compute, Service, VPC)                      | Done    |
 | Atomic design system (atoms → organisms)                | Done    |
 | Zustand topology store                                  | Done    |
 | Inspector panel                                         | Done    |
-| File save / load via browser APIs and Electron dialogs  | Done    |
+| File save / load via browser file APIs                  | Done    |
 | Scenario controls (source/workload/global runtime)      | Done    |
 | Topology serialization + validation                     | Done    |
 | Simulation engine (DES loop)                            | Done    |
@@ -445,11 +437,11 @@ Refactor VPC node to extract header and toolbar molecules
 npm run typecheck    # tsc across both node + web tsconfigs
 npm run lint         # eslint
 npm run test         # vitest
-npm run build:all    # browser + Electron production builds
+npm run build:web    # browser production build
 npm run format       # prettier --write
 ```
 
-The branch should stay green on both targets. `build:web`, `build:electron`, and `build:all` all run `typecheck` automatically.
+The branch should stay green. `build` and `build:web` both run `typecheck` automatically.
 
 ### Pull Requests
 
