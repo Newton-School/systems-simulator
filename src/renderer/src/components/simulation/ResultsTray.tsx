@@ -64,6 +64,7 @@ import {
   type ReliabilityStatus
 } from '@renderer/utils/nodeHealthThresholds'
 import { simulatedArrivalBins, workloadRateMultiplierAtMs } from './resultsTrayWorkload'
+import { EdgeLatencyBreakdownView } from './EdgeLatencyBreakdownView'
 import { selectCoveringRequestIds } from '@renderer/utils/requestTraceCoverage'
 
 // ─── Props ────────────────────────────────────────────────────────────────────
@@ -4136,6 +4137,18 @@ function ComponentDrilldown({
               yFormatter={(value) => (value === null ? 'N/A' : `${value.toFixed(1)}%`)}
             />
           </div>
+
+          {metric.latencyBreakdown ? (
+            <div className="space-y-2">
+              <div className="text-xs font-medium text-nss-text">Transit Latency Breakdown</div>
+              <div className={`${SURFACE_CARD} p-3`}>
+                <EdgeLatencyBreakdownView
+                  breakdown={metric.latencyBreakdown}
+                  linkUtilization={metric.linkUtilization}
+                />
+              </div>
+            </div>
+          ) : null}
 
           {timeToErrorEntries.length > 0 && (
             <div className="space-y-2">

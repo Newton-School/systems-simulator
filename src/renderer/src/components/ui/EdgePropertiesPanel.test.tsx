@@ -49,6 +49,19 @@ describe('EdgePropertiesPanel', () => {
     expect(text).toContain('Protocol')
   })
 
+  it('surfaces the validator value-range warnings live under the fields', () => {
+    const clean = renderPanel({ value: { label: '', bandwidth: 1000 } }, [false, undefined])
+    expect(clean).not.toContain('Bandwidth below 10 Mbps')
+    act(() => root?.unmount())
+    container?.remove()
+    const text = renderPanel({ value: { label: '', bandwidth: 2, packetLossRate: 25 } }, [
+      false,
+      undefined
+    ])
+    expect(text).toContain('Bandwidth below 10 Mbps')
+    expect(text).toContain('Packet loss above 10%')
+  })
+
   it('renders provided children (e.g. metrics) instead of the config form', () => {
     const text = renderPanel({}, <div>EDGE METRICS HERE</div>)
     expect(text).toContain('EDGE METRICS HERE')

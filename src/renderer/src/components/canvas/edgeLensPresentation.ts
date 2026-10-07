@@ -192,13 +192,14 @@ export function resolveEdgeLensProjection({
     }
 
     case 'queueCapacity': {
-      // Edges have no queue → node-first; surface pipe size as a quiet proxy.
+      // An edge's only queue is the unbounded wait for its link, which drains at
+      // the bandwidth - so pipe size is the honest capacity number to show.
       const bandwidth = config.bandwidth ?? defaults.bandwidth
       return {
         headline: `${bandwidth} Mbps`,
         severity,
         recedes: true,
-        why: 'Edges have no queue; bandwidth shown as pipe capacity'
+        why: 'Edges have no bounded queue; requests wait for the link, which drains at this bandwidth'
       }
     }
 
