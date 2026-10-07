@@ -72,8 +72,8 @@ const SECTION_TITLE = 'text-[10px] font-bold uppercase tracking-widest text-nss-
 /**
  * V2: justification feature is now enabled with LLM-backed grading via the
  * configured provider (Gemini / Claude / OpenAI). The deterministic keyword
- * grader is kept as a fallback when the LLM API is unavailable (non-Electron
- * mode, network errors, no provider key configured).
+ * grader is kept as a fallback when the LLM API is unavailable (production
+ * browser build, network errors, no provider key configured).
  */
 const SHOW_JUSTIFICATION = true
 
@@ -84,9 +84,6 @@ const LOCAL_LLM_GRADING_PATH = '/api/llm/grade-justification'
 async function gradeJustificationWithLlm(
   request: LlmGradeRequest
 ): Promise<{ ok?: boolean; data?: LlmGradeResponse; error?: string }> {
-  if (typeof window.nssimulator?.gradeJustification === 'function') {
-    return window.nssimulator.gradeJustification(request)
-  }
   if (!import.meta.env.DEV) {
     return { error: 'LLM grading is unavailable.' }
   }
@@ -443,10 +440,8 @@ export const QuestionPanel = () => {
     // Immediately show deterministic grades while the LLM call is pending
     setJustifyGrades(gradeDeterministic())
 
-    // Electron uses IPC; the browser can use the local Vite proxy in development.
-    const llmAvailable =
-      typeof window.nssimulator?.gradeJustification === 'function' || import.meta.env.DEV
-    if (!llmAvailable) return
+    // The browser can use the local Vite grading proxy in development only.
+    if (!import.meta.env.DEV) return
 
     // Debounce the LLM call
     if (llmTimerRef.current) clearTimeout(llmTimerRef.current)

@@ -571,7 +571,7 @@ export function QuestionStudioShell({
   }, [fileService, generatedPreview])
 
   useEffect(() => {
-    if (!isDirty || typeof window.nssimulator?.onCloseRequest === 'function') return
+    if (!isDirty) return
 
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
       event.preventDefault()
@@ -579,12 +579,6 @@ export function QuestionStudioShell({
     }
     window.addEventListener('beforeunload', handleBeforeUnload)
     return () => window.removeEventListener('beforeunload', handleBeforeUnload)
-  }, [isDirty])
-
-  useEffect(() => {
-    const onCloseRequest = window.nssimulator?.onCloseRequest
-    if (typeof onCloseRequest !== 'function') return
-    return onCloseRequest(() => isDirty)
   }, [isDirty])
 
   return (
