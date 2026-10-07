@@ -130,7 +130,7 @@ export interface DerivedConcurrency {
 }
 
 /** Whether a node uses the AWS instance-family resource model (vs legacy/none). */
-function hasInstanceModel(resources: ComponentNode['resources']): boolean {
+export function hasInstanceModel(resources: ComponentNode['resources']): boolean {
   return resources?.instanceType !== undefined || resources?.instanceCount !== undefined
 }
 

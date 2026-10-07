@@ -15,6 +15,7 @@ import type {
   WorkloadProfile
 } from '../core/types'
 import { inferStructuralRole } from '../catalog/componentSpecs'
+import { hasInstanceModel } from '../nodes/resourceDerivation'
 import { isQueueDeliverySemantics } from '../core/simulationSemantics'
 import { validateEdgeConstraintSelection } from '../defaults/edgeConstraints'
 import {
@@ -1771,6 +1772,20 @@ export const validateTopology = (
 
     if (!visited.has(node.id)) {
       warnings.push(`Node '${nodeLabel}' is disconnected and unreachable from any source node.`)
+    }
+
+    // Accepted for back-compat but never read: concurrency (c) and admission (K)
+    // are derived from the instance (resourceDerivation.ts), or come from the raw
+    // queue when the node has no instance model.
+    const ignoredResourceFields = (['workersPerInstance', 'queueSlots'] as const).filter(
+      (field) => node.resources?.[field] !== undefined
+    )
+    if (ignoredResourceFields.length > 0) {
+      const fields = ignoredResourceFields.map((field) => `resources.${field}`).join(' and ')
+      const reason = hasInstanceModel(node.resources)
+        ? 'workers and queue space are derived from its instance type and count'
+        : 'without an instance type, workers and capacity come from queue.workers and queue.capacity'
+      warnings.push(`Node '${nodeLabel}' sets ${fields}, which the simulator ignores: ${reason}.`)
     }
   })
 
