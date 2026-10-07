@@ -6,6 +6,7 @@ import { IconButton } from '../ui/IconButton'
 import { ToggleButton } from '../ui/ToggleButton'
 import { Branding } from './Branding'
 import { CostChip } from './CostChip'
+import { DesignChecksChip } from './DesignChecksChip'
 import { ModeBadge } from './ModeBadge'
 import { FileStatus } from './FileStatus'
 import { ThemeToggle } from './ThemeToggle'
@@ -173,6 +174,7 @@ export const Header = memo(
           <div className="nss-desktop-only contents">
             <Divider />
             <CostChip />
+            <DesignChecksChip />
           </div>
           <Divider />
           <ModeBadge />
