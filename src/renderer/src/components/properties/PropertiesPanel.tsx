@@ -20,6 +20,7 @@ import {
   X
 } from 'lucide-react'
 import type { SimulationOutput } from '../../../../engine/analysis/output'
+import { EdgeLatencyBreakdownView } from '../simulation/EdgeLatencyBreakdownView'
 import {
   canEditEdgeLabelsForQuestion,
   canEditEdgesForQuestion,
@@ -1290,8 +1291,21 @@ function RunInspector({
   )
 }
 
-function EdgeMetricsDetail({ flow }: { flow: EdgeFlowState }) {
-  const successfulRecent = flow.recent.filter((event) => event.status === 'success')
+function EdgeMetricsDetail({
+  flow,
+  edgeResult
+}: {
+  flow: EdgeFlowState
+  edgeResult?: SimulationOutput['perEdge'][string]
+}) {
+  const runEndMs = useStore(
+    (state) => state.edgeFlowRunConfig?.simulationDurationMs ?? Number.POSITIVE_INFINITY
+  )
+  // Only delivered packets have a transit latency; ones still queued for the
+  // link when the run ended are in flight, not slow successes.
+  const successfulRecent = flow.recent.filter(
+    (event) => event.status === 'success' && event.completedAtMs <= runEndMs
+  )
   const p50 = percentile(
     successfulRecent.map((event) => event.latencyMs),
     0.5
@@ -1332,7 +1346,19 @@ function EdgeMetricsDetail({ flow }: { flow: EdgeFlowState }) {
             value={formatPercentFromRatio(flow.failureRatio)}
             textColor={flow.failureRatio > 0 ? 'text-nss-danger' : 'text-nss-text'}
           />
+          {flow.totalInFlightAtCutoff > 0 ? (
+            <MetricItem
+              label="In Flight at Cutoff"
+              value={formatNumber(flow.totalInFlightAtCutoff)}
+            />
+          ) : null}
         </div>
+        {flow.totalInFlightAtCutoff > 0 ? (
+          <p className="mt-3 text-[11px] leading-relaxed text-nss-muted">
+            Sent but still waiting for or crossing the link when the run ended - the edge is offered
+            more bytes than its bandwidth can carry.
+          </p>
+        ) : null}
       </EdgeResultsSection>
 
       <EdgeResultsSection title="Throughput">
@@ -1375,6 +1401,15 @@ function EdgeMetricsDetail({ flow }: { flow: EdgeFlowState }) {
           exact for all edge attempts.
         </p>
       </EdgeResultsSection>
+
+      {edgeResult?.latencyBreakdown ? (
+        <EdgeResultsSection title="Latency Breakdown">
+          <EdgeLatencyBreakdownView
+            breakdown={edgeResult.latencyBreakdown}
+            linkUtilization={edgeResult.linkUtilization}
+          />
+        </EdgeResultsSection>
+      ) : null}
 
       {hasFailures && (
         <EdgeResultsSection title="Failures by Cause">
@@ -1825,7 +1860,10 @@ export const PropertiesPanel = ({ results = null }: { results?: SimulationOutput
           )}
           {selectedEdgeHasRuntime && tab === 'metrics' ? (
             selectedEdgeFlow ? (
-              <EdgeMetricsDetail flow={selectedEdgeFlow} />
+              <EdgeMetricsDetail
+                flow={selectedEdgeFlow}
+                edgeResult={results?.perEdge[selectedEdge.id]}
+              />
             ) : undefined
           ) : undefined}
         </EdgePropertiesPanel>

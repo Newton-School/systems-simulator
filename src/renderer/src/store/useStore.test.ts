@@ -95,6 +95,27 @@ describe('useStore edge flow batching', () => {
     expect(batchedSnapshot).toEqual(sequentialSnapshot)
   })
 
+  it('counts a transfer still queued for the link at run end as in flight, not success', () => {
+    vi.spyOn(Date, 'now').mockReturnValue(1_500)
+    useStore.getState().recordEdgeFlowEventBatch([
+      buildEvent({ edgeId: 'edge-a', sequence: 1, startedAtMs: 100, completedAtMs: 200 }),
+      buildEvent({
+        edgeId: 'edge-a',
+        sequence: 2,
+        startedAtMs: 119_000,
+        completedAtMs: 125_000,
+        latencyMs: 6_000
+      })
+    ])
+
+    const flow = useStore.getState().edgeFlowById['edge-a']
+    expect(flow.totalAttempted).toBe(2)
+    expect(flow.totalSuccess).toBe(1)
+    expect(flow.totalFailed).toBe(0)
+    expect(flow.totalInFlightAtCutoff).toBe(1)
+    expect(flow.totalPostWarmupFailed).toBe(0)
+  })
+
   it('preserves untouched edge state references across a batch update', () => {
     vi.spyOn(Date, 'now').mockReturnValue(2_000)
 
