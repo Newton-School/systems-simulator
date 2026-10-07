@@ -130,7 +130,7 @@ describe('validateTopology workload fields', () => {
     const result = validateTopology(topology)
     expect(result.valid).toBe(false)
     expect(
-      result.errors?.some((error) => error.message.includes("region 'missing' does not exist"))
+      result.errors?.some((error) => error.message.includes("Region 'missing' does not exist"))
     ).toBe(true)
   })
 
@@ -266,7 +266,8 @@ describe('validateTopology workload fields', () => {
       expect.arrayContaining([
         expect.objectContaining({
           path: 'nodes.0.slo',
-          message: 'At least one SLO target must be set.'
+          subject: 'Main Gateway',
+          message: 'Main Gateway: At least one SLO target must be set.'
         })
       ])
     )
@@ -414,7 +415,7 @@ describe('validateTopology active-source validation', () => {
         expect.objectContaining({
           path: 'workload.sourceNodeId',
           message: expect.stringContaining(
-            'is not connected to any downstream component that can be simulated'
+            'Client A: This source is not connected to any component that can be simulated'
           )
         })
       ])
@@ -471,7 +472,8 @@ describe('validateTopology active-source validation', () => {
       expect.arrayContaining([
         expect.objectContaining({
           path: 'edges[1].target',
-          message: expect.stringContaining("Edge 'orders-self' forms a self-loop")
+          message:
+            'Order Service -> Order Service: This connection starts and ends on the same component. Connect it to a different component.'
         })
       ])
     )
@@ -493,7 +495,7 @@ describe('validateTopology active-source validation', () => {
     expect(result.valid).toBe(true)
     expect(result.warnings).toEqual(
       expect.arrayContaining([
-        expect.stringContaining(`Node '${disconnected.label}' is disconnected`)
+        `${disconnected.label}: Not reachable from any source, so it will receive no traffic. Connect it to the rest of the design or remove it.`
       ])
     )
   })
@@ -518,7 +520,7 @@ describe('validateTopology active-source validation', () => {
     expect(result.warnings).toEqual(
       expect.arrayContaining([
         expect.stringContaining(
-          "Edge 'client-a-client-b' connects source node 'Client A' to source node 'Client B'."
+          'Client A -> Client B: This connection links two sources (Client A and Client B).'
         )
       ])
     )
@@ -603,7 +605,7 @@ describe('validateTopology node config validation', () => {
       expect.arrayContaining([
         expect.objectContaining({
           path: expect.stringContaining('config.healthCheckEnabled'),
-          message: 'Health checks must be either on or off.'
+          message: expect.stringMatching(/^[^:]+: Health checks must be either on or off\.$/)
         })
       ])
     )
@@ -771,7 +773,7 @@ describe('validateTopology node config validation', () => {
       expect.arrayContaining([
         expect.objectContaining({
           path: expect.stringContaining('instanceCount'),
-          message: 'instanceCount must not exceed maxInstances'
+          message: expect.stringMatching(/: Service instances cannot be more than Max instances\.$/)
         })
       ])
     )
@@ -956,7 +958,7 @@ describe('validateTopology advanced trait validation', () => {
       expect.arrayContaining([
         expect.objectContaining({
           path: 'edges[0].condition',
-          message: 'Conditional edges need a condition expression.'
+          message: expect.stringMatching(/: Conditional connections need a condition expression\.$/)
         })
       ])
     )
@@ -983,7 +985,9 @@ describe('validateTopology advanced trait validation', () => {
     expect(result.errors).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          message: expect.stringContaining('Purely synchronous cycle without an exit detected')
+          path: 'edges',
+          message:
+            'Service A, Service B call each other synchronously in a loop with no way out, so requests would never finish. Make one of these connections asynchronous or add a connection that leaves the loop.'
         })
       ])
     )
@@ -1008,15 +1012,15 @@ describe('validateTopology ignored resource fields', () => {
 
     expect(result.valid).toBe(true)
     expect(result.warnings).toContain(
-      "Node 'Order Service' sets resources.workersPerInstance and resources.queueSlots, which the simulator ignores: workers and queue space are derived from its instance type and count."
+      'Order Service: Workers per instance and Queue slots are set but ignored by the simulator: workers and queue space are derived from Instance type and Service instances.'
     )
   })
 
-  it('points legacy nodes at queue.workers and queue.capacity', () => {
+  it('points legacy nodes at their queue settings', () => {
     const result = runWith({ queueSlots: 500 })
 
     expect(result.warnings).toContain(
-      "Node 'Order Service' sets resources.queueSlots, which the simulator ignores: without an instance type, workers and capacity come from queue.workers and queue.capacity."
+      'Order Service: Queue slots is set but ignored by the simulator: without an Instance type, workers and queue space come from the queue settings.'
     )
   })
 

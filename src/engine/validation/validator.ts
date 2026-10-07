@@ -26,7 +26,10 @@ import { MATCH_OPERATORS } from '../core/requestSemantics'
 import { asDistributionConfig } from '../traits/serviceTimeOverride'
 import { INSTANCE_TYPES } from '../catalog/instanceCatalog'
 import { findCloudRegion } from '../catalog/locationCatalog'
+import { globalFieldLabel, nodeFieldLabel } from './fieldLabels'
+import { describeZodIssue, edgeSubjectFor, locationKindPhrase, withSubjects } from './issueMessages'
 import {
+  instanceCountWithinMax,
   nonNegativeNumber,
   oneOf,
   positiveNumber,
@@ -204,9 +207,9 @@ const BaseDistributionConfigSchema: z.ZodType<BaseDistributionConfig> = z.discri
     z.object({
       type: z.literal('log-normal'),
       mu: z.number(),
-      sigma: z.number().positive('Sigma must be > 0')
+      sigma: z.number().positive()
     }),
-    z.object({ type: z.literal('exponential'), lambda: z.number().positive('Lambda must be > 0') }),
+    z.object({ type: z.literal('exponential'), lambda: z.number().positive() }),
     z.object({ type: z.literal('normal'), mean: z.number(), stdDev: z.number().positive() }),
     z
       .object({
@@ -215,7 +218,7 @@ const BaseDistributionConfigSchema: z.ZodType<BaseDistributionConfig> = z.discri
         max: z.number()
       })
       .refine((data) => data.max > data.min, {
-        message: 'For uniform distribution, max must be greater than min',
+        message: 'For a uniform distribution, Max must be greater than Min.',
         path: ['max']
       }),
     z.object({
@@ -391,7 +394,7 @@ export const ComponentNodeSchema = z.object({
         r.maxInstances === undefined ||
         r.instanceCount <= r.maxInstances,
       {
-        message: 'instanceCount must not exceed maxInstances',
+        message: instanceCountWithinMax('Instance count', 'Max instances'),
         path: ['instanceCount']
       }
     )
@@ -399,8 +402,8 @@ export const ComponentNodeSchema = z.object({
 
   queue: z
     .object({
-      workers: z.number().int().positive('Workers must be > 0'),
-      capacity: z.number().int().nonnegative('Capacity must be >= 0'),
+      workers: z.number().int().positive(),
+      capacity: z.number().int().nonnegative(),
       discipline: z.enum(['fifo', 'lifo', 'priority', 'wfq']),
       weights: z.record(z.string().min(1), z.number().positive().finite()).optional()
     })
@@ -409,7 +412,7 @@ export const ComponentNodeSchema = z.object({
   processing: z
     .object({
       distribution: DistributionConfigSchema,
-      timeout: z.number().positive('Timeout must be > 0')
+      timeout: z.number().positive()
     })
     .optional(),
 
@@ -545,7 +548,7 @@ export const WorkloadProfileSchema = z.object({
         const totalWeight = origins.reduce((sum, origin) => sum + origin.weight, 0)
         return totalWeight > 0 && Math.abs(totalWeight - 1) < 0.0001
       },
-      { message: 'The sum of origin weights must equal 1.0' }
+      { message: 'Traffic origin weights must add up to 100%.' }
     )
     .optional(),
 
@@ -571,7 +574,7 @@ export const WorkloadProfileSchema = z.object({
         const totalWeight = dist.reduce((acc, curr) => acc + curr.weight, 0)
         return totalWeight > 0 && Math.abs(totalWeight - 1.0) < 0.0001
       },
-      { message: 'The sum of requestDistribution weights must equal 1.0' }
+      { message: validationMessage('requestDistributionWeights') }
     ),
 
   diurnal: z
@@ -596,7 +599,7 @@ export const WorkloadProfileSchema = z.object({
       normalDuration: z.number().nonnegative()
     })
     .refine((config) => config.burstDuration + config.normalDuration > 0, {
-      message: 'bursty.burstDuration + bursty.normalDuration must be > 0'
+      message: 'Burst duration and Normal duration cannot both be 0.'
     })
     .optional(),
 
@@ -619,7 +622,7 @@ export const WorkloadProfileSchema = z.object({
         .optional()
     })
     .refine((s) => s.mode !== 'requestBudget' || (s.maxRequests ?? 0) > 0, {
-      message: "stopCondition.maxRequests is required (and > 0) when mode is 'requestBudget'"
+      message: 'A request-budget stop condition needs a request budget greater than 0.'
     })
     .optional()
 })
@@ -741,9 +744,13 @@ export type SchemaKeyParity = [
 
 //Validation Wrapper
 export interface ValidationError {
+  /** Machine-readable location, e.g. `nodes[2].config.cacheHitRate`. */
   path: string
+  /** Plain-English, user-facing message, prefixed with its subject (`API Server: ...`). */
   message: string
   code?: string
+  /** What the error belongs to, as the user named it (a component, a connection, ...). */
+  subject?: string
 }
 
 export interface ValidationResult {
@@ -877,11 +884,11 @@ export const validateTopology = (
   if (!parseResult.success) {
     errors.push(
       ...parseResult.error.issues.map((issue) => ({
-        path: issue.path.join('.'),
-        message: issue.message
+        path: issue.path.map(String).join('.'),
+        message: describeZodIssue(issue, input)
       }))
     )
-    return { valid: false, errors, warnings }
+    return { valid: false, errors: withSubjects(errors, input), warnings }
   }
 
   const topology = parseResult.data
@@ -895,7 +902,7 @@ export const validateTopology = (
     if (locationIds.has(location.id)) {
       errors.push({
         path: `locations[${index}].id`,
-        message: `Duplicate location ID: ${location.id}`
+        message: `Another location already uses the ID '${location.id}'. Location IDs must be unique.`
       })
     }
     locationIds.add(location.id)
@@ -903,7 +910,7 @@ export const validateTopology = (
     if (location.parentId && !locationById.has(location.parentId)) {
       errors.push({
         path: `locations[${index}].parentId`,
-        message: `Parent location ID '${location.parentId}' does not exist.`
+        message: `Its parent location '${location.parentId}' does not exist.`
       })
     }
 
@@ -915,7 +922,7 @@ export const validateTopology = (
     ) {
       errors.push({
         path: `locations[${index}].providerCode`,
-        message: `Region code '${location.providerCode ?? ''}' is not in the ${location.provider} catalogue.`
+        message: `Region code '${location.providerCode ?? ''}' is not in the ${location.provider.toUpperCase()} region catalogue.`
       })
     }
 
@@ -950,7 +957,7 @@ export const validateTopology = (
     if (origins.findIndex((candidate) => candidate.id === origin.id) !== index) {
       errors.push({
         path: `workload.origins[${index}].id`,
-        message: `Duplicate traffic origin ID: ${origin.id}`
+        message: `Another traffic origin already uses the ID '${origin.id}'. Traffic origin IDs must be unique.`
       })
     }
     if (origin.location.kind === 'region') {
@@ -958,12 +965,12 @@ export const validateTopology = (
       if (!originRegion) {
         errors.push({
           path: `workload.origins[${index}].location.regionId`,
-          message: `Traffic origin region '${origin.location.regionId}' does not exist.`
+          message: `Region '${origin.location.regionId}' does not exist.`
         })
       } else if (originRegion.kind !== 'region') {
         errors.push({
           path: `workload.origins[${index}].location.regionId`,
-          message: `Traffic origin '${origin.id}' must reference a region, not ${originRegion.kind}.`
+          message: `Must point at a region, but '${originRegion.label}' is ${locationKindPhrase(originRegion.kind)}.`
         })
       }
     }
@@ -982,7 +989,7 @@ export const validateTopology = (
       } else if (locationById.get(regionId)?.kind !== 'region') {
         errors.push({
           path: `networkModel.regionPairOverrides[${index}].${field}`,
-          message: `Region-pair endpoint '${regionId}' must reference a region.`
+          message: `'${locationById.get(regionId)?.label ?? regionId}' is not a region; region-pair latency overrides must connect two regions.`
         })
       }
     }
@@ -1000,7 +1007,10 @@ export const validateTopology = (
   //Check Nodes
   topology.nodes.forEach((node, index) => {
     if (nodeIds.has(node.id)) {
-      errors.push({ path: `nodes[${index}].id`, message: `Duplicate node ID: ${node.id}` })
+      errors.push({
+        path: `nodes[${index}].id`,
+        message: `Another component already uses the ID '${node.id}'. Component IDs must be unique.`
+      })
     }
     nodeIds.add(node.id)
     nodeById.set(node.id, node)
@@ -1014,6 +1024,8 @@ export const validateTopology = (
 
     const role = resolvedRole(node)
     const nodeLabel = displayNodeLabel(node)
+    const fieldLabel = (relativePath: string): string =>
+      nodeFieldLabel(relativePath, { componentType: node.type })
 
     for (const [field, locationId, expectedKind] of [
       ['regionId', node.placement?.regionId, 'region'],
@@ -1025,12 +1037,12 @@ export const validateTopology = (
       if (!location) {
         errors.push({
           path: `nodes[${index}].placement.${field}`,
-          message: `Placement location '${locationId}' does not exist.`
+          message: `Its ${locationKindPhrase(expectedKind, false)} '${locationId}' does not exist.`
         })
       } else if (location.kind !== expectedKind) {
         errors.push({
           path: `nodes[${index}].placement.${field}`,
-          message: `Placement '${locationId}' must reference a ${expectedKind} location.`
+          message: `It is placed in '${location.label}', which is ${locationKindPhrase(location.kind)}, not ${locationKindPhrase(expectedKind)}.`
         })
       }
     }
@@ -1038,14 +1050,14 @@ export const validateTopology = (
     if (role !== 'source') {
       if (!node.queue) {
         warnings.push(
-          `Node '${nodeLabel}' is missing queue config; applying legacy default queue settings.`
+          `${nodeLabel}: Queue settings are missing, so default queue settings were applied (1 worker, room for 100 waiting requests).`
         )
         node.queue = { workers: 1, capacity: 100, discipline: 'fifo' }
       }
 
       if (!node.processing) {
         warnings.push(
-          `Node '${nodeLabel}' is missing processing config; applying legacy default processing settings.`
+          `${nodeLabel}: Performance settings are missing, so default performance settings were applied (1 ms service time, 30 s timeout).`
         )
         node.processing = {
           distribution: { type: 'constant', value: 1 },
@@ -1066,7 +1078,7 @@ export const validateTopology = (
     if (node.processing && node.processing.timeout <= 0) {
       errors.push({
         path: `nodes[${index}].processing.timeout`,
-        message: positiveNumber('Timeout', 'ms')
+        message: positiveNumber(fieldLabel('processing.timeout'), 'ms')
       })
     }
 
@@ -1080,7 +1092,7 @@ export const validateTopology = (
     ) {
       errors.push({
         path: `nodes[${index}].config.nodeErrorRate`,
-        message: probability('Inject failure')
+        message: probability(fieldLabel('config.nodeErrorRate'))
       })
     }
 
@@ -1088,7 +1100,7 @@ export const validateTopology = (
     if (healthCheckEnabled !== undefined && typeof healthCheckEnabled !== 'boolean') {
       errors.push({
         path: `nodes[${index}].config.healthCheckEnabled`,
-        message: 'Health checks must be either on or off.'
+        message: `${fieldLabel('config.healthCheckEnabled')} must be either on or off.`
       })
     }
 
@@ -1102,7 +1114,7 @@ export const validateTopology = (
     ) {
       errors.push({
         path: `nodes[${index}].config.cacheHitRate`,
-        message: probability('Cache hit rate')
+        message: probability(fieldLabel('config.cacheHitRate'))
       })
     }
 
@@ -1115,7 +1127,7 @@ export const validateTopology = (
     ) {
       errors.push({
         path: `nodes[${index}].config.cacheHitLatencyMs`,
-        message: positiveNumber('Cache hit latency', 'ms')
+        message: positiveNumber(fieldLabel('config.cacheHitLatencyMs'), 'ms')
       })
     }
 
@@ -1126,7 +1138,7 @@ export const validateTopology = (
     ) {
       errors.push({
         path: `nodes[${index}].config.ttlSeconds`,
-        message: nonNegativeNumber('TTL', 'seconds')
+        message: nonNegativeNumber(fieldLabel('config.ttlSeconds'), 'seconds')
       })
     }
 
@@ -1141,7 +1153,7 @@ export const validateTopology = (
     ) {
       errors.push({
         path: `nodes[${index}].config.replicationRole`,
-        message: 'Replication role must be either Leader or Follower.'
+        message: oneOf(fieldLabel('config.replicationRole'), ['Leader', 'Follower'])
       })
     }
 
@@ -1149,7 +1161,11 @@ export const validateTopology = (
     if (deliverySemantics !== undefined && !isQueueDeliverySemantics(deliverySemantics)) {
       errors.push({
         path: `nodes[${index}].config.deliverySemantics`,
-        message: oneOf('Delivery mode', ['at-most-once', 'at-least-once', 'exactly-once'])
+        message: oneOf(fieldLabel('config.deliverySemantics'), [
+          'at-most-once',
+          'at-least-once',
+          'exactly-once'
+        ])
       })
     }
 
@@ -1162,7 +1178,7 @@ export const validateTopology = (
     ) {
       errors.push({
         path: `nodes[${index}].config.visibilityTimeoutMs`,
-        message: nonNegativeNumber('Visibility timeout', 'ms')
+        message: nonNegativeNumber(fieldLabel('config.visibilityTimeoutMs'), 'ms')
       })
     }
 
@@ -1176,7 +1192,7 @@ export const validateTopology = (
     ) {
       errors.push({
         path: `nodes[${index}].config.maxReceiveCount`,
-        message: positiveNumber('Max receives')
+        message: positiveNumber(fieldLabel('config.maxReceiveCount'))
       })
     }
 
@@ -1185,24 +1201,24 @@ export const validateTopology = (
       if (typeof dlqNodeId !== 'string' || dlqNodeId.trim().length === 0) {
         errors.push({
           path: `nodes[${index}].config.dlqNodeId`,
-          message: 'DLQ node ID must be a non-empty string.'
+          message: `${fieldLabel('config.dlqNodeId')} cannot be empty.`
         })
       } else if (dlqNodeId === node.id) {
         errors.push({
           path: `nodes[${index}].config.dlqNodeId`,
-          message: 'DLQ node ID must point at a different queue node.'
+          message: `${fieldLabel('config.dlqNodeId')} must point at a different Queue node.`
         })
       } else {
         const dlqNode = topology.nodes.find((candidate) => candidate.id === dlqNodeId)
         if (!dlqNode) {
           errors.push({
             path: `nodes[${index}].config.dlqNodeId`,
-            message: `DLQ node '${dlqNodeId}' does not exist.`
+            message: `${fieldLabel('config.dlqNodeId')} '${dlqNodeId}' does not match any node.`
           })
         } else if (dlqNode.type !== 'queue') {
           errors.push({
             path: `nodes[${index}].config.dlqNodeId`,
-            message: 'DLQ node must reference a Queue node.'
+            message: `${fieldLabel('config.dlqNodeId')} must point at a Queue node.`
           })
         }
       }
@@ -1217,7 +1233,8 @@ export const validateTopology = (
     ) {
       errors.push({
         path: `nodes[${index}].config.deliverySemantics`,
-        message: 'Queue delivery settings only apply to Queue nodes.'
+        message:
+          'Queue delivery settings (delivery mode, visibility timeout, max receives, DLQ) only apply to Queue nodes.'
       })
     }
 
@@ -1226,7 +1243,7 @@ export const validateTopology = (
       if (value !== undefined && !asDistributionConfig(value)) {
         errors.push({
           path: `nodes[${index}].config.${field}`,
-          message: validDistribution(field === 'readLatency' ? 'Read latency' : 'Write latency')
+          message: validDistribution(fieldLabel(`config.${field}`))
         })
       }
     }
@@ -1238,7 +1255,7 @@ export const validateTopology = (
     ) {
       errors.push({
         path: `nodes[${index}].config.maxTokens`,
-        message: positiveNumber('Bucket size')
+        message: positiveNumber(fieldLabel('config.maxTokens'))
       })
     }
 
@@ -1251,7 +1268,7 @@ export const validateTopology = (
     ) {
       errors.push({
         path: `nodes[${index}].config.refillRatePerSecond`,
-        message: nonNegativeNumber('Refill rate', 'tokens/s')
+        message: nonNegativeNumber(fieldLabel('config.refillRatePerSecond'), 'tokens/s')
       })
     }
 
@@ -1259,7 +1276,7 @@ export const validateTopology = (
     if (coldStartLatency !== undefined && !asDistributionConfig(coldStartLatency)) {
       errors.push({
         path: `nodes[${index}].config.coldStartLatency`,
-        message: validDistribution('Cold start latency')
+        message: validDistribution(fieldLabel('config.coldStartLatency'))
       })
     }
 
@@ -1272,12 +1289,13 @@ export const validateTopology = (
           value < 0 ||
           (field !== 'dnsCacheTtlSeconds' && value <= 0))
       ) {
+        const label = fieldLabel(`config.${field}`)
         const message =
           field === 'idleTimeoutMs'
-            ? positiveNumber('Idle timeout', 'ms')
+            ? positiveNumber(label, 'ms')
             : field === 'maxConcurrency'
-              ? positiveNumber('Max concurrency')
-              : nonNegativeNumber('Cache TTL', 'seconds')
+              ? positiveNumber(label)
+              : nonNegativeNumber(label, 'seconds')
         errors.push({
           path: `nodes[${index}].config.${field}`,
           message
@@ -1285,12 +1303,12 @@ export const validateTopology = (
       }
     }
 
-    for (const [field, label] of [
-      ['storageReadMs', 'Read latency'],
-      ['storageWriteMs', 'Write latency'],
-      ['storageQueryMs', 'Query latency'],
-      ['storageScanMs', 'Scan latency'],
-      ['storageIngestMs', 'Ingest latency']
+    for (const field of [
+      'storageReadMs',
+      'storageWriteMs',
+      'storageQueryMs',
+      'storageScanMs',
+      'storageIngestMs'
     ] as const) {
       const value = node.config?.[field]
       if (
@@ -1299,15 +1317,12 @@ export const validateTopology = (
       ) {
         errors.push({
           path: `nodes[${index}].config.${field}`,
-          message: positiveNumber(label, 'ms')
+          message: positiveNumber(fieldLabel(`config.${field}`), 'ms')
         })
       }
     }
 
-    for (const [field, label] of [
-      ['dedupWindowMs', 'Dedup window'],
-      ['storeLookupMs', 'Lookup latency']
-    ] as const) {
+    for (const field of ['dedupWindowMs', 'storeLookupMs'] as const) {
       const value = node.config?.[field]
       if (
         value !== undefined &&
@@ -1315,16 +1330,12 @@ export const validateTopology = (
       ) {
         errors.push({
           path: `nodes[${index}].config.${field}`,
-          message: positiveNumber(label, 'ms')
+          message: positiveNumber(fieldLabel(`config.${field}`), 'ms')
         })
       }
     }
 
-    for (const [field, label] of [
-      ['workingSetRatio', 'Working-set ratio'],
-      ['workingSetPenaltyMs', 'Working-set miss penalty'],
-      ['gcPauseMs', 'Max GC pause']
-    ] as const) {
+    for (const field of ['workingSetRatio', 'workingSetPenaltyMs', 'gcPauseMs'] as const) {
       const value = node.config?.[field]
       if (
         value !== undefined &&
@@ -1332,7 +1343,10 @@ export const validateTopology = (
       ) {
         errors.push({
           path: `nodes[${index}].config.${field}`,
-          message: positiveNumber(label, field === 'workingSetRatio' ? undefined : 'ms')
+          message: positiveNumber(
+            fieldLabel(`config.${field}`),
+            field === 'workingSetRatio' ? undefined : 'ms'
+          )
         })
       }
     }
@@ -1347,7 +1361,7 @@ export const validateTopology = (
     ) {
       errors.push({
         path: `nodes[${index}].config.gcPressureStartRatio`,
-        message: probability('GC pressure threshold')
+        message: probability(fieldLabel('config.gcPressureStartRatio'))
       })
     }
 
@@ -1358,7 +1372,7 @@ export const validateTopology = (
     ) {
       errors.push({
         path: `nodes[${index}].config.dedupKeyField`,
-        message: 'Metadata key must be a non-empty string.'
+        message: `${fieldLabel('config.dedupKeyField')} cannot be empty.`
       })
     }
 
@@ -1369,7 +1383,7 @@ export const validateTopology = (
     ) {
       errors.push({
         path: `nodes[${index}].config.routingKeyField`,
-        message: 'Routing key field cannot be empty.'
+        message: `${fieldLabel('config.routingKeyField')} cannot be empty.`
       })
     }
 
@@ -1382,7 +1396,7 @@ export const validateTopology = (
     ) {
       errors.push({
         path: `nodes[${index}].config.dnsRoutingPolicy`,
-        message: oneOf('DNS routing policy', [
+        message: oneOf(fieldLabel('config.dnsRoutingPolicy'), [
           'Simple',
           'Weighted',
           'Failover',
@@ -1433,7 +1447,7 @@ export const validateTopology = (
       ) {
         errors.push({
           path: `nodes[${index}].config.circuitBreaker.failureThreshold`,
-          message: probability('Failure threshold')
+          message: probability(fieldLabel('config.circuitBreaker.failureThreshold'))
         })
       }
 
@@ -1443,12 +1457,7 @@ export const validateTopology = (
         ['halfOpenRequests', halfOpenRequests]
       ] as const) {
         if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
-          const label =
-            field === 'failureCount'
-              ? 'Window size'
-              : field === 'recoveryTimeout'
-                ? 'Recovery timeout'
-                : 'Half-open probes'
+          const label = fieldLabel(`config.circuitBreaker.${field}`)
           errors.push({
             path: `nodes[${index}].config.circuitBreaker.${field}`,
             message: positiveNumber(label, field === 'recoveryTimeout' ? 'ms' : undefined)
@@ -1476,12 +1485,7 @@ export const validateTopology = (
           value !== undefined &&
           (typeof value !== 'number' || !Number.isFinite(value) || value <= 0)
         ) {
-          const label =
-            field === 'checkIntervalMs'
-              ? 'Check interval'
-              : field === 'unhealthyThreshold'
-                ? 'Unhealthy threshold'
-                : 'Healthy threshold'
+          const label = fieldLabel(`config.${field}`)
           errors.push({
             path: `nodes[${index}].config.${field}`,
             message: positiveNumber(label)
@@ -1597,7 +1601,8 @@ export const validateTopology = (
   if (workloadSourceNodeId && !nodeIds.has(workloadSourceNodeId)) {
     errors.push({
       path: 'workload.sourceNodeId',
-      message: validationMessage('workloadSourceMissing')
+      message: validationMessage('workloadSourceMissing'),
+      subject: 'Workload'
     })
   }
 
@@ -1611,27 +1616,31 @@ export const validateTopology = (
   //Check Edges & Dependency References
   topology.edges.forEach((edge, index) => {
     if (edgeIds.has(edge.id)) {
-      errors.push({ path: `edges[${index}].id`, message: `Duplicate edge ID: ${edge.id}` })
+      errors.push({
+        path: `edges[${index}].id`,
+        message: `Another connection already uses the ID '${edge.id}'. Connection IDs must be unique.`
+      })
     }
     edgeIds.add(edge.id)
 
     if (!nodeIds.has(edge.source)) {
       errors.push({
         path: `edges[${index}].source`,
-        message: `Source node ID '${edge.source}' does not exist.`
+        message: `Its source component '${edge.source}' does not exist.`
       })
     }
     if (!nodeIds.has(edge.target)) {
       errors.push({
         path: `edges[${index}].target`,
-        message: `Target node ID '${edge.target}' does not exist.`
+        message: `Its target component '${edge.target}' does not exist.`
       })
     }
 
     if (edge.source === edge.target) {
       errors.push({
         path: `edges[${index}].target`,
-        message: `Edge '${edge.id}' forms a self-loop on node '${edge.source}'.`
+        message:
+          'This connection starts and ends on the same component. Connect it to a different component.'
       })
     }
 
@@ -1652,13 +1661,8 @@ export const validateTopology = (
     const targetNode = nodeById.get(edge.target)
     if (includeEdgeConstraintWarnings) {
       const edgeWarnings = validateEdgeConstraintSelection(edge, sourceNode?.type, targetNode?.type)
-      const sourceLabel = sourceNode ? displayNodeLabel(sourceNode) : edge.source
-      const targetLabel = targetNode ? displayNodeLabel(targetNode) : edge.target
-      warnings.push(
-        ...edgeWarnings.map(
-          (message) => `Edge '${edge.id}' (${sourceLabel} → ${targetLabel}): ${message}`
-        )
-      )
+      const subject = edgeSubjectFor(topology, edge)
+      warnings.push(...edgeWarnings.map((message) => `${subject}: ${message}`))
     }
   })
 
@@ -1667,7 +1671,7 @@ export const validateTopology = (
       if (!nodeIds.has(depId)) {
         errors.push({
           path: `nodes[${index}].dependencies.optional[${depIndex}]`,
-          message: `Optional dependency ID '${depId}' does not exist.`
+          message: `Optional dependency '${depId}' does not match any component.`
         })
       }
     })
@@ -1678,7 +1682,7 @@ export const validateTopology = (
     if (!nodeIds.has(fault.targetId) && !edgeIds.has(fault.targetId)) {
       errors.push({
         path: `faults[${index}].targetId`,
-        message: `Fault target ID '${fault.targetId}' does not match any existing node or edge.`
+        message: `Fault target '${fault.targetId}' does not match any component or connection.`
       })
     }
   })
@@ -1687,15 +1691,19 @@ export const validateTopology = (
   if (topology.global.simulationDuration <= topology.global.warmupDuration) {
     errors.push({
       path: 'global.simulationDuration',
-      message: validationMessage('simulationTiming')
+      message: `${globalFieldLabel('simulationDuration')} must be longer than ${globalFieldLabel('warmupDuration')}.`
     })
   }
 
   const pureSyncCycles = findPureSyncCyclesWithoutExit(topology)
-  pureSyncCycles.forEach((component, index) => {
+  pureSyncCycles.forEach((component) => {
+    const cycleLabels = component.map((nodeId) => {
+      const cycleNode = nodeById.get(nodeId)
+      return cycleNode ? displayNodeLabel(cycleNode) : nodeId
+    })
     errors.push({
-      path: `edges[${index}]`,
-      message: `Purely synchronous cycle without an exit detected: ${component.join(' -> ')}. Add an async hop or an external exit path.`
+      path: 'edges',
+      message: `${cycleLabels.join(', ')} call each other synchronously in a loop with no way out, so requests would never finish. Make one of these connections asynchronous or add a connection that leaves the loop.`
     })
   })
 
@@ -1717,13 +1725,14 @@ export const validateTopology = (
     if (selectedSourceNode && !hasReachableDownstreamRuntimeNode) {
       errors.push({
         path: 'workload.sourceNodeId',
-        message: `'${selectedSourceNode.label}' is not connected to any downstream component that can be simulated. Connect it to at least one service, router, database, or external API.`
+        message:
+          'This source is not connected to any component that can be simulated. Connect it to at least one service, router, database, or external API.'
       })
     }
   }
 
   if (errors.length > 0) {
-    return { valid: false, errors, warnings }
+    return { valid: false, errors: withSubjects(errors, topology), warnings }
   }
 
   //Graph Connectivity Check (Warnings only)
@@ -1745,7 +1754,7 @@ export const validateTopology = (
       isSourceNode(targetNode, topology)
     ) {
       warnings.push(
-        `Edge '${edge.id}' connects source node '${sourceNode.label}' to source node '${targetNode.label}'.`
+        `${edgeSubjectFor(topology, edge)}: This connection links two sources (${displayNodeLabel(sourceNode)} and ${displayNodeLabel(targetNode)}). Sources only send traffic, so connect them to the components that serve it.`
       )
     }
   })
@@ -1757,21 +1766,27 @@ export const validateTopology = (
     const nodeLabel = displayNodeLabel(node)
 
     if (role === 'source' && incoming > 0) {
-      warnings.push(`Source node '${nodeLabel}' has ${incoming} incoming edge(s).`)
+      warnings.push(
+        `${nodeLabel}: This source has ${countPhrase(incoming, 'incoming connection')}. Sources only send traffic.`
+      )
     }
 
     if (role === 'sink' && outgoing > 0) {
-      warnings.push(`Sink node '${nodeLabel}' has ${outgoing} outgoing edge(s).`)
+      warnings.push(
+        `${nodeLabel}: This component only receives traffic but has ${countPhrase(outgoing, 'outgoing connection')}.`
+      )
     }
 
     if (role === 'router' && outgoing <= 1 && node.config?.['routingStrategy'] !== undefined) {
       warnings.push(
-        `Router node '${nodeLabel}' exposes routing strategy but has ${outgoing} outgoing edge(s).`
+        `${nodeLabel}: A routing strategy is set, but with ${countPhrase(outgoing, 'outgoing connection')} there is nothing to choose between. Add another outgoing connection or remove the strategy.`
       )
     }
 
     if (!visited.has(node.id)) {
-      warnings.push(`Node '${nodeLabel}' is disconnected and unreachable from any source node.`)
+      warnings.push(
+        `${nodeLabel}: Not reachable from any source, so it will receive no traffic. Connect it to the rest of the design or remove it.`
+      )
     }
 
     // Accepted for back-compat but never read: concurrency (c) and admission (K)
@@ -1781,13 +1796,21 @@ export const validateTopology = (
       (field) => node.resources?.[field] !== undefined
     )
     if (ignoredResourceFields.length > 0) {
-      const fields = ignoredResourceFields.map((field) => `resources.${field}`).join(' and ')
+      const label = (relativePath: string): string =>
+        nodeFieldLabel(relativePath, { componentType: node.type })
+      const fields = ignoredResourceFields.map((field) => label(`resources.${field}`)).join(' and ')
       const reason = hasInstanceModel(node.resources)
-        ? 'workers and queue space are derived from its instance type and count'
-        : 'without an instance type, workers and capacity come from queue.workers and queue.capacity'
-      warnings.push(`Node '${nodeLabel}' sets ${fields}, which the simulator ignores: ${reason}.`)
+        ? `workers and queue space are derived from ${label('resources.instanceType')} and ${label('resources.instanceCount')}`
+        : `without an ${label('resources.instanceType')}, workers and queue space come from the queue settings`
+      warnings.push(
+        `${nodeLabel}: ${fields} ${ignoredResourceFields.length > 1 ? 'are' : 'is'} set but ignored by the simulator: ${reason}.`
+      )
     }
   })
 
   return { valid: true, data: topology, warnings }
+}
+
+function countPhrase(count: number, noun: string): string {
+  return `${count === 0 ? 'no' : count} ${noun}${count === 1 ? '' : 's'}`
 }

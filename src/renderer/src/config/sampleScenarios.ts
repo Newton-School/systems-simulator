@@ -72,7 +72,7 @@ export const SAMPLE_SCENARIOS: SampleScenario[] = [
     primaryUseCase:
       'Shows that container placement alone resolves the edge to the cross-zone latency profile.',
     simulatorValue:
-      'Select the edge and keep Path Type plus Latency on Auto. Then move a node into the same subnet or another region to watch the derived path class change without editing the edge.',
+      'Select the edge and keep Path type plus Latency on Auto. Then move a node into the same subnet or another region to watch the derived path class change without editing the edge.',
     difficulty: 'intro',
     raw: multiAzAutoLatencyRaw
   },
