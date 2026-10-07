@@ -3493,7 +3493,8 @@ export class SimulationEngine {
         random: () => this.distributions.random(),
         state: this.getTraitStateStore(nodeId),
         sharedState: this.getSharedTraitStateStore(),
-        nodeState: this.nodes.get(nodeId)?.getState()
+        nodeState: this.nodes.get(nodeId)?.getState(),
+        countInSystem: (predicate) => this.nodes.get(nodeId)?.countInSystem(predicate) ?? 0
       })
       this.recordTraitPayloadMetrics(nodeId, decision.payload)
       this.recordTraitDecision(nodeId, request, trait.name, 'beforeArrival', {

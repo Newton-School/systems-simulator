@@ -481,6 +481,34 @@ function buildRuntimeNode(
     resilience.bulkhead = { maxConcurrent: Math.round(data.sim.maxConcurrency) }
   }
 
+  const bulkheadPartitions: Record<string, number> = {}
+  for (const [compartment, limit] of Object.entries(data.sim?.bulkheadPartitions ?? {})) {
+    if (compartment.trim() && typeof limit === 'number' && Number.isFinite(limit) && limit >= 1) {
+      bulkheadPartitions[compartment.trim()] = Math.floor(limit)
+    }
+  }
+  const bulkheadDefault = data.sim?.bulkheadDefaultMaxConcurrent
+  const hasBulkheadDefault =
+    typeof bulkheadDefault === 'number' && Number.isFinite(bulkheadDefault) && bulkheadDefault >= 1
+  if (Object.keys(bulkheadPartitions).length > 0 || hasBulkheadDefault) {
+    resilience.bulkhead = {
+      ...resilience.bulkhead,
+      ...(Object.keys(bulkheadPartitions).length > 0 ? { partitions: bulkheadPartitions } : {}),
+      ...(hasBulkheadDefault ? { defaultMaxConcurrent: Math.floor(bulkheadDefault) } : {}),
+      ...(data.sim?.bulkheadKeyField?.trim() ? { keyField: data.sim.bulkheadKeyField.trim() } : {})
+    }
+  }
+
+  for (const field of ['loadShedQueueDepth', 'loadShedMaxQueueDelayMs'] as const) {
+    const value = data.sim?.[field]
+    if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+      config[field] = value
+    }
+  }
+  if (data.sim?.loadShedProtectHighPriority === true) {
+    config.loadShedProtectHighPriority = true
+  }
+
   if (typeof data.sim?.routingKeyField === 'string' && data.sim.routingKeyField.trim().length > 0) {
     config.routingKeyField = data.sim.routingKeyField.trim()
   }

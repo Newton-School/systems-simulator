@@ -485,6 +485,20 @@ export class GGcKNode {
     return { connectionResets: [], resumed, started }
   }
 
+  /**
+   * Requests occupying a K slot here (queued + in service + hang-held, the same
+   * set `inSystem()` counts) that match `predicate`. Read by admission traits
+   * that partition the node's capacity (the bulkhead); O(in-system), so it is
+   * only called when such a trait is configured.
+   */
+  countInSystem(predicate: (request: Request) => boolean): number {
+    let count = 0
+    for (const request of this.queue) if (predicate(request)) count++
+    for (const request of this.inServiceRequests.values()) if (predicate(request)) count++
+    for (const request of this.heldHang) if (predicate(request)) count++
+    return count
+  }
+
   getState(): NodeState {
     return {
       id: this.id,
@@ -495,6 +509,7 @@ export class GGcKNode {
       // Legacy nodes have no CPU tier and retain the historical worker occupancy.
       utilization: this.instantUtilization(),
       totalInSystem: this.inSystem(),
+      workerCapacity: this.maxWorkers,
       meanServiceTimeMs:
         this.metrics.totalCompleted > 0
           ? Number(this.metrics.totalServiceTime) / 1000 / this.metrics.totalCompleted

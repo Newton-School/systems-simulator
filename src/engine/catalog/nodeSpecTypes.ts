@@ -153,6 +153,18 @@ export interface NodeSimulationConfig {
   coldStartLatencyMs?: number
   idleTimeoutMs?: number
   maxConcurrency?: number
+  /** Bulkhead: per-compartment cap on requests held at once (serializes to resilience.bulkhead.partitions). */
+  bulkheadPartitions?: Record<string, number>
+  /** Bulkhead: cap for compartments not listed in bulkheadPartitions. */
+  bulkheadDefaultMaxConcurrent?: number
+  /** Bulkhead: request.metadata field naming the compartment; request type when empty. */
+  bulkheadKeyField?: string
+  /** Load shedding: shed new arrivals once this many requests are waiting. */
+  loadShedQueueDepth?: number
+  /** Load shedding: shed when the estimated queueing delay exceeds this (ms). */
+  loadShedMaxQueueDelayMs?: number
+  /** Load shedding: never shed priority-0 requests. */
+  loadShedProtectHighPriority?: boolean
   locationId?: string
   locationProvider?: import('../core/types').LocationProvider
   locationLatitude?: number

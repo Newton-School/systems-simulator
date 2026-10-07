@@ -49,10 +49,12 @@ export const DOMAIN_SUPPORT_LEDGER: Record<QuestionDomain, SupportLedgerEntry> =
   resilience: {
     tier: 'guided',
     summary:
-      'Retries, circuit breakers, health-aware routing, failure windows, deterministic replica promotion, and quorum availability are modeled, with physical consensus timing still simplified.',
+      'Retries, circuit breakers, bulkheads, load shedding, health-aware routing, failure windows, deterministic replica promotion, and quorum availability are modeled, with physical consensus timing still simplified.',
     simulates: [
       'retry backoff',
       'circuit breaker state',
+      'bulkhead compartments',
+      'load shedding',
       'health-aware routing',
       'status timelines',
       'replica failover',
@@ -228,6 +230,21 @@ export const TRAIT_SUPPORT_LEDGER = {
     tier: 'first-class',
     summary: 'Breaker open/close state and rejection behavior are modeled and observable.'
   },
+  'resilience.bulkhead': {
+    tier: 'first-class',
+    summary:
+      'Per-compartment (request type or metadata key) caps on requests held at a node, with fast bulkhead_full rejection, are modeled and observable.'
+  },
+  'resilience.load-shedding': {
+    tier: 'first-class',
+    summary:
+      'Arrival-time shedding on queue depth or estimated queueing delay, with fast load_shed rejection, is modeled and observable.'
+  },
+  'compute.autoscaler': {
+    tier: 'first-class',
+    summary:
+      'A utilization-target control loop resizes instance count every cooldown, bounded by min and max.'
+  },
   'control.rate-limiter': {
     tier: 'first-class',
     summary:
@@ -323,6 +340,16 @@ export const CONCEPT_SUPPORT_LEDGER = {
     tier: 'guided',
     summary:
       'Breaker behavior is modeled, but resilience outcomes still simplify real replication and failover.'
+  },
+  bulkhead: {
+    tier: 'guided',
+    summary:
+      'Compartment caps at a node are modeled; per-downstream-dependency pools are not, because a node frees its worker before forwarding.'
+  },
+  'load-shedding': {
+    tier: 'guided',
+    summary:
+      'Shedding new arrivals on queue depth or queueing delay is modeled; evicting already-queued requests and adaptive concurrency limits are not.'
   },
   'retry-backoff': {
     tier: 'guided',

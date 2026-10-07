@@ -1026,3 +1026,59 @@ describe('validateTopology ignored resource fields', () => {
     expect((result.warnings ?? []).some((warning) => warning.includes('ignores'))).toBe(false)
   })
 })
+
+describe('validateTopology bulkhead and load-shedding config', () => {
+  function runWith(extra: Partial<ComponentNode>) {
+    const source = makeSourceNode('client', 'Client App')
+    const service = { ...makeProcessorNode('orders', 'Order Service'), ...extra }
+    return validateTopology(
+      makeTopology({
+        nodes: [source, service],
+        edges: [makeEdge('client-orders', source.id, service.id)],
+        sourceNodeId: source.id
+      })
+    )
+  }
+
+  function validatedNode(result: ReturnType<typeof validateTopology>) {
+    if (!result.valid) throw new Error('expected a valid topology')
+    return result.data.nodes.find((node) => node.id === 'orders')!
+  }
+
+  it('keeps bulkhead compartment fields through validation (not stripped)', () => {
+    const bulkhead = { partitions: { report: 4 }, defaultMaxConcurrent: 16, keyField: 'tenant' }
+    const result = runWith({ resilience: { bulkhead } })
+
+    expect(validatedNode(result).resilience?.bulkhead).toEqual(bulkhead)
+    expect((result.warnings ?? []).some((warning) => warning.includes('bulkhead'))).toBe(false)
+  })
+
+  it('keeps load-shedding config through validation', () => {
+    const config = {
+      loadShedQueueDepth: 8,
+      loadShedMaxQueueDelayMs: 30,
+      loadShedProtectHighPriority: true
+    }
+    expect(validatedNode(runWith({ config })).config).toEqual(config)
+  })
+
+  it('rejects non-positive load-shedding thresholds and bulkhead caps', () => {
+    const shed = runWith({ config: { loadShedQueueDepth: 0 } })
+    expect(shed.valid).toBe(false)
+    expect(shed.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: 'nodes[1].config.loadShedQueueDepth' })
+      ])
+    )
+    expect(runWith({ resilience: { bulkhead: { partitions: { report: 0 } } } }).valid).toBe(false)
+  })
+
+  it('warns that a bare maxConcurrent does nothing outside serverless', () => {
+    const result = runWith({ resilience: { bulkhead: { maxConcurrent: 50 } } })
+
+    expect(result.valid).toBe(true)
+    expect(result.warnings).toContain(
+      "Node 'Order Service' sets resilience.bulkhead.maxConcurrent, which only caps serverless-function concurrency and is ignored here; use resilience.bulkhead.partitions or defaultMaxConcurrent for a bulkhead."
+    )
+  })
+})
