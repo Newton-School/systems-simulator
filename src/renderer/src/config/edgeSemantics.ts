@@ -138,9 +138,10 @@ export const EDGE_PROPERTY_HELP = {
   },
   bandwidth: {
     title: 'Bandwidth (Mbps)',
-    summary: 'Link throughput used to convert request size into transmission time.',
+    summary: 'Link capacity in megabits per second, shared by every request crossing this edge.',
     simulationEffect:
-      'Adds transmission delay as request.sizeBytes / (bandwidth * 125). Large payloads slow down more on narrow links.'
+      'Each request holds the link for sizeBytes / (bandwidth * 125) ms. Requests that arrive while it is busy wait in line, so the edge can never carry more than its bandwidth.',
+    note: 'Only request payloads cross edges; response sizes are not modeled.'
   },
   maxConcurrentRequests: {
     title: 'Max Concurrent',

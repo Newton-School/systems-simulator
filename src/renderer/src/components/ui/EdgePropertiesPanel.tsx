@@ -10,7 +10,10 @@ import {
   inferCanvasEdgeMode
 } from '@renderer/config/edgeSemantics'
 import type { CanvasNodeDataV2 } from '../../../../engine/catalog/nodeSpecTypes'
-import { getEdgeConstraints } from '../../../../engine/defaults/edgeConstraints'
+import {
+  getEdgeConstraints,
+  validateEdgeConstraintSelection
+} from '../../../../engine/defaults/edgeConstraints'
 import {
   getPathTypeLatencyProfile,
   inferEdgeDefaults
@@ -212,6 +215,20 @@ export const EdgePropertiesPanel = ({
   const modeWarning = !constraints.allowedModes.includes(selectedMode)
     ? constraints.reasons.mode[selectedMode]
     : null
+  // Same rule table the validator uses at run time (one truth per rule). The
+  // protocol and mode findings already render inline next to their selects, so
+  // only the value-range findings (bandwidth, concurrency, loss) show here.
+  const valueWarnings = validateEdgeConstraintSelection(
+    {
+      protocol: selectedProtocol,
+      mode: selectedMode,
+      bandwidth: value.bandwidth ?? defaults.bandwidth,
+      maxConcurrentRequests: value.maxConcurrentRequests ?? defaults.maxConcurrentRequests,
+      packetLossRate: (value.packetLossRate ?? defaults.packetLossRatePercent) / 100
+    },
+    sourceNodeData?.componentType,
+    targetNodeData?.componentType
+  ).filter((warning) => warning !== protocolWarning && warning !== modeWarning)
   const latencySummary =
     selectedLatencyDistributionType === 'constant'
       ? `Constant transit: ${selectedLatencyValue.toFixed(2)}ms on every hop. Use this for a clean, no-jitter edge.`
@@ -648,6 +665,16 @@ export const EdgePropertiesPanel = ({
                 />
               </div>
             </div>
+
+            {valueWarnings.length > 0 ? (
+              <ul className="space-y-1" data-testid="edge-value-warnings">
+                {valueWarnings.map((warning) => (
+                  <li key={warning} className="text-[10px] leading-relaxed text-nss-warning">
+                    {warning}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
 
             <div className="space-y-1">
               <FieldLabel label="Fan-out factor" help={EDGE_PROPERTY_HELP.fanoutFactor} />

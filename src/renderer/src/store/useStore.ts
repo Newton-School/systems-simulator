@@ -213,6 +213,12 @@ export interface EdgeFlowState {
   totalPostWarmupAttempted: number
   totalPostWarmupSuccess: number
   totalPostWarmupFailed: number
+  /**
+   * Transfers sent on this edge that were still queued or on the wire when the
+   * run ended (bandwidth queueing can push arrival past the end). Neither a
+   * success nor a failure.
+   */
+  totalInFlightAtCutoff: number
   avgAttemptedPerSecond: number
   avgSuccessPerSecond: number
   avgFailedPerSecond: number
@@ -283,6 +289,7 @@ const EMPTY_EDGE_FLOW_STATE: EdgeFlowState = {
   totalPostWarmupAttempted: 0,
   totalPostWarmupSuccess: 0,
   totalPostWarmupFailed: 0,
+  totalInFlightAtCutoff: 0,
   avgAttemptedPerSecond: 0,
   avgSuccessPerSecond: 0,
   avgFailedPerSecond: 0,
@@ -1007,7 +1014,8 @@ function hasRecordPatchChanges(
 }
 
 function summarizeEdgeFlow(
-  events: EdgeFlowRenderEvent[]
+  events: EdgeFlowRenderEvent[],
+  simulationDurationMs = Number.POSITIVE_INFINITY
 ): Pick<
   EdgeFlowState,
   'attemptedPerSecond' | 'successPerSecond' | 'failedPerSecond' | 'failureRatio'
@@ -1019,16 +1027,21 @@ function summarizeEdgeFlow(
       : events.filter((event) => lastStartedAtMs - event.startedAtMs <= EDGE_FLOW_WINDOW_MS)
   let attempted = 0
   let success = 0
+  let inFlight = 0
 
   for (const event of windowedEvents) {
     const weight = event.sampleWeight
     attempted += weight
     if (event.status === 'success') {
-      success += weight
+      if (event.completedAtMs > simulationDurationMs) {
+        inFlight += weight
+      } else {
+        success += weight
+      }
     }
   }
 
-  const failed = attempted - success
+  const failed = attempted - success - inFlight
   const first = windowedEvents[0]?.startedAtMs
   const last = windowedEvents[windowedEvents.length - 1]?.startedAtMs
   const spanSeconds = Math.max(
@@ -1059,7 +1072,8 @@ function mergeEdgeFlowState(
   previous: EdgeFlowState,
   countedEvents: EdgeFlowEvent[],
   retainedEvents: EdgeFlowRenderEvent[],
-  warmupDurationMs: number
+  warmupDurationMs: number,
+  simulationDurationMs = Number.POSITIVE_INFINITY
 ): EdgeFlowState {
   const lastEvent = countedEvents[countedEvents.length - 1]
   if (!lastEvent) {
@@ -1081,9 +1095,21 @@ function mergeEdgeFlowState(
   let totalPostWarmupSuccess = previous.totalPostWarmupSuccess
   const totalFailedByCause = { ...previous.totalFailedByCause }
   const totalPostWarmupFailedByCause = { ...previous.totalPostWarmupFailedByCause }
+  let totalInFlightAtCutoff = previous.totalInFlightAtCutoff ?? 0
+  let postWarmupInFlight = 0
 
   for (const event of countedEvents) {
     const isPostWarmupEvent = event.completedAtMs >= warmupDurationMs
+
+    if (event.status === 'success' && event.completedAtMs > simulationDurationMs) {
+      // Sent but not delivered before the run ended: in flight, not a success.
+      totalInFlightAtCutoff++
+      if (isPostWarmupEvent) {
+        totalPostWarmupAttempted++
+        postWarmupInFlight++
+      }
+      continue
+    }
 
     if (event.status === 'success') {
       totalSuccess++
@@ -1102,8 +1128,12 @@ function mergeEdgeFlowState(
     }
   }
 
-  const totalFailed = totalAttempted - totalSuccess
-  const totalPostWarmupFailed = totalPostWarmupAttempted - totalPostWarmupSuccess
+  const totalFailed = totalAttempted - totalSuccess - totalInFlightAtCutoff
+  const totalPostWarmupFailed =
+    previous.totalPostWarmupFailed +
+    (totalPostWarmupAttempted - previous.totalPostWarmupAttempted) -
+    (totalPostWarmupSuccess - previous.totalPostWarmupSuccess) -
+    postWarmupInFlight
   const firstStartedAtMs =
     previous.totalAttempted === 0 ? (countedEvents[0]?.startedAtMs ?? 0) : previous.firstStartedAtMs
   const lastStartedAtMs =
@@ -1118,13 +1148,14 @@ function mergeEdgeFlowState(
 
   return {
     recent,
-    ...summarizeEdgeFlow(recent),
+    ...summarizeEdgeFlow(recent, simulationDurationMs),
     totalAttempted,
     totalSuccess,
     totalFailed,
     totalPostWarmupAttempted,
     totalPostWarmupSuccess,
     totalPostWarmupFailed,
+    totalInFlightAtCutoff,
     avgAttemptedPerSecond: totalAttempted / durationSeconds,
     avgSuccessPerSecond: totalSuccess / durationSeconds,
     avgFailedPerSecond: totalFailed / durationSeconds,
@@ -1851,6 +1882,8 @@ const useStore = create<RFState>((set, get) => ({
       )
       const edgeFlowById = { ...state.edgeFlowById }
       const warmupDurationMs = state.edgeFlowRunConfig?.warmupDurationMs ?? 0
+      const simulationDurationMs =
+        state.edgeFlowRunConfig?.simulationDurationMs ?? Number.POSITIVE_INFINITY
 
       for (const [edgeId, edgeEvents] of countedEventsByEdgeId) {
         const previous = edgeFlowById[edgeId] ?? EMPTY_EDGE_FLOW_STATE
@@ -1858,7 +1891,8 @@ const useStore = create<RFState>((set, get) => ({
           previous,
           edgeEvents,
           retainedEventsByEdgeId.get(edgeId) ?? [],
-          warmupDurationMs
+          warmupDurationMs,
+          simulationDurationMs
         )
       }
 
