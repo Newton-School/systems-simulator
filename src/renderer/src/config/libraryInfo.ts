@@ -24,7 +24,8 @@ const INFO_BY_ID: Record<string, LibraryItemInfo> = {
     config: ['workload pattern', 'base RPS', 'request size']
   },
   'output-sink': {
-    represents: 'The final endpoint where a request flow ends after passing through the system.',
+    represents:
+      'The final endpoint where a request flow ends. Simulated as a fast acknowledging queue (about 1 ms per request) so it does not become the bottleneck - use External Service for a slow third-party dependency.',
     realWorld: 'Webhook receiver, external sink, or final consumer.',
     config: ['label', 'processing latency', 'SLO']
   },
