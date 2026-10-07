@@ -939,7 +939,18 @@ export const PALETTE_TEMPLATES: Record<string, PaletteTemplate> = {
     label: 'Output Sink',
     subLabel: 'Destination / Egress',
     serializable: true,
-    seed: { throughput: 100, load: 4, queueDepth: 1 }
+    seed: { throughput: 100, load: 4, queueDepth: 1 },
+    // A placeholder "the flow ends here" endpoint, not a slow third-party API. The
+    // third-party-api-connector base (150 ms, with a 50 ms external-integration floor)
+    // made the sink saturate under a default 100 rps Traffic Source, so a plain
+    // Source -> Service -> Sink sketch reported the sink as the bottleneck. It now acks
+    // in ~1 ms; use External Service to model a slow dependency.
+    simDefaults: {
+      processing: {
+        distribution: { type: 'exponential', lambda: 1 },
+        timeout: 1000
+      }
+    }
   },
   'external-service': {
     id: 'external-service',
