@@ -19,30 +19,6 @@ function absolutePosition(node: Node, byId: Map<string, Node>): XYPosition {
   return { x, y }
 }
 
-function descendantIds(rootId: string, nodes: readonly Node[]): Set<string> {
-  const childrenByParent = new Map<string, string[]>()
-  for (const node of nodes) {
-    if (!node.parentNode) continue
-    const list = childrenByParent.get(node.parentNode)
-    if (list) list.push(node.id)
-    else childrenByParent.set(node.parentNode, [node.id])
-  }
-
-  const out = new Set<string>()
-  const stack = [rootId]
-  while (stack.length > 0) {
-    const current = stack.pop() as string
-    for (const child of childrenByParent.get(current) ?? []) {
-      if (!out.has(child)) {
-        out.add(child)
-        stack.push(child)
-      }
-    }
-  }
-
-  return out
-}
-
 function getTemplateId(node: Node): string | null {
   if (typeof node.data !== 'object' || node.data === null) return null
   const candidate = (node.data as { templateId?: unknown }).templateId
@@ -104,20 +80,34 @@ export const recomputeContainment = (nodes: Node[]): Node[] => {
     )
   }
 
+  // Parent links as decided so far in this pass. Each choice is checked against
+  // it, not just the incoming graph: two containers that each hold the other's
+  // center would otherwise pick each other, and React Flow's parent walk
+  // overflows the stack on the cycle (#127).
+  const parentOf = new Map(nodes.map((node) => [node.id, node.parentNode]))
+  const isSelfOrDescendant = (candidateId: string, nodeId: string): boolean => {
+    const seen = new Set<string>()
+    for (let p: string | undefined = candidateId; p && !seen.has(p); p = parentOf.get(p)) {
+      if (p === nodeId) return true
+      seen.add(p)
+    }
+    return false
+  }
+
   let changed = false
   const next = nodes.map((node) => {
     const center = centerOf(node)
-    const forbidden = descendantIds(node.id, nodes)
     const childTemplateId = getTemplateId(node)
     const candidates = containers
       .filter((container) => {
-        if (container.id === node.id || forbidden.has(container.id)) return false
+        if (isSelfOrDescendant(container.id, node.id)) return false
         if (!containsCenter(container, center)) return false
         return validatePlacement(childTemplateId, getTemplateId(container)).valid
       })
       .sort((a, b) => (a.width ?? 0) * (a.height ?? 0) - (b.width ?? 0) * (b.height ?? 0))
 
     const desiredParentId = candidates[0]?.id
+    parentOf.set(node.id, desiredParentId)
     if ((node.parentNode ?? undefined) === desiredParentId) return node
 
     changed = true

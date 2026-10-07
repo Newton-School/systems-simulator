@@ -110,4 +110,29 @@ describe('recomputeContainment (center-inside)', () => {
     const result = recomputeContainment(nodes)
     expect(result.find((candidate) => candidate.id === 'region')!.parentNode).toBeUndefined()
   })
+
+  it('never creates a parent cycle between containers that contain each other (#127)', () => {
+    // Two equal containers offset slightly: each one's center lies inside the
+    // other. Placement rules don't apply (no templateId), so each is a valid
+    // parent for the other. Choosing independently made a -> b -> a, which
+    // overflows React Flow's parent walk.
+    const untemplated = (id: string, x: number, y: number): Node => ({
+      ...container(id, x, y, 400),
+      data: {}
+    })
+    const result = recomputeContainment([untemplated('a', 100, 100), untemplated('b', 120, 120)])
+    const parentOf = new Map(result.map((node) => [node.id, node.parentNode]))
+
+    for (const node of result) {
+      const seen = new Set<string>([node.id])
+      let parent = parentOf.get(node.id)
+      while (parent) {
+        expect(seen.has(parent)).toBe(false)
+        seen.add(parent)
+        parent = parentOf.get(parent)
+      }
+    }
+    // One of them still nests in the other.
+    expect(result.filter((node) => node.parentNode).length).toBe(1)
+  })
 })
