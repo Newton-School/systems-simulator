@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { TopologyJSON } from '../../../engine/core/types'
 import orderTopology from '../../../../order-topology.json'
+import { getComponentSpec } from '../../../engine/catalog/componentSpecs'
 import { isTopologyJsonLike, topologyToCanvasFileData } from './topologyCanvasAdapter'
 
 const SERVERLESS_COLD_START: TopologyJSON = {
@@ -300,6 +301,48 @@ describe('topologyCanvasAdapter', () => {
       brokerRecoveryAtMs: 15_000,
       consumerGroupMode: true
     })
+  })
+
+  it('round-trips bulkhead and load-shedding config through the canvas', () => {
+    const bulkhead = { partitions: { report: 4 }, defaultMaxConcurrent: 16, keyField: 'tenant' }
+    const config = {
+      loadShedQueueDepth: 8,
+      loadShedMaxQueueDelayMs: 30,
+      loadShedProtectHighPriority: true
+    }
+    const canvas = topologyToCanvasFileData({
+      ...SERVERLESS_COLD_START,
+      nodes: [
+        ...SERVERLESS_COLD_START.nodes,
+        {
+          id: 'svc',
+          type: 'microservice',
+          category: 'compute',
+          role: 'processor',
+          label: 'Service',
+          position: { x: 520, y: 0 },
+          queue: { workers: 4, capacity: 100, discipline: 'fifo' },
+          processing: { distribution: { type: 'constant', value: 10 }, timeout: 1_000 },
+          resilience: { bulkhead },
+          config
+        }
+      ]
+    })
+
+    const svc = canvas.nodes.find((node) => node.id === 'svc')!
+    expect(svc.data.sim).toMatchObject({
+      bulkheadPartitions: { report: 4 },
+      bulkheadDefaultMaxConcurrent: 16,
+      bulkheadKeyField: 'tenant',
+      ...config
+    })
+
+    const serialized = getComponentSpec('microservice')!.serializeCanvas(svc.data, {
+      nodeId: 'svc',
+      position: svc.position
+    })!
+    expect(serialized.resilience?.bulkhead).toEqual(bulkhead)
+    expect(serialized.config).toMatchObject(config)
   })
 
   it('synthesizes default handles for topology edges that do not carry canvas metadata', () => {

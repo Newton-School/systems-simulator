@@ -22,6 +22,7 @@ import { FormField } from './FormField'
 import { RequestDistributionEditor } from './RequestDistributionEditor'
 import { TrafficOriginsEditor } from './TrafficOriginsEditor'
 import { QueueWeightsEditor } from './QueueWeightsEditor'
+import { BulkheadPartitionsEditor } from './BulkheadPartitionsEditor'
 import { RoutingRulesEditor } from './RoutingRulesEditor'
 import type { ContentRoutingRule } from '../../../../engine/traits/contentRouting'
 import type { LocationProvider } from '../../../../engine/core/types'
@@ -329,6 +330,18 @@ export const PropertiesForm = ({
           key={`${nodeId}:${field.path}`}
           nodeId={nodeId}
           weights={data.sim?.queue?.weights}
+          onChange={(nextValue) => onUpdate(field.path, nextValue)}
+        />
+      )
+    }
+
+    if (field.renderer === 'bulkhead-partitions') {
+      return (
+        <BulkheadPartitionsEditor
+          key={`${nodeId}:${field.path}`}
+          nodeId={nodeId}
+          partitions={data.sim?.bulkheadPartitions}
+          keyField={data.sim?.bulkheadKeyField}
           onChange={(nextValue) => onUpdate(field.path, nextValue)}
         />
       )

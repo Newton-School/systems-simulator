@@ -370,7 +370,24 @@ export interface ResilienceConfig {
     refillRate: number
   }
   bulkhead?: {
-    maxConcurrent: number
+    /**
+     * Legacy field: the serverless concurrency cap read by cold start
+     * (`max_concurrency_exceeded`). It has no runtime effect on other node
+     * types; the validator warns when it is set there.
+     */
+    maxConcurrent?: number
+    /**
+     * Per-compartment cap on requests held at this node at once (queued + in
+     * service). A compartment is the request type, or `request.metadata[keyField]`
+     * when `keyField` is set. Arrivals over their compartment's cap are rejected
+     * with `bulkhead_full`, so one slow or noisy compartment cannot occupy every
+     * worker and queue slot.
+     */
+    partitions?: Record<string, number>
+    /** Cap for compartments not listed in `partitions`. Absent = unlisted compartments are uncapped. */
+    defaultMaxConcurrent?: number
+    /** request.metadata field that names the compartment; defaults to request.type. */
+    keyField?: string
   }
 }
 
@@ -678,6 +695,11 @@ export interface NodeState {
   queueLength: number
   utilization: number
   totalInSystem: number
+  /**
+   * Current worker ceiling (effective c, follows autoscaling). Optional so
+   * hand-built states in tests stay valid; GGcKNode always sets it.
+   */
+  workerCapacity?: number
   /**
    * Cumulative mean service time (ms) over completed requests, or 0 before any
    * completion. Used by the `least-response-time` routing strategy.

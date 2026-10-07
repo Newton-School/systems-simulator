@@ -23,6 +23,8 @@ import { logReplayCapabilityModule } from './logReplay'
 import { windowingCapabilityModule } from './windowing'
 import { fanoutQueryCapabilityModule } from './fanoutQuery'
 import { autoscalerCapabilityModule } from './autoscaler'
+import { bulkheadCapabilityModule } from './bulkhead'
+import { loadSheddingCapabilityModule } from './loadShedding'
 import { lockLeaseCapabilityModule } from './lockLease'
 import { reservationStoreCapabilityModule } from './reservationStore'
 import { keyBasedRoutingCapabilityModule } from './keyBasedRouting'
@@ -573,7 +575,7 @@ const RESOURCES_MODULE: NodeCapabilityModule = {
     notModeled: [
       'reserved-commitment semantics',
       'spot interruption behavior',
-      'autoscaling',
+      'autoscaling from this section: instance count here is fixed for the run (microservice and serverless-function nodes can autoscale via the Autoscaling section)',
       'per-region hardware availability',
       'rescheduling in-flight CPU work when concurrency changes, NUMA/cache effects, or hyperthreading beyond the vCPU count'
     ]
@@ -998,7 +1000,11 @@ export const TRAIT_CAPABILITY_MODULES: readonly NodeCapabilityModule[] = [
   logReplayCapabilityModule,
   windowingCapabilityModule,
   fanoutQueryCapabilityModule,
-  autoscalerCapabilityModule
+  autoscalerCapabilityModule,
+  // Admission guards run after the latency traits above, so a request they
+  // admit has already picked up its penalties.
+  loadSheddingCapabilityModule,
+  bulkheadCapabilityModule
 ]
 
 // Panel section order = this array order (see renderer `getNodeConfigSections`).
