@@ -460,7 +460,9 @@ export function useTopologySerializer() {
 
         const spec = getComponentSpec(data.componentType)
         if (!spec) {
-          errors.push(`Node '${data.label || rfNode.id}' is missing a registered component spec.`)
+          errors.push(
+            `${data.label || rfNode.id}: This component type is not supported by the simulator.`
+          )
           continue
         }
 

@@ -2,6 +2,7 @@ import { getComponentSpec } from '../../../engine/catalog/componentSpecs'
 import { getPaletteTemplate } from '../../../engine/catalog/paletteTemplates'
 import type { CanvasNodeDataV2 } from '../../../engine/catalog/nodeSpecTypes'
 import type { EdgeDefinition } from '../../../engine/core/types'
+import { edgeFieldTitle } from '../../../engine/defaults/edgeFieldLabels'
 import type { EdgeSimulationData } from '@renderer/types/ui'
 
 export type EdgeModeValue = EdgeDefinition['mode']
@@ -66,37 +67,37 @@ export const EDGE_MODE_PRESENTATION: Record<EdgeModeValue, EdgeModePresentation>
 
 export const EDGE_PROPERTY_HELP = {
   label: {
-    title: 'Label',
+    title: edgeFieldTitle('label'),
     summary: 'Short display name shown on the canvas, inspector, validation, and results panels.',
     simulationEffect: 'No runtime effect. This is documentation for humans.'
   },
   protocol: {
-    title: 'Protocol',
+    title: edgeFieldTitle('protocol'),
     summary: 'Transport used on the edge: HTTP, gRPC, TCP, UDP, WebSocket, AMQP, or Kafka.',
     simulationEffect:
       'Changes protocol overhead, retransmission behavior, and whether connection-limit rejection applies.'
   },
   mode: {
-    title: 'Mode',
+    title: edgeFieldTitle('mode'),
     summary: 'How the edge participates in routing: wait, fan out, stream, or branch by condition.',
     simulationEffect:
       'Controls whether one route is chosen, all async routes are chosen, or a condition must match first.'
   },
   connectorProtocol: {
-    title: 'Protocol',
+    title: edgeFieldTitle('protocol'),
     summary: 'Describes the transport represented by this connector.',
     simulationEffect:
       'Presentation only in connector mode. It changes the badge and arrow accent, not latency, reliability, capacity, cost, or results.'
   },
   connectorMode: {
-    title: 'Interaction',
+    title: edgeFieldTitle('connectorMode'),
     summary:
       'Describes whether the connection is synchronous, asynchronous, streaming, or conditional.',
     simulationEffect:
       'Presentation only in connector mode. It changes the badge and line pattern without changing routing or results.'
   },
   pathType: {
-    title: 'Path Type',
+    title: edgeFieldTitle('pathType'),
     summary:
       'Physical distance and network locality: same rack, same DC, cross-zone, cross-region, or internet.',
     simulationEffect:
@@ -104,73 +105,73 @@ export const EDGE_PROPERTY_HELP = {
     note: 'If you set a fixed latency value or explicit mu/sigma, path type becomes descriptive metadata.'
   },
   condition: {
-    title: 'Condition',
+    title: edgeFieldTitle('condition'),
     summary: 'Predicate that filters traffic by request type or request metadata.',
     simulationEffect:
       'A non-empty condition gates the edge even outside conditional mode; conditional mode simply makes it required.',
     note: 'Supported forms today are request.type and request.metadata.<field> with ==, ===, !=, or !==.'
   },
   latencyModel: {
-    title: 'Latency Model',
+    title: edgeFieldTitle('latencyModel'),
     summary:
       'Auto follows the path-type median with no jitter; manual lets you choose a fixed constant delay or a jittered log-normal profile.',
     simulationEffect:
       'Auto keeps latency derived from path type. Manual directly changes the sampled transit time for every request on the edge.'
   },
   latencyValue: {
-    title: 'Latency (ms)',
+    title: edgeFieldTitle('latencyValue'),
     summary: 'Fixed one-way delay added to every hop when constant latency is selected.',
     simulationEffect:
       'Every request pays exactly this transit delay before transmission and protocol overhead.'
   },
   latencyMu: {
-    title: 'Latency Mu (log-space)',
+    title: edgeFieldTitle('latencyMu'),
     summary:
       'Natural-log median of the base latency distribution before transmission and protocol overhead.',
     simulationEffect:
       'Higher mu shifts the whole latency distribution upward and increases the typical hop time.'
   },
   latencySigma: {
-    title: 'Jitter Sigma',
+    title: edgeFieldTitle('latencySigma'),
     summary: 'Spread of the log-normal latency distribution.',
     simulationEffect:
       'Higher sigma increases jitter and tail latency without necessarily changing the median.'
   },
   bandwidth: {
-    title: 'Bandwidth (Mbps)',
+    title: edgeFieldTitle('bandwidth'),
     summary: 'Link capacity in megabits per second, shared by every request crossing this edge.',
     simulationEffect:
       'Each request holds the link for sizeBytes / (bandwidth * 125) ms. Requests that arrive while it is busy wait in line, so the edge can never carry more than its bandwidth.',
     note: 'Only request payloads cross edges; response sizes are not modeled.'
   },
   maxConcurrentRequests: {
-    title: 'Max Concurrent',
+    title: edgeFieldTitle('maxConcurrentRequests'),
     summary:
       'How many transfers the edge can carry at once before it behaves like a saturated connection pool.',
     simulationEffect:
       'Near the cap, latency inflates; at or above the cap, reliable protocols reject new transfers with connection_refused.'
   },
   weight: {
-    title: 'Weight',
+    title: edgeFieldTitle('weight'),
     summary: "Relative share of the source's traffic sent down this edge under weighted routing.",
     simulationEffect:
       "Each edge gets weight ÷ sum-of-sibling-weights of the traffic. Only applies when the source's strategy is Weighted (or unset with weights present); empty is treated as 1.",
     note: 'Shown as a % badge on the edge when the source routes by weight.'
   },
   packetLossRate: {
-    title: 'Packet Loss (%)',
+    title: edgeFieldTitle('packetLossRate'),
     summary: 'Probability that packets are dropped while traversing the edge.',
     simulationEffect:
       'UDP loss becomes a timeout/drop. Reliable protocols simulate retransmission by adding extra delay instead of immediate failure.'
   },
   errorRate: {
-    title: 'Edge Error (%)',
+    title: edgeFieldTitle('errorRate'),
     summary: 'Probability that the link itself rejects the request independent of packet loss.',
     simulationEffect:
       'Produces an immediate edge-level failure before the request arrives at the target node.'
   },
   fanoutFactor: {
-    title: 'Fan-out factor',
+    title: edgeFieldTitle('fanoutFactor'),
     summary:
       'Amplification: each request delivered over this edge fans out to this many recipients (e.g. one post → N follower feed writes). Leave empty or 1 for no amplification.',
     simulationEffect:

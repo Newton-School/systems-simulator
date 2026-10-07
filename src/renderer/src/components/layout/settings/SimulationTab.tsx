@@ -4,6 +4,7 @@ import { hasWorkloadSourceConfig } from '../../../../../engine/catalog/sourceNod
 import useStore from '@renderer/store/useStore'
 import { mergeWorkloadDefaults } from '@renderer/utils/workloadDefaults'
 import type { FaultTargetOption, ScenarioState, SourceNodeOption } from '@renderer/types/ui'
+import { GLOBAL_FIELD_LABELS } from '../../../../../engine/validation/validationCopy'
 import {
   buildFault,
   DEFAULT_DEGRADED_FRACTION,
@@ -172,7 +173,7 @@ export function SimulationTab(): React.JSX.Element {
     <div className="space-y-1">
       <SettingRow
         id="settings-simulation-duration"
-        label="Run duration"
+        label={GLOBAL_FIELD_LABELS.simulationDuration}
         hint="How long the simulated clock runs before the worker drains and results are finalized."
       >
         <NumberField
@@ -185,7 +186,7 @@ export function SimulationTab(): React.JSX.Element {
 
       <SettingRow
         id="settings-simulation-warmup"
-        label="Warmup duration"
+        label={GLOBAL_FIELD_LABELS.warmupDuration}
         hint="Warmup traffic is excluded from the post-warmup metrics and scorecards."
       >
         <NumberField
@@ -198,7 +199,7 @@ export function SimulationTab(): React.JSX.Element {
 
       <SettingRow
         id="settings-simulation-seed"
-        label="Seed"
+        label={GLOBAL_FIELD_LABELS.seed}
         hint="Controls deterministic replay. The actual seed used is shown in the results footer after a run."
       >
         <TextField

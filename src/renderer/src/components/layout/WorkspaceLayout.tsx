@@ -53,7 +53,6 @@ import {
   resolveEdgeModel,
   resolveEnvironmentProfile
 } from '../../../../engine/analysis/environmentProfile'
-import type { ValidationError } from '../../../../engine/validation/validator'
 import {
   hasWorkloadSourceConfig,
   isSourceComponentData
@@ -120,70 +119,6 @@ const FlowCanvas = lazy(async () => {
   const module = await import('../canvas/FlowCanvas')
   return { default: module.FlowCanvas }
 })
-
-function titleCaseField(field: string): string {
-  switch (field) {
-    case 'latencyP99':
-      return 'Latency target (p99)'
-    case 'availabilityTarget':
-      return 'Availability target'
-    case 'errorBudget':
-      return 'Error budget'
-    default:
-      return field.replace(/([A-Z])/g, ' $1').replace(/^./, (c) => c.toUpperCase())
-  }
-}
-
-function formatValidationIssue(
-  error: ValidationError,
-  nodes: ReturnType<typeof useStore.getState>['nodes'],
-  edges: ReturnType<typeof useStore.getState>['edges']
-): string {
-  if (error.path === 'workload.sourceNodeId') {
-    return error.message
-  }
-
-  const nodeMatch = error.path.match(/^nodes\.(\d+)\.(.+)$/)
-  if (nodeMatch) {
-    const nodeIndex = Number(nodeMatch[1])
-    const node = nodes[nodeIndex]
-    const rawFieldPath = nodeMatch[2]
-    const lastSegment = rawFieldPath.split('.').pop() ?? rawFieldPath
-    const nodeLabel = (node?.data as CanvasNodeDataV2 | undefined)?.label ?? `Node ${nodeIndex + 1}`
-
-    if (error.message.includes('received undefined')) {
-      return `${nodeLabel}: ${titleCaseField(lastSegment)} is missing.`
-    }
-
-    return `${nodeLabel}: ${titleCaseField(lastSegment)} - ${error.message}`
-  }
-
-  const edgeMatch = error.path.match(/^edges(?:\.|\[)(\d+)(?:\]|\.)?(.+)?$/)
-  if (edgeMatch) {
-    const edgeIndex = Number(edgeMatch[1])
-    const edge = edges[edgeIndex]
-    const sourceNode = nodes.find((node) => node.id === edge?.source)
-    const targetNode = nodes.find((node) => node.id === edge?.target)
-    const sourceLabel = (sourceNode?.data as CanvasNodeDataV2 | undefined)?.label ?? edge?.source
-    const targetLabel = (targetNode?.data as CanvasNodeDataV2 | undefined)?.label ?? edge?.target
-    const edgeLabel =
-      typeof edge?.label === 'string' && edge.label.length > 0
-        ? edge.label
-        : sourceLabel && targetLabel
-          ? `${sourceLabel} -> ${targetLabel}`
-          : (edge?.id ?? `Edge ${edgeIndex + 1}`)
-
-    if (error.message.includes('received undefined')) {
-      const rawFieldPath = edgeMatch[2]?.replace(/^\./, '') ?? ''
-      const lastSegment = rawFieldPath.split('.').pop() ?? 'field'
-      return `${edgeLabel}: ${titleCaseField(lastSegment)} is missing.`
-    }
-
-    return `${edgeLabel}: ${error.message}`
-  }
-
-  return error.path ? `${error.path}: ${error.message}` : error.message
-}
 
 function PanelFallback({ label }: { label: string }) {
   return (
@@ -1039,9 +974,11 @@ export const WorkspaceLayout = () => {
       edgeModel: resolveEdgeModel(environmentProfile, activeQuestion)
     })
     if (!validation.valid) {
-      const validationErrors = validation.errors?.map((error) =>
-        formatValidationIssue(error, nodes, edges)
-      ) ?? ['Topology validation failed.']
+      // Messages arrive in plain English, already prefixed with the component or
+      // connection they belong to (see engine/validation/issueMessages.ts).
+      const validationErrors = validation.errors?.map((error) => error.message) ?? [
+        'Topology validation failed.'
+      ]
       setRunIssues({ messages: validationErrors, tone: 'error' })
       return
     }
@@ -1065,10 +1002,8 @@ export const WorkspaceLayout = () => {
     activeQuestion,
     clearSimulationMetrics,
     displaySettings.autoOpenSimulationTray,
-    edges,
     environmentProfile,
     isCompactWorkspace,
-    nodes,
     scenario,
     serialize,
     runSimulation,

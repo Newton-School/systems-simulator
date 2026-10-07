@@ -14,6 +14,7 @@ import {
   getEdgeConstraints,
   validateEdgeConstraintSelection
 } from '../../../../engine/defaults/edgeConstraints'
+import { EDGE_FIELD_LABELS } from '../../../../engine/defaults/edgeFieldLabels'
 import {
   getPathTypeLatencyProfile,
   inferEdgeDefaults
@@ -88,12 +89,13 @@ function EdgeTooltipContent({ entry }: { entry: EdgeHelpEntry }) {
   )
 }
 
-function FieldLabel({ label, help }: { label: string; help: EdgeHelpEntry }) {
+function FieldLabel({ label, help }: { label?: string; help: EdgeHelpEntry }) {
+  const text = label ?? help.title
   return (
     <div className="flex items-center gap-1.5">
-      <label className={FIELD_LABEL_CLASS}>{label}</label>
+      <label className={FIELD_LABEL_CLASS}>{text}</label>
       <TooltipInfo
-        label={`${label} help`}
+        label={`${text} help`}
         width={320}
         content={<EdgeTooltipContent entry={help} />}
       />
@@ -316,7 +318,7 @@ export const EdgePropertiesPanel = ({
           </div>
           <fieldset disabled={readOnly} className="m-0 space-y-3 border-0 p-0 disabled:opacity-70">
             <div className="space-y-1">
-              <FieldLabel label="Label" help={EDGE_PROPERTY_HELP.label} />
+              <FieldLabel help={EDGE_PROPERTY_HELP.label} />
               <input
                 type="text"
                 value={value.label ?? ''}
@@ -328,7 +330,7 @@ export const EdgePropertiesPanel = ({
 
             <div className="grid grid-cols-2 gap-2">
               <div className="space-y-1">
-                <FieldLabel label="Protocol" help={EDGE_PROPERTY_HELP.connectorProtocol} />
+                <FieldLabel help={EDGE_PROPERTY_HELP.connectorProtocol} />
                 <select
                   id="connector-edge-protocol"
                   value={selectedConnectorProtocol}
@@ -348,7 +350,7 @@ export const EdgePropertiesPanel = ({
               </div>
 
               <div className="space-y-1">
-                <FieldLabel label="Interaction" help={EDGE_PROPERTY_HELP.connectorMode} />
+                <FieldLabel help={EDGE_PROPERTY_HELP.connectorMode} />
                 <select
                   id="connector-edge-mode"
                   value={selectedConnectorMode}
@@ -390,7 +392,7 @@ export const EdgePropertiesPanel = ({
           )}
           <fieldset disabled={readOnly} className="m-0 space-y-3 border-0 p-0 disabled:opacity-70">
             <div className="space-y-1">
-              <FieldLabel label="Label" help={EDGE_PROPERTY_HELP.label} />
+              <FieldLabel help={EDGE_PROPERTY_HELP.label} />
               <input
                 type="text"
                 value={value.label ?? ''}
@@ -407,7 +409,7 @@ export const EdgePropertiesPanel = ({
 
             <div className="grid grid-cols-2 gap-2">
               <div className="space-y-1">
-                <FieldLabel label="Protocol" help={EDGE_PROPERTY_HELP.protocol} />
+                <FieldLabel help={EDGE_PROPERTY_HELP.protocol} />
                 <select
                   value={selectedProtocol}
                   onChange={(e) =>
@@ -434,7 +436,7 @@ export const EdgePropertiesPanel = ({
               </div>
 
               <div className="space-y-1">
-                <FieldLabel label="Mode" help={EDGE_PROPERTY_HELP.mode} />
+                <FieldLabel help={EDGE_PROPERTY_HELP.mode} />
                 <select
                   value={selectedMode}
                   onChange={(e) => onChange({ mode: e.target.value as EdgeSimulationData['mode'] })}
@@ -461,7 +463,7 @@ export const EdgePropertiesPanel = ({
 
             <div className="grid grid-cols-2 gap-2">
               <div className="space-y-1">
-                <FieldLabel label="Path Type" help={EDGE_PROPERTY_HELP.pathType} />
+                <FieldLabel help={EDGE_PROPERTY_HELP.pathType} />
                 <select
                   value={value.pathType ?? 'auto'}
                   onChange={(e) =>
@@ -486,7 +488,7 @@ export const EdgePropertiesPanel = ({
                 <p className="text-[10px] leading-relaxed text-nss-muted">{pathTypeHelpText}</p>
               </div>
               <div className="space-y-1">
-                <FieldLabel label="Condition" help={EDGE_PROPERTY_HELP.condition} />
+                <FieldLabel help={EDGE_PROPERTY_HELP.condition} />
                 <input
                   type="text"
                   value={selectedCondition}
@@ -498,7 +500,10 @@ export const EdgePropertiesPanel = ({
             </div>
 
             <div className="space-y-1">
-              <FieldLabel label="Latency" help={EDGE_PROPERTY_HELP.latencyModel} />
+              <FieldLabel
+                label={EDGE_FIELD_LABELS.latency.label}
+                help={EDGE_PROPERTY_HELP.latencyModel}
+              />
               <select
                 value={isLatencyAuto ? 'auto' : 'manual'}
                 onChange={(e) =>
@@ -531,7 +536,7 @@ export const EdgePropertiesPanel = ({
             ) : (
               <>
                 <div className="space-y-1">
-                  <FieldLabel label="Latency Model" help={EDGE_PROPERTY_HELP.latencyModel} />
+                  <FieldLabel help={EDGE_PROPERTY_HELP.latencyModel} />
                   <select
                     value={selectedLatencyDistributionType}
                     onChange={(e) =>
@@ -558,7 +563,7 @@ export const EdgePropertiesPanel = ({
 
                 {selectedLatencyDistributionType === 'constant' ? (
                   <div className="space-y-1">
-                    <FieldLabel label="Latency (ms)" help={EDGE_PROPERTY_HELP.latencyValue} />
+                    <FieldLabel help={EDGE_PROPERTY_HELP.latencyValue} />
                     <EditableNumberInput
                       min={0}
                       step={0.01}
@@ -570,10 +575,7 @@ export const EdgePropertiesPanel = ({
                 ) : (
                   <div className="grid grid-cols-2 gap-2">
                     <div className="space-y-1">
-                      <FieldLabel
-                        label="Latency Mu (log-space)"
-                        help={EDGE_PROPERTY_HELP.latencyMu}
-                      />
+                      <FieldLabel help={EDGE_PROPERTY_HELP.latencyMu} />
                       <EditableNumberInput
                         step={0.01}
                         value={selectedLatencyMu}
@@ -582,7 +584,7 @@ export const EdgePropertiesPanel = ({
                       />
                     </div>
                     <div className="space-y-1">
-                      <FieldLabel label="Jitter Sigma" help={EDGE_PROPERTY_HELP.latencySigma} />
+                      <FieldLabel help={EDGE_PROPERTY_HELP.latencySigma} />
                       <EditableNumberInput
                         min={0.01}
                         step={0.01}
@@ -598,7 +600,7 @@ export const EdgePropertiesPanel = ({
 
             <div className="grid grid-cols-2 gap-2">
               <div className="space-y-1">
-                <FieldLabel label="Bandwidth (Mbps)" help={EDGE_PROPERTY_HELP.bandwidth} />
+                <FieldLabel help={EDGE_PROPERTY_HELP.bandwidth} />
                 <EditableNumberInput
                   min={1}
                   step={1}
@@ -608,10 +610,7 @@ export const EdgePropertiesPanel = ({
                 />
               </div>
               <div className="space-y-1">
-                <FieldLabel
-                  label="Max Concurrent"
-                  help={EDGE_PROPERTY_HELP.maxConcurrentRequests}
-                />
+                <FieldLabel help={EDGE_PROPERTY_HELP.maxConcurrentRequests} />
                 <EditableNumberInput
                   min={1}
                   step={1}
@@ -621,7 +620,7 @@ export const EdgePropertiesPanel = ({
                 />
               </div>
               <div className="space-y-1">
-                <FieldLabel label="Weight" help={EDGE_PROPERTY_HELP.weight} />
+                <FieldLabel help={EDGE_PROPERTY_HELP.weight} />
                 <EditableNumberInput
                   min={0}
                   step={1}
@@ -643,7 +642,7 @@ export const EdgePropertiesPanel = ({
 
             <div className="grid grid-cols-2 gap-2">
               <div className="space-y-1">
-                <FieldLabel label="Packet Loss (%)" help={EDGE_PROPERTY_HELP.packetLossRate} />
+                <FieldLabel help={EDGE_PROPERTY_HELP.packetLossRate} />
                 <EditableNumberInput
                   min={0}
                   max={100}
@@ -654,7 +653,7 @@ export const EdgePropertiesPanel = ({
                 />
               </div>
               <div className="space-y-1">
-                <FieldLabel label="Edge Error (%)" help={EDGE_PROPERTY_HELP.errorRate} />
+                <FieldLabel help={EDGE_PROPERTY_HELP.errorRate} />
                 <EditableNumberInput
                   min={0}
                   max={100}
@@ -677,7 +676,7 @@ export const EdgePropertiesPanel = ({
             ) : null}
 
             <div className="space-y-1">
-              <FieldLabel label="Fan-out factor" help={EDGE_PROPERTY_HELP.fanoutFactor} />
+              <FieldLabel help={EDGE_PROPERTY_HELP.fanoutFactor} />
               <EditableNumberInput
                 min={1}
                 step={1}
