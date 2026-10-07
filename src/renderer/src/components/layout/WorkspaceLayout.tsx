@@ -94,6 +94,11 @@ import {
   type SourceNodeOption
 } from '@renderer/types/ui'
 import { generateRunSeed } from '@renderer/components/simulation/simulationControlModel'
+import {
+  compareRunGraph,
+  snapshotRunGraph,
+  type RunGraphSnapshot
+} from '@renderer/components/simulation/resultsTopologyRelation'
 import { PRE_RUN_LENSES, RUNTIME_LENSES } from '@renderer/config/metricLensConfig'
 import {
   useCompactWorkspace,
@@ -343,6 +348,9 @@ export const WorkspaceLayout = () => {
     tone: 'warning'
   })
   const [lastRunContext, setLastRunContext] = useState<ScenarioRunContext | null>(null)
+  // Graph the current results were produced from (#184): results are only shown
+  // for the topology they were run on.
+  const [lastRunGraph, setLastRunGraph] = useState<RunGraphSnapshot | null>(null)
   /**
    * The Newton host asked us to draw the back control in our own header rather than stacking
    * a strip above the iframe. Off unless a seed says otherwise, so an older host that still
@@ -450,21 +458,6 @@ export const WorkspaceLayout = () => {
     setEnvironmentProfile,
     setResultsRevealed
   ])
-
-  const handleOpenTopology = useCallback(async () => {
-    const loaded = await handleOpen()
-    if (!loaded) {
-      return
-    }
-
-    // In AUTHOR/standalone mode (local or the public simulator URL) keep the
-    // active question so an author can open a solution topology and Test it
-    // against the loaded question. In a real assignment (ASSIGNMENT/PRACTICE)
-    // opening a topology still clears the question to avoid bypassing it.
-    if (environmentProfile.mode !== 'AUTHOR') {
-      clearQuestionSession()
-    }
-  }, [clearQuestionSession, handleOpen, environmentProfile.mode])
 
   const selectedNodeId = nodes.find((n) => n.selected)?.id
   const selectedEdgeId = edges.find((e) => e.selected)?.id
@@ -1058,6 +1051,9 @@ export const WorkspaceLayout = () => {
       warmupDurationMs: runContext.global.warmupDuration
     })
     flowStore.setEdgeFlowStatus('running')
+    // Read the graph from the store at run time, not from the render closure, so the
+    // snapshot can't go stale if this callback's dependency list changes.
+    setLastRunGraph(snapshotRunGraph(flowStore.nodes, flowStore.edges))
     runSimulation(topology)
     flowStore.setRunInspectorPinned(true)
     setIsRightOpen(!isCompactWorkspace)
@@ -1079,6 +1075,11 @@ export const WorkspaceLayout = () => {
     startSimulation()
   }, [startSimulation])
 
+  const resultsTopologyRelation = useMemo(
+    () => (lastRunGraph ? compareRunGraph(lastRunGraph, nodes, edges) : 'same'),
+    [edges, lastRunGraph, nodes]
+  )
+
   // Leave the post-run state and return to pre-run setup: discard the run's
   // results (node metrics, edge flow) and reset the lens back to the pre-run
   // family. The topology itself is untouched. sim.reset() clears the edge flow
@@ -1091,6 +1092,38 @@ export const WorkspaceLayout = () => {
     setRunIssues({ messages: [], tone: 'warning' })
     setRunInspectorPinned(false)
   }, [clearSimulationMetrics, setRunInspectorPinned, sim])
+
+  // #184: an emptied or replaced canvas no longer has anything these results
+  // describe, so discard them and close the tray (also stops a run in flight).
+  useEffect(() => {
+    if (sim.status === 'idle') {
+      return
+    }
+    if (resultsTopologyRelation === 'empty' || resultsTopologyRelation === 'replaced') {
+      setLastRunGraph(null)
+      handleResetRun()
+    }
+  }, [handleResetRun, resultsTopologyRelation, sim.status])
+
+  const handleOpenTopology = useCallback(async () => {
+    const loaded = await handleOpen()
+    if (!loaded) {
+      return
+    }
+
+    // A newly opened file replaces the topology the current results describe (#184).
+    if (sim.status !== 'idle') {
+      handleResetRun()
+    }
+
+    // In AUTHOR/standalone mode (local or the public simulator URL) keep the
+    // active question so an author can open a solution topology and Test it
+    // against the loaded question. In a real assignment (ASSIGNMENT/PRACTICE)
+    // opening a topology still clears the question to avoid bypassing it.
+    if (environmentProfile.mode !== 'AUTHOR') {
+      clearQuestionSession()
+    }
+  }, [clearQuestionSession, handleOpen, environmentProfile.mode, handleResetRun, sim.status])
 
   const handleSampleLoad = useCallback(
     async (sample: SampleScenario) => {
@@ -1386,6 +1419,7 @@ export const WorkspaceLayout = () => {
           results={sim.results}
           error={sim.error}
           runContext={lastRunContext}
+          topologyEdited={resultsTopologyRelation === 'edited'}
           onClose={() => setShowResults(false)}
         />
       </Suspense>

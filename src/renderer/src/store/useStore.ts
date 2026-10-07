@@ -1226,6 +1226,9 @@ type RFState = {
   setTraceSpeed: (speed: 'normal' | 'slow') => void
   viewportFitVersion: number
   requestViewportFit: () => void
+  /** One-shot request for the canvas to pan/zoom onto these nodes (results-tray linking). */
+  viewportFocusRequest: { nodeIds: string[]; version: number } | null
+  requestViewportFocus: (nodeIds: string[]) => void
   setPendingNodePlacement: (placement: PendingNodePlacement | null) => void
   setAnnotations: (annotations: CanvasAnnotation[]) => void
   addAnnotation: (annotation: CanvasAnnotation) => void
@@ -1311,6 +1314,7 @@ const useStore = create<RFState>((set, get) => ({
   resultsRevealed: false,
   lastRunOutput: null,
   viewportFitVersion: 0,
+  viewportFocusRequest: null,
 
   onNodesChange: (changes: NodeChange[]) => {
     set((state) => {
@@ -1951,6 +1955,13 @@ const useStore = create<RFState>((set, get) => ({
   requestViewportFit: () =>
     set((state) => ({
       viewportFitVersion: state.viewportFitVersion + 1
+    })),
+  requestViewportFocus: (nodeIds) =>
+    set((state) => ({
+      viewportFocusRequest: {
+        nodeIds,
+        version: (state.viewportFocusRequest?.version ?? 0) + 1
+      }
     })),
   setPendingNodePlacement: (pendingNodePlacement) => set({ pendingNodePlacement }),
   setAnnotations: (annotations) =>

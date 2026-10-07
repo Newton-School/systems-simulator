@@ -20,7 +20,7 @@ export type PreRunMetricLens = 'instance' | 'concurrency' | 'queueCapacity' | 't
 export type RuntimeMetricLens = 'traffic' | 'saturation' | 'latency' | 'errors' | 'throughput'
 export type MetricLens = PreRunMetricLens | RuntimeMetricLens
 export type LatencyLensPercentile = 'p50' | 'p95' | 'p99'
-export type ResultsTabId = 'overview' | 'bottlenecks' | 'nodes' | 'traffic'
+export type ResultsTabId = 'overview' | 'bottlenecks' | 'nodes' | 'failures' | 'traces' | 'traffic'
 export type ComponentLibraryMode = 'default' | 'all'
 export type EdgeRoutingStyle = EdgePresentationRoutingStyle
 

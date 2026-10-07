@@ -65,6 +65,9 @@ import {
 } from '@renderer/utils/nodeHealthThresholds'
 import { simulatedArrivalBins, workloadRateMultiplierAtMs } from './resultsTrayWorkload'
 import { selectCoveringRequestIds } from '@renderer/utils/requestTraceCoverage'
+import { FailureCascadePanel } from './FailureCascadePanel'
+import { TraceWaterfallPanel } from './TraceWaterfallPanel'
+import { useFocusNodeOnCanvas } from './useFocusNodeOnCanvas'
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
@@ -78,6 +81,8 @@ interface ResultsTrayProps {
   results: SimulationOutput | null
   error: string | null
   runContext: ScenarioRunContext | null
+  /** Nodes or connections changed on the canvas since this run (#184). */
+  topologyEdited?: boolean
   onClose?: () => void
 }
 
@@ -203,8 +208,20 @@ const RESULTS_TABS: Array<{ id: ResultsTab; label: string }> = [
   { id: 'overview', label: 'Overview' },
   { id: 'bottlenecks', label: 'Bottlenecks' },
   { id: 'nodes', label: 'Node Metrics' },
+  { id: 'failures', label: 'Failures' },
+  { id: 'traces', label: 'Traces' },
   { id: 'traffic', label: 'Traffic' }
 ]
+
+/**
+ * Last tab / drilldown selection per run output. Closing the tray unmounts it;
+ * reopening the same run's results restores where the reader was, while a new
+ * run (a new output object) starts from the default tab again.
+ */
+const trayViewMemory = new WeakMap<
+  SimulationOutput,
+  { tab: ResultsTab; selected: SelectedComponent | null }
+>()
 
 const LIVE_PATTERN_BAR_COUNT = 24
 const RUNTIME_NODE_METRICS_TOOLTIP =
@@ -4654,6 +4671,7 @@ function PerNodeTable({
     return ids
   }, [nodes])
   const nodeById = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes])
+  const focusNode = useFocusNodeOnCanvas()
 
   if (entries.length === 0) return null
 
@@ -4807,7 +4825,12 @@ function PerNodeTable({
                 const llViolation = ll && !ll.withinTolerance
 
                 return (
-                  <tr key={nodeId} className="border-b border-nss-border hover:bg-nss-surface/70">
+                  <tr
+                    key={nodeId}
+                    onClick={() => focusNode(nodeId)}
+                    title="Select on canvas"
+                    className="cursor-pointer border-b border-nss-border hover:bg-nss-surface/70"
+                  >
                     <td className="py-1 pr-2 text-nss-text max-w-[180px]">
                       <div className="truncate">{m.nodeLabel ?? nodeId}</div>
                       {formatNodeLocation(locationTopology.nodeLocations.get(nodeId)) && (
@@ -4977,11 +5000,36 @@ export function ResultsTray({
   results,
   error,
   runContext,
+  topologyEdited = false,
   onClose
 }: ResultsTrayProps) {
   const defaultResultsTab = useStore((state) => state.displaySettings.defaultResultsTab)
-  const [activeTab, setActiveTab] = useState<ResultsTab>(defaultResultsTab)
-  const [selectedComponent, setSelectedComponent] = useState<SelectedComponent | null>(null)
+  const [activeTab, setActiveTabState] = useState<ResultsTab>(
+    () => (results && trayViewMemory.get(results)?.tab) || defaultResultsTab
+  )
+  const [selectedComponent, setSelectedComponentState] = useState<SelectedComponent | null>(
+    () => (results && trayViewMemory.get(results)?.selected) || null
+  )
+  const setActiveTab = useCallback(
+    (tab: ResultsTab) => {
+      setActiveTabState(tab)
+      if (results) {
+        const memory = trayViewMemory.get(results)
+        trayViewMemory.set(results, { tab, selected: memory?.selected ?? null })
+      }
+    },
+    [results]
+  )
+  const setSelectedComponent = useCallback(
+    (selected: SelectedComponent | null) => {
+      setSelectedComponentState(selected)
+      if (results) {
+        const memory = trayViewMemory.get(results)
+        trayViewMemory.set(results, { tab: memory?.tab ?? defaultResultsTab, selected })
+      }
+    },
+    [defaultResultsTab, results]
+  )
   const nodes = useStore((state) => state.nodes)
   const edges = useStore((state) => state.edges)
   const tracedRequestIds = useStore((state) => state.tracedRequestIds)
@@ -5053,8 +5101,16 @@ export function ResultsTray({
 
   useEffect(() => {
     if (results) {
-      setActiveTab(defaultResultsTab)
-      setSelectedComponent(defaultSelectedComponent(results))
+      const memory = trayViewMemory.get(results)
+      if (memory) {
+        setActiveTabState(memory.tab)
+        setSelectedComponentState(memory.selected)
+        return
+      }
+      const selected = defaultSelectedComponent(results)
+      trayViewMemory.set(results, { tab: defaultResultsTab, selected })
+      setActiveTabState(defaultResultsTab)
+      setSelectedComponentState(selected)
     }
   }, [defaultResultsTab, results])
 
@@ -5062,7 +5118,7 @@ export function ResultsTray({
     if (!results && (status === 'running' || status === 'paused') && activeTab !== 'traffic') {
       setActiveTab('traffic')
     }
-  }, [activeTab, results, status])
+  }, [activeTab, results, setActiveTab, status])
 
   const retainedReplayEventCount = results ? results.eventStream.length : 0
   const totalCapturedReplayEvents = results ? totalReplayEventCount(results) : 0
@@ -5156,6 +5212,13 @@ export function ResultsTray({
           )}
 
           <div className="flex-1 overflow-y-auto px-4 py-3 space-y-5">
+            {topologyEdited && (
+              <div className="rounded-md border border-nss-warning/20 bg-nss-warning/10 px-3 py-2 text-xs text-nss-warning">
+                Nodes or connections on the canvas changed since this run. These results describe
+                the topology as it was when it ran - run again to refresh them.
+              </div>
+            )}
+
             {stopped && (
               <div className="rounded-md border border-nss-warning/20 bg-nss-warning/10 px-3 py-2 text-xs text-nss-warning">
                 This run was stopped before the event queue drained. Metrics and replay data below
@@ -5201,6 +5264,15 @@ export function ResultsTray({
                   runContext={runContext}
                 />
               </div>
+            )}
+
+            {activeTab === 'failures' && <FailureCascadePanel output={results} />}
+
+            {activeTab === 'traces' && (
+              <TraceWaterfallPanel
+                output={results}
+                traceSampleRate={runContext?.global.traceSampleRate ?? null}
+              />
             )}
 
             {activeTab === 'traffic' && (

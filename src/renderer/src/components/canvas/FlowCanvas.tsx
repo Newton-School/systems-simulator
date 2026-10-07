@@ -155,6 +155,7 @@ const FlowCanvasInternal = ({
   const clearEdgeFlow = useStore((state) => state.clearEdgeFlow)
   const setRoutingStrategyVisualization = useStore((state) => state.setRoutingStrategyVisualization)
   const viewportFitVersion = useStore((state) => state.viewportFitVersion)
+  const viewportFocusRequest = useStore((state) => state.viewportFocusRequest)
   const scaffoldNodeIds = useStore((state) => state.scaffoldNodeIds)
   const scaffoldEdgeIds = useStore((state) => state.scaffoldEdgeIds)
   const activeQuestion = useStore((state) => state.activeQuestion)
@@ -363,6 +364,23 @@ const FlowCanvasInternal = ({
       })
     })
   }, [reactFlowInstance, viewportFitVersion])
+
+  // Results-tray row linking: pan/zoom onto the requested nodes (selection is
+  // set separately by the caller through selectGraphElements).
+  useEffect(() => {
+    if (!reactFlowInstance || !viewportFocusRequest || viewportFocusRequest.nodeIds.length === 0) {
+      return
+    }
+
+    window.requestAnimationFrame(() => {
+      void reactFlowInstance.fitView({
+        nodes: viewportFocusRequest.nodeIds.map((id) => ({ id })),
+        padding: 0.6,
+        maxZoom: 1.2,
+        duration: 400
+      })
+    })
+  }, [reactFlowInstance, viewportFocusRequest])
 
   // Edge selection lives in the shared store so the right-hand inspector
   // (PropertiesPanel) can render its properties, exactly like node config.
