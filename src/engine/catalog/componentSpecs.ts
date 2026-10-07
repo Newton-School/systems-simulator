@@ -860,7 +860,7 @@ function validateSimulationNode(data: CanvasNodeDataV2): string[] {
     data.sim.replicationRole !== 'leader' &&
     data.sim.replicationRole !== 'follower'
   ) {
-    errors.push('Replication role must be Primary, Replica, Leader, or Follower.')
+    errors.push(oneOf('Database role', ['Leader', 'Follower']))
   }
 
   if (
