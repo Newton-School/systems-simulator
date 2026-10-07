@@ -14,10 +14,10 @@
  * in the pipeline changes.
  *
  * Architecture:
- *   Renderer  →  IPC (`llm:gradeJustification`)  →  Main process  →  <provider> API
+ *   Browser  →  POST /api/llm/grade-justification  →  Vite dev server (Node)  →  <provider> API
  *
- * The API key lives exclusively in the main process; the renderer never sees
- * it. If the LLM call fails (network, rate-limit, timeout, no key), the caller
+ * The API key lives exclusively in the Node server process (see the local
+ * grading proxy in `vite.config.mts`); the browser never sees it. If the LLM call fails (network, rate-limit, timeout, no key), the caller
  * falls back to the deterministic grader so the student is never blocked.
  */
 
@@ -26,7 +26,7 @@ import type { JustificationOutcome, JustificationResult } from './justification'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-/** Input payload sent from the renderer to the main process over IPC. */
+/** Input payload sent from the browser to the Node grading proxy. */
 export interface LlmGradeRequest {
   /** The justify prompt definition (decision text, boundTo, requires, etc.). */
   prompt: JustifyPrompt
@@ -274,7 +274,7 @@ export const PROVIDERS: Record<LlmProviderId, LlmProvider> = {
   openai: openaiProvider
 }
 
-// ── Configuration resolution (main-process only) ──────────────────────────────
+// ── Configuration resolution (Node server only) ───────────────────────────────
 
 /** A minimal env shape so this stays testable without `process`. */
 export type EnvLike = Record<string, string | undefined>
@@ -322,12 +322,12 @@ export function resolveProviderConfig(env: EnvLike): LlmProviderConfig | null {
   return null
 }
 
-// ── Grading entry point (main-process only) ───────────────────────────────────
+// ── Grading entry point (Node server only) ────────────────────────────────────
 
 /**
  * Grades a justification with the configured provider. Intended to run in the
- * Electron main process (Node context with network access); the renderer
- * invokes it via IPC.
+ * Node server process (the local Vite grading proxy); the browser calls it over
+ * HTTP.
  *
  * @throws On unknown provider, network failure, non-2xx status, or unparseable
  *   response — the caller falls back to the deterministic grader.

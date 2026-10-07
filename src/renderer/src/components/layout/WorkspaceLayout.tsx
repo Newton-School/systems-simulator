@@ -468,7 +468,6 @@ export const WorkspaceLayout = () => {
 
   const selectedNodeId = nodes.find((n) => n.selected)?.id
   const selectedEdgeId = edges.find((e) => e.selected)?.id
-  const hasElectronCloseBridge = typeof window.nssimulator?.onCloseRequest === 'function'
   const handleLeftSidebarTabSelect = useCallback(
     (tab: LibrarySidebarTab) => {
       setLeftSidebarTab(tab)
@@ -492,7 +491,7 @@ export const WorkspaceLayout = () => {
   }, [isCompactWorkspace, pendingNodePlacement])
 
   useEffect(() => {
-    if (!isUnsaved || hasElectronCloseBridge) {
+    if (!isUnsaved) {
       return
     }
 
@@ -503,16 +502,7 @@ export const WorkspaceLayout = () => {
 
     window.addEventListener('beforeunload', handleBeforeUnload)
     return () => window.removeEventListener('beforeunload', handleBeforeUnload)
-  }, [hasElectronCloseBridge, isUnsaved])
-
-  useEffect(() => {
-    const onCloseRequest = window.nssimulator?.onCloseRequest
-    if (typeof onCloseRequest !== 'function') {
-      return
-    }
-
-    return onCloseRequest(() => useStore.getState().isUnsaved)
-  }, [])
+  }, [isUnsaved])
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
