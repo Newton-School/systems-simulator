@@ -25,6 +25,7 @@ import {
   type TraitPackId
 } from '../../../../engine/catalog/customDefinitions'
 import { instantiateTemplate } from '../../../../engine/catalog/paletteTemplates'
+import { resolveCapacityTraitDefaults } from '../../../../engine/catalog/customCapacityDefaults'
 import type { CanvasNodeDataV2 } from '../../../../engine/catalog/nodeSpecTypes'
 import { getId } from '../canvas/utils/canvasUtils'
 import useStore from '../../store/useStore'
@@ -429,6 +430,11 @@ function DefinitionBuilderModal({
   const [saveToLibrary, setSaveToLibrary] = useState(mode === 'service')
 
   const template = RUNTIME_TEMPLATES[runtimeTemplate]
+  // Unset capacity fields keep the runtime's seeded resources, so show those.
+  const capacityDefaults = useMemo(
+    () => resolveCapacityTraitDefaults(runtimeTemplate),
+    [runtimeTemplate]
+  )
   const validationMessages = useMemo(() => {
     const messages: string[] = []
     if (!name.trim()) messages.push('Name is required.')
@@ -1051,7 +1057,8 @@ function DefinitionBuilderModal({
                                   Workload kind
                                   <select
                                     value={
-                                      (values.workloadKind as string | undefined) ?? 'io-bound'
+                                      (values.workloadKind as string | undefined) ??
+                                      capacityDefaults.workloadKind
                                     }
                                     onChange={(event) =>
                                       setTraits((current) =>
@@ -1073,7 +1080,10 @@ function DefinitionBuilderModal({
                                   Workers per instance
                                   <EditableNumberInput
                                     min={1}
-                                    value={(values.workersPerInstance as number | undefined) ?? 32}
+                                    value={
+                                      (values.workersPerInstance as number | undefined) ??
+                                      capacityDefaults.workersPerInstance
+                                    }
                                     onChange={(event) =>
                                       setTraits((current) =>
                                         updateTraitValue(
@@ -1091,7 +1101,10 @@ function DefinitionBuilderModal({
                                   Instance count
                                   <EditableNumberInput
                                     min={1}
-                                    value={(values.instanceCount as number | undefined) ?? 1}
+                                    value={
+                                      (values.instanceCount as number | undefined) ??
+                                      capacityDefaults.instanceCount
+                                    }
                                     onChange={(event) =>
                                       setTraits((current) =>
                                         updateTraitValue(
@@ -1109,7 +1122,10 @@ function DefinitionBuilderModal({
                                   Queue slots
                                   <EditableNumberInput
                                     min={1}
-                                    value={(values.queueSlots as number | undefined) ?? 64}
+                                    value={
+                                      (values.queueSlots as number | undefined) ??
+                                      capacityDefaults.queueSlots
+                                    }
                                     onChange={(event) =>
                                       setTraits((current) =>
                                         updateTraitValue(
