@@ -57,6 +57,16 @@ const QUEUE_FIELD_LABELS_BY_TYPE: Partial<Record<ComponentType, QueueFieldLabels
   }
 }
 
+/** Labels for the global run settings, as the Simulation settings tab shows them. */
+export const GLOBAL_FIELD_LABELS = {
+  simulationDuration: 'Run duration',
+  warmupDuration: 'Warmup duration',
+  seed: 'Seed',
+  timeResolution: 'Time resolution',
+  defaultTimeout: 'Default timeout',
+  traceSampleRate: 'Trace sample rate'
+} as const
+
 export const VALIDATION_COPY = {
   missingQueue: 'This component is missing queue settings.',
   missingProcessing: 'This component is missing performance settings.',
@@ -74,8 +84,7 @@ export const VALIDATION_COPY = {
   workloadSourceMissing: 'The selected workload source does not exist.',
   sourceNodeRequired:
     'Add at least one source node or choose a workload source before running the simulation.',
-  conditionalEdgeExpression: 'Conditional edges need a condition expression.',
-  simulationTiming: 'Simulation duration must be greater than warmup duration.'
+  conditionalEdgeExpression: 'Conditional connections need a condition expression.'
 } as const
 
 export type ValidationCopyKey = keyof typeof VALIDATION_COPY
@@ -112,18 +121,30 @@ export function oneOf(label: string, values: readonly string[]): string {
   if (values.length <= 1) {
     return `${label} must be ${values[0] ?? 'a supported value'}.`
   }
+  if (values.length === 2) {
+    return `${label} must be ${values[0]} or ${values[1]}.`
+  }
   return `${label} must be ${values.slice(0, -1).join(', ')}, or ${values[values.length - 1]}.`
+}
+
+export function instanceCountWithinMax(countLabel: string, maxLabel: string): string {
+  return `${countLabel} cannot be more than ${maxLabel}.`
 }
 
 export function queueCapacityAtLeastWorkers(capacityLabel: string, workersLabel: string): string {
   return `${capacityLabel} must be at least as large as ${workersLabel}.`
 }
 
+function joinChoices(values: readonly string[]): string {
+  if (values.length <= 2) return values.join(' or ')
+  return `${values.slice(0, -1).join(', ')}, or ${values[values.length - 1]}`
+}
+
 export function routingRuleUnsupportedMatchField(
   index: number,
   allowedLabels: readonly string[]
 ): string {
-  return `Routing rule ${index + 1} uses an unsupported match field. Choose ${allowedLabels.join(', ')}.`
+  return `Routing rule ${index + 1} uses an unsupported match field. Choose ${joinChoices(allowedLabels)}.`
 }
 
 export function routingRuleMissingMatchValue(index: number): string {
@@ -138,7 +159,7 @@ export function routingRuleInvalidOperator(
   index: number,
   allowedOperators: readonly string[]
 ): string {
-  return `Routing rule ${index + 1} uses an unsupported operator. Choose ${allowedOperators.join(', ')}.`
+  return `Routing rule ${index + 1} uses an unsupported operator. Choose ${joinChoices(allowedOperators)}.`
 }
 
 export function routingRuleMissingHeaderKey(index: number): string {
