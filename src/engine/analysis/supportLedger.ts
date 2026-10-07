@@ -35,16 +35,23 @@ export const DOMAIN_SUPPORT_LEDGER: Record<QuestionDomain, SupportLedgerEntry> =
   network: {
     tier: 'guided',
     summary:
-      'Edge latency, packet loss, protocol overhead, HTTP acknowledgements, session lifecycle markers, and L4-versus-L7 rejection/flow-control behavior are modeled, while bandwidth and pool limits remain simplified.',
+      'Edge latency, packet loss, protocol overhead, request-direction bandwidth (transmission delay plus FIFO link queueing), per-edge concurrency caps, HTTP acknowledgements, session lifecycle markers, and L4-versus-L7 rejection/flow-control behavior are modeled, while response payloads and pool limits remain simplified.',
     simulates: [
       'edge latency',
       'edge packet loss',
       'basic protocol overhead',
       'HTTP acknowledgements',
       'session lifecycle',
-      'L4/L7 divergence'
+      'L4/L7 divergence',
+      'edge bandwidth (transmission delay and link queueing)',
+      'per-edge latency breakdown'
     ],
-    deferred: ['bandwidth enforcement', 'connection-pool limits', 'full transport-stack physics']
+    deferred: [
+      'response payload bandwidth (responses do not cross edges)',
+      'bandwidth in the heavy-load fluid tier',
+      'connection-pool limits',
+      'full transport-stack physics'
+    ]
   },
   resilience: {
     tier: 'guided',

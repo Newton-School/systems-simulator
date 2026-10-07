@@ -3,6 +3,11 @@ import { decomposeLatency, decomposePhaseRecord, PhaseKind } from './analysis/ph
 import { microToMs, msToMicro } from './core/time'
 import { ComponentNode, NodeState, SLOConfig } from './core/types'
 import {
+  EDGE_LATENCY_COMPONENTS,
+  type EdgeLatencyBreakdownSample,
+  type EdgeLatencyComponent
+} from './network/linkTransmission'
+import {
   ERROR_CAUSES,
   ErrorCause,
   TerminalState,
@@ -246,6 +251,32 @@ export interface PerEdgeMetrics {
   transitLatency: LatencyPercentiles
   timeToErrorByCause: TimeToErrorSummary
   latencyWindows: LatencyWindowPoint[]
+  /**
+   * Mean split of successful post-warmup transit latency into the components
+   * the engine applies on this edge. Components sum to `meanTotalMs` (within
+   * 1 µs rounding per transit). Absent when no successful post-warmup transit.
+   */
+  latencyBreakdown?: EdgeLatencyBreakdown
+  /**
+   * Time-weighted link occupancy: post-warmup busy time of the serializing
+   * link / post-warmup window. 1.0 means the edge ran at its bandwidth.
+   */
+  linkUtilization?: number
+}
+
+export interface EdgeLatencyBreakdown {
+  samples: number
+  meanTotalMs: number
+  meanMs: Record<EdgeLatencyComponent, number>
+  /** Longest single wait for the link (bandwidth contention), in ms. */
+  maxLinkQueueMs: number
+}
+
+interface EdgeBreakdownAccumulator {
+  samples: number
+  totalMs: number
+  sumsMs: Record<EdgeLatencyComponent, number>
+  maxLinkQueueMs: number
 }
 
 export interface SimulationSummary {
@@ -385,6 +416,8 @@ export class MetricsCollector {
   private readonly edgeMetadata = new Map<string, EdgeMetadata>()
   /** Cumulative post-warmup bytes transited per edge (drives measured egress cost). */
   private readonly edgeBytesById = new Map<string, number>()
+  private readonly edgeBreakdownById = new Map<string, EdgeBreakdownAccumulator>()
+  private readonly edgeLinkBusyUsById = new Map<string, number>()
 
   /** Per-component latency contributions summed over post-warmup completed requests. */
   private readonly decompositionByKey = new Map<
@@ -694,7 +727,8 @@ export class MetricsCollector {
     targetNodeId: string,
     transitLatencyUs: bigint,
     edgeOutUs: bigint,
-    sizeBytes = 0
+    sizeBytes = 0,
+    breakdown?: EdgeLatencyBreakdownSample
   ): void {
     this.ensureEdgeAggregator(edgeId, {
       label: `${sourceNodeId}→${targetNodeId}`,
@@ -705,6 +739,77 @@ export class MetricsCollector {
     // window) so measured egress cost matches the steady-state throughput.
     if (this.isPostWarmup(edgeOutUs)) {
       this.edgeBytesById.set(edgeId, (this.edgeBytesById.get(edgeId) ?? 0) + sizeBytes)
+      if (breakdown) {
+        this.accumulateEdgeBreakdown(edgeId, microToMs(transitLatencyUs), breakdown)
+      }
+    }
+  }
+
+  private accumulateEdgeBreakdown(
+    edgeId: string,
+    totalMs: number,
+    breakdown: EdgeLatencyBreakdownSample
+  ): void {
+    let acc = this.edgeBreakdownById.get(edgeId)
+    if (!acc) {
+      acc = {
+        samples: 0,
+        totalMs: 0,
+        sumsMs: Object.fromEntries(EDGE_LATENCY_COMPONENTS.map((key) => [key, 0])) as Record<
+          EdgeLatencyComponent,
+          number
+        >,
+        maxLinkQueueMs: 0
+      }
+      this.edgeBreakdownById.set(edgeId, acc)
+    }
+    acc.samples += 1
+    acc.totalMs += totalMs
+    for (const key of EDGE_LATENCY_COMPONENTS) {
+      acc.sumsMs[key] += breakdown[key]
+    }
+    acc.maxLinkQueueMs = Math.max(acc.maxLinkQueueMs, breakdown.linkQueueMs)
+  }
+
+  /**
+   * Record that an edge's serializing link was busy for `busyUs` from
+   * `startUs`. Only the part inside [warmup, endUs] counts toward utilization.
+   */
+  recordEdgeLinkBusy(
+    edgeId: string,
+    startUs: number,
+    busyUs: number,
+    endUs = Number.POSITIVE_INFINITY
+  ): void {
+    if (!(busyUs > 0)) {
+      return
+    }
+    const warmupUs = Number(this.warmupDurationUs)
+    const postWarmupBusyUs = Math.max(
+      0,
+      Math.min(startUs + busyUs, endUs) - Math.max(startUs, warmupUs)
+    )
+    if (postWarmupBusyUs <= 0) {
+      return
+    }
+    this.edgeLinkBusyUsById.set(
+      edgeId,
+      (this.edgeLinkBusyUsById.get(edgeId) ?? 0) + postWarmupBusyUs
+    )
+  }
+
+  private edgeLatencyBreakdown(edgeId: string): EdgeLatencyBreakdown | undefined {
+    const acc = this.edgeBreakdownById.get(edgeId)
+    if (!acc || acc.samples === 0) {
+      return undefined
+    }
+    return {
+      samples: acc.samples,
+      meanTotalMs: acc.totalMs / acc.samples,
+      meanMs: Object.fromEntries(
+        EDGE_LATENCY_COMPONENTS.map((key) => [key, acc.sumsMs[key] / acc.samples])
+      ) as Record<EdgeLatencyComponent, number>,
+      maxLinkQueueMs: acc.maxLinkQueueMs
     }
   }
 
@@ -904,7 +1009,11 @@ export class MetricsCollector {
     return result
   }
 
-  getPerEdgeMetrics(): Map<string, PerEdgeMetrics> {
+  getPerEdgeMetrics(simulationDurationMs?: number): Map<string, PerEdgeMetrics> {
+    const postWarmupWindowUs =
+      simulationDurationMs !== undefined
+        ? Math.max(0, (simulationDurationMs - this.warmupDurationMs) * 1000)
+        : 0
     const result = new Map<string, PerEdgeMetrics>()
     const edgeIds = new Set<string>([
       ...this.edgeMetadata.keys(),
@@ -945,7 +1054,21 @@ export class MetricsCollector {
         latencyWindowErrorRate,
         transitLatency,
         timeToErrorByCause,
-        latencyWindows: this.latencyWindowsFromAggregator(edgeAggregator)
+        latencyWindows: this.latencyWindowsFromAggregator(edgeAggregator),
+        ...(() => {
+          const latencyBreakdown = this.edgeLatencyBreakdown(edgeId)
+          return latencyBreakdown ? { latencyBreakdown } : {}
+        })(),
+        ...(postWarmupWindowUs > 0 && this.edgeLinkBusyUsById.has(edgeId)
+          ? {
+              // A transfer still serializing at the end can overhang the window;
+              // clamp so utilization stays a share of the window.
+              linkUtilization: Math.min(
+                1,
+                (this.edgeLinkBusyUsById.get(edgeId) ?? 0) / postWarmupWindowUs
+              )
+            }
+          : {})
       })
     }
 

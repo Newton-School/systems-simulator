@@ -446,7 +446,9 @@ export function generateSimulationOutput(
   const perNode = Object.fromEntries(
     metrics.getPerNodeMetrics(config.simulationDuration)
   ) as Record<string, PerNodeMetrics>
-  const perEdge = Object.fromEntries(metrics.getPerEdgeMetrics()) as Record<string, PerEdgeMetrics>
+  const perEdge = Object.fromEntries(
+    metrics.getPerEdgeMetrics(config.simulationDuration)
+  ) as Record<string, PerEdgeMetrics>
   const littlesLawCheck = calculateLittlesLaw(perNode, config)
   const sloBreaches = detectSLOBreaches(metrics, perNode)
   const sloTargetCount = countSLOTargets(metrics, perNode)

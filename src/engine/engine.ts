@@ -129,6 +129,11 @@ import type {
   TraitStateStore
 } from './traits/types'
 import { WorkloadGenerator } from './workload'
+import {
+  LinkSerializer,
+  transmissionTimeMs,
+  type EdgeLatencyBreakdownSample
+} from './network/linkTransmission'
 
 interface SecurityPolicyConfig {
   blockRate: number
@@ -196,6 +201,7 @@ export class SimulationEngine {
   /** Run-scoped state shared across all nodes (see TraitContext.sharedState). */
   private readonly sharedTraitState = new Map<string, unknown>()
   private readonly activeTransfersByEdgeId = new Map<string, number>()
+  private readonly linkSerializer = new LinkSerializer()
   private readonly workload?: WorkloadGenerator
 
   private readonly requestById = new Map<string, Request>()
@@ -1878,18 +1884,24 @@ export class SimulationEngine {
     }
   }
 
-  private sampleEdgeLatencyUs(
+  /**
+   * Sample the per-transfer edge transit (everything except waiting for the
+   * link, which depends on link occupancy and is added by the caller). Returns
+   * the rounded transit in µs plus its component split for the breakdown.
+   */
+  private sampleEdgeTransit(
     edge: EdgeDefinition,
     request: Request,
     activeTransfers: number
-  ): bigint {
+  ): { transitUs: bigint; transmissionMs: number; components: EdgeLatencyBreakdownSample } {
     const latencyDistribution =
       this.geoLatency.distributionFor(edge, request) ??
       (edge.latency.derivedFromPathType
         ? getPathTypeLatencyProfile(edge.latency.pathType)
         : edge.latency.distribution)
     const propagationMs = Math.max(0, this.distributions.fromConfig(latencyDistribution))
-    const transmissionMs = request.sizeBytes / (edge.bandwidth * 125)
+    // Mbps -> bytes per ms is x125; see network/linkTransmission.ts.
+    const transmissionMs = transmissionTimeMs(request.sizeBytes, edge.bandwidth)
     // Streaming links reuse an already-open channel, so only a small framing
     // cost remains on each message instead of the full per-request setup cost.
     const protocolOverheadMs =
@@ -1899,9 +1911,40 @@ export class SimulationEngine {
         ? Math.min(0.98, activeTransfers / edge.maxConcurrentRequests)
         : 0
     const delayMultiplier = Math.min(50, 1 / Math.max(0.02, 1 - utilization))
-    const totalLatencyMs =
-      Math.max(0, propagationMs * delayMultiplier) + transmissionMs + protocolOverheadMs
-    return msToMicro(totalLatencyMs)
+    const congestedPropagationMs = Math.max(0, propagationMs * delayMultiplier)
+    const totalLatencyMs = congestedPropagationMs + transmissionMs + protocolOverheadMs
+    return {
+      transitUs: msToMicro(totalLatencyMs),
+      transmissionMs,
+      components: {
+        propagationMs,
+        congestionMs: congestedPropagationMs - propagationMs,
+        transmissionMs,
+        linkQueueMs: 0,
+        protocolOverheadMs,
+        retransmissionMs: 0
+      }
+    }
+  }
+
+  /**
+   * Hold the edge's serializing link for `transmissionMs` (x copies when the
+   * payload is retransmitted). Returns the wait for earlier transfers, rounded
+   * to whole µs, and records link busy time for utilization.
+   */
+  private reserveEdgeLink(edge: EdgeDefinition, transmissionMs: number, copies: number): bigint {
+    const reservation = this.linkSerializer.reserve(
+      edge.id,
+      Number(this.clock),
+      transmissionMs * 1000 * copies
+    )
+    this.metrics.recordEdgeLinkBusy(
+      edge.id,
+      reservation.startUs,
+      reservation.busyUs,
+      Number(this.simulationDurationUs)
+    )
+    return BigInt(Math.round(reservation.queueWaitUs))
   }
 
   private getRequest(event: SimulationEvent, hydrate = true): Request | undefined {
@@ -3365,11 +3408,15 @@ export class SimulationEngine {
       return
     }
 
-    let edgeLatencyUs = this.sampleEdgeLatencyUs(edge, request, currentLoad + 1)
+    const transit = this.sampleEdgeTransit(edge, request, currentLoad + 1)
+    let retransmitted = false
     if (this.distributions.random() < edge.packetLossRate) {
       if (isReliableProtocol(edge.protocol)) {
-        edgeLatencyUs += edgeLatencyUs
+        // TCP-style retransmission: the payload crosses the link a second time.
+        retransmitted = true
       } else {
+        // The bytes were still sent before being dropped, so they occupy the link.
+        this.reserveEdgeLink(edge, transit.transmissionMs, 1)
         const timeoutAt = request.deadline > this.clock ? request.deadline : this.clock
         emitEdgeFlowEvent('packet-loss', timeoutAt, timeoutAt - this.clock, 'packet_loss')
         this.eventQueue.insert(
@@ -3418,6 +3465,15 @@ export class SimulationEngine {
       return
     }
 
+    const transitUs = retransmitted ? transit.transitUs * 2n : transit.transitUs
+    const linkQueueUs = this.reserveEdgeLink(edge, transit.transmissionMs, retransmitted ? 2 : 1)
+    const edgeLatencyUs = linkQueueUs + transitUs
+    const latencyBreakdown: EdgeLatencyBreakdownSample = {
+      ...transit.components,
+      linkQueueMs: microToMs(linkQueueUs),
+      retransmissionMs: retransmitted ? microToMs(transit.transitUs) : 0
+    }
+
     this.activeTransfersByEdgeId.set(edge.id, currentLoad + 1)
     const arrivalTime = this.clock + edgeLatencyUs
     if (request.deadline <= arrivalTime) {
@@ -3445,7 +3501,13 @@ export class SimulationEngine {
       return
     }
 
+    // The flow event is a dispatch record; consumers treat a completion after
+    // the run end as in flight at cutoff (see mergeEdgeFlowState).
     emitEdgeFlowEvent('success', arrivalTime, edgeLatencyUs)
+    // A transfer still queued or on the wire when the run ends never arrives,
+    // so it is not a completed transit (matters once bandwidth queueing can push
+    // arrival past the end of the run).
+    const arrivesBeforeRunEnd = arrivalTime <= this.simulationDurationUs
     // Record the completed hop so the phase timeline can attribute this transit
     // latency to the edge (rather than blaming the downstream node).
     edgePhase.edgeOutUs = arrivalTime
@@ -3456,14 +3518,17 @@ export class SimulationEngine {
       edgeInUs: this.clock,
       edgeOutUs: arrivalTime
     })
-    this.metrics.recordEdgeTransit(
-      edge.id,
-      edge.source,
-      targetNodeId,
-      edgeLatencyUs,
-      arrivalTime,
-      request.sizeBytes
-    )
+    if (arrivesBeforeRunEnd) {
+      this.metrics.recordEdgeTransit(
+        edge.id,
+        edge.source,
+        targetNodeId,
+        edgeLatencyUs,
+        arrivalTime,
+        request.sizeBytes,
+        latencyBreakdown
+      )
+    }
     this.eventQueue.insert(
       createEvent(
         'request-arrival',
