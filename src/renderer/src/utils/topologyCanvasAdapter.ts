@@ -290,6 +290,26 @@ function overlaySimulationConfig(
     sim.maxConcurrency = resilience?.bulkhead?.maxConcurrent
   }
 
+  const bulkheadPartitions = resilience?.bulkhead?.partitions
+  if (bulkheadPartitions && Object.keys(bulkheadPartitions).length > 0) {
+    sim.bulkheadPartitions = { ...bulkheadPartitions }
+  }
+  if (asNumber(resilience?.bulkhead?.defaultMaxConcurrent) !== undefined) {
+    sim.bulkheadDefaultMaxConcurrent = resilience?.bulkhead?.defaultMaxConcurrent
+  }
+  if (asString(resilience?.bulkhead?.keyField)) {
+    sim.bulkheadKeyField = asString(resilience?.bulkhead?.keyField)
+  }
+
+  for (const field of ['loadShedQueueDepth', 'loadShedMaxQueueDelayMs'] as const) {
+    if (asNumber(config[field]) !== undefined) {
+      sim[field] = asNumber(config[field])
+    }
+  }
+  if (config['loadShedProtectHighPriority'] === true) {
+    sim.loadShedProtectHighPriority = true
+  }
+
   if (asString(config['routingKeyField'])) {
     sim.routingKeyField = asString(config['routingKeyField'])
   }

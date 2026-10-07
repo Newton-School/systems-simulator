@@ -16,6 +16,7 @@ import type {
 } from '../core/types'
 import { inferStructuralRole } from '../catalog/componentSpecs'
 import { hasInstanceModel } from '../nodes/resourceDerivation'
+import { BULKHEAD_COMPONENT_TYPES } from '../traits/bulkhead'
 import { isQueueDeliverySemantics } from '../core/simulationSemantics'
 import { validateEdgeConstraintSelection } from '../defaults/edgeConstraints'
 import {
@@ -304,7 +305,10 @@ const ResilienceConfigSchema = z.object({
     .optional(),
   bulkhead: z
     .object({
-      maxConcurrent: z.number().int().positive()
+      maxConcurrent: z.number().int().positive().optional(),
+      partitions: z.record(z.string().min(1), z.number().int().positive()).optional(),
+      defaultMaxConcurrent: z.number().int().positive().optional(),
+      keyField: z.string().min(1).optional()
     })
     .optional()
 })
@@ -1255,6 +1259,22 @@ export const validateTopology = (
       })
     }
 
+    for (const [field, label, unit] of [
+      ['loadShedQueueDepth', 'Shed at queue depth', 'requests'],
+      ['loadShedMaxQueueDelayMs', 'Shed above queueing delay', 'ms']
+    ] as const) {
+      const value = node.config?.[field]
+      if (
+        value !== undefined &&
+        (typeof value !== 'number' || !Number.isFinite(value) || value <= 0)
+      ) {
+        errors.push({
+          path: `nodes[${index}].config.${field}`,
+          message: positiveNumber(label, unit)
+        })
+      }
+    }
+
     const coldStartLatency = node.config?.['coldStartLatency']
     if (coldStartLatency !== undefined && !asDistributionConfig(coldStartLatency)) {
       errors.push({
@@ -1786,6 +1806,26 @@ export const validateTopology = (
         ? 'workers and queue space are derived from its instance type and count'
         : 'without an instance type, workers and capacity come from queue.workers and queue.capacity'
       warnings.push(`Node '${nodeLabel}' sets ${fields}, which the simulator ignores: ${reason}.`)
+    }
+
+    // bulkhead.maxConcurrent is the serverless cold-start concurrency cap; on any
+    // other node it is accepted for back-compat but does nothing at runtime.
+    const bulkhead = node.resilience?.bulkhead
+    if (bulkhead?.maxConcurrent !== undefined && node.type !== 'serverless-function') {
+      warnings.push(
+        `Node '${nodeLabel}' sets resilience.bulkhead.maxConcurrent, which only caps serverless-function concurrency and is ignored here; use resilience.bulkhead.partitions or defaultMaxConcurrent for a bulkhead.`
+      )
+    }
+    const hasCompartmentCaps =
+      Object.keys(bulkhead?.partitions ?? {}).length > 0 ||
+      bulkhead?.defaultMaxConcurrent !== undefined
+    if (
+      hasCompartmentCaps &&
+      !(BULKHEAD_COMPONENT_TYPES as readonly string[]).includes(node.type)
+    ) {
+      warnings.push(
+        `Node '${nodeLabel}' sets bulkhead compartment caps, but ${node.type} nodes do not run the bulkhead, so they are ignored.`
+      )
     }
   })
 
