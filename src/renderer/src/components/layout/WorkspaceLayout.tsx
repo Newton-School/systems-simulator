@@ -1051,7 +1051,9 @@ export const WorkspaceLayout = () => {
       warmupDurationMs: runContext.global.warmupDuration
     })
     flowStore.setEdgeFlowStatus('running')
-    setLastRunGraph(snapshotRunGraph(nodes, edges))
+    // Read the graph from the store at run time, not from the render closure, so the
+    // snapshot can't go stale if this callback's dependency list changes.
+    setLastRunGraph(snapshotRunGraph(flowStore.nodes, flowStore.edges))
     runSimulation(topology)
     flowStore.setRunInspectorPinned(true)
     setIsRightOpen(!isCompactWorkspace)
