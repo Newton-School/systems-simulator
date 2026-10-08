@@ -547,17 +547,62 @@ export class SimulationEngine {
   }
 
   step(count: number): void {
-    if (count <= 0) {
+    this.stepBounded(count)
+  }
+
+  /**
+   * Process up to `maxEvents` events whose timestamp is at or before
+   * `simTimeMs`. This is what paced (playback-speed) drivers use to advance the
+   * run to a wall-clock-derived target without overshooting it. Like `step`, a
+   * no-op once the run has halted.
+   */
+  stepUntil(simTimeMs: number, maxEvents: number): void {
+    if (!Number.isFinite(simTimeMs)) {
+      this.stepBounded(maxEvents)
+      return
+    }
+    this.stepBounded(maxEvents, msToMicro(Math.max(0, simTimeMs)))
+  }
+
+  private stepBounded(count: number, untilUs?: bigint): void {
+    if (count <= 0 || this.isHalted()) {
       return
     }
     const wasPaused = this.paused
     this.running = true
     this.paused = false
-    this.processEvents(count)
+    this.processEvents(count, untilUs)
     this.paused = wasPaused
   }
 
+  /**
+   * True once the saturation guard has halted the run. The halt is sticky: a
+   * chunked driver calling `step()` afterwards must not resume past it (that
+   * would silently turn an early abort into a full-length run), so `step` and
+   * `stepUntil` become no-ops and `hasPendingEvents` reports false.
+   */
+  isHalted(): boolean {
+    return this.stopReason === 'saturation'
+  }
+
+  /** Current simulated time in ms (the timestamp of the last processed event). */
+  getClockMs(): number {
+    return microToMs(this.clock)
+  }
+
+  /** Timestamp (ms) of the next event inside the run window, or null when none. */
+  peekNextEventTimeMs(): number | null {
+    if (!this.hasPendingEvents()) {
+      return null
+    }
+    const next = this.eventQueue.peek()
+    return next ? microToMs(next.timestamp) : null
+  }
+
   hasPendingEvents(): boolean {
+    if (this.isHalted()) {
+      return false
+    }
     if (this.clock >= this.simulationDurationUs) {
       return false
     }
@@ -656,7 +701,7 @@ export class SimulationEngine {
     }
   }
 
-  private processEvents(maxEvents?: number): void {
+  private processEvents(maxEvents?: number, untilUs?: bigint): void {
     let processedInCall = 0
 
     while (this.running && !this.paused && !this.eventQueue.isEmpty) {
@@ -666,6 +711,11 @@ export class SimulationEngine {
 
       const nextEvent = this.eventQueue.peek()
       if (!nextEvent) {
+        break
+      }
+
+      // Paced drivers: stop at the wall-clock-derived target without ending the run.
+      if (untilUs !== undefined && nextEvent.timestamp > untilUs) {
         break
       }
 
@@ -2974,12 +3024,22 @@ export class SimulationEngine {
     for (const [nodeId, node] of this.nodes) {
       const state = node.getState()
       this.metrics.recordNodeSnapshot(nodeId, state, this.clock)
+      const areas = node.utilizationAreasAt(this.clock)
+      const limits = this.nodeLimitsById.get(nodeId)
       nodes[nodeId] = {
         queueLength: state.queueLength,
         activeWorkers: state.activeWorkers,
         totalInSystem: state.totalInSystem,
         utilization: state.utilization,
-        status: state.status
+        status: state.status,
+        busyAreaUs: areas.busyAreaUs,
+        capacityAreaUs: areas.capacityAreaUs,
+        completedTotal: node.getTotalCompleted(),
+        workers: limits?.workers ?? state.workerCapacity,
+        capacity:
+          limits?.capacity !== undefined && Number.isFinite(limits.capacity)
+            ? limits.capacity
+            : undefined
       }
     }
 

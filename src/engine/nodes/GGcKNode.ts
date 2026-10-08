@@ -559,6 +559,35 @@ export class GGcKNode {
     return this.physicalCoreCapacity
   }
 
+  /**
+   * The headline-utilization integrals as of `nowUs`, WITHOUT accruing (pure read,
+   * so live telemetry can never perturb the run). `busy ÷ capacity` over any two
+   * readings is the exact time-weighted utilization for that window, in the same
+   * meaning as the final report: CPU occupancy (core·µs) for instance-backed nodes,
+   * worker occupancy (worker·µs) for legacy nodes.
+   */
+  utilizationAreasAt(nowUs: bigint): { busyAreaUs: number; capacityAreaUs: number } {
+    const dt = nowUs > this.lastAccrualUs ? nowUs - this.lastAccrualUs : 0n
+    if (this.cpuBoundFraction > 0) {
+      const cores = this.physicalCores()
+      const dtN = Number(dt)
+      return {
+        busyAreaUs:
+          this.cpuBusyAreaUs + Math.min(this.activeWorkers * this.cpuBoundFraction, cores) * dtN,
+        capacityAreaUs: this.coreAreaUs + cores * dtN
+      }
+    }
+    return {
+      busyAreaUs: Number(this.busyAreaUs + BigInt(this.activeWorkers) * dt),
+      capacityAreaUs: Number(this.capacityAreaUs + BigInt(this.maxWorkers) * dt)
+    }
+  }
+
+  /** Requests this node has finished serving so far (cumulative). */
+  getTotalCompleted(): number {
+    return this.metrics.totalCompleted
+  }
+
   /** Close the busy-area integral at the run horizon. Idempotent. */
   finalizeUtilization(nowUs: bigint): void {
     this.accrueBusy(nowUs)
