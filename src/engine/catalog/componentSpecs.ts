@@ -373,6 +373,10 @@ function buildRuntimeNode(
     config.cacheModel = data.sim.cacheModel
   }
 
+  if (typeof data.sim?.requestCollapsing === 'boolean') {
+    config.requestCollapsing = data.sim.requestCollapsing
+  }
+
   if (
     typeof data.sim?.cacheRamMb === 'number' &&
     Number.isFinite(data.sim.cacheRamMb) &&

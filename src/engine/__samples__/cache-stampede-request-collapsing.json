@@ -1,0 +1,175 @@
+{
+  "id": "cache-stampede-request-collapsing",
+  "name": "Cache stampede: request collapsing",
+  "version": "1.0.0",
+  "global": {
+    "simulationDuration": 2000,
+    "seed": "collapse-seed",
+    "warmupDuration": 0,
+    "timeResolution": "microsecond",
+    "defaultTimeout": 2000
+  },
+  "nodes": [
+    {
+      "id": "client",
+      "type": "api-endpoint",
+      "category": "compute",
+      "role": "source",
+      "label": "Client App",
+      "position": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "id": "gw",
+      "type": "api-gateway",
+      "category": "network-and-edge",
+      "label": "Gateway",
+      "position": {
+        "x": 320,
+        "y": 0
+      },
+      "queue": {
+        "workers": 256,
+        "capacity": 50000,
+        "discipline": "fifo"
+      },
+      "processing": {
+        "distribution": {
+          "type": "constant",
+          "value": 0.1
+        },
+        "timeout": 5000
+      }
+    },
+    {
+      "id": "cache",
+      "type": "in-memory-cache",
+      "category": "storage-and-data",
+      "label": "Redis",
+      "position": {
+        "x": 640,
+        "y": 0
+      },
+      "queue": {
+        "workers": 256,
+        "capacity": 50000,
+        "discipline": "fifo"
+      },
+      "processing": {
+        "distribution": {
+          "type": "constant",
+          "value": 0.2
+        },
+        "timeout": 5000
+      },
+      "config": {
+        "cacheModel": "derived-lru",
+        "cacheRamMb": 10,
+        "valueSizeBytes": 1000,
+        "cacheHitLatencyMs": 0.2,
+        "requestCollapsing": true
+      }
+    },
+    {
+      "id": "db",
+      "type": "relational-db",
+      "category": "storage-and-data",
+      "label": "Primary DB",
+      "position": {
+        "x": 960,
+        "y": 0
+      },
+      "queue": {
+        "workers": 512,
+        "capacity": 50000,
+        "discipline": "fifo"
+      },
+      "processing": {
+        "distribution": {
+          "type": "constant",
+          "value": 50
+        },
+        "timeout": 10000
+      },
+      "config": {
+        "storageReadMs": 50
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "client->gw",
+      "source": "client",
+      "target": "gw",
+      "mode": "synchronous",
+      "protocol": "https",
+      "latency": {
+        "distribution": {
+          "type": "constant",
+          "value": 1
+        },
+        "pathType": "same-dc"
+      },
+      "bandwidth": 10000,
+      "maxConcurrentRequests": 10000,
+      "packetLossRate": 0,
+      "errorRate": 0
+    },
+    {
+      "id": "gw->cache",
+      "source": "gw",
+      "target": "cache",
+      "mode": "synchronous",
+      "protocol": "tcp",
+      "latency": {
+        "distribution": {
+          "type": "constant",
+          "value": 1
+        },
+        "pathType": "same-dc"
+      },
+      "bandwidth": 10000,
+      "maxConcurrentRequests": 10000,
+      "packetLossRate": 0,
+      "errorRate": 0
+    },
+    {
+      "id": "cache->db",
+      "source": "cache",
+      "target": "db",
+      "mode": "synchronous",
+      "protocol": "tcp",
+      "latency": {
+        "distribution": {
+          "type": "constant",
+          "value": 1
+        },
+        "pathType": "same-dc"
+      },
+      "bandwidth": 10000,
+      "maxConcurrentRequests": 10000,
+      "packetLossRate": 0,
+      "errorRate": 0
+    }
+  ],
+  "workload": {
+    "sourceNodeId": "client",
+    "pattern": "constant",
+    "baseRps": 5000,
+    "requestDistribution": [
+      {
+        "type": "GET",
+        "weight": 1,
+        "sizeBytes": 256,
+        "keyspace": {
+          "field": "postId",
+          "size": 5,
+          "skew": 1.5
+        }
+      }
+    ]
+  },
+  "description": "Cold derived-LRU cache, 5 hot keys (Zipf skew 1.5) at 5,000 rps. Toggle Request collapsing on the Redis node: DB calls drop from ~260 to 5 while the hit rate stays the same."
+}

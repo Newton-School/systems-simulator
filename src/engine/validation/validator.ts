@@ -1108,6 +1108,14 @@ export const validateTopology = (
       })
     }
 
+    const requestCollapsing = node.config?.['requestCollapsing']
+    if (requestCollapsing !== undefined && typeof requestCollapsing !== 'boolean') {
+      errors.push({
+        path: `nodes[${index}].config.requestCollapsing`,
+        message: `${fieldLabel('config.requestCollapsing')} must be either on or off.`
+      })
+    }
+
     const cacheHitRate = node.config?.['cacheHitRate']
     if (
       cacheHitRate !== undefined &&

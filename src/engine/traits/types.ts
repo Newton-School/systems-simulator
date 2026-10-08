@@ -186,6 +186,15 @@ export type BeforeArrivalDecision =
   | { action: 'continue'; payload?: Record<string, unknown> }
   | { action: 'handled'; latencyUs: bigint; payload?: Record<string, unknown> }
   | { action: 'rejected'; reason: string; payload?: Record<string, unknown> }
+  /**
+   * Park this request at the node behind an in-flight request (`leaderRequestId`)
+   * instead of admitting it to the queue (request collapsing / single-flight).
+   * A parked request holds no worker or queue slot. The engine resolves it when
+   * the leader reaches a terminal outcome: leader success completes it at that
+   * instant (its latency includes the wait); leader failure fails it with the
+   * same cause. It still times out on its own deadline if the leader is slower.
+   */
+  | { action: 'parked'; leaderRequestId: string; payload?: Record<string, unknown> }
 
 export type BeforeRoutingDecision =
   | { action: 'route'; payload?: Record<string, unknown> }

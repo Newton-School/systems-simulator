@@ -193,6 +193,10 @@ function overlaySimulationConfig(
     sim.cacheModel = config['cacheModel']
   }
 
+  if (asBoolean(config['requestCollapsing']) !== undefined) {
+    sim.requestCollapsing = asBoolean(config['requestCollapsing'])
+  }
+
   if (asNumber(config['cacheRamMb']) !== undefined) {
     sim.cacheRamMb = asNumber(config['cacheRamMb'])
   }

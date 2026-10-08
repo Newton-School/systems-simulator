@@ -136,6 +136,13 @@ import {
   type EdgeLatencyBreakdownSample
 } from './network/linkTransmission'
 
+/** A request parked behind an in-flight leader by request collapsing. */
+interface ParkedFollower {
+  request: Request
+  nodeId: string
+  parkedAt: bigint
+}
+
 interface SecurityPolicyConfig {
   blockRate: number
   droppedPackets: number
@@ -207,6 +214,13 @@ export class SimulationEngine {
   private readonly workload?: WorkloadGenerator
 
   private readonly requestById = new Map<string, Request>()
+  /**
+   * Request collapsing (single-flight): followers parked at a node behind an
+   * in-flight leader request, keyed by the leader's request id. A parked
+   * follower holds no worker or queue slot; it is resolved when the leader goes
+   * terminal (see resolveParkedFollowers) or times out on its own deadline.
+   */
+  private readonly parkedFollowersByLeader = new Map<string, ParkedFollower[]>()
   private readonly terminalStatusByRequestId = new Map<string, bigint>()
   private readonly terminalTombstoneOrder: Array<{ requestId: string; terminalAtUs: bigint }> = []
   private terminalTombstoneHead = 0
@@ -902,6 +916,11 @@ export class SimulationEngine {
       return
     }
 
+    if (arrivalTraitDecision.action === 'parked') {
+      this.parkFollower(event.nodeId, request, arrivalTraitDecision.leaderRequestId)
+      return
+    }
+
     if (arrivalTraitDecision.action === 'handled') {
       this.completeRequestViaTrait(event.nodeId, request, arrivalTraitDecision)
 
@@ -969,6 +988,142 @@ export class SimulationEngine {
         completionTime
       )
     )
+  }
+
+  /**
+   * Parks a follower behind an in-flight leader (request collapsing). The
+   * follower is not admitted to the node's queue, so it consumes no worker or
+   * queue slot and makes no downstream call. Its own deadline still applies:
+   * if the leader has not returned by then, the follower times out here.
+   */
+  private parkFollower(nodeId: string, request: Request, leaderRequestId: string): void {
+    const followers = this.parkedFollowersByLeader.get(leaderRequestId) ?? []
+    followers.push({ request, nodeId, parkedAt: this.clock })
+    this.parkedFollowersByLeader.set(leaderRequestId, followers)
+    this.recordRequestState(request, 'queued', {
+      nodeId,
+      timestampUs: this.clock,
+      source: 'trait',
+      detail: `Collapsed: waiting for in-flight miss ${leaderRequestId} instead of calling downstream.`
+    })
+    this.eventQueue.insert(
+      createEvent(
+        'request-timeout',
+        nodeId,
+        request.id,
+        {
+          request,
+          nodeArrivalTime: this.clock,
+          scope: 'collapse',
+          collapseLeaderId: leaderRequestId,
+          timeoutSeq: request.timeoutSeq ?? 0
+        },
+        request.deadline
+      )
+    )
+  }
+
+  private unparkFollower(leaderRequestId: string, requestId: string): void {
+    const followers = this.parkedFollowersByLeader.get(leaderRequestId)
+    if (!followers) {
+      return
+    }
+    const remaining = followers.filter((follower) => follower.request.id !== requestId)
+    if (remaining.length === 0) {
+      this.parkedFollowersByLeader.delete(leaderRequestId)
+    } else {
+      this.parkedFollowersByLeader.set(leaderRequestId, remaining)
+    }
+  }
+
+  /**
+   * Resolves every follower parked behind `leader` once the leader is terminal.
+   * Success: each follower completes now, at the node it parked on, with its
+   * wait recorded as queue time (so its end-to-end latency is the leader's
+   * remaining time plus its own path). Failure: each follower fails with the
+   * leader's cause (single-flight shares one result, error included). A leader
+   * timeout surfaces as a follower timeout with reason `collapsed_leader_timeout`.
+   */
+  private resolveParkedFollowers(
+    leader: Request,
+    status: TerminalRequestStatus,
+    reasonCode?: string | null
+  ): void {
+    const followers = this.parkedFollowersByLeader.get(leader.id)
+    if (!followers) {
+      return
+    }
+    this.parkedFollowersByLeader.delete(leader.id)
+    const servedByNode = new Map<string, number>()
+    const failedByNode = new Map<string, number>()
+    for (const { request, nodeId, parkedAt } of followers) {
+      if (request.metadata.__terminal || this.terminalStatusByRequestId.has(request.id)) {
+        continue
+      }
+      // Supersede the follower's own deadline timeout scheduled at park time.
+      request.timeoutSeq = (request.timeoutSeq ?? 0) + 1
+      if (status === 'success') {
+        request.spans.push({
+          nodeId,
+          arrivalTime: parkedAt,
+          queueWait: this.clock - parkedAt,
+          serviceTime: 0n,
+          departureTime: this.clock
+        })
+        this.markNodePhaseServiceStart(request, nodeId, this.clock)
+        this.markNodePhaseDeparture(request, nodeId, this.clock)
+        this.eventQueue.insert(
+          createEvent(
+            'request-complete',
+            nodeId,
+            request.id,
+            { request, collapsedFollower: true },
+            this.clock
+          )
+        )
+        servedByNode.set(nodeId, (servedByNode.get(nodeId) ?? 0) + 1)
+        continue
+      }
+
+      failedByNode.set(nodeId, (failedByNode.get(nodeId) ?? 0) + 1)
+      if (status === 'timeout') {
+        this.eventQueue.insert(
+          createEvent(
+            'request-timeout',
+            nodeId,
+            request.id,
+            {
+              request,
+              nodeArrivalTime: parkedAt,
+              scope: 'collapse-leader',
+              reason: 'collapsed_leader_timeout',
+              timeoutSeq: request.timeoutSeq
+            },
+            this.clock
+          )
+        )
+        continue
+      }
+      this.eventQueue.insert(
+        createEvent(
+          'request-rejected',
+          nodeId,
+          request.id,
+          {
+            request,
+            reason: reasonCode ?? (status === 'connection_reset' ? 'connection_reset' : 'rejected'),
+            nodeArrivalTime: parkedAt
+          },
+          this.clock
+        )
+      )
+    }
+    for (const [nodeId, count] of servedByNode) {
+      this.metrics.recordNodeTraitCounters(nodeId, { collapsedFollowersServed: count })
+    }
+    for (const [nodeId, count] of failedByNode) {
+      this.metrics.recordNodeTraitCounters(nodeId, { collapsedFollowersFailed: count })
+    }
   }
 
   /**
@@ -1263,6 +1418,10 @@ export class SimulationEngine {
 
     const scope = typeof event.data.scope === 'string' ? event.data.scope : undefined
     const observationPoint = scope === 'in-flight' ? 'edge' : 'node'
+    if (scope === 'collapse' && typeof event.data.collapseLeaderId === 'string') {
+      // A parked follower's own deadline fired before its leader returned.
+      this.unparkFollower(event.data.collapseLeaderId, request.id)
+    }
     if (scope === 'in-flight') {
       this.releaseEdgeTransfer(event.data.edgeId)
     }
@@ -2573,6 +2732,7 @@ export class SimulationEngine {
   ): void {
     this.resolveTerminalTraitOutcomes(request, status, reasonCode)
     request.metadata.__terminal = status
+    this.resolveParkedFollowers(request, status, reasonCode)
     this.markTerminalTombstone(request.id)
     const createdAtMs = microToMs(request.createdAt)
     const terminalAtMs = microToMs(this.clock)
