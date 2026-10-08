@@ -312,12 +312,30 @@ npm run preview     # serve the built bundle locally
 npm run test
 ```
 
-### CLI
+### CLI (sim cli)
+
+The sim cli runs the same engine headlessly. From a checkout, `npm run sim -- <command>` works
+without installing anything; `npm link` puts a `sim` executable on your PATH (it runs the
+TypeScript source through tsx, so there is no build step).
 
 ```bash
-npm run simulate -- order-topology.json
-npm run simulate -- order-topology.json --json
+sim run order-topology.json                 # simulate and print the report
+sim run order-topology.json --live          # live per-node table while it runs (q stop, p pause)
+sim run order-topology.json --json | jq .summary
+sim validate order-topology.json            # schema errors and warnings
+sim lint order-topology.json                # anti-patterns; exits 2 on a critical finding
+sim cost order-topology.json [--run]        # $/hr per component (--run: measured, post-run)
+sim compare a.json b.json                   # both designs, same seed, metric-by-metric diff
+sim evaluate question question.json student-topology.json   # grading contract (JSON)
 ```
+
+`sim --help` lists every command and `sim <command> --help` its options. Every report
+command takes `--json`; JSON output is plain `JSON.parse`-able (BigInt timestamps are
+emitted as numbers). Exit codes: `0` success, `1` usage or input error (unknown flag,
+missing file, invalid topology), `2` check failed (lint critical, validate errors,
+grading failed), `3` invalid submission, `4` evaluation error. The CLI reads engine
+`TopologyJSON` files (like `order-topology.json` and the question bank's
+`reference-topology.json`), not the canvas files in `src/engine/__samples__`.
 
 ---
 

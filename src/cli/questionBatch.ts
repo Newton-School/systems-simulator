@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process'
+import { tsxImportSpecifier } from './tsxImport'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { stringifyCliJson } from './json'
 import { tmpdir } from 'node:os'
@@ -72,7 +73,7 @@ function runQuestionEvaluationIsolated(
       process.execPath,
       [
         '--import',
-        'tsx',
+        tsxImportSpecifier(),
         CLI_ENTRY_PATH,
         'evaluate',
         'question',
