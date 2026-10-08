@@ -217,8 +217,10 @@ describe('planTopologyEdit', () => {
     for (const field of ['workers', 'capacity'] as const) {
       const path = ['nodes', 1, 'queue', field]
       const result = planTopologyEdit(base, topology, path, 16)
-      expect(result.ok).toBe(false)
-      expect(result.ok ? '' : result.message).toMatch(/Derived from the instance/)
+      expect(result).toMatchObject({
+        ok: false,
+        message: expect.stringMatching(/Derived from the instance/)
+      })
       const leaf = find(buildTopologyTree(topology), path.join('.'))
       expect(leafEditor(leaf!.path, leaf!.value, leaf!.readOnlyReason).kind).toBe('readonly')
     }
