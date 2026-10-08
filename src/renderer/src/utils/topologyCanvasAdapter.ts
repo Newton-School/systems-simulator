@@ -12,13 +12,17 @@ import type {
   CanvasNodeDataV2,
   NodeSimulationConfig,
   PaletteTemplate,
-  RoutingStrategy
+  RoutingStrategy,
+  TopologyNodeCarry
 } from '../../../engine/catalog/nodeSpecTypes'
 import { isCustomNodeDefinition } from '../../../engine/catalog/customDefinitions'
-import type { EdgeSimulationData, ScenarioState } from '@renderer/types/ui'
+import { getComponentSpec } from '../../../engine/catalog/componentSpecs'
+import type { EdgeSimulationData, ScenarioState, TopologyMeta } from '@renderer/types/ui'
 import { DEFAULT_SCENARIO_STATE } from '@renderer/types/ui'
 import type { NestedFileData, NestedNode } from './nodeTransformers'
 import { convertFlatToNested } from './nodeTransformers'
+import { computeNodeExtra } from './topologyCarry'
+import { getPathTypeLatencyProfile } from '../../../engine/defaults/edgeDefaults'
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
@@ -78,7 +82,7 @@ function pickTemplateForNode(node: ComponentNode): PaletteTemplate | null {
   )
 
   if (candidates.length === 0) {
-    return null
+    return pickStandInTemplate(node)
   }
 
   return [...candidates].sort((left, right) => {
@@ -92,16 +96,40 @@ function pickTemplateForNode(node: ComponentNode): PaletteTemplate | null {
   })[0]
 }
 
+/**
+ * An engine type with no palette template of its own (e.g. `kv-store`, or
+ * `payment-gateway`, which has no canvas component at all) is rendered with the
+ * closest template: same component profile, else same category. The real type
+ * is restored on export through the node's topology carry.
+ */
+function pickStandInTemplate(node: ComponentNode): PaletteTemplate | null {
+  const spec = getComponentSpec(node.type)
+  const serializable = Object.values(PALETTE_TEMPLATES).filter(
+    (template) =>
+      template.serializable &&
+      template.profile !== 'source' &&
+      template.profile !== 'composite' &&
+      getComponentSpec(template.componentType) !== undefined
+  )
+  const sameProfile = spec
+    ? serializable.find(
+        (template) =>
+          getComponentSpec(template.componentType)?.profile === spec.profile &&
+          template.category === node.category
+      )
+    : undefined
+  const sameCategory = serializable.find((template) => template.category === node.category)
+  return sameProfile ?? sameCategory ?? PALETTE_TEMPLATES['backend-server'] ?? null
+}
+
+/** Every workload field except the two the source node holds separately. */
 function buildSourceDefaults(workload: WorkloadProfile) {
-  return {
-    pattern: workload.pattern,
-    baseRps: workload.baseRps,
-    ...(workload.origins ? { origins: structuredClone(workload.origins) } : {}),
-    ...(workload.bursty ? { bursty: workload.bursty } : {}),
-    ...(workload.spike ? { spike: workload.spike } : {}),
-    ...(workload.sawtooth ? { sawtooth: workload.sawtooth } : {}),
-    ...(workload.diurnal ? { diurnal: workload.diurnal } : {})
+  const defaults: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(workload)) {
+    if (key === 'sourceNodeId' || key === 'requestDistribution' || value === undefined) continue
+    defaults[key] = structuredClone(value)
   }
+  return defaults as Omit<WorkloadProfile, 'sourceNodeId' | 'requestDistribution'>
 }
 
 type HandleSide = 'left' | 'right' | 'top' | 'bottom'
@@ -176,6 +204,17 @@ function overlaySimulationConfig(
   const config = node.config ?? {}
   const resilience = node.resilience
   const scaling = node.scaling
+
+  if (isRecord(config['securityPolicy'])) {
+    sim.securityPolicy = {
+      blockRate: asNumber(config['securityPolicy']['blockRate']) ?? 0,
+      droppedPackets: asNumber(config['securityPolicy']['droppedPackets']) ?? 0
+    }
+  }
+
+  if (resilience?.retry) {
+    sim.retry = structuredClone(resilience.retry)
+  }
 
   if (asNumber(config['nodeErrorRate']) !== undefined) {
     sim.nodeErrorRate = asNumber(config['nodeErrorRate'])
@@ -427,6 +466,54 @@ function overlaySimulationConfig(
   return Object.keys(sim).length > 0 ? sim : undefined
 }
 
+/**
+ * Sim keys that serialize to a differently named engine field. Used to drop
+ * template defaults the imported node never authored (see pruneUnauthoredDefaults).
+ */
+const SIM_KEYS_BY_ENGINE_FIELD: Record<string, readonly (keyof NodeSimulationConfig)[]> = {
+  coldStartLatency: ['coldStartLatency', 'coldStartLatencyMs'],
+  readLatency: ['readLatency', 'readLatencyMs'],
+  writeLatency: ['writeLatency', 'writeLatencyMs']
+}
+
+/**
+ * Template defaults fill every editor field, but an imported node that never
+ * set, say, `healthCheckEnabled` must not export one: that would change the
+ * engine input on a plain import -> export. Drop each default the source node
+ * did not author, unless the canvas needs it to stay valid.
+ */
+function pruneUnauthoredDefaults(node: ComponentNode, data: CanvasNodeDataV2): void {
+  const spec = getComponentSpec(data.componentType)
+  const sim = data.sim
+  if (!spec || !sim || spec.structuralRole === 'source') return
+  const produced = spec.serializeCanvas(data, { nodeId: node.id, position: node.position })
+  if (!produced) return
+
+  const originalConfig = node.config ?? {}
+  const candidates = new Set<keyof NodeSimulationConfig>()
+  for (const field of Object.keys(produced.config ?? {})) {
+    if (field in originalConfig) continue
+    for (const key of SIM_KEYS_BY_ENGINE_FIELD[field] ?? [field as keyof NodeSimulationConfig]) {
+      if (sim[key] !== undefined) candidates.add(key)
+    }
+  }
+  if (produced.resilience?.circuitBreaker && !node.resilience?.circuitBreaker) {
+    if (!('circuitBreaker' in originalConfig)) candidates.add('circuitBreaker')
+  }
+  if (produced.resilience?.retry && !node.resilience?.retry) candidates.add('retry')
+  if (produced.slo && !node.slo) candidates.add('slo')
+
+  const baselineErrors = spec.validateCanvas(data).length
+  const mutableSim = sim as Record<string, unknown>
+  for (const key of candidates) {
+    const saved = mutableSim[key]
+    delete mutableSim[key]
+    if (spec.validateCanvas(data).length > baselineErrors) {
+      mutableSim[key] = saved
+    }
+  }
+}
+
 function convertNode(
   node: ComponentNode,
   workload?: WorkloadProfile
@@ -439,16 +526,31 @@ function convertNode(
   const data = instantiateTemplate(template.id)
   data.label = node.label
 
+  // A stand-in template (no template for this engine type): keep the real type
+  // when the canvas has a component spec for it, otherwise carry it to export.
+  const carry: TopologyNodeCarry = {}
+  if (template.componentType !== node.type) {
+    const ownSpec = getComponentSpec(node.type)
+    if (ownSpec) {
+      data.componentType = node.type
+      data.structuralRole = ownSpec.structuralRole
+      data.profile = ownSpec.profile
+    } else {
+      carry.type = node.type
+      carry.category = node.category
+    }
+  }
+
   if (isCustomNodeDefinition(node.config?.['customDefinition'])) {
     data.customDefinition = structuredClone(node.config?.['customDefinition'])
   }
 
-  const routingStrategy = asRoutingStrategy(node.config?.['routingStrategy'])
-  if (routingStrategy) {
-    data.routingStrategy = routingStrategy
-  }
+  // An unset strategy means the engine's default for the type; do not let the
+  // template's default become an authored value on export.
+  data.routingStrategy = asRoutingStrategy(node.config?.['routingStrategy'])
 
   data.sim = overlaySimulationConfig(node, data.sim)
+  pruneUnauthoredDefaults(node, data)
 
   if (workload && workload.sourceNodeId === node.id) {
     data.source = {
@@ -456,6 +558,18 @@ function convertNode(
       defaultWorkload: buildSourceDefaults(workload)
     }
   }
+
+  // Whatever the canvas cannot reproduce is carried so export stays lossless.
+  const spec = getComponentSpec(data.componentType)
+  const produced = spec
+    ? spec.serializeCanvas(data, { nodeId: node.id, position: node.position })
+    : null
+  if (node.role && produced && produced.role !== node.role) {
+    carry.role = node.role
+  }
+  const extra = computeNodeExtra(node, produced)
+  if (extra) carry.extra = extra
+  if (Object.keys(carry).length > 0) data.topologyCarry = carry
 
   return {
     id: node.id,
@@ -534,30 +648,51 @@ function absoluteLocationPosition(
   return result
 }
 
+/** Ratio -> percent without float noise (0.07 * 100 is 7.000000000000001). */
+function ratioToPercent(value: number): number {
+  return Number((value * 100).toPrecision(12))
+}
+
 function edgeDataFromTopology(edge: EdgeDefinition): EdgeSimulationData {
   const distribution = edge.latency.distribution
+  const isConstant = distribution.type === 'constant' || distribution.type === 'deterministic'
+  // An edge whose latency was derived from its path type keeps that link: leave
+  // the explicit values unset so export derives (and flags) them again, and the
+  // geo-aware resolver can still replace them.
+  const derived =
+    edge.latency.derivedFromPathType === true && latencyMatchesPathProfile(edge, distribution)
   return {
     routingStyle: edge.presentation?.routingStyle,
     protocol: edge.protocol,
     mode: edge.mode,
-    latencyDistributionType:
-      distribution.type === 'constant' || distribution.type === 'deterministic'
-        ? 'constant'
-        : 'log-normal',
-    latencyValue:
-      distribution.type === 'constant' || distribution.type === 'deterministic'
-        ? distribution.value
-        : undefined,
-    latencyMu: distribution.type === 'log-normal' ? distribution.mu : undefined,
-    latencySigma: distribution.type === 'log-normal' ? distribution.sigma : undefined,
+    latencyDistributionType: isConstant ? 'constant' : 'log-normal',
+    latencyValue: !derived && isConstant ? distribution.value : undefined,
+    latencyMu: !derived && distribution.type === 'log-normal' ? distribution.mu : undefined,
+    latencySigma: !derived && distribution.type === 'log-normal' ? distribution.sigma : undefined,
     pathType: edge.latency.pathType,
     bandwidth: edge.bandwidth,
     maxConcurrentRequests: edge.maxConcurrentRequests,
-    packetLossRate: edge.packetLossRate * 100,
-    errorRate: edge.errorRate * 100,
+    packetLossRate: ratioToPercent(edge.packetLossRate),
+    errorRate: ratioToPercent(edge.errorRate),
     condition: edge.condition,
+    weight: edge.weight,
     fanoutFactor: edge.fanoutFactor
   }
+}
+
+function latencyMatchesPathProfile(
+  edge: EdgeDefinition,
+  distribution: DistributionConfig
+): boolean {
+  const profile = getPathTypeLatencyProfile(edge.latency.pathType)
+  if (distribution.type === 'constant' || distribution.type === 'deterministic') {
+    return distribution.value === Math.exp(profile.mu)
+  }
+  return (
+    distribution.type === 'log-normal' &&
+    distribution.mu === profile.mu &&
+    distribution.sigma === profile.sigma
+  )
 }
 
 function convertEdge(
@@ -591,7 +726,20 @@ function buildScenarioState(topology: TopologyJSON): ScenarioState {
     selectedSourceNodeId: topology.workload?.sourceNodeId,
     workloadOverride: {},
     faults: topology.faults ?? [],
-    randomizeSeedEachRun: false
+    randomizeSeedEachRun: false,
+    topologyMeta: buildTopologyMeta(topology)
+  }
+}
+
+function buildTopologyMeta(topology: TopologyJSON): TopologyMeta {
+  return {
+    id: topology.id,
+    name: topology.name,
+    version: topology.version,
+    timeResolution: topology.global.timeResolution,
+    ...(topology.networkModel ? { networkModel: structuredClone(topology.networkModel) } : {}),
+    ...(topology.invariants?.length ? { invariants: structuredClone(topology.invariants) } : {}),
+    ...(topology.scenarios?.length ? { scenarios: structuredClone(topology.scenarios) } : {})
   }
 }
 
@@ -649,4 +797,24 @@ export function topologyToCanvasFileData(topology: TopologyJSON): NestedFileData
     edges: topology.edges.map((edge) => convertEdge(edge, nodePositions)),
     scenario: buildScenarioState(topology)
   }
+}
+
+/**
+ * The canvas data one TopologyJSON node maps to (the same conversion a full
+ * import uses). The JSON viewer diffs two of these to turn a field edit into a
+ * canvas patch.
+ */
+export function topologyNodeToCanvasData(
+  node: ComponentNode,
+  workload?: WorkloadProfile
+): CanvasNodeDataV2 | null {
+  return convertNode(node, workload)?.data ?? null
+}
+
+/** The canvas label and data one TopologyJSON edge maps to. */
+export function topologyEdgeToCanvasData(edge: EdgeDefinition): {
+  label?: string
+  data: EdgeSimulationData
+} {
+  return { label: edge.label, data: edgeDataFromTopology(edge) }
 }
