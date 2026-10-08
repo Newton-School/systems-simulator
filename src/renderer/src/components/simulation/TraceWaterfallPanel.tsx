@@ -12,7 +12,7 @@ import {
 import { useFocusNodeOnCanvas } from './useFocusNodeOnCanvas'
 import useStore from '../../store/useStore'
 import { RequestDebugger } from '../debugger/RequestDebugger'
-import { buildRequestLifecycle, initialStepIndex } from '../debugger/requestLifecycle'
+import { useOpenRequestDebugger } from '../debugger/useRequestDebugSession'
 
 const SECTION_TITLE = 'text-[11px] font-semibold text-nss-muted uppercase tracking-wider'
 const SURFACE_CARD = 'bg-nss-surface border border-nss-border rounded-md'
@@ -123,24 +123,28 @@ function WaterfallRow({
 export function TraceWaterfallPanel({
   output,
   traceSampleRate,
-  topologyEdited = false
+  topologyEdited = false,
+  debugRequestId = null,
+  onDebugRequestHandled
 }: {
   output: SimulationOutput
   traceSampleRate: number | null
   topologyEdited?: boolean
+  /** Open the debugger on this request when the panel mounts (Event Log hand-off). */
+  debugRequestId?: string | null
+  onDebugRequestHandled?: () => void
 }) {
   const focusNode = useFocusNodeOnCanvas()
   const debugSession = useStore((state) => state.requestDebug)
   const setRequestDebug = useStore((state) => state.setRequestDebug)
-  const setTracedRequestIds = useStore((state) => state.setTracedRequestIds)
   // The debugger (and its canvas overlay) lives only while this tab is shown.
   useEffect(() => () => setRequestDebug(null), [setRequestDebug])
-  const openDebugger = (requestId: string) => {
-    const trace = output.traces.find((candidate) => candidate.requestId === requestId)
-    const lifecycle = trace ? buildRequestLifecycle(trace) : null
-    setTracedRequestIds([])
-    setRequestDebug({ requestId, stepIndex: lifecycle ? initialStepIndex(lifecycle) : 0 })
-  }
+  const openDebugger = useOpenRequestDebugger(output)
+  useEffect(() => {
+    if (!debugRequestId) return
+    openDebugger(debugRequestId)
+    onDebugRequestHandled?.()
+  }, [debugRequestId, onDebugRequestHandled, openDebugger])
   const index = useMemo(() => indexTraces(output.traces), [output.traces])
   const [filter, setFilter] = useState<TraceFilter>('all')
   const [position, setPosition] = useState(0)

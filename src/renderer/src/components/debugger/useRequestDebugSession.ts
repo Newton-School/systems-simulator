@@ -1,8 +1,10 @@
 import { useCallback, useMemo } from 'react'
 import useStore from '@renderer/store/useStore'
+import type { SimulationOutput } from '../../../../engine/analysis/output'
 import {
   buildRequestLifecycle,
   clampStep,
+  initialStepIndex,
   type LifecycleStep,
   type RequestLifecycle
 } from './requestLifecycle'
@@ -48,4 +50,26 @@ export function useRequestDebugSession(): RequestDebugSessionView {
     setStep,
     close
   }
+}
+
+/**
+ * Open the step-through debugger on one traced request: stop any request-flow
+ * animation and start at the lifecycle's initial step. The Traces tab renders the
+ * debugger whenever a session is open, so callers outside it switch to that tab.
+ */
+export function useOpenRequestDebugger(
+  output: SimulationOutput | null
+): (requestId: string) => void {
+  const setRequestDebug = useStore((state) => state.setRequestDebug)
+  const setTracedRequestIds = useStore((state) => state.setTracedRequestIds)
+  return useCallback(
+    (requestId: string) => {
+      if (!output) return
+      const trace = output.traces.find((candidate) => candidate.requestId === requestId)
+      const lifecycle = trace ? buildRequestLifecycle(trace) : null
+      setTracedRequestIds([])
+      setRequestDebug({ requestId, stepIndex: lifecycle ? initialStepIndex(lifecycle) : 0 })
+    },
+    [output, setRequestDebug, setTracedRequestIds]
+  )
 }

@@ -22,7 +22,6 @@ import type {
   DebugEvent,
   RequestOutcomeRecord
 } from '../../../../engine/core/event-stream'
-import { projectToDebugEvent } from '../../../../engine/core/event-stream'
 import type { CanvasNodeDataV2 } from '../../../../engine/catalog/nodeSpecTypes'
 import {
   REQUEST_OUTCOME_FAMILIES,
@@ -68,7 +67,9 @@ import { EdgeLatencyBreakdownView } from './EdgeLatencyBreakdownView'
 import { selectCoveringRequestIds } from '@renderer/utils/requestTraceCoverage'
 import { FailureCascadePanel } from './FailureCascadePanel'
 import { TraceWaterfallPanel } from './TraceWaterfallPanel'
+import { EventLogPanel } from './EventLogPanel'
 import { useFocusNodeOnCanvas } from './useFocusNodeOnCanvas'
+import { sortByKey, type SortDirection } from './eventLogModel'
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
@@ -206,11 +207,11 @@ function requestMixEntries(workload: ScenarioRunContext['workload']) {
 const SECTION_TITLE = 'text-[11px] font-semibold text-nss-muted uppercase tracking-wider'
 const SURFACE_CARD = 'bg-nss-surface border border-nss-border rounded-md'
 const TRAFFIC_EVENT_LOG_SIZE = 24
-const EVENT_LOG_PAGE_SIZE = 50
 const RESULTS_TABS: Array<{ id: ResultsTab; label: string }> = [
   { id: 'overview', label: 'Overview' },
   { id: 'bottlenecks', label: 'Bottlenecks' },
   { id: 'nodes', label: 'Node Metrics' },
+  { id: 'events', label: 'Event Log' },
   { id: 'failures', label: 'Failures' },
   { id: 'traces', label: 'Traces' },
   { id: 'traffic', label: 'Traffic' }
@@ -962,217 +963,6 @@ function TrafficEventLog({
             : mode === 'live'
               ? 'Waiting for requests to start moving through the graph.'
               : 'No retained request traversals exist at this replay point yet.'}
-        </div>
-      )}
-    </div>
-  )
-}
-
-function SimulationEventLog({
-  output,
-  graphLookup
-}: {
-  output: SimulationOutput
-  graphLookup: EventGraphLookup
-}) {
-  const selectGraphElements = useStore((state) => state.selectGraphElements)
-  const [query, setQuery] = useState('')
-  const [page, setPage] = useState(1)
-  const trimmedQuery = query.trim().toLowerCase()
-  const retainedEvents = output.eventStream
-  const totalEventCount = totalReplayEventCount(output)
-  const eventsTruncated = retainedEvents.length < totalEventCount
-  const visibleEvents = useMemo(() => {
-    if (trimmedQuery === '') {
-      return retainedEvents
-    }
-
-    return retainedEvents.filter((event) => {
-      const projected = projectToDebugEvent(event)
-      const nodeLabel = event.nodeId
-        ? (labelForNode(event.nodeId, graphLookup) ?? event.nodeId)
-        : ''
-      const edgeLabel = event.edgeId
-        ? (graphLookup.edgeById.get(event.edgeId)?.label ?? event.edgeId)
-        : ''
-      return `${event.sequence} ${event.type} ${projected.message} ${event.requestId ?? ''} ${nodeLabel} ${edgeLabel} ${event.reasonCode ?? ''}`
-        .toLowerCase()
-        .includes(trimmedQuery)
-    })
-  }, [graphLookup, retainedEvents, trimmedQuery])
-  const pageCount = Math.max(1, Math.ceil(visibleEvents.length / EVENT_LOG_PAGE_SIZE))
-  const clampedPage = Math.min(page, pageCount)
-  const pageStart = (clampedPage - 1) * EVENT_LOG_PAGE_SIZE
-  const pagedEvents = visibleEvents.slice(pageStart, pageStart + EVENT_LOG_PAGE_SIZE)
-
-  useEffect(() => {
-    setPage(1)
-  }, [trimmedQuery])
-
-  return (
-    <div className={`${SURFACE_CARD} p-3`}>
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <div className="flex items-center gap-1.5">
-            <span className="text-xs font-semibold uppercase tracking-wider text-nss-muted">
-              Simulation Event Log
-            </span>
-            <TooltipInfo
-              label="About the simulation event log"
-              content="The ordered engine record of what happened during the run. One request creates several events, such as arrival, queueing, processing, forwarding, and terminal completion or failure."
-            />
-          </div>
-          <div className="text-[11px] text-nss-muted">
-            {eventsTruncated
-              ? `${retainedEvents.length.toLocaleString()} of ${totalEventCount.toLocaleString()} events are retained. Pagination and search cover the retained event history.`
-              : 'Every retained engine event, in deterministic sequence order.'}
-          </div>
-        </div>
-        <span className="text-[10px] text-nss-muted tabular-nums">
-          {visibleEvents.length.toLocaleString()} visible
-        </span>
-      </div>
-
-      <div className="relative mt-2">
-        <Search
-          size={13}
-          className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-nss-muted"
-          aria-hidden="true"
-        />
-        <input
-          type="text"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search by event, request, node, edge, or reason..."
-          aria-label="Search simulation events"
-          className="w-full rounded-md border border-nss-border bg-nss-bg py-1.5 pl-8 pr-8 text-[11px] text-nss-text placeholder:text-nss-muted focus:border-nss-primary/50 focus:outline-none focus:ring-1 focus:ring-nss-primary/40"
-        />
-        {query !== '' && (
-          <button
-            type="button"
-            onClick={() => setQuery('')}
-            aria-label="Clear event search"
-            className="absolute right-2 top-1/2 -translate-y-1/2 text-nss-muted hover:text-nss-text"
-          >
-            <X size={13} />
-          </button>
-        )}
-      </div>
-
-      {pagedEvents.length > 0 ? (
-        <div className="mt-3 overflow-hidden rounded-md border border-nss-border">
-          <div className="max-h-80 overflow-auto">
-            <table className="w-full text-[11px] tabular-nums">
-              <thead className="sticky top-0 border-b border-nss-border bg-nss-surface text-nss-muted">
-                <tr>
-                  <th className="px-2 py-1.5 text-left">#</th>
-                  <th className="px-2 py-1.5 text-left">Sim Time</th>
-                  <th className="px-2 py-1.5 text-left">Event</th>
-                  <th className="px-2 py-1.5 text-left">Request</th>
-                  <th className="px-2 py-1.5 text-left">Details</th>
-                </tr>
-              </thead>
-              <tbody>
-                {pagedEvents.map((event) => {
-                  const projected = projectToDebugEvent(event)
-                  const nodeLabel = event.nodeId
-                    ? (labelForNode(event.nodeId, graphLookup) ?? event.nodeId)
-                    : null
-                  const edgeLabel = event.edgeId
-                    ? (graphLookup.edgeById.get(event.edgeId)?.label ?? event.edgeId)
-                    : null
-                  return (
-                    <tr
-                      key={event.sequence}
-                      tabIndex={0}
-                      onClick={() =>
-                        selectGraphElements(
-                          event.edgeId
-                            ? { edgeId: event.edgeId }
-                            : event.nodeId
-                              ? { nodeId: event.nodeId }
-                              : {}
-                        )
-                      }
-                      onKeyDown={(keyboardEvent) => {
-                        if (keyboardEvent.key !== 'Enter' && keyboardEvent.key !== ' ') return
-                        keyboardEvent.preventDefault()
-                        selectGraphElements(
-                          event.edgeId
-                            ? { edgeId: event.edgeId }
-                            : event.nodeId
-                              ? { nodeId: event.nodeId }
-                              : {}
-                        )
-                      }}
-                      className="cursor-pointer border-b border-nss-border outline-none hover:bg-nss-bg focus:bg-nss-bg"
-                    >
-                      <td className="px-2 py-1 text-nss-muted">
-                        {event.sequence.toLocaleString()}
-                      </td>
-                      <td className="px-2 py-1 text-nss-muted">
-                        {fmtChartTime(Number(event.timestampUs) / 1000)}
-                      </td>
-                      <td className="px-2 py-1">
-                        <span
-                          className={`rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${eventStatusClass(projected.status)}`}
-                        >
-                          {lifecycleStepLabel(event.type)}
-                        </span>
-                      </td>
-                      <td className="max-w-40 px-2 py-1 text-nss-muted">
-                        <span className="block truncate">{event.requestId ?? '-'}</span>
-                      </td>
-                      <td className="max-w-80 px-2 py-1 text-nss-muted">
-                        <div className="truncate text-nss-text" title={projected.message}>
-                          {projected.message}
-                        </div>
-                        {(nodeLabel || edgeLabel || event.reasonCode) && (
-                          <div className="truncate text-[10px] text-nss-muted">
-                            {[nodeLabel, edgeLabel, event.reasonCode].filter(Boolean).join(' • ')}
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-          <div className="flex items-center justify-between gap-3 border-t border-nss-border px-2 py-1.5 text-[10px] text-nss-muted">
-            <span className="tabular-nums">
-              Showing {(pageStart + 1).toLocaleString()}–
-              {(pageStart + pagedEvents.length).toLocaleString()} of{' '}
-              {visibleEvents.length.toLocaleString()}
-            </span>
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                onClick={() => setPage((current) => Math.max(1, current - 1))}
-                disabled={clampedPage <= 1}
-                className="inline-flex items-center gap-0.5 rounded border border-nss-border px-1.5 py-0.5 text-nss-muted transition-colors hover:text-nss-text disabled:opacity-40 disabled:hover:text-nss-muted"
-              >
-                <ChevronLeft size={12} /> Prev
-              </button>
-              <span className="px-1 tabular-nums">
-                {clampedPage} / {pageCount}
-              </span>
-              <button
-                type="button"
-                onClick={() => setPage((current) => Math.min(pageCount, current + 1))}
-                disabled={clampedPage >= pageCount}
-                className="inline-flex items-center gap-0.5 rounded border border-nss-border px-1.5 py-0.5 text-nss-muted transition-colors hover:text-nss-text disabled:opacity-40 disabled:hover:text-nss-muted"
-              >
-                Next <ChevronRight size={12} />
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : (
-        <div className="mt-3 text-xs text-nss-muted">
-          {trimmedQuery === ''
-            ? 'No engine events were retained for this run.'
-            : 'No events match this search.'}
         </div>
       )}
     </div>
@@ -2440,8 +2230,6 @@ function ReplayMonitorPanel({
 
       <RequestOutcomeLog output={output} graphLookup={graphLookup} />
 
-      <SimulationEventLog output={output} graphLookup={graphLookup} />
-
       <BusiestNodesCard
         busiestNodes={busiestNodes}
         totalWorkers={totalWorkers}
@@ -2500,19 +2288,30 @@ function StatCard({
   return <HoverTooltip content={tooltip}>{(triggerProps) => card(triggerProps)}</HoverTooltip>
 }
 
+interface HeaderSort {
+  active: boolean
+  direction: SortDirection
+  onToggle: () => void
+}
+
 function MetricHeaderCell({
   label,
   tooltip,
-  className = 'text-right pb-1 pr-2'
+  className = 'text-right pb-1 pr-2',
+  sort
 }: {
   label: string
   tooltip: string
   className?: string
+  sort?: HeaderSort
 }) {
   return (
-    <th className={className}>
+    <th
+      className={className}
+      aria-sort={sort?.active ? (sort.direction === 'asc' ? 'ascending' : 'descending') : undefined}
+    >
       <span className="inline-flex items-center justify-end gap-1">
-        <span>{label}</span>
+        {sort ? <SortButton label={label} sort={sort} /> : <span>{label}</span>}
         <TooltipInfo
           label={`Explain ${label}`}
           content={tooltip}
@@ -2521,6 +2320,24 @@ function MetricHeaderCell({
         />
       </span>
     </th>
+  )
+}
+
+function SortButton({ label, sort }: { label: string; sort: HeaderSort }) {
+  return (
+    <button
+      type="button"
+      onClick={sort.onToggle}
+      title={`Sort by ${label}`}
+      className={`inline-flex items-center gap-0.5 whitespace-nowrap hover:text-nss-text ${
+        sort.active ? 'text-nss-text' : ''
+      }`}
+    >
+      {label}
+      <span aria-hidden="true" className={sort.active ? '' : 'opacity-30'}>
+        {sort.active && sort.direction === 'asc' ? '▲' : '▼'}
+      </span>
+    </button>
   )
 }
 
@@ -4657,6 +4474,25 @@ function SourceDriverCard({
   )
 }
 
+type PerNodeSortKey =
+  | 'node'
+  | 'arrived'
+  | 'done'
+  | 'reject'
+  | 'timedOut'
+  | 'reset'
+  | 'inFlight'
+  | 'avgQueue'
+  | 'util'
+  | 'errorRate'
+  | 'arrivalCV'
+  | 'p50'
+  | 'p95'
+  | 'p99'
+  | 'lambda'
+  | 'w'
+  | 'l'
+
 function PerNodeTable({
   output,
   locationTopology,
@@ -4667,6 +4503,7 @@ function PerNodeTable({
   runContext: ScenarioRunContext | null
 }) {
   const [showInactive, setShowInactive] = useState(false)
+  const [sort, setSort] = useState<{ key: PerNodeSortKey; direction: SortDirection } | null>(null)
   const nodes = useStore((state) => state.nodes)
   const edges = useStore((state) => state.edges)
   const edgeFlowById = useStore((state) => state.edgeFlowById)
@@ -4702,6 +4539,58 @@ function PerNodeTable({
   const sourceEntries = idleEntries.filter(([nodeId]) => sourceNodeIds.has(nodeId))
   const inactiveEntries = idleEntries.filter(([nodeId]) => !sourceNodeIds.has(nodeId))
   const findings = buildPerNodeFindings(entries)
+  const sortValue = (key: PerNodeSortKey, [nodeId, m]: (typeof entries)[number]) => {
+    const ll = llByNode.get(nodeId)
+    switch (key) {
+      case 'node':
+        return (m.nodeLabel ?? nodeId).toLowerCase()
+      case 'arrived':
+        return m.postWarmupArrived
+      case 'done':
+        return m.postWarmupProcessed
+      case 'reject':
+        return m.postWarmupRejected
+      case 'timedOut':
+        return m.postWarmupTimedOut
+      case 'reset':
+        return m.postWarmupConnectionReset
+      case 'inFlight':
+        return conservationByNode.get(nodeId)?.inFlight ?? 0
+      case 'avgQueue':
+        return m.avgQueueLength
+      case 'util':
+        return m.utilization
+      case 'errorRate':
+        return m.errorRate
+      case 'arrivalCV':
+        return m.arrivalCV
+      case 'p50':
+        return m.latencyP50
+      case 'p95':
+        return m.latencyP95
+      case 'p99':
+        return m.latencyP99
+      case 'lambda':
+        return ll ? ll.lambda : null
+      case 'w':
+        return ll ? ll.wSeconds : null
+      case 'l':
+        return ll ? ll.observedL : null
+    }
+  }
+  const sortedActiveEntries = sort
+    ? sortByKey(activeEntries, (entry) => sortValue(sort.key, entry), sort.direction)
+    : activeEntries
+  const headerSort = (key: PerNodeSortKey): HeaderSort => ({
+    active: sort?.key === key,
+    direction: sort?.key === key ? sort.direction : 'desc',
+    onToggle: () =>
+      setSort((current) =>
+        current?.key === key
+          ? { key, direction: current.direction === 'asc' ? 'desc' : 'asc' }
+          : { key, direction: key === 'node' ? 'asc' : 'desc' }
+      )
+  })
 
   return (
     <div className="space-y-3">
@@ -4777,52 +4666,103 @@ function PerNodeTable({
           <table className="w-full text-xs tabular-nums">
             <thead>
               <tr className="text-nss-muted border-b border-nss-border">
-                <th className="text-left pb-1 pr-2">Node</th>
+                <th
+                  className="text-left pb-1 pr-2"
+                  aria-sort={
+                    sort?.key === 'node'
+                      ? sort.direction === 'asc'
+                        ? 'ascending'
+                        : 'descending'
+                      : undefined
+                  }
+                >
+                  <SortButton label="Node" sort={headerSort('node')} />
+                </th>
                 <MetricHeaderCell
                   label="Arrived"
                   tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.arrived}
+                  sort={headerSort('arrived')}
                 />
-                <MetricHeaderCell label="Done" tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.done} />
+                <MetricHeaderCell
+                  label="Done"
+                  tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.done}
+                  sort={headerSort('done')}
+                />
                 <MetricHeaderCell
                   label="Reject"
                   tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.reject}
+                  sort={headerSort('reject')}
                 />
                 <MetricHeaderCell
                   label="T.O."
                   tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.timedOut}
+                  sort={headerSort('timedOut')}
                 />
-                <MetricHeaderCell label="Reset" tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.reset} />
+                <MetricHeaderCell
+                  label="Reset"
+                  tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.reset}
+                  sort={headerSort('reset')}
+                />
                 <MetricHeaderCell
                   label="In Flight"
                   tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.inFlight}
+                  sort={headerSort('inFlight')}
                 />
                 <MetricHeaderCell
                   label="Avg Q"
                   tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.avgQueue}
+                  sort={headerSort('avgQueue')}
                 />
-                <MetricHeaderCell label="Util" tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.util} />
+                <MetricHeaderCell
+                  label="Util"
+                  tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.util}
+                  sort={headerSort('util')}
+                />
                 <MetricHeaderCell
                   label="Err %"
                   tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.errorRate}
+                  sort={headerSort('errorRate')}
                 />
                 <MetricHeaderCell
                   label="Arr CV"
                   tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.arrivalCV}
+                  sort={headerSort('arrivalCV')}
                 />
-                <MetricHeaderCell label="p50" tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.p50} />
-                <MetricHeaderCell label="p95" tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.p95} />
-                <MetricHeaderCell label="p99" tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.p99} />
-                <MetricHeaderCell label="λ" tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.lambda} />
-                <MetricHeaderCell label="W" tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.w} />
+                <MetricHeaderCell
+                  label="p50"
+                  tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.p50}
+                  sort={headerSort('p50')}
+                />
+                <MetricHeaderCell
+                  label="p95"
+                  tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.p95}
+                  sort={headerSort('p95')}
+                />
+                <MetricHeaderCell
+                  label="p99"
+                  tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.p99}
+                  sort={headerSort('p99')}
+                />
+                <MetricHeaderCell
+                  label="λ"
+                  tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.lambda}
+                  sort={headerSort('lambda')}
+                />
+                <MetricHeaderCell
+                  label="W"
+                  tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.w}
+                  sort={headerSort('w')}
+                />
                 <MetricHeaderCell
                   label="L"
                   tooltip={RESULTS_PER_NODE_COLUMN_TOOLTIPS.l}
+                  sort={headerSort('l')}
                   className="text-right pb-1"
                 />
               </tr>
             </thead>
             <tbody>
-              {activeEntries.map(([nodeId, m]) => {
+              {sortedActiveEntries.map(([nodeId, m]) => {
                 const ll = llByNode.get(nodeId)
                 const conservation = conservationByNode.get(nodeId)
                 const inFlight = conservation?.inFlight ?? 0
@@ -4843,8 +4783,14 @@ function PerNodeTable({
                   <tr
                     key={nodeId}
                     onClick={() => focusNode(nodeId)}
+                    onKeyDown={(event) => {
+                      if (event.key !== 'Enter' && event.key !== ' ') return
+                      event.preventDefault()
+                      focusNode(nodeId)
+                    }}
+                    tabIndex={0}
                     title="Select on canvas"
-                    className="cursor-pointer border-b border-nss-border hover:bg-nss-surface/70"
+                    className="cursor-pointer border-b border-nss-border outline-none hover:bg-nss-surface/70 focus-visible:bg-nss-surface/70"
                   >
                     <td className="py-1 pr-2 text-nss-text max-w-[180px]">
                       <div className="truncate">{m.nodeLabel ?? nodeId}</div>
@@ -5046,6 +4992,17 @@ export function ResultsTray({
     },
     [defaultResultsTab, results]
   )
+  // "Debug request" from the Event Log: the debugger lives in the Traces tab, so
+  // hand the request id over and switch; the Traces panel opens it on mount.
+  const [pendingDebugRequestId, setPendingDebugRequestId] = useState<string | null>(null)
+  const debugRequestFromEventLog = useCallback(
+    (requestId: string) => {
+      setPendingDebugRequestId(requestId)
+      setActiveTab('traces')
+    },
+    [setActiveTab]
+  )
+  const clearPendingDebugRequest = useCallback(() => setPendingDebugRequestId(null), [])
   const nodes = useStore((state) => state.nodes)
   const edges = useStore((state) => state.edges)
   const tracedRequestIds = useStore((state) => state.tracedRequestIds)
@@ -5283,6 +5240,10 @@ export function ResultsTray({
               </div>
             )}
 
+            {activeTab === 'events' && (
+              <EventLogPanel output={results} onDebugRequest={debugRequestFromEventLog} />
+            )}
+
             {activeTab === 'failures' && <FailureCascadePanel output={results} />}
 
             {activeTab === 'traces' && (
@@ -5290,6 +5251,8 @@ export function ResultsTray({
                 output={results}
                 traceSampleRate={runContext?.global.traceSampleRate ?? null}
                 topologyEdited={topologyEdited}
+                debugRequestId={pendingDebugRequestId}
+                onDebugRequestHandled={clearPendingDebugRequest}
               />
             )}
 
