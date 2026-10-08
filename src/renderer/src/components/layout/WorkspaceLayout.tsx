@@ -30,6 +30,8 @@ import {
   repostLastNewtonSave
 } from '@renderer/utils/newtonHostMessaging'
 import { applyAutoLayout } from '@renderer/utils/autoLayout'
+import { ImportTopologyDialog } from '@renderer/components/topology/ImportTopologyDialog'
+import { TopologyJsonMenu } from '@renderer/components/topology/TopologyJsonMenu'
 import { validateTopology } from '../../../../engine/validation/validator'
 import type { LatencyPercentiles } from '../../../../engine/metrics'
 import type { TimeSeriesSnapshot } from '../../../../engine/analysis/output'
@@ -118,6 +120,11 @@ const PropertiesPanel = lazy(async () => {
 const ResultsTray = lazy(async () => {
   const module = await import('../simulation/ResultsTray')
   return { default: module.ResultsTray }
+})
+
+const TopologyJsonViewer = lazy(async () => {
+  const module = await import('../topology/TopologyJsonViewer')
+  return { default: module.TopologyJsonViewer }
 })
 
 const FlowCanvas = lazy(async () => {
@@ -273,6 +280,11 @@ export const WorkspaceLayout = () => {
   const [isLeftOpen, setIsLeftOpen] = useState(true)
   const [leftSidebarTab, setLeftSidebarTab] = useState<LibrarySidebarTab>('library')
   const [isRightOpen, setIsRightOpen] = useState(false)
+  // The right panel slot shows the inspector or the JSON Topology Viewer (#87).
+  const [rightPanelView, setRightPanelView] = useState<'inspector' | 'json'>('inspector')
+  const rightPanelViewRef = useRef(rightPanelView)
+  rightPanelViewRef.current = rightPanelView
+  const [showImportJson, setShowImportJson] = useState(false)
   const [showResults, setShowResults] = useState(false)
   const [showSamples, setShowSamples] = useState(false)
   const [showShortcuts, setShowShortcuts] = useState(false)
@@ -452,7 +464,13 @@ export const WorkspaceLayout = () => {
   }, [])
 
   useEffect(() => {
-    if (!selectedNodeId && !selectedEdgeId && !runInspectorPinned) {
+    // The JSON viewer shows the whole design, so it stays open without a selection.
+    if (
+      !selectedNodeId &&
+      !selectedEdgeId &&
+      !runInspectorPinned &&
+      rightPanelViewRef.current !== 'json'
+    ) {
       setIsRightOpen(false)
     }
   }, [runInspectorPinned, selectedNodeId, selectedEdgeId])
@@ -1050,6 +1068,32 @@ export const WorkspaceLayout = () => {
     }
   }, [clearQuestionSession, handleOpen, environmentProfile.mode, handleResetRun, sim.status])
 
+  // Import JSON (#89): same replacement semantics as opening a file.
+  const handleImportTopologyJson = useCallback(
+    async (canvasData: object, importedFileName: string) => {
+      const loaded = await loadFromData(canvasData, importedFileName)
+      if (!loaded) {
+        return false
+      }
+      if (sim.status !== 'idle') {
+        handleResetRun()
+      }
+      if (environmentProfile.mode !== 'AUTHOR') {
+        clearQuestionSession()
+      }
+      requestViewportFit()
+      return true
+    },
+    [
+      clearQuestionSession,
+      environmentProfile.mode,
+      handleResetRun,
+      loadFromData,
+      requestViewportFit,
+      sim.status
+    ]
+  )
+
   const handleSampleLoad = useCallback(
     async (sample: SampleScenario) => {
       const loaded = await loadFromData(sample.raw, `${sample.id}.json`)
@@ -1270,10 +1314,59 @@ export const WorkspaceLayout = () => {
   )
 
   const propertiesContent = (
-    <Suspense fallback={<PanelFallback label="Loading inspector..." />}>
-      <PropertiesPanel results={sim.results} />
-    </Suspense>
+    <div className="flex h-full min-h-0 flex-col bg-nss-panel">
+      <div
+        role="tablist"
+        aria-label="Right panel view"
+        className="flex shrink-0 items-center gap-1 border-b border-l border-nss-border px-2 pt-1.5"
+      >
+        {(
+          [
+            ['inspector', 'Inspector'],
+            ['json', 'JSON']
+          ] as const
+        ).map(([view, label]) => (
+          <button
+            key={view}
+            type="button"
+            role="tab"
+            aria-selected={rightPanelView === view}
+            onClick={() => setRightPanelView(view)}
+            className={`-mb-px border-b-2 px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-wide transition-colors ${
+              rightPanelView === view
+                ? 'border-nss-primary text-nss-primary'
+                : 'border-transparent text-nss-muted hover:text-nss-text'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      <div className="min-h-0 flex-1">
+        {rightPanelView === 'json' ? (
+          <Suspense fallback={<PanelFallback label="Loading JSON viewer..." />}>
+            <TopologyJsonViewer
+              onImport={canUseTopologyFiles ? () => setShowImportJson(true) : undefined}
+            />
+          </Suspense>
+        ) : (
+          <Suspense fallback={<PanelFallback label="Loading inspector..." />}>
+            <PropertiesPanel results={sim.results} />
+          </Suspense>
+        )}
+      </div>
+    </div>
   )
+
+  const toggleJsonViewer = () => {
+    if (isRightOpen && rightPanelView === 'json') {
+      setIsRightOpen(false)
+      return
+    }
+    setRightPanelView('json')
+    setIsRightOpen(true)
+    if (isCompactWorkspace) setIsLeftOpen(false)
+  }
 
   const canvasContent = (
     <div className="relative h-full min-h-0">
@@ -1307,11 +1400,13 @@ export const WorkspaceLayout = () => {
             interactionLocked={experienceEnvelope.canvasLocked}
             onNodeDoubleClick={(_, node) => {
               selectGraphElements({ nodeId: node.id })
+              setRightPanelView('inspector')
               setIsRightOpen(true)
               if (isCompactWorkspace) setIsLeftOpen(false)
             }}
             onEdgeDoubleClick={(_, edge) => {
               selectGraphElements({ edgeId: edge.id })
+              setRightPanelView('inspector')
               setIsRightOpen(true)
               if (isCompactWorkspace) setIsLeftOpen(false)
             }}
@@ -1376,6 +1471,14 @@ export const WorkspaceLayout = () => {
         onSave={handleSave}
         onOpen={handleOpenTopology}
         onAutoLayout={handleAutoLayout}
+        topologyJsonControls={
+          <TopologyJsonMenu
+            isViewerOpen={isRightOpen && rightPanelView === 'json'}
+            onToggleViewer={toggleJsonViewer}
+            onImport={canUseTopologyFiles ? () => setShowImportJson(true) : undefined}
+            canExport={canUseTopologyFiles}
+          />
+        }
         fileName={fileName}
         isUnsaved={isUnsaved}
         onRun={handleRun}
@@ -1529,6 +1632,13 @@ export const WorkspaceLayout = () => {
       )}
 
       {showShortcuts && <ShortcutsModal onClose={() => setShowShortcuts(false)} />}
+
+      {showImportJson && (
+        <ImportTopologyDialog
+          onClose={() => setShowImportJson(false)}
+          onImport={handleImportTopologyJson}
+        />
+      )}
 
       {dialog}
     </div>

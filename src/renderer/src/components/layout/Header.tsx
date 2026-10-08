@@ -1,4 +1,4 @@
-import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { memo, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { ChevronLeft, FolderOpen, Save, Sidebar, Workflow } from 'lucide-react'
 
 import { Divider } from '../ui/Divider'
@@ -34,6 +34,8 @@ interface HeaderProps {
   onSave: () => void
   onOpen: () => void
   onAutoLayout: () => void
+  /** TopologyJSON import/export/viewer controls, shown after the file actions. */
+  topologyJsonControls?: ReactNode
   fileName: string | null
   isUnsaved: boolean
 
@@ -95,6 +97,7 @@ export const Header = memo(
     onSave,
     onOpen,
     onAutoLayout,
+    topologyJsonControls,
     fileName,
     isUnsaved,
     onRun,
@@ -203,6 +206,7 @@ export const Header = memo(
               <IconButton onClick={onSave} icon={<Save size={18} />} label="Save (Ctrl+S)" />
             )}
             <IconButton onClick={onAutoLayout} icon={<Workflow size={18} />} label="Auto Layout" />
+            {topologyJsonControls}
           </div>
 
           <div className="nss-desktop-only">

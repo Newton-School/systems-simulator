@@ -798,3 +798,23 @@ export function topologyToCanvasFileData(topology: TopologyJSON): NestedFileData
     scenario: buildScenarioState(topology)
   }
 }
+
+/**
+ * The canvas data one TopologyJSON node maps to (the same conversion a full
+ * import uses). The JSON viewer diffs two of these to turn a field edit into a
+ * canvas patch.
+ */
+export function topologyNodeToCanvasData(
+  node: ComponentNode,
+  workload?: WorkloadProfile
+): CanvasNodeDataV2 | null {
+  return convertNode(node, workload)?.data ?? null
+}
+
+/** The canvas label and data one TopologyJSON edge maps to. */
+export function topologyEdgeToCanvasData(edge: EdgeDefinition): {
+  label?: string
+  data: EdgeSimulationData
+} {
+  return { label: edge.label, data: edgeDataFromTopology(edge) }
+}
