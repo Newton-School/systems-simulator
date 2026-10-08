@@ -183,6 +183,47 @@ describe('saturation halt (discrete engine)', () => {
     expect(out.eventsProcessed).toBe(reference.eventsProcessed)
   })
 
+  it('measures a saturation-halted run over the time it covered, not the full window', () => {
+    // 1 worker x 10ms = 100 rps of capacity, offered 1000 rps.
+    const out = new SimulationEngine(
+      topo({
+        baseRps: 1000,
+        serviceMs: 10,
+        workers: 1,
+        durationMs: 60_000,
+        stopCondition: { mode: 'duration', haltOnSaturation: { utilization: 1.0 } }
+      })
+    ).run()
+    expect(out.stopReason).toBe('saturation')
+    expect(out.simulationDuration).toBe(out.stoppedAtMs)
+    // Dividing by the configured 60s would report a few rps; the node ran flat out.
+    expect(out.summary.throughput).toBeGreaterThan(80)
+    expect(out.summary.throughput).toBeLessThanOrEqual(101)
+  })
+
+  it('measures a run stopped early by its driver over the time it covered', () => {
+    const engine = new SimulationEngine(
+      topo({ baseRps: 50, serviceMs: 5, workers: 8, durationMs: 60_000 })
+    )
+    engine.stepUntil(5_000, Number.MAX_SAFE_INTEGER)
+    engine.markStoppedEarly()
+    const out = engine.getResults()
+    expect(out.stopReason).toBe('duration')
+    expect(out.simulationDuration).toBeLessThanOrEqual(5_000)
+    expect(out.simulationDuration).toBeGreaterThan(4_900)
+    expect(out.summary.throughput).toBeGreaterThan(45)
+    expect(out.summary.throughput).toBeLessThan(55)
+  })
+
+  it('ignores markStoppedEarly once the run reached its configured end', () => {
+    const engine = new SimulationEngine(
+      topo({ baseRps: 50, serviceMs: 5, workers: 8, durationMs: 2_000 })
+    )
+    const full = engine.run()
+    engine.markStoppedEarly()
+    expect(engine.getResults().simulationDuration).toBe(full.simulationDuration)
+  })
+
   it('runs the full window when never saturated', () => {
     const out = new SimulationEngine(
       topo({

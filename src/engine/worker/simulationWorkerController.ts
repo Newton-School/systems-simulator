@@ -165,6 +165,7 @@ export function createWorkerController(deps: WorkerControllerDeps): WorkerContro
 
   function postComplete(active: SimulationEngine, wasStopped: boolean): void {
     flushLiveTelemetry(true)
+    if (wasStopped) active.markStoppedEarly()
     const output = prepareOutputForTransport(active.getResults())
     post({ type: 'complete', payload: { output, stopped: wasStopped } })
   }

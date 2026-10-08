@@ -244,6 +244,8 @@ export class SimulationEngine {
   private stopReason: StopReason = 'duration'
   /** Sim time (µs) the run was aborted at, when saturation halted it. */
   private stoppedAtUs: bigint | null = null
+  /** Sim time (µs) a driver stopped the run at before its configured end (user stop). */
+  private endedEarlyAtUs: bigint | null = null
 
   private clock = 0n
   private lastSnapshotAt = -1n
@@ -612,6 +614,19 @@ export class SimulationEngine {
 
   getResults(): SimulationOutput {
     return this.generateResults()
+  }
+
+  /**
+   * Record that a driver stopped the run before its configured end (the user
+   * pressed Stop). Results then measure rates and utilization over the time the
+   * run actually covered instead of the full configured duration.
+   */
+  markStoppedEarly(): void {
+    // A finished run can end with the clock short of the window (no events left),
+    // so only a run that still had work pending counts as stopped early.
+    if (this.stoppedAtUs === null && this.hasPendingEvents()) {
+      this.endedEarlyAtUs = this.clock
+    }
   }
 
   captureSnapshot(): TimeSeriesSnapshot {
@@ -3059,8 +3074,13 @@ export class SimulationEngine {
 
     // Close each node's busy-area integral at the run horizon and report it as
     // the single source of truth for utilization (never snapshot-averaged).
+    // A run that ended early (saturation halt or user stop) is measured up to
+    // where it ended, so throughput and utilization aren't diluted by time that
+    // was never simulated.
+    const earlyEndUs = this.stoppedAtUs ?? this.endedEarlyAtUs
     const horizonUs =
-      this.clock < this.simulationDurationUs ? this.simulationDurationUs : this.clock
+      earlyEndUs ??
+      (this.clock < this.simulationDurationUs ? this.simulationDurationUs : this.clock)
     for (const [nodeId, node] of this.nodes) {
       node.finalizeUtilization(horizonUs)
       const workers = this.nodeLimitsById.get(nodeId)?.workers ?? 1
@@ -3088,7 +3108,12 @@ export class SimulationEngine {
       this.timeSeries,
       this.causalGraphRecorder.build(this.topology.edges),
       [],
-      this.topology.global,
+      earlyEndUs === null
+        ? this.topology.global
+        : {
+            ...this.topology.global,
+            simulationDuration: Math.max(microToMs(earlyEndUs), this.topology.global.warmupDuration)
+          },
       this.eventsProcessed,
       eventStream,
       eventCountsByType,
