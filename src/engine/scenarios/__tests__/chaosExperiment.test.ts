@@ -71,7 +71,13 @@ describe('compileExperiment', () => {
   it('replaces faults already on the topology and says so', () => {
     const base = apiDbTopology()
     base.faults = [
-      { targetId: 'api', faultType: 'chaos', timing: 'deterministic', duration: 'permanent', params: {} }
+      {
+        targetId: 'api',
+        faultType: 'chaos',
+        timing: 'deterministic',
+        duration: 'permanent',
+        params: {}
+      }
     ]
     const { topology, plan } = compileExperiment(base, dbCrash())
     expect(topology.faults?.every((f) => f.targetId === 'db')).toBe(true)
@@ -107,13 +113,23 @@ describe('compileExperiment', () => {
     const { topology, plan } = compileExperiment(apiDbTopology(), {
       ...dbCrash(),
       steps: [
-        { type: 'inject', fault: { targetId: 'db', mode: 'degraded', degradation: { fraction: 1, serviceTimeMultiplier: 4 }, durationMs: 6_000 } },
+        {
+          type: 'inject',
+          fault: {
+            targetId: 'db',
+            mode: 'degraded',
+            degradation: { fraction: 1, serviceTimeMultiplier: 4 },
+            durationMs: 6_000
+          }
+        },
         { type: 'wait', durationMs: 2_000 },
         { type: 'inject', fault: { targetId: 'db', mode: 'reject', durationMs: 2_000 } },
         { type: 'wait', durationMs: 4_000 }
       ]
     })
-    expect(topology.faults?.map((f) => [f.params.mode, f.params.atMs, f.params.durationMs])).toEqual([
+    expect(
+      topology.faults?.map((f) => [f.params.mode, f.params.atMs, f.params.durationMs])
+    ).toEqual([
       ['degraded', 5_000, 2_000],
       ['reject', 7_000, 2_000]
     ])
@@ -142,7 +158,13 @@ describe('runChaosExperiment (engine-level)', () => {
       ...dbCrash(),
       steps: [
         { type: 'wait', durationMs: 3_000 },
-        { type: 'verify', assertions: [{ metric: 'error_rate', operator: '<', value: 0.01 }, { metric: 'throughput', operator: '>=', value: 95 }] }
+        {
+          type: 'verify',
+          assertions: [
+            { metric: 'error_rate', operator: '<', value: 0.01 },
+            { metric: 'throughput', operator: '>=', value: 95 }
+          ]
+        }
       ]
     })
     expect(result.verdict).toBe('passed')
@@ -214,11 +236,18 @@ describe('runChaosExperiment (engine-level)', () => {
   })
 
   it('works through the fluent builder', () => {
-    const run = new ChaosExperiment('builder', { warmupMs: 1_000, baselineMs: 2_000, finalCheckMs: 2_000 })
+    const run = new ChaosExperiment('builder', {
+      warmupMs: 1_000,
+      baselineMs: 2_000,
+      finalCheckMs: 2_000
+    })
       .defineSteadyState([{ metric: 'error_rate', operator: '<', value: 0.01 }])
       .addStep({ type: 'inject', fault: { targetId: 'db', mode: 'reject', durationMs: 2_000 } })
       .addStep({ type: 'wait', durationMs: 2_000 })
-      .addStep({ type: 'verify', assertions: [{ metric: 'error_rate', operator: '>', value: 0.5 }] })
+      .addStep({
+        type: 'verify',
+        assertions: [{ metric: 'error_rate', operator: '>', value: 0.5 }]
+      })
       .addStep({ type: 'wait', durationMs: 2_000 })
       .run(apiDbTopology())
     expect(run.result.verdict).toBe('passed')
@@ -283,7 +312,14 @@ describe('cache-flush fault', () => {
         warmupMs: 6_000,
         steadyState: [{ metric: 'throughput', nodeId: 'db' }],
         steps: [
-          ...(flush ? [{ type: 'inject' as const, fault: { targetId: 'cache', kind: 'cache-flush' as const } }] : []),
+          ...(flush
+            ? [
+                {
+                  type: 'inject' as const,
+                  fault: { targetId: 'cache', kind: 'cache-flush' as const }
+                }
+              ]
+            : []),
           { type: 'wait', durationMs: 1_000 },
           { type: 'verify', assertions: [{ metric: 'throughput', nodeId: 'db' }] },
           { type: 'wait', durationMs: 4_000 }

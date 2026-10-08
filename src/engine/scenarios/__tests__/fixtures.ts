@@ -108,7 +108,12 @@ export function apiDbTopology(opts: { baseRps?: number; dbWorkers?: number } = {
 
 /** client -> api -> cache (declared 90% hit rate) -> db. */
 export function cacheTopology(
-  opts: { baseRps?: number; dbWorkers?: number; dbCapacity?: number; cacheConfig?: Record<string, unknown> } = {}
+  opts: {
+    baseRps?: number
+    dbWorkers?: number
+    dbCapacity?: number
+    cacheConfig?: Record<string, unknown>
+  } = {}
 ): TopologyJSON {
   return topology(
     [
@@ -152,7 +157,14 @@ export function failoverTopology(opts: { withRouter?: boolean } = {}): TopologyJ
       source(),
       node('api', 'microservice', { workers: 16, capacity: 128, serviceMs: 2 }),
       ...(withRouter
-        ? [node('db-lb', 'load-balancer', { workers: 64, capacity: 512, serviceMs: 0.2, role: 'router' })]
+        ? [
+            node('db-lb', 'load-balancer', {
+              workers: 64,
+              capacity: 512,
+              serviceMs: 0.2,
+              role: 'router'
+            })
+          ]
         : []),
       db('primary', 'primary'),
       db('replica', 'replica')

@@ -94,6 +94,12 @@ import {
 } from '@renderer/types/ui'
 import { generateRunSeed } from '@renderer/components/simulation/simulationControlModel'
 import {
+  buildExperimentForTopology,
+  type ExperimentPreview
+} from '@renderer/components/simulation/chaosExperimentModel'
+import { ExperimentResultPanel } from '@renderer/components/simulation/ChaosExperimentPanel'
+import { evaluateExperiment, type ExperimentPlan } from '../../../../engine/scenarios'
+import {
   compareRunGraph,
   snapshotRunGraph,
   type RunGraphSnapshot
@@ -283,6 +289,12 @@ export const WorkspaceLayout = () => {
     tone: 'warning'
   })
   const [lastRunContext, setLastRunContext] = useState<ScenarioRunContext | null>(null)
+  // The chaos experiment the last run executed, evaluated once its results arrive.
+  // Node labels are frozen at run time so the verdict still reads right after edits.
+  const [lastExperimentPlan, setLastExperimentPlan] = useState<{
+    plan: ExperimentPlan
+    labels: Record<string, string>
+  } | null>(null)
   // Graph the current results were produced from (#184): results are only shown
   // for the topology they were run on.
   const [lastRunGraph, setLastRunGraph] = useState<RunGraphSnapshot | null>(null)
@@ -966,22 +978,51 @@ export const WorkspaceLayout = () => {
       return
     }
 
+    let topologyToRun = topology
+    let contextForRun = runContext
+    const experimentEntries = scenarioForRun.experiment ?? []
+    if (experimentEntries.length > 0) {
+      const experiment = buildExperimentForTopology(topology, experimentEntries)
+      if (experiment.ok === false) {
+        setRunIssues({ messages: [experiment.reason], tone: 'error' })
+        return
+      }
+      topologyToRun = experiment.compiled.topology
+      contextForRun = {
+        ...runContext,
+        global: {
+          ...runContext.global,
+          simulationDuration: topologyToRun.global.simulationDuration,
+          warmupDuration: topologyToRun.global.warmupDuration
+        },
+        workload: topologyToRun.workload ?? runContext.workload
+      }
+      setLastExperimentPlan({
+        plan: experiment.compiled.plan,
+        labels: Object.fromEntries(
+          topology.nodes.map((node) => [node.id, node.label?.trim() ? node.label : node.id])
+        )
+      })
+    } else {
+      setLastExperimentPlan(null)
+    }
+
     setRunIssues({ messages: validation.warnings ?? [], tone: 'warning' })
     setShowResults(displaySettings.autoOpenSimulationTray)
-    setLastRunContext(runContext)
+    setLastRunContext(contextForRun)
     clearSimulationMetrics()
     const flowStore = useStore.getState()
     flowStore.clearEdgeFlow()
     flowStore.setEdgeFlowRunConfig({
-      workload: runContext.workload,
-      simulationDurationMs: runContext.global.simulationDuration,
-      warmupDurationMs: runContext.global.warmupDuration
+      workload: contextForRun.workload,
+      simulationDurationMs: contextForRun.global.simulationDuration,
+      warmupDurationMs: contextForRun.global.warmupDuration
     })
     flowStore.setEdgeFlowStatus('running')
     // Read the graph from the store at run time, not from the render closure, so the
     // snapshot can't go stale if this callback's dependency list changes.
     setLastRunGraph(snapshotRunGraph(flowStore.nodes, flowStore.edges))
-    runSimulation(topology)
+    runSimulation(topologyToRun)
     flowStore.setRunInspectorPinned(true)
     setIsRightOpen(!isCompactWorkspace)
   }, [
@@ -1014,6 +1055,7 @@ export const WorkspaceLayout = () => {
     clearSimulationMetrics()
     setShowResults(false)
     setLastRunContext(null)
+    setLastExperimentPlan(null)
     setRunIssues({ messages: [], tone: 'warning' })
     setRunInspectorPinned(false)
   }, [clearSimulationMetrics, setRunInspectorPinned, sim])
@@ -1069,6 +1111,38 @@ export const WorkspaceLayout = () => {
   const isRunning = sim.status === 'running'
   const isPaused = sim.status === 'paused' && !sim.stopped
   const isPostRun = sim.status === 'complete'
+
+  // Events advanced per Step click while paused: enough to see the canvas move,
+  // small enough to follow a fault taking effect.
+  const STEP_EVENT_BATCH = 500
+  const handleStep = useCallback(() => sim.step(STEP_EVENT_BATCH), [sim])
+
+  const previewExperiment = useCallback(
+    (entries: NonNullable<typeof scenario.experiment>): ExperimentPreview => {
+      const { topology } = serialize(scenario)
+      if (!topology) {
+        return {
+          ok: false,
+          reason: 'Add a traffic source and components before picking an experiment.'
+        }
+      }
+      return buildExperimentForTopology(topology, entries)
+    },
+    [scenario, serialize]
+  )
+
+  const experimentNodeLabel = useCallback(
+    (nodeId: string) => lastExperimentPlan?.labels[nodeId] ?? nodeId,
+    [lastExperimentPlan]
+  )
+
+  const experimentResult = useMemo(() => {
+    if (!lastExperimentPlan || !sim.results || sim.status !== 'complete') return null
+    return evaluateExperiment(lastExperimentPlan.plan, sim.results, {
+      nodeLabel: experimentNodeLabel,
+      ...(sim.stopped ? { stoppedAtMs: sim.results.stoppedAtMs ?? 0 } : {})
+    })
+  }, [experimentNodeLabel, lastExperimentPlan, sim.results, sim.status, sim.stopped])
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -1345,6 +1419,11 @@ export const WorkspaceLayout = () => {
           error={sim.error}
           runContext={lastRunContext}
           topologyEdited={resultsTopologyRelation === 'edited'}
+          experimentPanel={
+            experimentResult ? (
+              <ExperimentResultPanel result={experimentResult} nodeLabel={experimentNodeLabel} />
+            ) : null
+          }
           onClose={() => setShowResults(false)}
         />
       </Suspense>
@@ -1383,6 +1462,7 @@ export const WorkspaceLayout = () => {
         isPostRun={isPostRun}
         onPause={sim.pause}
         onResume={sim.resume}
+        onStep={handleStep}
         onStop={() => {
           sim.stop()
           setRunIssues({ messages: [], tone: 'warning' })
@@ -1393,6 +1473,7 @@ export const WorkspaceLayout = () => {
         faultTargets={faultTargets}
         scenario={scenario}
         onScenarioChange={updateScenario}
+        previewExperiment={previewExperiment}
         minimal={environmentProfile.chromeDensity === 'minimal'}
         canOpen={canUseTopologyFiles}
         canSave={canUseTopologyFiles}

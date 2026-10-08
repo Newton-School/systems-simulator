@@ -125,6 +125,8 @@ export interface ScheduledFault {
   stepIndex: number
   /** Who scheduled it, for conflict notes (the composer names the scenario). */
   source?: string
+  /** The inject step's own label, kept so a composition can show it. */
+  label?: string
 }
 
 export interface ScheduledSpike {
@@ -133,6 +135,7 @@ export interface ScheduledSpike {
   durationMs: number
   stepIndex: number
   source?: string
+  label?: string
 }
 
 /**
@@ -180,13 +183,20 @@ export function scheduleSteps(
         }
         if (step.fault.kind === 'cache-flush') {
           // A flush is a moment, not an outage: it never needs a restore.
-          faults.push({ fault: step.fault, startMs: at, endMs: null, stepIndex: index })
+          faults.push({
+            fault: step.fault,
+            startMs: at,
+            endMs: null,
+            stepIndex: index,
+            label: step.label
+          })
         } else {
           const scheduled: ScheduledFault = {
             fault: step.fault,
             startMs: at,
             endMs: durationMs && durationMs > 0 ? at + durationMs : null,
-            stepIndex: index
+            stepIndex: index,
+            label: step.label
           }
           faults.push(scheduled)
           if (scheduled.endMs === null) openByTarget.set(step.fault.targetId, scheduled)
@@ -223,7 +233,8 @@ export function scheduleSteps(
           multiplier: step.multiplier,
           startMs: at,
           durationMs: step.durationMs,
-          stepIndex: index
+          stepIndex: index,
+          label: step.label
         })
         lastCheckpoint = at
         timeline.push({ stepIndex: index, type: 'traffic', atMs: at, label: stepLabel(step) })
@@ -449,7 +460,8 @@ export function compileExperiment(
     })
   ].filter((id): id is string => typeof id === 'string')
   for (const id of new Set(referenced)) {
-    if (!nodeIds.has(id)) issues.push(`The experiment refers to "${id}", which is not in this topology.`)
+    if (!nodeIds.has(id))
+      issues.push(`The experiment refers to "${id}", which is not in this topology.`)
   }
 
   const warmupMs = definition.warmupMs
@@ -503,7 +515,14 @@ export function compileExperiment(
 
   const timeline: PlannedTimelineEntry[] = [
     ...(warmupMs > 0
-      ? [{ stepIndex: null, type: 'warmup' as const, atMs: 0, label: `Warm up ${warmupMs / 1000}s` }]
+      ? [
+          {
+            stepIndex: null,
+            type: 'warmup' as const,
+            atMs: 0,
+            label: `Warm up ${warmupMs / 1000}s`
+          }
+        ]
       : []),
     {
       stepIndex: null,
@@ -529,11 +548,15 @@ export function compileExperiment(
     global: { ...topology.global, simulationDuration: durationMs, warmupDuration: warmupMs },
     faults: resolvedFaults.faults.map(toFaultSpec),
     ...(workload
-      ? { workload: { ...workload, stopCondition: { ...workload.stopCondition, mode: 'duration' } } }
+      ? {
+          workload: { ...workload, stopCondition: { ...workload.stopCondition, mode: 'duration' } }
+        }
       : {})
   }
   if (workload?.stopCondition && workload.stopCondition.mode !== 'duration') {
-    notes.push('The request-budget stop condition is ignored - an experiment runs for its full timeline.')
+    notes.push(
+      'The request-budget stop condition is ignored - an experiment runs for its full timeline.'
+    )
   }
 
   return {
@@ -575,14 +598,23 @@ function measure(
     case 'latency_p50':
     case 'latency_p95':
     case 'latency_p99': {
-      const key = assertion.metric === 'latency_p50' ? 'p50' : assertion.metric === 'latency_p95' ? 'p95' : 'p99'
+      const key =
+        assertion.metric === 'latency_p50'
+          ? 'p50'
+          : assertion.metric === 'latency_p95'
+            ? 'p95'
+            : 'p99'
       const values = inside.map((w) => w[key]).filter((v): v is number => v !== null)
       return { actual: values.length > 0 ? Math.max(...values) : null, samples }
     }
   }
 }
 
-function compare(actual: number, operator: NonNullable<ExperimentAssertion['operator']>, value: number): boolean {
+function compare(
+  actual: number,
+  operator: NonNullable<ExperimentAssertion['operator']>,
+  value: number
+): boolean {
   switch (operator) {
     case '<':
       return actual < value
@@ -672,7 +704,9 @@ export function evaluateExperiment(
       'This load was computed with the analytic model, which does not schedule faults or keep time windows, so no assertion could be checked. Lower the request rate to simulate it.'
     )
   } else if (endedAtMs < plan.durationMs) {
-    notes.push(`The run ended at ${(endedAtMs / 1000).toFixed(1)}s, before the experiment finished.`)
+    notes.push(
+      `The run ended at ${(endedAtMs / 1000).toFixed(1)}s, before the experiment finished.`
+    )
   }
 
   let stable = true
@@ -700,7 +734,9 @@ export function evaluateExperiment(
       evaluateAssertion(assertion, output, check.fromMs, check.toMs, options.nodeLabel)
     )
     const failed = assertions.some((a) => a.status === 'fail' || a.status === 'no-data')
-    const asserted = assertions.some((a) => a.status === 'pass' || a.status === 'fail' || a.status === 'no-data')
+    const asserted = assertions.some(
+      (a) => a.status === 'pass' || a.status === 'fail' || a.status === 'no-data'
+    )
     const status: CheckResult['status'] = failed ? 'fail' : asserted ? 'pass' : 'observed'
     if (check.phase === 'steady-state' && failed) stable = false
     return { ...checkMeta(check), status, assertions }
@@ -728,7 +764,8 @@ export function evaluateExperiment(
     summary = 'Not evaluated: this load ran on the analytic model, which does not inject faults.'
   } else if (!steadyStateHeld) {
     verdict = 'not-stable'
-    summary = 'The system was not stable before any fault was injected, so the experiment stopped there.'
+    summary =
+      'The system was not stable before any fault was injected, so the experiment stopped there.'
   } else if (violations.length > 0) {
     verdict = 'failed'
     summary = `${violations.length} assertion${violations.length === 1 ? '' : 's'} did not hold.`
@@ -741,11 +778,13 @@ export function evaluateExperiment(
   }
 
   const resultByStep = new Map<number, CheckResult['status']>()
-  for (const check of checks) if (check.stepIndex !== null) resultByStep.set(check.stepIndex, check.status)
+  for (const check of checks)
+    if (check.stepIndex !== null) resultByStep.set(check.stepIndex, check.status)
   const timeline: ExperimentTimelineEntry[] = plan.timeline.map((entry) => {
     let result: ExperimentTimelineEntry['result'] = entry.atMs <= endedAtMs ? 'executed' : 'skipped'
     if (entry.type === 'steady-state') result = toTimelineResult(steadyState?.status)
-    else if (entry.type === 'final') result = toTimelineResult(checks.find((c) => c.phase === 'final')?.status)
+    else if (entry.type === 'final')
+      result = toTimelineResult(checks.find((c) => c.phase === 'final')?.status)
     else if (entry.type === 'verify' && entry.stepIndex !== null)
       result = toTimelineResult(resultByStep.get(entry.stepIndex))
     return { ...entry, result }
@@ -777,7 +816,9 @@ function checkMeta(check: PlannedCheck): Omit<CheckResult, 'status' | 'assertion
   }
 }
 
-function toTimelineResult(status: CheckResult['status'] | undefined): ExperimentTimelineEntry['result'] {
+function toTimelineResult(
+  status: CheckResult['status'] | undefined
+): ExperimentTimelineEntry['result'] {
   if (status === 'pass' || status === 'observed') return 'pass'
   if (status === 'fail') return 'fail'
   return 'skipped'

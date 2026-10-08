@@ -281,7 +281,10 @@ export function createDbFailoverExperiment(
           }
         ]
       },
-      { type: 'restore', targetId: primary.id, label: `Bring ${primary.label} back` }
+      { type: 'restore', targetId: primary.id, label: `Bring ${primary.label} back` },
+      // Requests still held by the crashed primary are reset when it comes back;
+      // let that settle before the steady state is checked again.
+      { type: 'wait', durationMs: 3_000, label: `Let ${primary.label} settle` }
     ],
     finalCheckMs: 5_000,
     notes

@@ -159,6 +159,16 @@ export interface ScenarioState {
   faults?: FaultSpec[]
   /** Regenerate the seed before each run, while still recording the actual seed used. */
   randomizeSeedEachRun?: boolean
+  /**
+   * Chaos experiment presets to run instead of the single fault above. More
+   * than one entry composes them, each starting `offsetS` after the baseline.
+   */
+  experiment?: ExperimentEntry[]
+}
+
+export interface ExperimentEntry {
+  presetId: string
+  offsetS: number
 }
 
 export interface SourceNodeOption {
@@ -237,6 +247,16 @@ export function normalizeScenarioState(value: unknown): ScenarioState {
         : undefined,
     workloadOverride: workloadOverride ? { ...workloadOverride } : {},
     faults: Array.isArray(scenario.faults) ? scenario.faults : [],
-    randomizeSeedEachRun: scenario.randomizeSeedEachRun === true
+    randomizeSeedEachRun: scenario.randomizeSeedEachRun === true,
+    ...(Array.isArray(scenario.experiment) && scenario.experiment.length > 0
+      ? {
+          experiment: scenario.experiment
+            .filter((entry) => entry && typeof entry.presetId === 'string')
+            .map((entry) => ({
+              presetId: entry.presetId,
+              offsetS: typeof entry.offsetS === 'number' && entry.offsetS >= 0 ? entry.offsetS : 0
+            }))
+        }
+      : {})
   }
 }

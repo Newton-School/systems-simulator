@@ -47,7 +47,12 @@ interface TimedStep {
 }
 
 function assertionKey(assertion: ExperimentAssertion): string {
-  return [assertion.metric, assertion.operator ?? '', assertion.value ?? '', assertion.nodeId ?? ''].join('|')
+  return [
+    assertion.metric,
+    assertion.operator ?? '',
+    assertion.value ?? '',
+    assertion.nodeId ?? ''
+  ].join('|')
 }
 
 export function composeScenarios(inputs: ComposedScenarioInput[]): ChaosExperimentDefinition {
@@ -118,7 +123,8 @@ export function composeScenarios(inputs: ComposedScenarioInput[]): ChaosExperime
           ...(fault.fault.kind === 'cache-flush'
             ? {}
             : { durationMs: fault.endMs === null ? undefined : fault.endMs - fault.startMs })
-        }
+        },
+        ...(fault.label ? { label: fault.label } : {})
       }
     })
   })
@@ -130,7 +136,8 @@ export function composeScenarios(inputs: ComposedScenarioInput[]): ChaosExperime
       step: {
         type: 'traffic',
         multiplier: resolvedSpike.spike.multiplier,
-        durationMs: resolvedSpike.spike.durationMs
+        durationMs: resolvedSpike.spike.durationMs,
+        ...(resolvedSpike.spike.label ? { label: resolvedSpike.spike.label } : {})
       }
     })
   }
@@ -173,7 +180,9 @@ export function composeScenarios(inputs: ComposedScenarioInput[]): ChaosExperime
     finalCheckMs,
     notes: [
       ...notes,
-      ...inputs.flatMap((input) => input.experiment.notes ?? []).filter((note, i, all) => all.indexOf(note) === i)
+      ...inputs
+        .flatMap((input) => input.experiment.notes ?? [])
+        .filter((note, i, all) => all.indexOf(note) === i)
     ]
   }
 }

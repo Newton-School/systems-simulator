@@ -5,7 +5,12 @@ import { createCacheStampedeExperiment, createTrafficSpikeExperiment } from '../
 import type { ChaosExperimentDefinition } from '../types'
 import { apiDbTopology, cacheTopology } from './fixtures'
 
-function crash(id: string, target: string, mode: 'blackhole' | 'reject', durationMs: number): ChaosExperimentDefinition {
+function crash(
+  id: string,
+  target: string,
+  mode: 'blackhole' | 'reject',
+  durationMs: number
+): ChaosExperimentDefinition {
   return {
     id,
     name: id,
@@ -32,7 +37,11 @@ describe('composeScenarios', () => {
     const start = plan.stepsStartMs
     expect(compiled.workload?.spike?.spikeTime).toBe(start)
     expect(compiled.faults).toEqual([
-      expect.objectContaining({ targetId: 'cache', faultType: 'cache-flush', params: expect.objectContaining({ atMs: start + 5_000 }) })
+      expect.objectContaining({
+        targetId: 'cache',
+        faultType: 'cache-flush',
+        params: expect.objectContaining({ atMs: start + 5_000 })
+      })
     ])
     const verifies = plan.checks.filter((c) => c.phase === 'verify')
     expect(verifies.map((c) => [c.fromMs - start, c.toMs - start])).toEqual([
@@ -58,11 +67,19 @@ describe('composeScenarios', () => {
       { experiment: crash('b', 'db', 'reject', 2_000), offsetMs: 2_000 }
     ])
     const { topology, plan } = compileExperiment(apiDbTopology(), overlapping)
-    expect(topology.faults?.map((f) => [f.params.mode, f.params.atMs - plan.stepsStartMs, f.params.durationMs])).toEqual([
+    expect(
+      topology.faults?.map((f) => [
+        f.params.mode,
+        f.params.atMs - plan.stepsStartMs,
+        f.params.durationMs
+      ])
+    ).toEqual([
       ['blackhole', 0, 2_000],
       ['reject', 2_000, 2_000]
     ])
-    expect(overlapping.notes?.join(' ')).toMatch(/b's fault starts at .* while a's fault is still active/)
+    expect(overlapping.notes?.join(' ')).toMatch(
+      /b's fault starts at .* while a's fault is still active/
+    )
 
     const tie = composeScenarios([
       { experiment: crash('a', 'db', 'blackhole', 3_000), offsetMs: 0 },
@@ -75,11 +92,20 @@ describe('composeScenarios', () => {
   it('keeps only the latest-starting traffic spike', () => {
     const topology = apiDbTopology()
     const composed = composeScenarios([
-      { experiment: createTrafficSpikeExperiment(topology, { multiplier: 2, spikeSeconds: 3 }), offsetMs: 0 },
-      { experiment: createTrafficSpikeExperiment(topology, { multiplier: 3, spikeSeconds: 3 }), offsetMs: 4_000 }
+      {
+        experiment: createTrafficSpikeExperiment(topology, { multiplier: 2, spikeSeconds: 3 }),
+        offsetMs: 0
+      },
+      {
+        experiment: createTrafficSpikeExperiment(topology, { multiplier: 3, spikeSeconds: 3 }),
+        offsetMs: 4_000
+      }
     ])
     const { topology: compiled, plan } = compileExperiment(topology, composed)
-    expect(compiled.workload?.spike).toMatchObject({ spikeRps: 300, spikeTime: plan.stepsStartMs + 4_000 })
+    expect(compiled.workload?.spike).toMatchObject({
+      spikeRps: 300,
+      spikeTime: plan.stepsStartMs + 4_000
+    })
     expect(composed.notes?.join(' ')).toMatch(/one traffic spike per run/)
   })
 

@@ -23,7 +23,10 @@ describe('cache stampede preset', () => {
   })
 
   it('passes when the origin has headroom for every miss', () => {
-    const { result } = runChaosExperiment(cacheTopology({ dbWorkers: 2 }), createCacheStampedeExperiment(cacheTopology({ dbWorkers: 2 })))
+    const { result } = runChaosExperiment(
+      cacheTopology({ dbWorkers: 2 }),
+      createCacheStampedeExperiment(cacheTopology({ dbWorkers: 2 }))
+    )
     expect(result.verdict).toBe('passed')
     const during = result.checks.find((c) => c.phase === 'verify')!
     const steady = result.checks[0]
@@ -82,7 +85,10 @@ describe('database failover preset', () => {
 describe('traffic spike preset', () => {
   it('fails when capacity is fixed and too small, then recovers', () => {
     const topology = apiDbTopology({ dbWorkers: 2 })
-    const { result, compiled } = runChaosExperiment(topology, createTrafficSpikeExperiment(topology))
+    const { result, compiled } = runChaosExperiment(
+      topology,
+      createTrafficSpikeExperiment(topology)
+    )
     expect(compiled.topology.workload?.spike?.spikeRps).toBe(1_000)
     expect(result.verdict).toBe('failed')
     expect(result.checks.find((c) => c.phase === 'verify')!.status).toBe('fail')
@@ -91,7 +97,10 @@ describe('traffic spike preset', () => {
 
   it('passes when the system has headroom', () => {
     const topology = apiDbTopology({ dbWorkers: 16 })
-    const { result } = runChaosExperiment(topology, createTrafficSpikeExperiment(topology, { multiplier: 2 }))
+    const { result } = runChaosExperiment(
+      topology,
+      createTrafficSpikeExperiment(topology, { multiplier: 2 })
+    )
     expect(result.verdict).toBe('passed')
   })
 
@@ -104,7 +113,11 @@ describe('traffic spike preset', () => {
 
 describe('preset registry', () => {
   it('lists the three presets and reports unavailability as a reason, not an exception', () => {
-    expect(CHAOS_PRESETS.map((p) => p.id)).toEqual(['cache-stampede', 'db-failover', 'traffic-spike'])
+    expect(CHAOS_PRESETS.map((p) => p.id)).toEqual([
+      'cache-stampede',
+      'db-failover',
+      'traffic-spike'
+    ])
     const missing = tryBuildPreset(apiDbTopology(), 'db-failover')
     expect(missing).toEqual({ ok: false, reason: expect.stringMatching(/needs a replica/) })
     expect(tryBuildPreset(apiDbTopology(), 'traffic-spike').ok).toBe(true)
