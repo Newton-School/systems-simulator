@@ -8,7 +8,7 @@ type LogNormalLatencyProfile = Extract<
   { type: 'log-normal' }
 >
 
-const DATABASE_TYPES = new Set<ComponentType>([
+export const DATABASE_TYPES = new Set<ComponentType>([
   'relational-db',
   'nosql-db',
   'time-series-db',

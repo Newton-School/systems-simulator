@@ -73,6 +73,11 @@ import {
   NodeFailureSpec,
   parseFailureSpec
 } from './nodes/failure'
+import {
+  CACHE_FLUSH_FAULT_TYPE,
+  DEFAULT_CACHE_FLUSH_REWARM_MS,
+  scheduleCacheFlush
+} from './traits/cache'
 import { RoutingTable, type ResolveRoute } from './routing'
 import { MinHeap } from './scheduler/min-heap'
 import { Distributions } from './stochastic/distribution'
@@ -377,6 +382,8 @@ export class SimulationEngine {
    *   { atMs, durationMs?, mode?, inFlightPolicy?, recoveryPolicy?, degradation? }
    * A `fixed`-duration fault recovers after `durationMs`; `permanent` never does.
    * An unspecified mode defaults to the realistic silent dead server (blackhole).
+   * A `cache-flush` fault is not a failure: it empties a cache node at `atMs`
+   * (see `scheduleCacheFlush` in traits/cache.ts for how each hit model reacts).
    */
   private scheduleConfiguredFaults(scheduler: EventScheduler): void {
     for (const fault of this.topology.faults ?? []) {
@@ -385,6 +392,18 @@ export class SimulationEngine {
       }
       const params = (fault.params ?? {}) as Record<string, unknown>
       const atMs = typeof params.atMs === 'number' && params.atMs >= 0 ? params.atMs : 0
+      if (fault.faultType === CACHE_FLUSH_FAULT_TYPE) {
+        // Not a node failure: the cache keeps serving but loses its contents.
+        const durationMs =
+          typeof params.durationMs === 'number' && params.durationMs > 0
+            ? params.durationMs
+            : DEFAULT_CACHE_FLUSH_REWARM_MS
+        scheduleCacheFlush(this.getTraitStateStore(fault.targetId), {
+          atUs: msToMicro(atMs),
+          untilUs: msToMicro(atMs + durationMs)
+        })
+        continue
+      }
       const spec = parseFailureSpec(params) ?? DEFAULT_CHAOS_FAILURE_SPEC
 
       scheduler.schedule(
