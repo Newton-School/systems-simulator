@@ -8,6 +8,7 @@ import useStore, { type EdgeFlowState } from '@renderer/store/useStore'
 import { useFlowPersistence } from '@renderer/hooks/useFlowPersistence'
 import { useConfirmDialog } from '@renderer/hooks/useConfirmDialog'
 import { useSimulation } from '@renderer/hooks/useSimulation'
+import { useLiveVisualization, type NodeVisualStyle } from '@renderer/hooks/useLiveVisualization'
 import { useTopologySerializer } from '@renderer/hooks/useTopologySerializer'
 import {
   loadPersistedAttemptState,
@@ -210,12 +211,15 @@ function buildLiveNodeMetrics({
   snapshot,
   nodes,
   edges,
-  edgeFlowById
+  edgeFlowById,
+  liveNodeStyles
 }: {
   snapshot: TimeSeriesSnapshot
   nodes: StoreNode[]
   edges: StoreEdge[]
   edgeFlowById: Record<string, EdgeFlowState>
+  /** Windowed, time-weighted node values (never the snapshot's point sample). */
+  liveNodeStyles: Map<string, NodeVisualStyle>
 }): Record<string, NodeSimulationMetrics> {
   return Object.fromEntries(
     nodes.map((node) => {
@@ -255,7 +259,9 @@ function buildLiveNodeMetrics({
           postWarmupConnectionReset: 0,
           postWarmupInFlight: totalInSystem,
           queueDepth: Math.round((nodeSnapshot?.queueLength ?? 0) * 10) / 10,
-          utilization: Math.round((nodeSnapshot?.utilization ?? 0) * 1000) / 10,
+          // Time-weighted over the trailing window from the engine's busy-area
+          // integrals; the snapshot's instantaneous occupancy is a point sample.
+          utilization: Math.round((liveNodeStyles.get(node.id)?.utilization ?? 0) * 1000) / 10,
           errorRate,
           active: source ? outgoing.totalAttempted > 0 : arrived > 0 || totalInSystem > 0,
           latencyNodeLocal: {
@@ -512,6 +518,17 @@ export const WorkspaceLayout = () => {
   // Simulation
   const sim = useSimulation()
   const runSimulation = sim.run
+  const liveVisualization = useLiveVisualization(sim.snapshots, sim.topology)
+  const isLiveRun = !sim.results && (sim.status === 'running' || sim.status === 'paused')
+  useEffect(() => {
+    // Live styling exists only while a run is in progress; cleared on
+    // complete, error and reset so post-run views use the final results.
+    useStore
+      .getState()
+      .setLiveVisualization(
+        isLiveRun && liveVisualization.nodeStyles.size > 0 ? liveVisualization : null
+      )
+  }, [isLiveRun, liveVisualization])
   const { serialize } = useTopologySerializer()
   const currentQuestionTopology = useMemo(() => {
     if (!activeQuestion) {
@@ -877,7 +894,8 @@ export const WorkspaceLayout = () => {
         snapshot: sim.snapshot,
         nodes,
         edges,
-        edgeFlowById: useStore.getState().edgeFlowById
+        edgeFlowById: useStore.getState().edgeFlowById,
+        liveNodeStyles: liveVisualization.nodeStyles
       })
     )
     if (!runInspectorPinned && !selectedNodeId && !selectedEdgeId) {
@@ -889,6 +907,7 @@ export const WorkspaceLayout = () => {
   }, [
     edges,
     isCompactWorkspace,
+    liveVisualization,
     nodes,
     runInspectorPinned,
     selectedEdgeId,
@@ -1566,6 +1585,8 @@ export const WorkspaceLayout = () => {
         onPause={sim.pause}
         onResume={sim.resume}
         onStep={handleStep}
+        playbackSpeed={sim.playbackSpeed}
+        onPlaybackSpeedChange={sim.setPlaybackSpeed}
         onStop={() => {
           sim.stop()
           setRunIssues({ messages: [], tone: 'warning' })

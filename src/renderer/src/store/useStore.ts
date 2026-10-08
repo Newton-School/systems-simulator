@@ -144,6 +144,7 @@ function isEdgeRemovalLocked(
   )
 }
 import type { RoutingStrategy } from '../../../engine/catalog/nodeSpecTypes'
+import type { LiveVisualization } from '@renderer/utils/liveVisualization'
 
 type FailureCountsByCause = Partial<Record<EdgeFailureCause, number>>
 type GraphSnapshot = { nodes: Node[]; edges: Edge[] }
@@ -249,6 +250,12 @@ const EDGE_FLOW_WINDOW_MS = 6_000
 const EDGE_FLOW_MAX_EVENTS = 25_000
 const EDGE_FLOW_HISTORY_MAX_EVENTS = 10_000
 const EDGE_FLOW_PLAYBACK_SPEED = 10
+/**
+ * Paced runs (a numeric playback speed): dots for a batch arrive up to one
+ * telemetry flush (~100ms) after their simulated start, so the display clock runs
+ * this far behind live to show each dot from the start of its hop.
+ */
+const EDGE_FLOW_PACED_DISPLAY_LEAD_MS = 150
 const EDGE_FLOW_LIVE_RETAINED_EVENTS_PER_BATCH = 100
 const GRAPH_HISTORY_LIMIT = 100
 const NODE_PRESENTATION_IGNORED_KEYS = new Set(['selected', 'dragging'])
@@ -1184,6 +1191,16 @@ type RFState = {
   edgeFlowById: Record<string, EdgeFlowState>
   edgeFlowHistory: EdgeFlowRenderEvent[]
   edgeFlowPlayback: { wallStartMs: number; simStartMs: number } | null
+  /**
+   * Sim-ms per wall-ms the dot display clock runs at. null = the legacy replay
+   * rate used for as-fast-as-possible runs; a number = the worker's paced speed,
+   * so dots appear in step with the run.
+   */
+  edgeFlowPlaybackRate: number | null
+  /** Latest simulated start time (ms) among received edge-flow events. */
+  edgeFlowLatestSimMs: number | null
+  /** Per-node / per-edge live styling derived from measured run telemetry. */
+  liveVisualization: LiveVisualization | null
   edgeFlowStatus: EdgeFlowStatus
   edgeFlowRunConfig: EdgeFlowRunConfig | null
   runInspectorPinned: boolean
@@ -1289,6 +1306,14 @@ type RFState = {
   setRunInspectorPinned: (pinned: boolean) => void
   setRunInspectorDrilldownActive: (active: boolean) => void
   clearEdgeFlow: () => void
+  /**
+   * Set the dot display rate (see `edgeFlowPlaybackRate`) and re-anchor the
+   * display clock at "now", so a mid-run speed change or a resume never replays a
+   * backlog or skips ahead. Switching to a paced rate jumps to the latest received
+   * event so the display tracks the live run.
+   */
+  setEdgeFlowPlaybackRate: (rate: number | null) => void
+  setLiveVisualization: (visualization: LiveVisualization | null) => void
   setRoutingStrategyVisualization: (state: RoutingStrategyVisualizationState | null) => void
   setNodes: (nodes: Node[], options?: GraphMutationOptions) => void
   setEdges: (edges: Edge[], options?: GraphMutationOptions) => void
@@ -1315,6 +1340,9 @@ const useStore = create<RFState>((set, get) => ({
   edgeFlowById: {},
   edgeFlowHistory: [],
   edgeFlowPlayback: null,
+  edgeFlowPlaybackRate: null,
+  edgeFlowLatestSimMs: null,
+  liveVisualization: null,
   edgeFlowStatus: 'idle',
   edgeFlowRunConfig: null,
   runInspectorPinned: false,
@@ -1830,9 +1858,16 @@ const useStore = create<RFState>((set, get) => ({
     const receivedAtMs = Date.now()
 
     set((state) => {
+      const displayRate = state.edgeFlowPlaybackRate ?? EDGE_FLOW_PLAYBACK_SPEED
       const playback = state.edgeFlowPlayback ?? {
-        wallStartMs: receivedAtMs,
+        wallStartMs:
+          receivedAtMs +
+          (state.edgeFlowPlaybackRate !== null ? EDGE_FLOW_PACED_DISPLAY_LEAD_MS : 0),
         simStartMs: events[0]?.startedAtMs ?? 0
+      }
+      let latestSimMs = state.edgeFlowLatestSimMs ?? Number.NEGATIVE_INFINITY
+      for (const event of events) {
+        if (event.startedAtMs > latestSimMs) latestSimMs = event.startedAtMs
       }
       const countedEventsByEdgeId = new Map<string, EdgeFlowEvent[]>()
       const retainedEventsByEdgeId = new Map<string, EdgeFlowRenderEvent[]>()
@@ -1860,8 +1895,7 @@ const useStore = create<RFState>((set, get) => ({
           }
 
           const displayAtMs =
-            playback.wallStartMs +
-            (event.startedAtMs - playback.simStartMs) / EDGE_FLOW_PLAYBACK_SPEED
+            playback.wallStartMs + (event.startedAtMs - playback.simStartMs) / displayRate
           const renderedEvent: EdgeFlowRenderEvent = {
             ...event,
             receivedAtMs,
@@ -1903,12 +1937,42 @@ const useStore = create<RFState>((set, get) => ({
       return {
         edgeFlowStatus: 'running' as const,
         edgeFlowPlayback: playback,
+        edgeFlowLatestSimMs: latestSimMs,
         edgeFlowHistory: state.edgeFlowHistory
           .concat(retainedEvents)
           .slice(-EDGE_FLOW_HISTORY_MAX_EVENTS),
         edgeFlowById
       }
     })
+  },
+
+  setEdgeFlowPlaybackRate: (rate) => {
+    const nextRate = rate !== null && Number.isFinite(rate) && rate > 0 ? rate : null
+    set((state) => {
+      if (!state.edgeFlowPlayback) {
+        return { edgeFlowPlaybackRate: nextRate }
+      }
+      const nowMs = Date.now()
+      const previousRate = state.edgeFlowPlaybackRate ?? EDGE_FLOW_PLAYBACK_SPEED
+      const displayedSimMs =
+        state.edgeFlowPlayback.simStartMs +
+        (nowMs - state.edgeFlowPlayback.wallStartMs) * previousRate
+      const simStartMs =
+        nextRate !== null && state.edgeFlowLatestSimMs !== null
+          ? Math.max(displayedSimMs, state.edgeFlowLatestSimMs)
+          : displayedSimMs
+      return {
+        edgeFlowPlaybackRate: nextRate,
+        edgeFlowPlayback: {
+          wallStartMs: nowMs + (nextRate !== null ? EDGE_FLOW_PACED_DISPLAY_LEAD_MS : 0),
+          simStartMs
+        }
+      }
+    })
+  },
+
+  setLiveVisualization: (liveVisualization) => {
+    set({ liveVisualization })
   },
 
   setEdgeFlowStatus: (status) => {
@@ -1935,6 +1999,9 @@ const useStore = create<RFState>((set, get) => ({
       edgeFlowById: {},
       edgeFlowHistory: [],
       edgeFlowPlayback: null,
+      edgeFlowPlaybackRate: null,
+      edgeFlowLatestSimMs: null,
+      liveVisualization: null,
       edgeFlowStatus: 'idle',
       edgeFlowRunConfig: null,
       runInspectorPinned: false,

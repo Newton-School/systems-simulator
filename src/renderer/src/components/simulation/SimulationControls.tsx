@@ -16,6 +16,11 @@ import {
 } from './simulationControlModel'
 import { ExperimentSetupSection } from './ChaosExperimentPanel'
 import type { ExperimentPreview } from './chaosExperimentModel'
+import type { PlaybackSpeed } from '../../../../engine/worker/protocols'
+import { PLAYBACK_SPEED_OPTIONS } from './simulationControlModel'
+
+const PLAYBACK_SPEED_TITLE =
+  'Playback speed. 1x runs simulated time in real time; Max runs as fast as possible (default). Speed changes pacing only, never the results.'
 
 type WorkloadOverride = NonNullable<ScenarioState['workloadOverride']>
 
@@ -44,6 +49,9 @@ interface SimulationControlsProps {
   onStop: () => void
   /** Advance a paused run by a batch of events (the worker's step command). */
   onStep?: () => void
+  /** Current playback speed; the control is hidden when no handler is given. */
+  playbackSpeed?: PlaybackSpeed
+  onPlaybackSpeedChange?: (speed: PlaybackSpeed) => void
   isRunning: boolean
   isPaused: boolean
   sourceNodes: SourceNodeOption[]
@@ -73,6 +81,8 @@ export function SimulationControls({
   onResume,
   onStop,
   onStep,
+  playbackSpeed = 'max',
+  onPlaybackSpeedChange,
   isRunning,
   isPaused,
   sourceNodes,
@@ -277,6 +287,28 @@ export function SimulationControls({
 
   return (
     <div ref={wrapperRef} className="relative flex items-center gap-1.5">
+      {onPlaybackSpeedChange && (
+        <label className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-nss-muted">
+          <span className="nss-desktop-only">Speed</span>
+          <select
+            aria-label="Playback speed"
+            title={PLAYBACK_SPEED_TITLE}
+            value={String(playbackSpeed)}
+            disabled={disabled}
+            onChange={(event) => {
+              const raw = event.target.value
+              onPlaybackSpeedChange(raw === 'max' ? 'max' : Number(raw))
+            }}
+            className="h-7 rounded-md border border-nss-border bg-nss-input-bg px-1 text-xs font-sans normal-case text-nss-text outline-none focus:border-nss-primary disabled:opacity-50"
+          >
+            {PLAYBACK_SPEED_OPTIONS.map((option) => (
+              <option key={option.label} value={String(option.value)}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       {!isRunning && !isPaused && (
         <>
           {isPostRun && (

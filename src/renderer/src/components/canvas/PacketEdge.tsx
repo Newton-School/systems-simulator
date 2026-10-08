@@ -150,6 +150,9 @@ export const PacketEdge = ({
   )
   const runConfig = useStore((state) => state.edgeFlowRunConfig)
   const playback = useStore((state) => state.edgeFlowPlayback)
+  // Live styling (#70): throughput-proportional width and latency colour, set
+  // only while a run is in progress (null otherwise).
+  const liveEdgeStyle = useStore((state) => state.liveVisualization?.edgeStyles.get(id))
   const routingVisualization = useStore((state) => state.routingStrategyVisualization)
   const colorDotsByKey = useStore((state) => state.displaySettings.colorDotsByKey)
   // While following a single request, hide the ambient aggregate dots so only the
@@ -331,11 +334,13 @@ export const PacketEdge = ({
       ? selected
         ? 3
         : CONNECTOR_IDLE_STROKE_WIDTH
-      : hasFlow
-        ? clamp(3 + Math.log2(visualRequestRate + 1) * 0.55, selected ? 3.5 : 3, 5)
-        : selected
-          ? 3
-          : 2
+      : liveEdgeStyle && flowStatus === 'running'
+        ? Math.max(liveEdgeStyle.strokeWidth, selected ? 3 : 1)
+        : hasFlow
+          ? clamp(3 + Math.log2(visualRequestRate + 1) * 0.55, selected ? 3.5 : 3, 5)
+          : selected
+            ? 3
+            : 2
   // Health severity drives the stroke colour and is computed independently of
   // the active lens, so a failing link stays red even under a non-error lens.
   const failureStroke =
@@ -442,7 +447,11 @@ export const PacketEdge = ({
             ? 'var(--nss-border-high)'
             : selected
               ? FLOW_PRIMARY_COLOR
-              : (failureStroke ?? 'var(--nss-border-high)'),
+              : (failureStroke ??
+                (flowStatus === 'running' && !edgeIsConnectorOnly
+                  ? liveEdgeStyle?.strokeColor
+                  : null) ??
+                'var(--nss-border-high)'),
           opacity: baseEdgeOpacity
         }}
         interactionWidth={30}

@@ -637,3 +637,51 @@ describe('useStore annotation history', () => {
     expect(useStore.getState().annotations).toEqual([])
   })
 })
+
+describe('edge-flow display rate follows playback speed', () => {
+  afterEach(() => {
+    useStore.getState().clearEdgeFlow()
+    vi.restoreAllMocks()
+  })
+
+  it('paced dots are scheduled at the run speed, and a speed change re-anchors at now', () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(10_000)
+    useStore.getState().setEdgeFlowPlaybackRate(1)
+    useStore
+      .getState()
+      .recordEdgeFlowEventBatch([
+        buildEvent({ edgeId: 'e', sequence: 1, startedAtMs: 1_000 }),
+        buildEvent({ edgeId: 'e', sequence: 2, startedAtMs: 1_500 })
+      ])
+    const [first, second] = useStore.getState().edgeFlowById.e.recent
+    // 1x: 500 simulated ms apart = 500 wall ms apart (plus the fixed display lead).
+    expect(second.displayAtMs - first.displayAtMs).toBe(500)
+    expect(first.displayAtMs).toBeGreaterThan(10_000)
+
+    // Switch to 4x two wall seconds later: display jumps to the latest received
+    // event and continues at 4 simulated ms per wall ms from there.
+    now.mockReturnValue(12_000)
+    useStore.getState().setEdgeFlowPlaybackRate(4)
+    useStore
+      .getState()
+      .recordEdgeFlowEventBatch([buildEvent({ edgeId: 'e', sequence: 3, startedAtMs: 3_500 })])
+    const third = useStore.getState().edgeFlowById.e.recent.at(-1)!
+    const playback = useStore.getState().edgeFlowPlayback!
+    expect(third.displayAtMs - playback.wallStartMs).toBe((3_500 - playback.simStartMs) / 4)
+    expect(playback.wallStartMs).toBeGreaterThanOrEqual(12_000)
+  })
+
+  it("'max' keeps the legacy replay mapping", () => {
+    vi.spyOn(Date, 'now').mockReturnValue(1_000)
+    useStore.getState().setEdgeFlowPlaybackRate(null)
+    useStore
+      .getState()
+      .recordEdgeFlowEventBatch([
+        buildEvent({ edgeId: 'e', sequence: 1, startedAtMs: 0 }),
+        buildEvent({ edgeId: 'e', sequence: 2, startedAtMs: 1_000 })
+      ])
+    const [first, second] = useStore.getState().edgeFlowById.e.recent
+    expect(first.displayAtMs).toBe(1_000)
+    expect(second.displayAtMs - first.displayAtMs).toBe(100)
+  })
+})
