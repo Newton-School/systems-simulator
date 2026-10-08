@@ -5,6 +5,8 @@ import { getMagneticRadiusInFlowUnits } from '../magneticSnapConfig'
 
 interface HandleCandidate {
   nodeId: string
+  /** React Flow handle id, e.g. "right-1-source". */
+  handleId: string | null
   /** React Flow data-id: "${nodeId}-${handleId}-${handleType}" */
   domId: string
   x: number
@@ -65,6 +67,7 @@ function buildCandidates(
     for (const h of handleBounds) {
       candidates.push({
         nodeId: node.id,
+        handleId: h.id,
         domId: `${node.id}-${h.id}-${wantType}`,
         x: absX + h.x + h.width / 2,
         y: absY + h.y + h.height / 2
