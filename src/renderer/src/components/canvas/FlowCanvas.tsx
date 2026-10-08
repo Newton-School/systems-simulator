@@ -19,6 +19,7 @@ import EmptyFlowState from '../ui/EmptyFlowState'
 import { RunToast } from '../ui/RunToast'
 import { CanvasLegend } from './CanvasLegend'
 import { RequestTraceOverlay } from './RequestTraceOverlay'
+import { RequestDebugOverlay } from './RequestDebugOverlay'
 import { MetricLensSwitcher } from './MetricLensSwitcher'
 // Hooks & Config
 import useStore from '@renderer/store/useStore'
@@ -1118,6 +1119,7 @@ const FlowCanvasInternal = ({
       {!isEmpty && showMetricLens && <MetricLensSwitcher />}
       {!isEmpty && showMetricLens && <CanvasLegend />}
       <RequestTraceOverlay />
+      <RequestDebugOverlay />
 
       {/* Empty State */}
       <EmptyFlowState

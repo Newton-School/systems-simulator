@@ -82,7 +82,12 @@ import { RoutingTable, type ResolveRoute } from './routing'
 import { MinHeap } from './scheduler/min-heap'
 import { Distributions } from './stochastic/distribution'
 import { createRandom } from './stochastic/random'
-import { RequestTracer } from './tracer'
+import {
+  RequestTracer,
+  type RequestAdmissionOutcome,
+  type RequestAdmissionStage,
+  type TracedNodeState
+} from './tracer'
 import {
   attachCircuitBreakerTracking,
   clearCircuitBreakerTracking,
@@ -180,6 +185,24 @@ function affinityKeyOf(request: Request): string | undefined {
   return undefined
 }
 
+/** Scalar fields of a trait payload, for the debugger (counters and nested data dropped). */
+function scalarTraitDetail(
+  payload: Record<string, unknown>
+): Record<string, string | number | boolean> {
+  const detail: Record<string, string | number | boolean> = {}
+  for (const [key, value] of Object.entries(payload)) {
+    if (key === 'decision' || key === 'reason' || key === 'metricCounters') continue
+    if (typeof value === 'string' || typeof value === 'boolean') {
+      detail[key] = value
+    } else if (typeof value === 'number' && Number.isFinite(value)) {
+      detail[key] = value
+    } else if (typeof value === 'bigint') {
+      detail[key] = value.toString()
+    }
+  }
+  return detail
+}
+
 export class SimulationEngine {
   onProgress?: (percent: number, eventsProcessed: number) => void
   onSnapshot?: (snapshot: TimeSeriesSnapshot) => void
@@ -268,6 +291,8 @@ export class SimulationEngine {
   private debugTarget: 'all' | string | null = null
   private forcedTraceRequestId: string | null = null
   private readonly debugEvents: DebugEvent[] = []
+  /** Name of the beforeArrival trait that returned the last non-continue decision. */
+  private lastDecidingArrivalTrait: string | null = null
 
   constructor(
     private readonly topology: TopologyJSON,
@@ -695,6 +720,62 @@ export class SimulationEngine {
     })
   }
 
+  /** Live G/G/c/K occupancy of a node, for a traced request's admission record. */
+  private captureTracedNodeState(nodeId: string): TracedNodeState | null {
+    const node = this.nodes.get(nodeId)
+    if (!node) {
+      return null
+    }
+
+    const state = node.getState()
+    return {
+      status: state.status,
+      activeWorkers: state.activeWorkers,
+      queueLength: state.queueLength,
+      heldCount: Math.max(0, state.totalInSystem - state.activeWorkers - state.queueLength),
+      totalInSystem: state.totalInSystem,
+      workers: node.getMaxWorkers(),
+      capacity: node.getMaxCapacity()
+    }
+  }
+
+  /**
+   * Records one admission decision for a traced request (no-op otherwise). The
+   * state defaults to the node's occupancy now; callers that change occupancy
+   * before recording pass the pre-decision state explicitly.
+   */
+  private traceAdmission(
+    request: Request,
+    nodeId: string,
+    stage: RequestAdmissionStage,
+    outcome: RequestAdmissionOutcome,
+    extra: {
+      reasonCode?: string
+      traitName?: string
+      state?: TracedNodeState | null
+      policy?: Record<string, number>
+    } = {}
+  ): void {
+    if (!this.tracer.shouldTrace(request.id)) {
+      return
+    }
+
+    const node = this.nodes.get(nodeId)
+    this.tracer.recordAdmission(request.id, {
+      nodeId,
+      atUs: this.clock,
+      stage,
+      outcome,
+      reasonCode: extra.reasonCode,
+      traitName: extra.traitName,
+      state: extra.state !== undefined ? extra.state : this.captureTracedNodeState(nodeId),
+      admissionBoundBy: node?.getAdmissionBoundBy(),
+      concurrencyProvenance: node?.concurrencyProvenance || undefined,
+      failureMode: node?.getFailureMode() ?? undefined,
+      policy: extra.policy
+    })
+  }
+
   private createNodeSnapshot(nodeId: string): NodeSnapshot | undefined {
     const node = this.nodes.get(nodeId)
     if (!node) {
@@ -983,6 +1064,23 @@ export class SimulationEngine {
     }
 
     const arrivalTraitDecision = this.runBeforeArrivalTraits(event.nodeId, request)
+    if (arrivalTraitDecision.action !== 'continue') {
+      this.traceAdmission(
+        request,
+        event.nodeId,
+        'trait',
+        arrivalTraitDecision.action === 'rejected'
+          ? 'rejected'
+          : arrivalTraitDecision.action === 'parked'
+            ? 'parked'
+            : 'handled',
+        {
+          reasonCode:
+            arrivalTraitDecision.action === 'rejected' ? arrivalTraitDecision.reason : undefined,
+          traitName: this.lastDecidingArrivalTrait ?? undefined
+        }
+      )
+    }
     if (arrivalTraitDecision.action === 'rejected') {
       this.eventQueue.insert(
         createEvent(
@@ -1224,8 +1322,22 @@ export class SimulationEngine {
   }
 
   private admitToNodeQueue(node: GGcKNode, nodeId: string, request: Request): void {
+    // The debugger's intake lens needs the occupancy the rule compared, i.e.
+    // BEFORE this arrival is counted. Read only for traced requests.
+    const tracedState = this.tracer.shouldTrace(request.id)
+      ? this.captureTracedNodeState(nodeId)
+      : null
     const result = node.handleArrival(request, this.clock)
     const nodeSnapshot = this.createNodeSnapshot(nodeId)
+    if (tracedState) {
+      this.traceAdmission(
+        request,
+        nodeId,
+        'node',
+        result.status === 'processed' ? 'processing' : result.status,
+        { reasonCode: result.status === 'rejected' ? result.reason : undefined, state: tracedState }
+      )
+    }
     if (result.status === 'rejected') {
       this.emitAdmissionDecision(request.id, nodeId, 'rejected', result.reason, nodeSnapshot)
       this.eventQueue.insert(
@@ -2815,6 +2927,7 @@ export class SimulationEngine {
     reasonCode?: string | null
   ): void {
     this.resolveTerminalTraitOutcomes(request, status, reasonCode)
+    this.tracer.setTerminalReason(request.id, reasonCode)
     request.metadata.__terminal = status
     this.resolveParkedFollowers(request, status, reasonCode)
     this.markTerminalTombstone(request.id)
@@ -3195,6 +3308,10 @@ export class SimulationEngine {
     if (!policy) return false
 
     if (policy.droppedPackets > 0 && this.distributions.random() < policy.droppedPackets) {
+      this.traceAdmission(request, nodeId, 'security', 'dropped', {
+        reasonCode: 'security_dropped',
+        policy: { blockRate: policy.blockRate, droppedPackets: policy.droppedPackets }
+      })
       const timeoutAt = request.deadline > this.clock ? request.deadline : this.clock
       this.eventQueue.insert(
         createEvent(
@@ -3209,6 +3326,10 @@ export class SimulationEngine {
     }
 
     if (policy.blockRate > 0 && this.distributions.random() < policy.blockRate) {
+      this.traceAdmission(request, nodeId, 'security', 'rejected', {
+        reasonCode: 'security_blocked',
+        policy: { blockRate: policy.blockRate, droppedPackets: policy.droppedPackets }
+      })
       this.eventQueue.insert(
         createEvent(
           'request-rejected',
@@ -3847,10 +3968,12 @@ export class SimulationEngine {
       this.maybeScheduleStreamRetentionEvent(nodeId, decision.payload)
 
       if (decision.action !== 'continue') {
+        this.lastDecidingArrivalTrait = trait.name
         return decision
       }
     }
 
+    this.lastDecidingArrivalTrait = null
     return { action: 'continue' }
   }
 
@@ -3917,6 +4040,17 @@ export class SimulationEngine {
           ? EventPriority.DEPARTURE
           : EventPriority.PROCESSING
     const semanticTransitions = this.recordTraitStateTransitions(request, nodeId, payload)
+    if (this.tracer.shouldTrace(request.id)) {
+      this.tracer.recordTraitDecision(request.id, {
+        nodeId,
+        atUs: this.clock,
+        traitName,
+        hook,
+        decision: typeof payload.decision === 'string' ? payload.decision : 'unknown',
+        reasonCode: typeof payload.reason === 'string' ? payload.reason : undefined,
+        detail: scalarTraitDetail(payload)
+      })
+    }
 
     this.recordCanonicalEvent({
       timestampUs: this.clock,

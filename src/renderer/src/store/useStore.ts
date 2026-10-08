@@ -181,6 +181,13 @@ type AnnotationHistoryState = {
   future: CanvasAnnotation[][]
 }
 
+/** One traced request open in the lifecycle debugger (#156-#158). */
+export interface RequestDebugSession {
+  requestId: string
+  /** Index into the request's recorded lifecycle steps. */
+  stepIndex: number
+}
+
 export interface PendingNodePlacement {
   type: string
   templateId: string
@@ -1272,6 +1279,10 @@ type RFState = {
   /** Tracer playback speed: 'slow' stretches per-hop time for teaching. */
   traceSpeed: 'normal' | 'slow'
   setTraceSpeed: (speed: 'normal' | 'slow') => void
+  /** Request lifecycle debugger session: the traced request open in the debugger
+   *  and the recorded step shown. Null = debugger closed, canvas debug overlay off. */
+  requestDebug: RequestDebugSession | null
+  setRequestDebug: (session: RequestDebugSession | null) => void
   viewportFitVersion: number
   requestViewportFit: () => void
   /** One-shot request for the canvas to pan/zoom onto these nodes (results-tray linking). */
@@ -2045,7 +2056,8 @@ const useStore = create<RFState>((set, get) => ({
   clearQuestionLoadRequest: () => set({ questionLoadRequest: null }),
   setEnvironmentProfile: (environmentProfile) => set({ environmentProfile }),
   setResultsRevealed: (resultsRevealed) => set({ resultsRevealed }),
-  setLastRunOutput: (lastRunOutput) => set({ lastRunOutput }),
+  // A new run invalidates the open debugger session (it points into the old traces).
+  setLastRunOutput: (lastRunOutput) => set({ lastRunOutput, requestDebug: null }),
   tracedRequestIds: [],
   // Starting/clearing a trace always resets playback to playing.
   setTracedRequestIds: (tracedRequestIds) => set({ tracedRequestIds, tracePaused: false }),
@@ -2053,6 +2065,8 @@ const useStore = create<RFState>((set, get) => ({
   setTracePaused: (tracePaused) => set({ tracePaused }),
   traceSpeed: 'slow',
   setTraceSpeed: (traceSpeed) => set({ traceSpeed }),
+  requestDebug: null,
+  setRequestDebug: (requestDebug) => set({ requestDebug }),
   requestViewportFit: () =>
     set((state) => ({
       viewportFitVersion: state.viewportFitVersion + 1

@@ -608,6 +608,21 @@ export class GGcKNode {
     return this.maxWorkers
   }
 
+  /** Current effective admission capacity K (post any autoscale resizes). */
+  getMaxCapacity(): number {
+    return this.maxCapacity
+  }
+
+  /** Which constraint bounds K: a full RAM-bound node rejects as `oom`. */
+  getAdmissionBoundBy(): 'ram' | 'backlog' {
+    return this.capacityRejectReason === 'oom' ? 'ram' : 'backlog'
+  }
+
+  /** Failure mode while the node is failed (reject / blackhole / hang / degraded). */
+  getFailureMode(): string | null {
+    return this.status === 'failed' ? (this.failureSpec?.mode ?? 'reject') : null
+  }
+
   /** ∫ min(activeWorkers×cpuBoundFraction, physicalCores) dt (core·µs). 0 if no CPU tier. */
   getCpuBusyAreaUs(): number {
     return this.cpuBusyAreaUs
