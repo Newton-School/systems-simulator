@@ -195,7 +195,6 @@ describe('planTopologyEdit', () => {
   const base = snapshotFor(TOPOLOGY)
 
   it.each([
-    [['nodes', 1, 'queue', 'workers'], 16],
     [['nodes', 1, 'label'], 'Orders API'],
     [['nodes', 1, 'processing', 'timeout'], 750],
     [['edges', 0, 'protocol'], 'grpc'],
@@ -211,15 +210,28 @@ describe('planTopologyEdit', () => {
     expect(getAtPath(exported(next), path)).toBe(value)
   })
 
+  it('refuses derived concurrency fields on an instance-model node', () => {
+    // The canvas puts every node on the instance model, so declared workers and
+    // queue capacity are derived from the hardware and an edit would do nothing.
+    const topology = exported(base)
+    for (const field of ['workers', 'capacity'] as const) {
+      const path = ['nodes', 1, 'queue', field]
+      const result = planTopologyEdit(base, topology, path, 16)
+      expect(result.ok).toBe(false)
+      expect(result.ok ? '' : result.message).toMatch(/Derived from the instance/)
+      const leaf = find(buildTopologyTree(topology), path.join('.'))
+      expect(leafEditor(leaf!.path, leaf!.value, leaf!.readOnlyReason).kind).toBe('readonly')
+    }
+  })
+
   it('changes only the edited field', () => {
     const before = exported(base)
-    const after = exported(apply(base, ['nodes', 1, 'queue', 'workers'], 16))
-    expect({ ...after.nodes[1], queue: undefined, resources: undefined }).toEqual({
+    const after = exported(apply(base, ['nodes', 1, 'processing', 'timeout'], 750))
+    expect({ ...after.nodes[1], processing: undefined }).toEqual({
       ...before.nodes[1],
-      queue: undefined,
-      resources: undefined
+      processing: undefined
     })
-    expect(after.nodes[1]?.queue).toEqual({ ...before.nodes[1]?.queue, workers: 16 })
+    expect(after.nodes[1]?.processing).toEqual({ ...before.nodes[1]?.processing, timeout: 750 })
     expect(after.edges).toEqual(before.edges)
     expect(after.workload).toEqual(before.workload)
   })

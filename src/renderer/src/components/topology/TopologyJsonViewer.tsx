@@ -477,7 +477,7 @@ function LeafRow({
   onCancelEdit,
   indent
 }: TreeRowProps & { indent: React.CSSProperties }) {
-  const editor = leafEditor(entry.path, entry.value)
+  const editor = leafEditor(entry.path, entry.value, entry.readOnlyReason)
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
   const [draftError, setDraftError] = useState<string | null>(null)

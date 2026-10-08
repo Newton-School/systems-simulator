@@ -1,5 +1,6 @@
 import type { Edge, Node } from 'reactflow'
 import type { TopologyJSON } from '../../../../engine/core/types'
+import { hasInstanceModel } from '../../../../engine/nodes/resourceDerivation'
 import type { ScenarioState } from '@renderer/types/ui'
 import {
   topologyEdgeToCanvasData,
@@ -36,6 +37,34 @@ export interface TreeEntry {
   preview?: string
   /** The canvas element this row stands for (component and connection rows). */
   ref?: TreeRef
+  /** Why this leaf can't be edited, when that depends on the rest of the element. */
+  readOnlyReason?: string
+}
+
+const DERIVED_QUEUE_REASON =
+  'Derived from the instance in Resources (vCPU and RAM); change the instance to change concurrency.'
+
+/**
+ * Fields the export shows but the run ignores because they are derived. A node on
+ * the instance model gets its workers and queue capacity from the hardware, so a
+ * declared `queue.workers` / `queue.capacity` would be an edit with no effect.
+ */
+export function derivedFieldReason(topology: TopologyJSON, path: TreePath): string | null {
+  const [section, index, group, field] = path
+  if (section !== 'nodes' || typeof index !== 'number' || group !== 'queue') return null
+  if (field !== 'workers' && field !== 'capacity') return null
+  const node = topology.nodes[index]
+  return node && hasInstanceModel(node.resources) ? DERIVED_QUEUE_REASON : null
+}
+
+function markDerived(entry: TreeEntry, topology: TopologyJSON): TreeEntry {
+  if (entry.kind === 'leaf') {
+    const reason = derivedFieldReason(topology, entry.path)
+    return reason ? { ...entry, readOnlyReason: reason } : entry
+  }
+  return entry.children
+    ? { ...entry, children: entry.children.map((child) => markDerived(child, topology)) }
+    : entry
 }
 
 export function pathKey(path: TreePath): string {
@@ -83,7 +112,8 @@ export type LeafEditor =
   | { kind: 'readonly'; reason: string }
 
 /** How a leaf can be edited in the tree. */
-export function leafEditor(path: TreePath, value: unknown): LeafEditor {
+export function leafEditor(path: TreePath, value: unknown, readOnlyReason?: string): LeafEditor {
+  if (readOnlyReason) return { kind: 'readonly', reason: readOnlyReason }
   const field = String(path[path.length - 1])
   const section = path[0]
   if (section === 'locations' || section === 'networkModel' || section === 'invariants') {
@@ -194,10 +224,18 @@ export function buildTopologyTree(topology: TopologyJSON): TreeEntry[] {
         label: 'nodes',
         kind: 'array',
         badge: topology.nodes.length,
-        children: topology.nodes.map((node, index) => ({
-          ...build(['nodes', index], node.label || node.id, node, { kind: 'node', id: node.id }),
-          preview: node.type
-        }))
+        children: topology.nodes.map((node, index) =>
+          markDerived(
+            {
+              ...build(['nodes', index], node.label || node.id, node, {
+                kind: 'node',
+                id: node.id
+              }),
+              preview: node.type
+            },
+            topology
+          )
+        )
       })
       continue
     }
@@ -370,6 +408,8 @@ export function planTopologyEdit(
   options: { connectorMode?: boolean } = {}
 ): TopologyEditResult {
   const [section, index] = path
+  const derived = derivedFieldReason(topology, path)
+  if (derived) return { ok: false, message: derived }
   const edited = setAtPath(topology, path, value)
   let plan: TopologyEditResult
 
