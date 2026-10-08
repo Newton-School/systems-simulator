@@ -99,6 +99,8 @@ export interface NodeSimulationConfig {
   healthCheckEnabled?: boolean
   cacheHitRate?: number
   cacheModel?: 'declared-rate' | 'derived-lru'
+  /** Single-flight concurrent misses for the same request key (cache trait). */
+  requestCollapsing?: boolean
   cacheRamMb?: number
   valueSizeBytes?: number
   cacheHitLatencyMs?: number

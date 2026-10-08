@@ -63,7 +63,12 @@ function fmtCount(value?: number | null): string | undefined {
 const TRAIT_COUNTER_LABELS: Record<string, string> = {
   memoryPressureEvents: 'Requests under memory pressure',
   workingSetPressureEvents: 'Requests with working-set spill',
-  gcPressureEvents: 'Requests with GC pressure'
+  gcPressureEvents: 'Requests with GC pressure',
+  collapseLeaders: 'Collapse leaders (downstream fetches)',
+  collapsedMisses: 'Collapsed misses (waited, no downstream call)',
+  collapsedFollowersServed: 'Collapsed misses served by leader',
+  collapsedFollowersFailed: 'Collapsed misses failed with leader',
+  collapseNoKey: 'Misses not collapsed (no request key)'
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {

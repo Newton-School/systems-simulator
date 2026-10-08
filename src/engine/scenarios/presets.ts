@@ -172,7 +172,9 @@ export function createCacheStampedeExperiment(
     ],
     finalCheckMs: 5_000,
     notes: [
-      'A stampede here is a cold cache: the engine has no request coalescing (single-flight), so every miss goes to the origin on its own, as it would in a real stampede without coalescing.',
+      cache.config?.requestCollapsing === true
+        ? `${cache.label} has request collapsing on: concurrent misses for the same key wait for one fetch, so origin load is one call per hot key rather than one per request. Requests without a key are not collapsed.`
+        : `A stampede here is a cold cache: ${cache.label} has no request collapsing (single-flight), so every miss goes to the origin on its own. Turn on Request collapsing in its Caching section to compare.`,
       model === 'derived-lru'
         ? `${cache.label} uses the Derived (LRU) model: its contents are wiped at the flush and re-warm from live traffic, so the miss burst and its decay are measured.`
         : `${cache.label} uses a declared hit rate, which has no contents to lose. The flush is approximated as every request missing for ${coldForMs / 1000}s, then the declared rate returns at once (no warming curve). Switch it to Derived (LRU) for a measured re-warm.`,

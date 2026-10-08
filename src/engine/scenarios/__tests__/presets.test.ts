@@ -19,7 +19,7 @@ describe('cache stampede preset', () => {
     })
     expect(definition.steps.filter((s) => s.type === 'verify')).toHaveLength(1)
     expect(definition.steadyState.length).toBeGreaterThanOrEqual(2)
-    expect(definition.notes?.join(' ')).toMatch(/no request coalescing/)
+    expect(definition.notes?.join(' ')).toMatch(/no request collapsing/)
   })
 
   it('passes when the origin has headroom for every miss', () => {

@@ -169,6 +169,11 @@ export const TRAIT_SUPPORT_LEDGER = {
     tier: 'first-class',
     summary: 'Cache hit/miss behavior, TTL, and latency differences are modeled and test-covered.'
   },
+  'cache.request-collapsing': {
+    tier: 'first-class',
+    summary:
+      'Opt-in single-flight on cache nodes (sim.requestCollapsing): concurrent misses for the same request key park behind one in-flight leader fetch, so N simultaneous misses make one downstream call; followers complete when the leader returns (latency includes the wait) or fail with its cause. Needs keyed requests (source keyspace); the derived LRU fills on response, so a cold hot key shows the stampede it fixes. Waiter caps, lock timeouts, and stale-while-revalidate are not modeled.'
+  },
   'routing.content-aware': {
     tier: 'first-class',
     summary: 'Content-based routing decisions are modeled and exposed as node behavior.'
@@ -316,6 +321,11 @@ export const CONCEPT_SUPPORT_LEDGER = {
   'read-cache': {
     tier: 'first-class',
     summary: 'Read-heavy cache placement and miss penalties are strong simulator territory.'
+  },
+  'request-collapsing': {
+    tier: 'first-class',
+    summary:
+      'Thundering-herd misses on a hot key and single-flight collapsing are measurable: downstream calls drop to about one per key per in-flight window while the hit rate stays the same.'
   },
   'store-fit': {
     tier: 'first-class',

@@ -19,10 +19,18 @@ const SAMPLE_CANVASES = import.meta.glob('../../../engine/__samples__/*.json', {
   import: 'default'
 }) as Record<string, NestedFileData>
 
-const QUESTION_BANK_TOPOLOGIES = import.meta.glob(
-  '../../../../ns-simulator-docs/examples/question-bank/*/*-topology.json',
-  { eager: true, import: 'default' }
-) as Record<string, TopologyJSON>
+// Engine-format samples (TopologyJSON rather than a saved canvas) live in
+// __samples__/topology/ and round-trip with the question-bank topologies.
+const QUESTION_BANK_TOPOLOGIES = {
+  ...import.meta.glob('../../../../ns-simulator-docs/examples/question-bank/*/*-topology.json', {
+    eager: true,
+    import: 'default'
+  }),
+  ...import.meta.glob('../../../engine/__samples__/topology/*.json', {
+    eager: true,
+    import: 'default'
+  })
+} as Record<string, TopologyJSON>
 
 const QUESTION_SCAFFOLDS = Object.entries({
   ...import.meta.glob('../../../../ns-simulator-docs/examples/question-bank/*/question.json', {
