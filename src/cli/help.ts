@@ -6,6 +6,7 @@ export const CLI_COMMANDS = [
   'lint',
   'cost',
   'compare',
+  'shell',
   'evaluate',
   'grade'
 ] as const
@@ -36,6 +37,7 @@ ${c.bold}Commands${c.reset}
   lint <topology.json>             Detect architectural anti-patterns (exit 2 on critical findings)
   cost <topology.json>             Per-component $/hr breakdown (--run for measured, post-run figures)
   compare <a.json> <b.json>        Simulate two designs with the same seed and diff them
+  shell <topology.json>            The in-app terminal's commands over a topology (interactive, or --exec)
   evaluate ...                     Headless suites, scenario batches and question grading
   grade <question> <topology>      Alias for: evaluate question
 
@@ -133,6 +135,29 @@ ${c.bold}Options${c.reset}
   -h, --help          Show this message
 
 Exits 0 when both designs ran, 1 when either file is unreadable or invalid.
+`,
+  shell: (c) => `
+${c.bold}sim shell${c.reset} <topology.json> [--exec "<cmd>; <cmd>"]
+
+Opens the System Design Simulator terminal on a topology file: the same command
+registry, modes and output as the Terminal tab in the app (show topology,
+select <node>, show queue, traceroute, run, show bottleneck, diagnose,
+why-rejected, ...). Type 'help' inside for the list, Tab completes, 'quit'
+or Ctrl+D leaves.
+
+The file is never rewritten, so config mode and live run controls (pause, step,
+speed) are app-only; 'run' simulates to completion and the show commands then
+read its output.
+
+${c.bold}Options${c.reset}
+  --exec <script>     Run ';'-separated commands non-interactively and exit
+                      (exit 2 if any command failed)
+  -h, --help          Show this message
+
+${c.bold}Examples${c.reset}
+  sim shell order-topology.json
+  sim shell order-topology.json --exec "show nodes; select lb; show interfaces"
+  sim shell order-topology.json --exec "run; show bottleneck; diagnose email-svc"
 `,
   evaluate: (c) => `
 ${c.bold}sim evaluate${c.reset} - headless evaluation contracts (JSON on stdout)

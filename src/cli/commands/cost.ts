@@ -2,7 +2,7 @@ import type { TopologyJSON } from '../../engine/core/types'
 import { topologyCost, formatCostPerHour, type TopologyCost } from '../../engine/analysis/cost'
 import { costRunContextFromOutput } from '../../engine/analysis/designComparator'
 import type { SimulationOutput } from '../../engine/analysis/output'
-import { padStartVisible, truncate, type Palette } from '../ansi'
+import { padStartVisible, truncate, type Palette } from '../../shared/ansi'
 
 /** Hours in an average month (365 * 24 / 12), for the convenience monthly figure. */
 export const HOURS_PER_MONTH = 730

@@ -86,6 +86,8 @@ import {
 import { ErrorBoundary } from '../ui/ErrorBoundary'
 import { ResizeHandle } from '../ui/ResizeHandle'
 import { RunToast } from '../ui/RunToast'
+import { TerminalDock, type BottomDockTab } from '../terminal/TerminalDock'
+import { trackSavedTopologyBaseline } from '../terminal/terminalStore'
 import { RoutingVisualizationToast } from '../ui/RoutingVisualizationToast'
 import type { CanvasNodeDataV2 } from '../../../../engine/catalog/nodeSpecTypes'
 import {
@@ -127,6 +129,11 @@ const PropertiesPanel = lazy(async () => {
 const ResultsTray = lazy(async () => {
   const module = await import('../simulation/ResultsTray')
   return { default: module.ResultsTray }
+})
+
+const TerminalTab = lazy(async () => {
+  const module = await import('../terminal/TerminalTab')
+  return { default: module.TerminalTab }
 })
 
 const TopologyJsonViewer = lazy(async () => {
@@ -298,6 +305,13 @@ export const WorkspaceLayout = () => {
   rightPanelViewRef.current = rightPanelView
   const [showImportJson, setShowImportJson] = useState(false)
   const [showResults, setShowResults] = useState(false)
+  const [terminalOpen, setTerminalOpen] = useState(false)
+  const [dockTab, setDockTab] = useState<BottomDockTab>('terminal')
+  const toggleTerminal = useCallback(() => {
+    setTerminalOpen((open) => !open)
+    setDockTab('terminal')
+  }, [])
+  useEffect(() => trackSavedTopologyBaseline(), [])
   const [showSamples, setShowSamples] = useState(false)
   const [showShortcuts, setShowShortcuts] = useState(false)
   const [componentLibrarySearchFocusVersion, setComponentLibrarySearchFocusVersion] = useState(0)
@@ -1213,6 +1227,12 @@ export const WorkspaceLayout = () => {
       const isMod = isPrimaryModifier(event)
       const switchesLeftTab = isMod && /^[1-9]$/.test(key)
 
+      if (event.ctrlKey && !event.altKey && event.key === '`') {
+        event.preventDefault()
+        toggleTerminal()
+        return
+      }
+
       if (isEditableShortcutTarget(event.target) && !switchesLeftTab) {
         return
       }
@@ -1358,6 +1378,7 @@ export const WorkspaceLayout = () => {
     selectedNodeId,
     setRunInspectorPinned,
     sim.results,
+    toggleTerminal,
     sim.status
   ])
   const sourceNodes: SourceNodeOption[] = nodes
@@ -1519,8 +1540,8 @@ export const WorkspaceLayout = () => {
     </div>
   )
 
-  const resultsContent =
-    showResults && sim.status !== 'idle' ? (
+  const resultsTray =
+    sim.status !== 'idle' ? (
       <Suspense fallback={<PanelFallback label="Loading simulation results..." />}>
         <ResultsTray
           status={sim.status}
@@ -1538,10 +1559,30 @@ export const WorkspaceLayout = () => {
               <ExperimentResultPanel result={experimentResult} nodeLabel={experimentNodeLabel} />
             ) : null
           }
-          onClose={() => setShowResults(false)}
+          onClose={() => (terminalOpen ? setDockTab('terminal') : setShowResults(false))}
         />
       </Suspense>
     ) : null
+
+  const resultsContent = terminalOpen ? (
+    <TerminalDock
+      activeTab={dockTab}
+      onTabChange={(tab) => {
+        setDockTab(tab)
+        if (tab === 'results') setShowResults(true)
+      }}
+      results={resultsTray}
+      hasRun={sim.status !== 'idle'}
+      terminal={
+        <Suspense fallback={<PanelFallback label="Loading terminal..." />}>
+          <TerminalTab sim={sim} onRun={handleRun} />
+        </Suspense>
+      }
+      onClose={() => setTerminalOpen(false)}
+    />
+  ) : showResults ? (
+    resultsTray
+  ) : null
 
   const toggleLeft = () => {
     const next = !isLeftOpen
@@ -1638,6 +1679,8 @@ export const WorkspaceLayout = () => {
           experience={experienceEnvelope}
           onSelect={handleLeftSidebarTabSelect}
           onShowShortcuts={() => setShowShortcuts(true)}
+          onToggleTerminal={toggleTerminal}
+          terminalOpen={terminalOpen}
           settingsOpenRequestVersion={settingsOpenRequestVersion}
         />
 
@@ -1694,7 +1737,7 @@ export const WorkspaceLayout = () => {
 
             <Panel order={2} minSize={30} id="center-panel">
               <PanelGroup direction="vertical" autoSaveId="main-layout-vertical">
-                <Panel defaultSize={showResults ? 65 : 100} minSize={10} order={1}>
+                <Panel defaultSize={showResults || terminalOpen ? 65 : 100} minSize={10} order={1}>
                   {canvasContent}
                 </Panel>
 

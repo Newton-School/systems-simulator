@@ -34,6 +34,7 @@ import {
 import { describeRequestOperation } from '../../../../engine/core/requestSemantics'
 import type { WorkloadProfile } from '../../../../engine/core/types'
 import type { FieldPath } from '@renderer/config/fieldConfig'
+import { setPathValue } from '@renderer/utils/nodeFieldEdit'
 import type { AnyNodeData, EdgeSimulationData, NodeSimulationMetrics } from '@renderer/types/ui'
 import { useNodeMetrics } from '@renderer/hooks/useNodeMetrics'
 import type { CanvasNodeDataV2 } from '../../../../engine/catalog/nodeSpecTypes'
@@ -196,62 +197,6 @@ const RUN_INSPECTOR_TOOLTIP = (
     </p>
   </div>
 )
-
-function setPathValue(target: AnyNodeData, path: FieldPath, value: unknown): Partial<AnyNodeData> {
-  const segments = path.split('.')
-  const [root, ...rest] = segments
-
-  if (rest.length === 0) {
-    return { [root]: value } as Partial<AnyNodeData>
-  }
-
-  const currentRootValue = (target as unknown as Record<string, unknown>)[root]
-  const clonedRoot = Array.isArray(currentRootValue)
-    ? [...currentRootValue]
-    : currentRootValue && typeof currentRootValue === 'object'
-      ? { ...(currentRootValue as Record<string, unknown>) }
-      : {}
-
-  let cursor: unknown = clonedRoot
-  let sourceCursor: unknown = currentRootValue
-
-  for (let index = 0; index < rest.length - 1; index++) {
-    const segment = rest[index]
-    const nextSegment = rest[index + 1]
-    const sourceValue =
-      Array.isArray(sourceCursor) && Number.isInteger(Number(segment))
-        ? sourceCursor[Number(segment)]
-        : sourceCursor && typeof sourceCursor === 'object'
-          ? (sourceCursor as Record<string, unknown>)[segment]
-          : undefined
-
-    const nextValue = Array.isArray(sourceValue)
-      ? [...sourceValue]
-      : sourceValue && typeof sourceValue === 'object'
-        ? { ...(sourceValue as Record<string, unknown>) }
-        : Number.isInteger(Number(nextSegment))
-          ? []
-          : {}
-
-    if (Array.isArray(cursor)) {
-      cursor[Number(segment)] = nextValue
-    } else {
-      ;(cursor as Record<string, unknown>)[segment] = nextValue
-    }
-
-    cursor = nextValue
-    sourceCursor = sourceValue
-  }
-
-  const lastSegment = rest[rest.length - 1]
-  if (Array.isArray(cursor) && Number.isInteger(Number(lastSegment))) {
-    cursor[Number(lastSegment)] = value
-  } else {
-    ;(cursor as Record<string, unknown>)[lastSegment] = value
-  }
-
-  return { [root]: clonedRoot } as Partial<AnyNodeData>
-}
 
 type PanelTab = 'metrics' | 'config'
 type RunInspectorTab = 'nodes' | 'links' | 'locality'

@@ -329,3 +329,29 @@ describe('sim compare', () => {
     expect(human.stdout).toContain('seed design-a-seed')
   })
 })
+
+describe('sim shell', () => {
+  it('runs the shared terminal commands over a topology file with --exec', () => {
+    const dir = tempDir()
+    const file = writeTopology(dir, 'shell.json', topology('shell-topology'))
+    const result = runCli([
+      'shell',
+      file,
+      '--exec',
+      'show nodes; select api; show queue; exit; run; show bottleneck'
+    ])
+    expect(result.status).toBe(CLI_EXIT_SUCCESS)
+    expect(result.stdout).toContain('sim> show nodes')
+    expect(result.stdout).toContain('node(api)> show queue')
+    expect(result.stdout).toContain('Run complete')
+    expect(result.stdout).toContain('Bottleneck')
+  })
+
+  it('exits 2 when a command fails', () => {
+    const dir = tempDir()
+    const file = writeTopology(dir, 'shell.json', topology('shell-topology'))
+    const result = runCli(['shell', file, '--exec', 'select nowhere'])
+    expect(result.status).toBe(CLI_EXIT_CHECK_FAILED)
+    expect(result.stdout).toContain("No node 'nowhere'")
+  })
+})
