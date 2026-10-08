@@ -11,6 +11,7 @@ import { ModeBadge } from './ModeBadge'
 import { FileStatus } from './FileStatus'
 import { ThemeToggle } from './ThemeToggle'
 import { SimulationControls } from '../simulation/SimulationControls'
+import type { ExperimentPreview } from '../simulation/chaosExperimentModel'
 import type { FaultTargetOption, ScenarioState, SourceNodeOption } from '@renderer/types/ui'
 
 interface HeaderProps {
@@ -46,12 +47,14 @@ interface HeaderProps {
   onPause: () => void
   onResume: () => void
   onStop: () => void
+  onStep?: () => void
   isRunning: boolean
   isPaused: boolean
   sourceNodes: SourceNodeOption[]
   faultTargets: FaultTargetOption[]
   scenario: ScenarioState
   onScenarioChange: (updater: (current: ScenarioState) => ScenarioState) => void
+  previewExperiment?: (entries: NonNullable<ScenarioState['experiment']>) => ExperimentPreview
   simulationDisabled?: boolean
   /** Minimal chrome (EnvironmentProfile ASSIGNMENT/PRACTICE): hide file status chrome. */
   minimal?: boolean
@@ -106,12 +109,14 @@ export const Header = memo(
     onPause,
     onResume,
     onStop,
+    onStep,
     isRunning,
     isPaused,
     sourceNodes,
     faultTargets,
     scenario,
     onScenarioChange,
+    previewExperiment,
     simulationDisabled,
     minimal,
     canOpen = true,
@@ -220,12 +225,14 @@ export const Header = memo(
             onPause={onPause}
             onResume={onResume}
             onStop={onStop}
+            onStep={onStep}
             isRunning={isRunning}
             isPaused={isPaused}
             sourceNodes={sourceNodes}
             faultTargets={faultTargets}
             scenario={scenario}
             onScenarioChange={onScenarioChange}
+            previewExperiment={previewExperiment}
             disabled={simulationDisabled}
           />
         </div>

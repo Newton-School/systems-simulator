@@ -21,6 +21,48 @@ function asPositiveNumber(value: unknown): number | null {
 /** Per-node state key for the derived-LRU cache contents. */
 const LRU_STATE_KEY = 'cache.lru'
 
+/** `FaultSpec.faultType` that empties a cache instead of failing the node. */
+export const CACHE_FLUSH_FAULT_TYPE = 'cache-flush'
+
+/** Declared-rate caches miss on every arrival for this long after a flush (no `durationMs`). */
+export const DEFAULT_CACHE_FLUSH_REWARM_MS = 5_000
+
+/** Per-node state key for scheduled cache flushes (chaos `cache-flush` faults). */
+export const CACHE_FLUSH_STATE_KEY = 'cache.flushes'
+
+/**
+ * A scheduled loss of cache contents, in simulation microseconds.
+ * - Derived-LRU caches drop every entry at `atUs` and re-warm from live traffic,
+ *   so the miss burst and its decay are a measured consequence.
+ * - Declared-rate caches hold no contents to lose, so the flush is approximated
+ *   as "every arrival misses" from `atUs` until `untilUs`, then the declared rate
+ *   returns at once (that model has no warming curve).
+ */
+export interface CacheFlushWindow {
+  atUs: bigint
+  untilUs: bigint
+  /** Set once the derived-LRU contents have been cleared for this flush. */
+  applied?: boolean
+}
+
+/** Register a flush on a cache node's trait state (called by the engine at setup). */
+export function scheduleCacheFlush(
+  state: { get<T>(key: string): T | undefined; set<T>(key: string, value: T): void },
+  window: CacheFlushWindow
+): void {
+  const existing = state.get<CacheFlushWindow[]>(CACHE_FLUSH_STATE_KEY) ?? []
+  state.set(
+    CACHE_FLUSH_STATE_KEY,
+    [...existing, { ...window, applied: false }].sort((a, b) =>
+      a.atUs < b.atUs ? -1 : a.atUs > b.atUs ? 1 : 0
+    )
+  )
+}
+
+function flushesFor(state: { get<T>(key: string): T | undefined } | undefined): CacheFlushWindow[] {
+  return state?.get<CacheFlushWindow[]>(CACHE_FLUSH_STATE_KEY) ?? []
+}
+
 interface LruCacheState {
   /** Fixed item capacity derived from RAM ÷ value size. */
   capacity: number
@@ -70,7 +112,8 @@ function defaultCacheHitLatencyPlaceholder(data: CanvasNodeDataV2): string {
 
 export const cacheTrait: NodeBehaviourTrait = {
   name: 'cache',
-  beforeArrival: ({ node, request, random, state }) => {
+  beforeArrival: ({ node, request, random, state, clock }) => {
+    const flushes = flushesFor(state)
     const hitLatencyMs =
       asPositiveNumber(node.config?.['cacheHitLatencyMs']) ?? defaultCacheHitLatencyMs(node.type)
 
@@ -86,6 +129,13 @@ export const cacheTrait: NodeBehaviourTrait = {
         if (!cache || cache.capacity !== capacity) {
           cache = { capacity, entries: new Map() }
           state.set(LRU_STATE_KEY, cache)
+        }
+        // A due flush wipes the contents once; the cache then re-warms from traffic.
+        for (const flush of flushes) {
+          if (!flush.applied && clock >= flush.atUs) {
+            flush.applied = true
+            cache.entries.clear()
+          }
         }
 
         if (cache.entries.has(key)) {
@@ -130,6 +180,21 @@ export const cacheTrait: NodeBehaviourTrait = {
     }
 
     const hitRate = asProbability(node.config?.['cacheHitRate']) ?? 0
+    const flushedNow = flushes.some((flush) => clock >= flush.atUs && clock < flush.untilUs)
+
+    if (hitRate > 0 && flushedNow) {
+      if (request.metadata.__cacheOutcome === undefined) request.metadata.__cacheOutcome = 'miss'
+      return {
+        action: 'continue',
+        payload: {
+          cacheOutcome: 'miss',
+          metricCounters: { cacheMisses: 1, cacheFlushMisses: 1 },
+          hitRate,
+          cacheFlushed: true,
+          cacheHitLatencyMs: hitLatencyMs
+        }
+      }
+    }
 
     if (hitRate <= 0) {
       if (request.metadata.__cacheOutcome === undefined) request.metadata.__cacheOutcome = 'miss'

@@ -84,6 +84,8 @@ interface ResultsTrayProps {
   runContext: ScenarioRunContext | null
   /** Nodes or connections changed on the canvas since this run (#184). */
   topologyEdited?: boolean
+  /** Chaos experiment verdict for this run, shown at the top of the overview. */
+  experimentPanel?: React.ReactNode
   onClose?: () => void
 }
 
@@ -5014,6 +5016,7 @@ export function ResultsTray({
   error,
   runContext,
   topologyEdited = false,
+  experimentPanel,
   onClose
 }: ResultsTrayProps) {
   const defaultResultsTab = useStore((state) => state.displaySettings.defaultResultsTab)
@@ -5241,6 +5244,7 @@ export function ResultsTray({
 
             {activeTab === 'overview' && (
               <>
+                {experimentPanel}
                 {runContext && <RunContextPanel runContext={runContext} />}
                 <SummaryPanel output={results} runContext={runContext} />
                 <OriginMetricsPanel output={results} />

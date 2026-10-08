@@ -166,6 +166,16 @@ export interface ScenarioState {
    * network model, invariants, scenario refs).
    */
   topologyMeta?: TopologyMeta
+  /**
+   * Chaos experiment presets to run instead of the single fault above. More
+   * than one entry composes them, each starting `offsetS` after the baseline.
+   */
+  experiment?: ExperimentEntry[]
+}
+
+export interface ExperimentEntry {
+  presetId: string
+  offsetS: number
 }
 
 export interface TopologyMeta {
@@ -257,6 +267,16 @@ export function normalizeScenarioState(value: unknown): ScenarioState {
     randomizeSeedEachRun: scenario.randomizeSeedEachRun === true,
     ...(scenario.topologyMeta && typeof scenario.topologyMeta === 'object'
       ? { topologyMeta: { ...scenario.topologyMeta } }
+      : {}),
+    ...(Array.isArray(scenario.experiment) && scenario.experiment.length > 0
+      ? {
+          experiment: scenario.experiment
+            .filter((entry) => entry && typeof entry.presetId === 'string')
+            .map((entry) => ({
+              presetId: entry.presetId,
+              offsetS: typeof entry.offsetS === 'number' && entry.offsetS >= 0 ? entry.offsetS : 0
+            }))
+        }
       : {})
   }
 }
