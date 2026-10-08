@@ -454,6 +454,31 @@ export interface EdgePresentation {
   routingStyle?: EdgePresentationRoutingStyle
 }
 
+export type EdgeConnectionReuse = 'per-request' | 'keep-alive' | 'persistent'
+export type EdgeTlsVersion = 'none' | '1.2' | '1.3'
+
+export interface EdgeConnectionConfig {
+  /** How the source obtains a connection for each request on this edge. */
+  reuse: EdgeConnectionReuse
+  /** TLS version negotiated on new connections; default depends on protocol. */
+  tls?: EdgeTlsVersion
+  /** Resume an earlier TLS session instead of a full handshake. */
+  tlsSessionResumption?: boolean
+  /** keep-alive only: close a warm connection after this long idle (ms). */
+  idleTimeoutMs?: number
+  /** Most connections one pool may open; unset = open as many as needed. */
+  maxConnections?: number
+  /** Concurrent requests per connection; default depends on protocol. */
+  maxStreamsPerConnection?: number
+}
+
+export interface EdgeBatchingConfig {
+  /** Kafka `linger.ms`: how long a batch waits for more records before sending. */
+  lingerMs: number
+  /** Kafka `batch.size`: send as soon as the batch holds this many bytes. */
+  maxBatchBytes?: number
+}
+
 export interface EdgeDefinition {
   id: string
   source: string
@@ -487,6 +512,17 @@ export interface EdgeDefinition {
    * downstream target genuinely receives N× the load and can saturate.
    */
   fanoutFactor?: number
+  /**
+   * Connection model (TLS handshakes, HTTP/2 multiplexing, persistent
+   * connections). Unset keeps the historical assumption that every request finds
+   * a warm connection with no setup cost. See network/connectionPool.ts.
+   */
+  connection?: EdgeConnectionConfig
+  /**
+   * Producer record batching (Kafka linger.ms / batch.size). Only applies to
+   * `protocol: 'kafka'` edges. See network/edgeBatching.ts.
+   */
+  batching?: EdgeBatchingConfig
 
   // React Flow metadata
   sourceHandle?: string

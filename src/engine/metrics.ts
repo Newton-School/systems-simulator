@@ -262,6 +262,30 @@ export interface PerEdgeMetrics {
    * link / post-warmup window. 1.0 means the edge ran at its bandwidth.
    */
   linkUtilization?: number
+  /**
+   * Connection model counts (edge.connection), post-warmup: connections opened
+   * (of which TLS-resumed), requests that reused a warm connection, requests that
+   * had to wait for a free stream, and keep-alive connections closed idle.
+   */
+  connections?: EdgeConnectionCounts
+  /** Kafka producer batching (edge.batching), post-warmup. */
+  batching?: EdgeBatchingSummary
+}
+
+export interface EdgeConnectionCounts {
+  opened: number
+  resumed: number
+  reused: number
+  waited: number
+  closedIdle: number
+}
+
+export interface EdgeBatchingSummary {
+  batchesSent: number
+  recordsSent: number
+  /** Records per sent batch (a per-batch mean, not a time sample). */
+  meanRecordsPerBatch: number
+  meanBatchBytes: number
 }
 
 export interface EdgeLatencyBreakdown {
@@ -418,6 +442,11 @@ export class MetricsCollector {
   private readonly edgeBytesById = new Map<string, number>()
   private readonly edgeBreakdownById = new Map<string, EdgeBreakdownAccumulator>()
   private readonly edgeLinkBusyUsById = new Map<string, number>()
+  private readonly edgeConnectionCountsById = new Map<string, EdgeConnectionCounts>()
+  private readonly edgeBatchTotalsById = new Map<
+    string,
+    { batches: number; records: number; bytes: number }
+  >()
 
   /** Per-component latency contributions summed over post-warmup completed requests. */
   private readonly decompositionByKey = new Map<
@@ -771,6 +800,36 @@ export class MetricsCollector {
     acc.maxLinkQueueMs = Math.max(acc.maxLinkQueueMs, breakdown.linkQueueMs)
   }
 
+  /** Count a connection-model event on an edge (post-warmup only). */
+  recordEdgeConnectionEvent(
+    edgeId: string,
+    kind: keyof EdgeConnectionCounts,
+    atUs: bigint,
+    count = 1
+  ): void {
+    if (!this.isPostWarmup(atUs)) {
+      return
+    }
+    let counts = this.edgeConnectionCountsById.get(edgeId)
+    if (!counts) {
+      counts = { opened: 0, resumed: 0, reused: 0, waited: 0, closedIdle: 0 }
+      this.edgeConnectionCountsById.set(edgeId, counts)
+    }
+    counts[kind] += count
+  }
+
+  /** Count a producer batch sent on an edge (post-warmup only). */
+  recordEdgeBatchSent(edgeId: string, atUs: bigint, records: number, bytes: number): void {
+    if (!this.isPostWarmup(atUs)) {
+      return
+    }
+    const totals = this.edgeBatchTotalsById.get(edgeId) ?? { batches: 0, records: 0, bytes: 0 }
+    totals.batches += 1
+    totals.records += records
+    totals.bytes += bytes
+    this.edgeBatchTotalsById.set(edgeId, totals)
+  }
+
   /**
    * Record that an edge's serializing link was busy for `busyUs` from
    * `startUs`. Only the part inside [warmup, endUs] counts toward utilization.
@@ -1068,7 +1127,27 @@ export class MetricsCollector {
                 (this.edgeLinkBusyUsById.get(edgeId) ?? 0) / postWarmupWindowUs
               )
             }
-          : {})
+          : {}),
+        ...(this.edgeConnectionCountsById.has(edgeId)
+          ? {
+              connections: {
+                ...(this.edgeConnectionCountsById.get(edgeId) as EdgeConnectionCounts)
+              }
+            }
+          : {}),
+        ...(() => {
+          const totals = this.edgeBatchTotalsById.get(edgeId)
+          return totals && totals.batches > 0
+            ? {
+                batching: {
+                  batchesSent: totals.batches,
+                  recordsSent: totals.records,
+                  meanRecordsPerBatch: totals.records / totals.batches,
+                  meanBatchBytes: totals.bytes / totals.batches
+                }
+              }
+            : {}
+        })()
       })
     }
 

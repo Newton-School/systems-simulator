@@ -129,6 +129,24 @@ export interface EdgeSimulationData {
    * recipients (e.g. a post → N follower feed writes). ≤1 or empty = no amplification.
    */
   fanoutFactor?: number
+  /**
+   * Connection model (engine `edge.connection`). Unset = every request finds a
+   * warm connection with no setup cost. The fields below only apply when set.
+   */
+  connectionReuse?: 'per-request' | 'keep-alive' | 'persistent'
+  /** TLS version on new connections; unset = protocol default. */
+  tlsVersion?: 'none' | '1.2' | '1.3'
+  tlsSessionResumption?: boolean
+  /** keep-alive idle timeout before a warm connection closes (ms). */
+  connectionIdleTimeoutMs?: number
+  /** Most connections the pool opens; unset = as many as needed. */
+  maxConnections?: number
+  /** Concurrent requests per connection (HTTP/2 streams); unset = protocol default. */
+  maxStreamsPerConnection?: number
+  /** Kafka producer linger.ms (engine `edge.batching`); unset = no batching. */
+  batchLingerMs?: number
+  /** Kafka producer batch.size in bytes; unset = 16384. */
+  batchMaxBytes?: number
 }
 
 export type NodeType = RendererNodeType

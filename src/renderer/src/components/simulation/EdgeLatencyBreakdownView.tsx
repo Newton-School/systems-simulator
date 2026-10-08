@@ -1,6 +1,11 @@
-import type { EdgeLatencyBreakdown } from '../../../../engine/metrics'
+import type {
+  EdgeBatchingSummary,
+  EdgeConnectionCounts,
+  EdgeLatencyBreakdown
+} from '../../../../engine/metrics'
 import {
   EDGE_LATENCY_COMPONENTS,
+  OPT_IN_EDGE_LATENCY_COMPONENTS,
   type EdgeLatencyComponent
 } from '../../../../engine/network/linkTransmission'
 
@@ -31,12 +36,27 @@ const COMPONENT_META: Record<EdgeLatencyComponent, { label: string; color: strin
     protocolOverheadMs: {
       label: 'Protocol overhead',
       color: '#34d399',
-      why: 'Fixed per-request protocol cost; reduced on streaming links.'
+      why: 'Fixed per-request framing/serialization cost; reduced on streaming links. Connection handshakes are counted separately.'
     },
     retransmissionMs: {
       label: 'Retransmission',
       color: '#fb923c',
       why: 'A second transit after packet loss on a reliable protocol.'
+    },
+    connectionWaitMs: {
+      label: 'Connection wait',
+      color: '#e879f9',
+      why: 'Waiting at the source for a free connection: every pooled connection was busy and the pool was at its cap (HTTP/1.1 head-of-line blocking).'
+    },
+    handshakeMs: {
+      label: 'Handshake',
+      color: '#2dd4bf',
+      why: 'TCP, TLS and upgrade round trips to open a new connection. Reused warm connections skip it.'
+    },
+    batchWaitMs: {
+      label: 'Batch wait',
+      color: '#facc15',
+      why: 'Time the record waited in the producer batch (linger.ms / batch.size) before the batch was sent.'
     }
   }
 
@@ -49,17 +69,25 @@ function fmtMs(value: number): string {
 
 export function EdgeLatencyBreakdownView({
   breakdown,
-  linkUtilization
+  linkUtilization,
+  connections,
+  batching
 }: {
   breakdown: EdgeLatencyBreakdown
   linkUtilization?: number
+  /** Connection model counts, when the edge has a connection model. */
+  connections?: EdgeConnectionCounts
+  /** Producer batching summary, when the edge batches. */
+  batching?: EdgeBatchingSummary
 }) {
   const total = breakdown.meanTotalMs
+  // Opt-in components (connection model, batching) stay hidden until they apply;
+  // older outputs may also lack them.
   const rows = EDGE_LATENCY_COMPONENTS.map((key) => ({
     key,
-    value: breakdown.meanMs[key],
+    value: breakdown.meanMs[key] ?? 0,
     ...COMPONENT_META[key]
-  }))
+  })).filter((row) => row.value > 0 || !OPT_IN_EDGE_LATENCY_COMPONENTS.has(row.key))
 
   return (
     <div className="space-y-3" data-testid="edge-latency-breakdown">
@@ -126,6 +154,71 @@ export function EdgeLatencyBreakdownView({
           </span>
         ) : null}
       </div>
+      {connections ? (
+        <div
+          className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-nss-muted"
+          data-testid="edge-connection-counts"
+          title="Post-warmup counts from the edge's connection model."
+        >
+          <span>
+            Connections opened{' '}
+            <span className="tabular-nums text-nss-text">
+              {connections.opened.toLocaleString()}
+            </span>
+            {connections.resumed > 0
+              ? ` (${connections.resumed.toLocaleString()} TLS resumed)`
+              : ''}
+          </span>
+          <span>
+            Reused{' '}
+            <span className="tabular-nums text-nss-text">
+              {connections.reused.toLocaleString()}
+            </span>
+          </span>
+          {connections.waited > 0 ? (
+            <span>
+              Waited for a connection{' '}
+              <span className="tabular-nums text-nss-text">
+                {connections.waited.toLocaleString()}
+              </span>
+            </span>
+          ) : null}
+          {connections.closedIdle > 0 ? (
+            <span>
+              Closed idle{' '}
+              <span className="tabular-nums text-nss-text">
+                {connections.closedIdle.toLocaleString()}
+              </span>
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+      {batching ? (
+        <div
+          className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-nss-muted"
+          data-testid="edge-batching-summary"
+          title="Post-warmup producer batches sent on this edge."
+        >
+          <span>
+            Batches sent{' '}
+            <span className="tabular-nums text-nss-text">
+              {batching.batchesSent.toLocaleString()}
+            </span>
+          </span>
+          <span>
+            Records per batch{' '}
+            <span className="tabular-nums text-nss-text">
+              {batching.meanRecordsPerBatch.toFixed(1)}
+            </span>
+          </span>
+          <span>
+            Mean batch size{' '}
+            <span className="tabular-nums text-nss-text">
+              {Math.round(batching.meanBatchBytes).toLocaleString()} B
+            </span>
+          </span>
+        </div>
+      ) : null}
       <p className="text-[11px] leading-relaxed text-nss-muted">
         Means over {breakdown.samples.toLocaleString()} successful post-warmup transits; the parts
         add up to the mean transit. Jitter is the spread of the propagation sample, and only request

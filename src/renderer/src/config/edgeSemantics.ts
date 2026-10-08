@@ -50,8 +50,8 @@ export const EDGE_MODE_PRESENTATION: Record<EdgeModeValue, EdgeModePresentation>
     shortLabel: 'STREAM',
     summary: 'Represents a long-lived channel such as WebSocket or bidirectional RPC.',
     simulationEffect:
-      'Competes like a synchronous edge for route selection, but amortizes protocol overhead to model a persistent channel.',
-    note: 'Useful for teaching stream topology today; full session state and multiplexed message behavior are still not modeled.',
+      'Competes like a synchronous edge for route selection, but amortizes protocol overhead to model a persistent channel. Messages are not paired with a response, so with a connection model they free their stream on delivery.',
+    note: 'Set Connection reuse to persistent to pay the connection handshake once instead of assuming it is free.',
     strokeDasharray: '4 6',
     badgeClassName: 'border-nss-primary/30 bg-nss-primary/10 text-nss-primary'
   },
@@ -176,6 +176,66 @@ export const EDGE_PROPERTY_HELP = {
       'Amplification: each request delivered over this edge fans out to this many recipients (e.g. one post → N follower feed writes). Leave empty or 1 for no amplification.',
     simulationEffect:
       'The target genuinely receives N× the load — the write storm — so it can saturate. Use an asynchronous edge so the caller does not block on all N deliveries. The extra writes are counted as fanoutAmplifiedWrites on the source.'
+  },
+  connectionReuse: {
+    title: edgeFieldTitle('connectionReuse'),
+    summary:
+      'How the caller gets a connection for each request. Off keeps the default assumption that a warm connection is always ready. Per request opens and closes a connection every time; keep-alive reuses warm connections until they idle out; persistent opens once and keeps it (WebSocket, long-lived gRPC channels).',
+    simulationEffect:
+      'A new connection pays its handshake round trips before the request goes out: TCP 1, TLS 1.2 +2 (1.3 +1), WebSocket upgrade +1, AMQP open +4, Kafka ApiVersions +1. One round trip is one sample of this edge latency. Reused connections pay nothing, so reuse is why keep-alive and persistent connections win.',
+    note: 'Pools are per edge for service-to-service calls. On an edge leaving the traffic source each client (sessionId, clientIp or workload key) has its own connections; a request with no client identity is a new client. Not used on UDP (connectionless) or on a Kafka edge with batching.'
+  },
+  tlsVersion: {
+    title: edgeFieldTitle('tlsVersion'),
+    summary:
+      'TLS on new connections. Default: TLS 1.3 for HTTPS, gRPC and WebSocket (wss); none for TCP, AMQP and Kafka.',
+    simulationEffect:
+      'TLS 1.2 adds 2 round trips to every new connection, TLS 1.3 adds 1. This is why CDNs and load balancers terminate TLS close to the user, and why connection reuse matters.',
+    note: 'The per-request record encryption cost is part of the protocol overhead already; handshake CPU cost is not modeled.'
+  },
+  tlsSessionResumption: {
+    title: edgeFieldTitle('tlsSessionResumption'),
+    summary:
+      'Reuse a session ticket from an earlier full handshake with the same server when opening a new connection.',
+    simulationEffect:
+      'After the first full handshake, new connections resume: TLS 1.2 pays 1 round trip instead of 2; TLS 1.3 uses 0-RTT early data and pays none.',
+    note: 'Assumes the server accepts 0-RTT early data for TLS 1.3 (without it, a 1.3 resumption still costs 1 round trip). Ticket expiry is not modeled.'
+  },
+  connectionIdleTimeoutMs: {
+    title: edgeFieldTitle('connectionIdleTimeoutMs'),
+    summary:
+      'Keep-alive only: a warm connection that has been idle this long is closed. Default 60,000 ms (typical server keep-alive timeouts are 60-90 s).',
+    simulationEffect:
+      'Bursty or low-rate traffic finds its connections closed and pays the handshake again; a short timeout turns keep-alive back into per-request.'
+  },
+  maxConnections: {
+    title: edgeFieldTitle('maxConnections'),
+    summary:
+      'Most connections one pool may open (a client connection pool size). Empty means open as many as the load needs.',
+    simulationEffect:
+      'When every connection is busy and the pool is full, requests wait in line for a free one (connection wait in the latency breakdown) or time out. With one request per connection (HTTP/1.1) a slow downstream blocks the line; HTTP/2 multiplexing does not.'
+  },
+  maxStreamsPerConnection: {
+    title: edgeFieldTitle('maxStreamsPerConnection'),
+    summary:
+      'Concurrent requests one connection carries. Defaults: HTTPS and TCP 1 (HTTP/1.1, database wire protocols), gRPC 100 (HTTP/2 SETTINGS_MAX_CONCURRENT_STREAMS), Kafka 5 (max.in.flight), WebSocket and AMQP unlimited.',
+    simulationEffect:
+      'A synchronous HTTPS, gRPC or TCP request holds its stream until its response returns; WebSocket, AMQP and Kafka messages free it on delivery. More streams per connection means fewer connections, fewer handshakes and no head-of-line wait.'
+  },
+  batchLingerMs: {
+    title: edgeFieldTitle('batchLingerMs'),
+    summary:
+      'Kafka producer linger.ms: records wait this long for more records to join their batch before it is sent. Empty means no batching (each record is its own request). Kafka 4 defaults to 5 ms.',
+    simulationEffect:
+      'Each batch is one produce request: one edge slot, one protocol overhead, one trip. Fewer requests in flight means more records get through the same Max concurrent requests (in-flight) cap, at the cost of each record waiting in the batch.',
+    note: 'Only on Kafka edges. Compression, acks levels and buffer.memory back-pressure are not modeled.'
+  },
+  batchMaxBytes: {
+    title: edgeFieldTitle('batchMaxBytes'),
+    summary:
+      'Kafka producer batch.size: a batch is sent as soon as it holds this many bytes, before linger expires. Default 16,384.',
+    simulationEffect:
+      'At high rates batches fill before linger expires, so the batch wait shrinks while throughput stays high.'
   }
 } satisfies Record<string, EdgeHelpEntry>
 

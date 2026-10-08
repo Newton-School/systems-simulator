@@ -280,6 +280,27 @@ export function interfaceLines(
         (edge.weight !== undefined ? `, weight ${edge.weight}` : '') +
         (edge.fanoutFactor !== undefined ? `, fan-out x${edge.fanoutFactor}` : '')
     )
+    if (edge.connection) {
+      lines.push(
+        `  connections ${edge.connection.reuse}` +
+          (edge.connection.tls ? `, TLS ${edge.connection.tls}` : '') +
+          (edge.connection.tlsSessionResumption ? ' (resumption)' : '') +
+          (edge.connection.maxConnections !== undefined
+            ? `, max ${edge.connection.maxConnections} connections`
+            : '') +
+          (edge.connection.maxStreamsPerConnection !== undefined
+            ? `, ${edge.connection.maxStreamsPerConnection} streams each`
+            : '')
+      )
+    }
+    if (edge.batching) {
+      lines.push(
+        `  batching linger ${fmtMs(edge.batching.lingerMs)}` +
+          (edge.batching.maxBatchBytes !== undefined
+            ? `, batch ${fmtCount(edge.batching.maxBatchBytes)} B`
+            : '')
+      )
+    }
     const measured = results?.perEdge[edge.id]
     if (measured) {
       lines.push(
@@ -288,6 +309,17 @@ export function interfaceLines(
             ? `, link ${fmtPct(measured.linkUtilization)}`
             : '')
       )
+      if (measured.connections) {
+        const k = measured.connections
+        lines.push(
+          `  ${fmtCount(k.opened)} connections opened (${fmtCount(k.resumed)} TLS resumed), ${fmtCount(k.reused)} reused, ${fmtCount(k.waited)} waited for a connection`
+        )
+      }
+      if (measured.batching) {
+        lines.push(
+          `  ${fmtCount(measured.batching.batchesSent)} batches, ${measured.batching.meanRecordsPerBatch.toFixed(1)} records per batch`
+        )
+      }
     }
   }
   return lines

@@ -40,6 +40,47 @@ type EdgeRuntimeData = {
   condition?: string
   weight?: number
   fanoutFactor?: number
+  connectionReuse?: unknown
+  tlsVersion?: unknown
+  tlsSessionResumption?: unknown
+  connectionIdleTimeoutMs?: unknown
+  maxConnections?: unknown
+  maxStreamsPerConnection?: unknown
+  batchLingerMs?: unknown
+  batchMaxBytes?: unknown
+}
+
+const CONNECTION_REUSE_VALUES = ['per-request', 'keep-alive', 'persistent'] as const
+const TLS_VERSION_VALUES = ['none', '1.2', '1.3'] as const
+
+/** Canvas connection-model fields -> engine `edge.connection` (unset reuse = no model). */
+export function serializeEdgeConnection(edgeData: EdgeRuntimeData): EdgeDefinition['connection'] {
+  const reuse = CONNECTION_REUSE_VALUES.find((value) => value === edgeData.connectionReuse)
+  if (!reuse) {
+    return undefined
+  }
+  const tls = TLS_VERSION_VALUES.find((value) => value === edgeData.tlsVersion)
+  const idleTimeoutMs = asPositiveNumber(edgeData.connectionIdleTimeoutMs)
+  const maxConnections = asPositiveInt(edgeData.maxConnections)
+  const maxStreamsPerConnection = asPositiveInt(edgeData.maxStreamsPerConnection)
+  return {
+    reuse,
+    ...(tls ? { tls } : {}),
+    ...(edgeData.tlsSessionResumption === true ? { tlsSessionResumption: true } : {}),
+    ...(idleTimeoutMs !== null ? { idleTimeoutMs } : {}),
+    ...(maxConnections !== null ? { maxConnections } : {}),
+    ...(maxStreamsPerConnection !== null ? { maxStreamsPerConnection } : {})
+  }
+}
+
+/** Canvas batching fields -> engine `edge.batching` (unset linger = no batching). */
+export function serializeEdgeBatching(edgeData: EdgeRuntimeData): EdgeDefinition['batching'] {
+  const lingerMs = asFiniteNumber(edgeData.batchLingerMs)
+  if (lingerMs === null || lingerMs < 0) {
+    return undefined
+  }
+  const maxBatchBytes = asPositiveNumber(edgeData.batchMaxBytes)
+  return { lingerMs, ...(maxBatchBytes !== null ? { maxBatchBytes } : {}) }
 }
 
 export function serializeEdgePresentation(
@@ -397,7 +438,9 @@ function serializeEdge(
       asPositiveNumber(edgeData.fanoutFactor) !== undefined &&
       (asPositiveNumber(edgeData.fanoutFactor) as number) > 1
         ? Math.round(asPositiveNumber(edgeData.fanoutFactor) as number)
-        : undefined
+        : undefined,
+    connection: serializeEdgeConnection(edgeData),
+    batching: serializeEdgeBatching(edgeData)
   }
 }
 
@@ -421,7 +464,9 @@ function neutralizeConnectorEdge(edge: EdgeDefinition): EdgeDefinition {
     maxConcurrentRequests: Number.MAX_SAFE_INTEGER,
     packetLossRate: 0,
     errorRate: 0,
-    fanoutFactor: undefined
+    fanoutFactor: undefined,
+    connection: undefined,
+    batching: undefined
   }
 }
 

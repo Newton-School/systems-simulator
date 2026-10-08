@@ -3981,6 +3981,8 @@ function ComponentDrilldown({
                 <EdgeLatencyBreakdownView
                   breakdown={metric.latencyBreakdown}
                   linkUtilization={metric.linkUtilization}
+                  connections={metric.connections}
+                  batching={metric.batching}
                 />
               </div>
             </div>

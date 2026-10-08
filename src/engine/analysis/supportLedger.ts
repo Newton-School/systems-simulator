@@ -35,7 +35,7 @@ export const DOMAIN_SUPPORT_LEDGER: Record<QuestionDomain, SupportLedgerEntry> =
   network: {
     tier: 'guided',
     summary:
-      'Edge latency, packet loss, protocol overhead, request-direction bandwidth (transmission delay plus FIFO link queueing), per-edge concurrency caps, HTTP acknowledgements, session lifecycle markers, and L4-versus-L7 rejection/flow-control behavior are modeled, while response payloads and pool limits remain simplified.',
+      'Edge latency, packet loss, protocol overhead, request-direction bandwidth (transmission delay plus FIFO link queueing), per-edge concurrency caps, an opt-in connection model (TCP/TLS/upgrade handshakes on new connections, keep-alive and persistent reuse, TLS session resumption, per-protocol streams per connection so HTTP/1.1 head-of-line waits at a full pool while HTTP/2 multiplexes), opt-in Kafka producer batching (linger.ms / batch.size), HTTP acknowledgements, session lifecycle markers, and L4-versus-L7 rejection/flow-control behavior are modeled, while response payloads remain simplified.',
     simulates: [
       'edge latency',
       'edge packet loss',
@@ -44,13 +44,22 @@ export const DOMAIN_SUPPORT_LEDGER: Record<QuestionDomain, SupportLedgerEntry> =
       'session lifecycle',
       'L4/L7 divergence',
       'edge bandwidth (transmission delay and link queueing)',
-      'per-edge latency breakdown'
+      'per-edge latency breakdown',
+      'connection handshakes (TCP 1 RTT, TLS 1.2 2 RTT / 1.3 1 RTT, WebSocket upgrade 1 RTT, AMQP open 4 RTT, Kafka ApiVersions 1 RTT) on new connections, one RTT = one edge latency sample',
+      'connection reuse: per-request, keep-alive with idle timeout, persistent; per-client pools on edges leaving the traffic source',
+      'TLS session resumption (1.2 abbreviated handshake, 1.3 0-RTT)',
+      'client connection-pool limits (maxConnections) with FIFO connection wait and deadline timeouts',
+      'HTTP/2 multiplexing: streams per connection (gRPC 100, HTTPS/TCP 1); synchronous requests hold a stream until their response, WebSocket/AMQP/Kafka messages until delivery',
+      'Kafka producer batching: a batch is one transfer (one edge slot, one protocol overhead, one propagation sample, its total bytes on the link); records pay the measured batch wait'
     ],
     deferred: [
       'response payload bandwidth (responses do not cross edges)',
-      'bandwidth in the heavy-load fluid tier',
-      'connection-pool limits',
-      'full transport-stack physics'
+      'bandwidth, connection model and batching in the heavy-load fluid tier',
+      'TLS handshake CPU cost, certificate chain size, and session-ticket expiry',
+      'per-replica connection pools (a service edge has one pool shared by its instances)',
+      'Kafka compression, producer acks levels (acks=0/1/all), buffer.memory back-pressure, and per-partition batches',
+      'database-specific connection startup (authentication exchanges, backend process spawn)',
+      'full transport-stack physics (slow start, windowing, segmentation)'
     ]
   },
   resilience: {
@@ -200,6 +209,16 @@ export const TRAIT_SUPPORT_LEDGER = {
     tier: 'guided',
     summary:
       'An edge `fanoutFactor` amplifies each delivery into N recipient writes (e.g. one post → N follower feed writes), so the target genuinely receives N× load and can saturate; the amplification factor is a configured constant, not derived from a live subscriber/follower set.'
+  },
+  'edge.connection-model': {
+    tier: 'guided',
+    summary:
+      'Opt-in per edge (edge.connection). New connections pay real handshake round trips (TCP 1, TLS 1.2 +2 or 1.3 +1, WebSocket upgrade +1, AMQP open +4, Kafka ApiVersions +1), each one sample of the edge latency; keep-alive reuses warm connections until an idle timeout, persistent keeps them open, per-request reopens every time; TLS resumption shortens later handshakes. Streams per connection follow the protocol (HTTPS/TCP 1, gRPC 100, Kafka 5, WebSocket/AMQP unlimited): a synchronous request holds its stream until its response returns, so at a full pool HTTP/1.1 requests wait in line while HTTP/2 multiplexes. Edges leaving the traffic source pool per client identity. Handshake CPU, certificate size, ticket expiry and per-replica pools are not modeled; unset keeps the historical always-warm assumption.'
+  },
+  'edge.producer-batching': {
+    tier: 'guided',
+    summary:
+      "Opt-in on Kafka edges (edge.batching): records accumulate until batch.size bytes or linger.ms after the first record, then the batch is one transfer that takes one edge in-flight slot, one protocol overhead and one trip, with its total bytes on the link. Throughput under the in-flight cap and each record's batch wait are measured, not declared. Compression, acks levels, buffer.memory back-pressure and per-partition batches are not modeled."
   },
   'stream.partitioned-broker': {
     tier: 'first-class',

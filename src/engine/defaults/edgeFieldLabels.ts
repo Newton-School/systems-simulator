@@ -20,7 +20,15 @@ export const EDGE_FIELD_LABELS = {
   weight: { label: 'Weight' },
   packetLossRate: { label: 'Packet loss', unit: '%' },
   errorRate: { label: 'Edge error', unit: '%' },
-  fanoutFactor: { label: 'Fan-out factor' }
+  fanoutFactor: { label: 'Fan-out factor' },
+  connectionReuse: { label: 'Connection reuse' },
+  tlsVersion: { label: 'TLS' },
+  tlsSessionResumption: { label: 'TLS session resumption' },
+  connectionIdleTimeoutMs: { label: 'Idle timeout', unit: 'ms' },
+  maxConnections: { label: 'Max connections' },
+  maxStreamsPerConnection: { label: 'Streams per connection' },
+  batchLingerMs: { label: 'Batch linger', unit: 'ms' },
+  batchMaxBytes: { label: 'Batch size', unit: 'bytes' }
 } as const satisfies Record<string, { label: string; unit?: string }>
 
 export type EdgeFieldKey = keyof typeof EDGE_FIELD_LABELS
