@@ -1,6 +1,9 @@
 import { useRef, useEffect, useCallback } from 'react'
 import { useReactFlow } from 'reactflow'
-import { Trash2 } from 'lucide-react'
+import { ArrowRightFromLine, SquarePlus, Trash2 } from 'lucide-react'
+import useStore from '@renderer/store/useStore'
+import { useContextualAdd } from '../canvas/hooks/useContextualAdd'
+import { contextualAddModesFor } from '../canvas/utils/contextualAdd'
 
 import { MenuTrigger } from '../ui/MenuTrigger'
 import { MenuHeader } from '../ui/MenuHeader'
@@ -17,6 +20,23 @@ export const NodeSettingsMenu = ({ nodeId, isOpen, onClose, onToggle }: NodeSett
   const menuRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const { deleteElements } = useReactFlow()
+  const addEnabled = useContextualAdd((state) => state.enabled)
+  const openContextualAdd = useContextualAdd((state) => state.open)
+  // A stable string so the menu only re-renders when the offered actions change.
+  const addModes = useStore((state) =>
+    contextualAddModesFor(state.nodes.find((node) => node.id === nodeId)).join(',')
+  )
+  const canAddChild = addEnabled && addModes.split(',').includes('child')
+  const canAddConnected = addEnabled && addModes.split(',').includes('connected')
+
+  const handleAdd = useCallback(
+    (mode: 'child' | 'connected') => (e: React.MouseEvent) => {
+      e.stopPropagation()
+      onClose()
+      openContextualAdd({ mode, anchorNodeId: nodeId })
+    },
+    [nodeId, onClose, openContextualAdd]
+  )
 
   const handleDelete = useCallback(
     (e: React.MouseEvent) => {
@@ -64,6 +84,16 @@ export const NodeSettingsMenu = ({ nodeId, isOpen, onClose, onToggle }: NodeSett
           <MenuHeader onClose={onClose} />
 
           <div className="p-1 flex flex-col gap-0.5">
+            {canAddChild && (
+              <MenuOption icon={SquarePlus} label="Add inside..." onClick={handleAdd('child')} />
+            )}
+            {canAddConnected && (
+              <MenuOption
+                icon={ArrowRightFromLine}
+                label="Add connected..."
+                onClick={handleAdd('connected')}
+              />
+            )}
             <MenuOption icon={Trash2} label="Delete" onClick={handleDelete} isDestructive />
           </div>
         </div>

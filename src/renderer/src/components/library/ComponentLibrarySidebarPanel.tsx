@@ -1,26 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import useStore from '../../store/useStore'
 import { CATALOG_CONFIG } from '../../config/catalogConfig'
-import { PALETTE_TEMPLATES } from '../../../../engine/catalog/paletteTemplates'
-import { CANONICAL_TEMPLATE_ID_BY_COMPONENT_TYPE } from '../../../../engine/analysis/authoringCapabilities'
-import { isComponentLibraryItemVisible } from '../../config/componentLibraryVisibility'
+import { filterCatalogCategories, type ComponentLibraryFilter } from '../../config/catalogFilter'
 import { LibraryItem } from './LibraryItem'
 import { CustomDefinitionCreator, type DefinitionBuilderMode } from './CustomDefinitionCreator'
 import type { CatalogItem } from '@renderer/types/ui'
 
-export type ComponentLibraryFilter = 'all' | 'common'
-
-const COMMON_IDS = new Set([
-  'client-user',
-  'api-gateway',
-  'load-balancer-l7',
-  'cdn',
-  'backend-server',
-  'auth-service',
-  'primary-db',
-  'redis-cache',
-  'message-queue'
-])
+export type { ComponentLibraryFilter }
 
 const FILTERS: readonly ComponentLibraryFilter[] = ['common', 'all']
 const BUILDER_TEMPLATE_MODES: Readonly<Record<string, DefinitionBuilderMode>> = {
@@ -69,85 +55,30 @@ export function ComponentLibrarySidebarPanel({
     searchInputRef.current?.focus()
     searchInputRef.current?.select()
   }, [focusSearchVersion])
-  const allowedPalette = useMemo(
-    () => (editPaletteList === null ? null : new Set(editPaletteList)),
-    [editPaletteList]
-  )
-  const questionAllowedNodeTypes = useMemo(
-    () =>
-      activeQuestion?.constraints.allowedNodeTypes
-        ? new Set(activeQuestion.constraints.allowedNodeTypes)
-        : null,
-    [activeQuestion]
-  )
-  const questionForbiddenNodeTypes = useMemo(
-    () =>
-      activeQuestion?.constraints.forbiddenNodeTypes
-        ? new Set(activeQuestion.constraints.forbiddenNodeTypes)
-        : null,
-    [activeQuestion]
-  )
-
   // A question allow-list turns the palette into a strict, curated set: only the
   // author's chosen types, one canonical item each, and no Common/All scoping.
-  const hasQuestionAllowlist = questionAllowedNodeTypes !== null
+  const hasQuestionAllowlist = Boolean(activeQuestion?.constraints.allowedNodeTypes)
 
-  const filtered = useMemo(() => {
-    const trimmed = query.trim().toLowerCase()
-
-    return CATALOG_CONFIG.map((category) => ({
-      ...category,
-      items: category.items.filter((item) => {
-        const componentType = PALETTE_TEMPLATES[item.id]?.componentType
-        // With an allow-list, ignore the Common/All tab entirely — the curated
-        // set is the whole palette. Otherwise an active search spans the whole
-        // catalog so you never have to switch tabs to find a node by name.
-        const matchesFilter =
-          hasQuestionAllowlist || filter === 'all' || trimmed.length > 0 || COMMON_IDS.has(item.id)
-        const matchesSearch =
-          !trimmed ||
-          item.label.toLowerCase().includes(trimmed) ||
-          item.subLabel.toLowerCase().includes(trimmed)
-        const matchesPalette =
-          allowedPalette === null || allowedPalette.has(item.type) || allowedPalette.has(item.id)
-        const matchesLibraryVisibility = isComponentLibraryItemVisible({
-          templateId: item.id,
-          mode: componentLibraryMode,
-          hiddenTemplateIds: hiddenComponentLibraryTemplateIds
-        })
-        // Show exactly the author's picks: the one canonical template per allowed
-        // type (so allowing `microservice` shows "API Server" only, not every
-        // same-type template or placeholder/builder helper).
-        const matchesQuestionAllowlist =
-          questionAllowedNodeTypes === null ||
-          (componentType !== undefined &&
-            questionAllowedNodeTypes.has(componentType) &&
-            CANONICAL_TEMPLATE_ID_BY_COMPONENT_TYPE[componentType] === item.id)
-        const matchesQuestionDenylist =
-          questionForbiddenNodeTypes === null ||
-          componentType === undefined ||
-          !questionForbiddenNodeTypes.has(componentType)
-
-        return (
-          matchesFilter &&
-          matchesSearch &&
-          matchesPalette &&
-          matchesLibraryVisibility &&
-          matchesQuestionAllowlist &&
-          matchesQuestionDenylist
-        )
-      })
-    })).filter((category) => category.items.length > 0)
-  }, [
-    allowedPalette,
-    componentLibraryMode,
-    filter,
-    hasQuestionAllowlist,
-    hiddenComponentLibraryTemplateIds,
-    query,
-    questionAllowedNodeTypes,
-    questionForbiddenNodeTypes
-  ])
+  const filtered = useMemo(
+    () =>
+      filterCatalogCategories(CATALOG_CONFIG, {
+        query,
+        filter,
+        editPaletteList,
+        allowedNodeTypes: activeQuestion?.constraints.allowedNodeTypes ?? null,
+        forbiddenNodeTypes: activeQuestion?.constraints.forbiddenNodeTypes ?? null,
+        componentLibraryMode,
+        hiddenTemplateIds: hiddenComponentLibraryTemplateIds
+      }),
+    [
+      activeQuestion,
+      componentLibraryMode,
+      editPaletteList,
+      filter,
+      hiddenComponentLibraryTemplateIds,
+      query
+    ]
+  )
 
   const handleItemActivate = (item: CatalogItem): void => {
     const mode = BUILDER_TEMPLATE_MODES[item.templateId]
