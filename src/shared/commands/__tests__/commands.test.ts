@@ -146,6 +146,15 @@ describe('after a run', () => {
     expect(rejected).toContain(`last 3 of ${results.summary.rejectedRequests}`)
     expect(rejected).toContain('no_healthy_targets')
     expect(runLines(s, 'show events --last 4 --node api')).toMatch(/last 4 of \d+, node api/)
+    const rejectedEvents = results.eventStream.filter(
+      (record) => record.type === 'request-rejected' && record.nodeId === 'api'
+    ).length
+    expect(runLines(s, 'show events --last 500 --where "node:api AND status:rejected"')).toContain(
+      `of ${rejectedEvents}, where node:api AND status:rejected`
+    )
+    expect(runLines(s, 'show events --where "status:nope"')).toContain(
+      "--where: Unknown status 'nope'"
+    )
 
     const traced = results.traces.find((trace) => trace.status === 'success')!
     const waterfall = runLines(s, `show trace ${traced.requestId}`)

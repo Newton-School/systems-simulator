@@ -4,7 +4,8 @@ import {
   buildTraceWaterfall,
   terminalCauseLabel
 } from '../../../renderer/src/components/simulation/traceWaterfall'
-import { requireResults, requireTopology, resolveNodeId } from '../data'
+import { parseEventQuery, matchesEventQuery } from '../../eventQuery'
+import { labelOf, requireResults, requireTopology, resolveNodeId } from '../data'
 import { fmtCount, fmtMs, heading, note, table } from '../format'
 import { CommandError, type CommandDefinition, type CommandScope, type ParsedArgs } from '../types'
 import type { Palette } from '../../ansi'
@@ -76,17 +77,29 @@ function showEvents(scope: CommandScope, args: ParsedArgs): string[] {
   const nodeToken = stringFlag(args, 'node')
   const requestId = stringFlag(args, 'request')
   const type = stringFlag(args, 'type')
+  const where = stringFlag(args, 'where')
   const nodeId = nodeToken ? resolveNodeId(requireTopology(scope), nodeToken) : undefined
   let records = results.eventStream
   if (nodeId) records = records.filter((record) => record.nodeId === nodeId)
   if (requestId) records = records.filter((record) => record.requestId === requestId)
   if (type)
     records = records.filter((record) => record.type === type || record.type.startsWith(type))
+  if (where !== undefined) {
+    const parsed = parseEventQuery(where)
+    if ('error' in parsed) throw new CommandError(`--where: ${parsed.error}`)
+    const { query } = parsed
+    const { topology } = scope.deps.topology()
+    const nodeLabel = topology ? (id: string) => labelOf(topology, id) : undefined
+    records = records.filter((record) =>
+      matchesEventQuery(projectToDebugEvent(record), query, { nodeLabel })
+    )
+  }
   const shown = records.slice(-last).map(projectToDebugEvent)
   const filters = [
     nodeId && `node ${nodeId}`,
     requestId && `request ${requestId}`,
-    type && `type ${type}`
+    type && `type ${type}`,
+    where && `where ${where}`
   ]
     .filter(Boolean)
     .join(', ')
@@ -262,8 +275,9 @@ export const TRACE_COMMANDS: CommandDefinition[] = [
   {
     name: 'show events',
     modes: TRACE_MODES,
-    summary: 'Recent engine events (filters: --last N, --node, --request, --type)',
-    usage: '[--last N] [--node <id>] [--request <id>] [--type <event-type>]',
+    summary:
+      'Recent engine events (--where takes the Event Log query, e.g. "status:rejected OR node:api")',
+    usage: '[--last N] [--node <id>] [--request <id>] [--type <event-type>] [--where "<query>"]',
     execute: (scope, args) => ({ lines: showEvents(scope, args) })
   },
   {
