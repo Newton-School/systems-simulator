@@ -247,6 +247,30 @@ export interface CanvasNodeDataV2 {
   /** Learner-authored HLD contract. Runtime behavior still comes from componentType traits. */
   customDefinition?: CustomNodeDefinition
   ui?: CanvasNodeUiState
+  /**
+   * Engine fields of an imported TopologyJSON node that the canvas has no editor
+   * for. Carried so TopologyJSON import -> export is lossless; see
+   * TopologyNodeCarry.
+   */
+  topologyCarry?: TopologyNodeCarry
+}
+
+/**
+ * What a TopologyJSON import keeps on a canvas node beyond what the canvas
+ * models. The serializer merges it back in on export, filling only fields the
+ * canvas did not produce, so anything the canvas can edit always wins.
+ */
+export interface TopologyNodeCarry {
+  /** Parts of the imported ComponentNode the canvas serialization does not produce. */
+  extra?: Partial<ComponentNode>
+  /**
+   * The imported engine type and category when the canvas renders the node with
+   * a stand-in component (the engine type has no canvas component of its own).
+   */
+  type?: ComponentType
+  category?: ComponentCategory
+  /** An imported explicit role that differs from the component's default role. */
+  role?: ComponentNode['role']
 }
 
 export interface LegacySeedMetrics {

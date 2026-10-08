@@ -3,6 +3,7 @@ import type {
   EdgePresentationRoutingStyle,
   FaultSpec,
   GlobalConfig,
+  TopologyJSON,
   WorkloadProfile
 } from '../../../engine/core/types'
 import type { CanvasNodeDataV2, RendererNodeType } from '../../../engine/catalog/nodeSpecTypes'
@@ -159,6 +160,22 @@ export interface ScenarioState {
   faults?: FaultSpec[]
   /** Regenerate the seed before each run, while still recording the actual seed used. */
   randomizeSeedEachRun?: boolean
+  /**
+   * Design-level TopologyJSON fields with no canvas editor, kept from an import
+   * so exporting the design reproduces them (identity, time resolution, the
+   * network model, invariants, scenario refs).
+   */
+  topologyMeta?: TopologyMeta
+}
+
+export interface TopologyMeta {
+  id?: string
+  name?: string
+  version?: string
+  timeResolution?: GlobalConfig['timeResolution']
+  networkModel?: TopologyJSON['networkModel']
+  invariants?: TopologyJSON['invariants']
+  scenarios?: TopologyJSON['scenarios']
 }
 
 export interface SourceNodeOption {
@@ -237,6 +254,9 @@ export function normalizeScenarioState(value: unknown): ScenarioState {
         : undefined,
     workloadOverride: workloadOverride ? { ...workloadOverride } : {},
     faults: Array.isArray(scenario.faults) ? scenario.faults : [],
-    randomizeSeedEachRun: scenario.randomizeSeedEachRun === true
+    randomizeSeedEachRun: scenario.randomizeSeedEachRun === true,
+    ...(scenario.topologyMeta && typeof scenario.topologyMeta === 'object'
+      ? { topologyMeta: { ...scenario.topologyMeta } }
+      : {})
   }
 }
