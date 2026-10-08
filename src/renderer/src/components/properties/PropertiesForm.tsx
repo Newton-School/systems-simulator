@@ -19,6 +19,7 @@ import { Input } from '../ui/Input'
 import { Label } from '../ui/Label'
 import { Select } from '../ui/Select'
 import { FormField } from './FormField'
+import { getPathValue } from '@renderer/utils/nodeFieldEdit'
 import { RequestDistributionEditor } from './RequestDistributionEditor'
 import { TrafficOriginsEditor } from './TrafficOriginsEditor'
 import { QueueWeightsEditor } from './QueueWeightsEditor'
@@ -51,20 +52,6 @@ interface PropertiesFormProps {
  * derived from the instance now, so only the RESOURCES section carries allocation. */
 const RESOURCE_SECTION_IDS = new Set(['resources'])
 const EXECUTION_PROFILE_FIELD_PATH = 'sim.resources.workloadKind'
-
-function getPathValue(target: unknown, path: string): unknown {
-  return path.split('.').reduce<unknown>((current, segment) => {
-    if (current === null || current === undefined) return undefined
-    if (Array.isArray(current)) {
-      const index = Number(segment)
-      return Number.isInteger(index) ? current[index] : undefined
-    }
-    if (typeof current === 'object') {
-      return (current as Record<string, unknown>)[segment]
-    }
-    return undefined
-  }, target)
-}
 
 const ROUTING_STRATEGIES = new Set<RoutingStrategy>([
   'passthrough',

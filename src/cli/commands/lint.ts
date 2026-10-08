@@ -1,6 +1,6 @@
 import type { TopologyJSON } from '../../engine/core/types'
 import { detectAntiPatterns, type AntiPatternWarning } from '../../engine/analysis/antiPatterns'
-import type { Palette } from '../ansi'
+import type { Palette } from '../../shared/ansi'
 import { CLI_EXIT_CHECK_FAILED, CLI_EXIT_SUCCESS } from '../exitCodes'
 
 export interface LintReport {

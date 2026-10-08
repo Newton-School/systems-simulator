@@ -29,6 +29,7 @@ import { runLive } from './live'
 import { buildLintReport, formatLintReport, lintExitCode } from './commands/lint'
 import { buildCostReport, formatCostReport } from './commands/cost'
 import { defaultDesignRunner, formatCompareReport, runCompare } from './commands/compare'
+import { createShellSession, execShellLines, runInteractiveShell } from './commands/shell'
 import type { TopologyJSON } from '../engine/core/types'
 import {
   CLI_EXIT_CHECK_FAILED,
@@ -105,6 +106,9 @@ async function main(): Promise<void> {
         return
       case 'compare':
         runCompareCommand(rest)
+        return
+      case 'shell':
+        await runShell(rest)
         return
       case 'evaluate':
         runEvaluate(rest)
@@ -1248,6 +1252,26 @@ function runQuestionBatchEvaluate(args: string[]): void {
   if (exitCode !== CLI_EXIT_SUCCESS) {
     process.exit(exitCode)
   }
+}
+
+async function runShell(args: string[]): Promise<void> {
+  const parsed = parseCommandArgs(args, { strings: ['exec'] })
+  const [topologyPath] = requirePositionals(parsed.positionals, ['topology.json'], 'shell')
+  const loaded = loadTopologyOrExit(topologyPath)
+  const c = palette(shouldColor(process.stdout))
+  const session = createShellSession(loaded.topology, c)
+  const script = parsed.values.exec
+  if (script !== undefined) {
+    const { output, failed } = execShellLines(session, script, c)
+    process.stdout.write(output)
+    if (failed) process.exit(CLI_EXIT_CHECK_FAILED)
+    return
+  }
+  await runInteractiveShell(
+    session,
+    c,
+    `${c.bold}sim shell${c.reset} ${c.dim}${loaded.topology.name} - 'help' lists commands, 'quit' leaves${c.reset}\n`
+  )
 }
 
 function die(msg: string): never {

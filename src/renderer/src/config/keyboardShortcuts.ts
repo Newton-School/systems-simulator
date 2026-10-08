@@ -112,6 +112,12 @@ export const KEYBOARD_SHORTCUT_GROUPS: KeyboardShortcutGroup[] = [
         keys: [['Mod', 'J']]
       },
       {
+        id: 'toggle-terminal',
+        label: 'Toggle terminal',
+        description: 'Open or close the command-line terminal in the bottom panel.',
+        keys: [['Ctrl', '`']]
+      },
+      {
         id: 'toggle-run-inspector',
         label: 'Toggle run inspector',
         description: 'Show or hide the right-side run inspector when run data exists.',
