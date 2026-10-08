@@ -340,7 +340,7 @@ function buildQuestionPackage(project: QuestionAuthoringProject): QuestionPackag
     ...(setup.workloadCategory ? { workloadCategory: setup.workloadCategory } : {}),
     ...(setup.domains.length > 0 ? { domains: setup.domains } : {}),
     ...(setup.concepts.length > 0 ? { concepts: setup.concepts } : {}),
-    author: question.author?.trim() || 'DSDS Question Studio',
+    author: question.author?.trim() || 'System Design Simulator Question Studio',
     ...(question.createdAt ? { createdAt: question.createdAt } : {})
   }
 }
