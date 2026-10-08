@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react'
-import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { Bug, ChevronLeft, ChevronRight } from 'lucide-react'
 import type { SimulationOutput } from '../../../../engine/analysis/output'
 import {
   indexTraces,
@@ -10,6 +10,9 @@ import {
   type WaterfallHop
 } from './traceWaterfall'
 import { useFocusNodeOnCanvas } from './useFocusNodeOnCanvas'
+import useStore from '../../store/useStore'
+import { RequestDebugger } from '../debugger/RequestDebugger'
+import { buildRequestLifecycle, initialStepIndex } from '../debugger/requestLifecycle'
 
 const SECTION_TITLE = 'text-[11px] font-semibold text-nss-muted uppercase tracking-wider'
 const SURFACE_CARD = 'bg-nss-surface border border-nss-border rounded-md'
@@ -119,12 +122,25 @@ function WaterfallRow({
 
 export function TraceWaterfallPanel({
   output,
-  traceSampleRate
+  traceSampleRate,
+  topologyEdited = false
 }: {
   output: SimulationOutput
   traceSampleRate: number | null
+  topologyEdited?: boolean
 }) {
   const focusNode = useFocusNodeOnCanvas()
+  const debugSession = useStore((state) => state.requestDebug)
+  const setRequestDebug = useStore((state) => state.setRequestDebug)
+  const setTracedRequestIds = useStore((state) => state.setTracedRequestIds)
+  // The debugger (and its canvas overlay) lives only while this tab is shown.
+  useEffect(() => () => setRequestDebug(null), [setRequestDebug])
+  const openDebugger = (requestId: string) => {
+    const trace = output.traces.find((candidate) => candidate.requestId === requestId)
+    const lifecycle = trace ? buildRequestLifecycle(trace) : null
+    setTracedRequestIds([])
+    setRequestDebug({ requestId, stepIndex: lifecycle ? initialStepIndex(lifecycle) : 0 })
+  }
   const index = useMemo(() => indexTraces(output.traces), [output.traces])
   const [filter, setFilter] = useState<TraceFilter>('all')
   const [position, setPosition] = useState(0)
@@ -149,6 +165,10 @@ export function TraceWaterfallPanel({
         </div>
       </div>
     )
+  }
+
+  if (debugSession) {
+    return <RequestDebugger output={output} topologyEdited={topologyEdited} />
   }
 
   const selectFilter = (next: TraceFilter) => {
@@ -237,6 +257,14 @@ export function TraceWaterfallPanel({
                 {fmtMs(terminal.atMs)})
               </span>
             )}
+            <button
+              type="button"
+              className={`${controlButtonClass()} ml-auto`}
+              onClick={() => openDebugger(waterfall.requestId)}
+              title="Step through this request's recorded lifecycle and highlight it on the canvas"
+            >
+              <Bug className="h-3.5 w-3.5" /> Debug request
+            </button>
           </div>
 
           <div className="grid grid-cols-[minmax(6rem,10rem)_1fr] gap-3">

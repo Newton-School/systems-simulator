@@ -5289,6 +5289,7 @@ export function ResultsTray({
               <TraceWaterfallPanel
                 output={results}
                 traceSampleRate={runContext?.global.traceSampleRate ?? null}
+                topologyEdited={topologyEdited}
               />
             )}
 
