@@ -87,6 +87,18 @@ export interface EdgeLatencyBreakdownSample {
   protocolOverheadMs: number
   /** Second transit after a reliable-protocol packet loss. */
   retransmissionMs: number
+  /**
+   * Waiting at the source for a free connection stream (connection model:
+   * every pooled connection busy and the pool at its cap).
+   */
+  connectionWaitMs: number
+  /**
+   * TCP / TLS / application handshake round trips to open a new connection, or
+   * the rest of one still opening (connection model only).
+   */
+  handshakeMs: number
+  /** Waiting in the producer's open batch until it is sent (Kafka batching only). */
+  batchWaitMs: number
 }
 
 export const EDGE_LATENCY_COMPONENTS = [
@@ -95,7 +107,20 @@ export const EDGE_LATENCY_COMPONENTS = [
   'transmissionMs',
   'linkQueueMs',
   'protocolOverheadMs',
-  'retransmissionMs'
+  'retransmissionMs',
+  'connectionWaitMs',
+  'handshakeMs',
+  'batchWaitMs'
 ] as const satisfies ReadonlyArray<keyof EdgeLatencyBreakdownSample>
 
 export type EdgeLatencyComponent = (typeof EDGE_LATENCY_COMPONENTS)[number]
+
+/**
+ * Components that only an opt-in edge behaviour (connection model, batching)
+ * can make non-zero; views may hide them while they are zero.
+ */
+export const OPT_IN_EDGE_LATENCY_COMPONENTS: ReadonlySet<EdgeLatencyComponent> = new Set([
+  'connectionWaitMs',
+  'handshakeMs',
+  'batchWaitMs'
+])

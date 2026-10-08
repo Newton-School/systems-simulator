@@ -228,6 +228,18 @@ export function workloadFieldLabel(relativePath: string): string {
   )
 }
 
+/** Engine `edge.connection.*` / `edge.batching.*` paths -> the panel's flat field keys. */
+const NESTED_EDGE_FIELD_KEYS: Record<string, EdgeFieldKey> = {
+  'connection.reuse': 'connectionReuse',
+  'connection.tls': 'tlsVersion',
+  'connection.tlsSessionResumption': 'tlsSessionResumption',
+  'connection.idleTimeoutMs': 'connectionIdleTimeoutMs',
+  'connection.maxConnections': 'maxConnections',
+  'connection.maxStreamsPerConnection': 'maxStreamsPerConnection',
+  'batching.lingerMs': 'batchLingerMs',
+  'batching.maxBatchBytes': 'batchMaxBytes'
+}
+
 /** Label for an edge field, given its path relative to the edge. */
 export function edgeFieldLabel(relativePath: string): string {
   const named = splitFieldPath(relativePath).filter((segment) => !isIndexSegment(segment))
@@ -239,6 +251,8 @@ export function edgeFieldLabel(relativePath: string): string {
     else if (third === 'sigma') key = 'latencySigma'
     else if (third === 'value') key = 'latencyValue'
     else key = 'latency'
+  } else if (head === 'connection' || head === 'batching') {
+    key = second ? NESTED_EDGE_FIELD_KEYS[`${head}.${second}`] : undefined
   } else if (head && head in EDGE_FIELD_LABELS) {
     key = head as EdgeFieldKey
   }

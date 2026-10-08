@@ -453,6 +453,22 @@ export const EdgeDefinitionSchema = z.object({
   weight: z.number().optional(),
   condition: z.string().optional(),
   fanoutFactor: z.number().int().positive().optional(),
+  connection: z
+    .object({
+      reuse: z.enum(['per-request', 'keep-alive', 'persistent']),
+      tls: z.enum(['none', '1.2', '1.3']).optional(),
+      tlsSessionResumption: z.boolean().optional(),
+      idleTimeoutMs: z.number().positive().optional(),
+      maxConnections: z.number().int().positive().optional(),
+      maxStreamsPerConnection: z.number().int().positive().optional()
+    })
+    .optional(),
+  batching: z
+    .object({
+      lingerMs: z.number().min(0),
+      maxBatchBytes: z.number().positive().optional()
+    })
+    .optional(),
   sourceHandle: z.string().optional(),
   targetHandle: z.string().optional(),
   animated: z.boolean().optional(),
@@ -728,6 +744,18 @@ export type SchemaKeyParity = [
   AssertNoSchemaKeyGap<SchemaKeyGap<EdgeDefinition, typeof EdgeDefinitionSchema>>,
   AssertNoSchemaKeyGap<
     SchemaKeyGap<EdgeDefinition['latency'], typeof EdgeDefinitionSchema.shape.latency>
+  >,
+  AssertNoSchemaKeyGap<
+    SchemaKeyGap<
+      NonNullable<EdgeDefinition['connection']>,
+      NonNullable<typeof EdgeDefinitionSchema.shape.connection>
+    >
+  >,
+  AssertNoSchemaKeyGap<
+    SchemaKeyGap<
+      NonNullable<EdgeDefinition['batching']>,
+      NonNullable<typeof EdgeDefinitionSchema.shape.batching>
+    >
   >,
   AssertNoSchemaKeyGap<SchemaKeyGap<WorkloadProfile, typeof WorkloadProfileSchema>>,
   AssertNoSchemaKeyGap<

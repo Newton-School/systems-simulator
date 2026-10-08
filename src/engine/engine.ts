@@ -145,6 +145,45 @@ import {
   transmissionTimeMs,
   type EdgeLatencyBreakdownSample
 } from './network/linkTransmission'
+import {
+  EdgeConnectionPools,
+  resolveEdgeConnection,
+  type ConnectionLease,
+  type ResolvedConnectionConfig
+} from './network/connectionPool'
+import {
+  EdgeBatchAccumulator,
+  resolveEdgeBatching,
+  type OpenEdgeBatch,
+  type ResolvedEdgeBatching
+} from './network/edgeBatching'
+
+/** A request waiting at the source for a free connection stream. */
+interface ConnectionWaiter {
+  request: Request
+  edge: EdgeDefinition
+  targetNodeId: string
+  edgePhase: RequestEdgePhase
+  enqueuedAtUs: bigint
+  poolId: string
+  ephemeral: boolean
+}
+
+/** A connection stream a request holds (until delivery, or until its response). */
+interface HeldConnectionLease {
+  lease: ConnectionLease
+  edgeId: string
+  config: ResolvedConnectionConfig
+  ephemeral: boolean
+}
+
+/** A record waiting in a Kafka edge's open producer batch. */
+interface BatchedRecord {
+  request: Request
+  targetNodeId: string
+  edgePhase: RequestEdgePhase
+  enqueuedAtUs: bigint
+}
 
 /** A request parked behind an in-flight leader by request collapsing. */
 interface ParkedFollower {
@@ -239,6 +278,15 @@ export class SimulationEngine {
   private readonly sharedTraitState = new Map<string, unknown>()
   private readonly activeTransfersByEdgeId = new Map<string, number>()
   private readonly linkSerializer = new LinkSerializer()
+  /** Connection model (edge.connection): pools, held streams, resolved config. */
+  private readonly connectionPools = new EdgeConnectionPools<ConnectionWaiter>()
+  private readonly connectionLeasesByRequestId = new Map<string, HeldConnectionLease[]>()
+  private readonly edgeConnectionById = new Map<string, ResolvedConnectionConfig | null>()
+  /** Kafka producer batching (edge.batching): open batches and in-flight batch slots. */
+  private readonly edgeBatches = new EdgeBatchAccumulator<BatchedRecord>()
+  private readonly edgeBatchingById = new Map<string, ResolvedEdgeBatching | null>()
+  /** Records of a sent batch still to leave the edge; the batch's slot frees at zero. */
+  private readonly batchRecordsInFlight = new Map<string, number>()
   private readonly workload?: WorkloadGenerator
 
   private readonly requestById = new Map<string, Request>()
@@ -908,6 +956,9 @@ export class SimulationEngine {
       case 'broker-recovery':
         this.handleBrokerRecovery(event)
         break
+      case 'edge-batch-flush':
+        this.handleEdgeBatchFlush(event)
+        break
       default:
         // Other event types are integrated in later tickets.
         break
@@ -1039,7 +1090,8 @@ export class SimulationEngine {
       })
     }
 
-    this.releaseEdgeTransfer(event.data.edgeId)
+    this.releaseEdgeSlotForEvent(event)
+    this.releaseConnectionLeases(request.id, event.data.edgeId, 'delivered')
     this.appendNodeToPath(request, event.nodeId)
     const arrivedRegionId = this.geoLatency.servingRegionId(event.nodeId)
     request.servingRegionId = arrivedRegionId ?? request.servingRegionId
@@ -1613,13 +1665,24 @@ export class SimulationEngine {
     }
 
     const scope = typeof event.data.scope === 'string' ? event.data.scope : undefined
-    const observationPoint = scope === 'in-flight' ? 'edge' : 'node'
+    const observationPoint = scope === 'in-flight' || scope === 'connection-wait' ? 'edge' : 'node'
+    if (scope === 'connection-wait') {
+      // The request's deadline fired while it waited for a connection stream; a
+      // waiter already handed a connection has moved on, so this is stale.
+      const poolId = typeof event.data.poolId === 'string' ? event.data.poolId : ''
+      if (
+        !this.connectionPools.removeWaiter(poolId, (waiter) => waiter.request.id === request.id)
+      ) {
+        return
+      }
+      this.emitConnectionWaitTimeoutFlow(request, event)
+    }
     if (scope === 'collapse' && typeof event.data.collapseLeaderId === 'string') {
       // A parked follower's own deadline fired before its leader returned.
       this.unparkFollower(event.data.collapseLeaderId, request.id)
     }
     if (scope === 'in-flight') {
-      this.releaseEdgeTransfer(event.data.edgeId)
+      this.releaseEdgeSlotForEvent(event)
     }
     if (scope === 'node') {
       const cancellation = this.nodes.get(event.nodeId)?.cancelRequest(request.id, this.clock)
@@ -1722,7 +1785,11 @@ export class SimulationEngine {
     if (!request) {
       return
     }
-    this.releaseEdgeTransfer(event.data.edgeId)
+    // Edge rejections (connection cap, edge error rate) happen before the
+    // transfer takes an edge slot, so there is no slot to give back.
+    if (event.data.edgeSlotHeld !== false) {
+      this.releaseEdgeSlotForEvent(event)
+    }
     if (observationPoint === 'node') {
       this.markNodeUnhealthyForReason(event.nodeId, reason)
     }
@@ -2256,19 +2323,25 @@ export class SimulationEngine {
    * link, which depends on link occupancy and is added by the caller). Returns
    * the rounded transit in µs plus its component split for the breakdown.
    */
-  private sampleEdgeTransit(
-    edge: EdgeDefinition,
-    request: Request,
-    activeTransfers: number
-  ): { transitUs: bigint; transmissionMs: number; components: EdgeLatencyBreakdownSample } {
-    const latencyDistribution =
+  private edgeLatencyDistribution(edge: EdgeDefinition, request: Request) {
+    return (
       this.geoLatency.distributionFor(edge, request) ??
       (edge.latency.derivedFromPathType
         ? getPathTypeLatencyProfile(edge.latency.pathType)
         : edge.latency.distribution)
+    )
+  }
+
+  private sampleEdgeTransit(
+    edge: EdgeDefinition,
+    request: Request,
+    activeTransfers: number,
+    sizeBytes = request.sizeBytes
+  ): { transitUs: bigint; transmissionMs: number; components: EdgeLatencyBreakdownSample } {
+    const latencyDistribution = this.edgeLatencyDistribution(edge, request)
     const propagationMs = Math.max(0, this.distributions.fromConfig(latencyDistribution))
     // Mbps -> bytes per ms is x125; see network/linkTransmission.ts.
-    const transmissionMs = transmissionTimeMs(request.sizeBytes, edge.bandwidth)
+    const transmissionMs = transmissionTimeMs(sizeBytes, edge.bandwidth)
     // Streaming links reuse an already-open channel, so only a small framing
     // cost remains on each message instead of the full per-request setup cost.
     const protocolOverheadMs =
@@ -2289,7 +2362,10 @@ export class SimulationEngine {
         transmissionMs,
         linkQueueMs: 0,
         protocolOverheadMs,
-        retransmissionMs: 0
+        retransmissionMs: 0,
+        connectionWaitMs: 0,
+        handshakeMs: 0,
+        batchWaitMs: 0
       }
     }
   }
@@ -2752,6 +2828,8 @@ export class SimulationEngine {
     }
 
     this.releaseRequestLockLeases(request)
+    // The failed attempt's error came back over its connections; free them.
+    this.releaseConnectionLeases(request.id)
     this.clearPerAttemptRequestMetadata(request)
     request.retryCount = (request.retryCount ?? 0) + 1
     this.recordRequestState(request, 'retry-scheduled', {
@@ -2927,6 +3005,8 @@ export class SimulationEngine {
     reasonCode?: string | null
   ): void {
     this.resolveTerminalTraitOutcomes(request, status, reasonCode)
+    // The response (or failure) has returned, so held connection streams free.
+    this.releaseConnectionLeases(request.id)
     this.tracer.setTerminalReason(request.id, reasonCode)
     request.metadata.__terminal = status
     this.resolveParkedFollowers(request, status, reasonCode)
@@ -3757,6 +3837,249 @@ export class SimulationEngine {
 
   private enqueueEdgeTransfer(request: Request, edge: EdgeDefinition, targetNodeId: string): void {
     const edgePhase = this.beginEdgePhase(request, edge, targetNodeId, this.clock)
+
+    const batching = this.edgeBatchingFor(edge)
+    if (batching) {
+      this.addToEdgeBatch(request, edge, targetNodeId, edgePhase, batching)
+      return
+    }
+
+    const connection = this.edgeConnectionFor(edge)
+    if (!connection) {
+      this.dispatchEdgeTransfer(request, edge, targetNodeId, edgePhase, this.clock, 0n)
+      return
+    }
+
+    const pool = this.connectionPoolFor(edge, request)
+    this.acquireConnectionAndDispatch(
+      {
+        request,
+        edge,
+        targetNodeId,
+        edgePhase,
+        enqueuedAtUs: this.clock,
+        poolId: pool.poolId,
+        ephemeral: pool.ephemeral
+      },
+      false
+    )
+  }
+
+  private edgeConnectionFor(edge: EdgeDefinition): ResolvedConnectionConfig | null {
+    let resolved = this.edgeConnectionById.get(edge.id)
+    if (resolved === undefined) {
+      // Batching owns a Kafka edge's transfers; the connection model does not stack on it.
+      resolved = this.edgeBatchingFor(edge) ? null : resolveEdgeConnection(edge)
+      this.edgeConnectionById.set(edge.id, resolved)
+    }
+    return resolved
+  }
+
+  private edgeBatchingFor(edge: EdgeDefinition): ResolvedEdgeBatching | null {
+    let resolved = this.edgeBatchingById.get(edge.id)
+    if (resolved === undefined) {
+      resolved = resolveEdgeBatching(edge)
+      this.edgeBatchingById.set(edge.id, resolved)
+    }
+    return resolved
+  }
+
+  /**
+   * Which pool serves this request. A service's outbound edge has one pool. An
+   * edge leaving the workload source carries many independent clients, so each
+   * client identity gets its own pool; a request without one is a new client
+   * whose pool is never reused.
+   */
+  private connectionPoolFor(
+    edge: EdgeDefinition,
+    request: Request
+  ): { poolId: string; ephemeral: boolean } {
+    if (edge.source !== this.topology.workload?.sourceNodeId) {
+      return { poolId: edge.id, ephemeral: false }
+    }
+    const metadata = request.metadata
+    for (const field of ['sessionId', 'clientIp', '__key'] as const) {
+      const value = metadata[field]
+      if ((typeof value === 'string' && value.length > 0) || typeof value === 'number') {
+        return { poolId: `${edge.id}::client:${String(value)}`, ephemeral: false }
+      }
+    }
+    return { poolId: `${edge.id}::anon:${request.id}`, ephemeral: true }
+  }
+
+  /** Get a connection stream for the waiter and send, or park it until one frees. */
+  private acquireConnectionAndDispatch(waiter: ConnectionWaiter, requeued: boolean): void {
+    const { request, edge } = waiter
+    const config = this.edgeConnectionFor(edge)
+    if (!config) {
+      return
+    }
+    const effective: ResolvedConnectionConfig = waiter.ephemeral
+      ? { ...config, reuse: 'per-request', tlsSessionResumption: false }
+      : config
+    const grant = this.connectionPools.acquire(waiter.poolId, Number(this.clock), effective)
+    if (grant.closedIdle > 0) {
+      this.metrics.recordEdgeConnectionEvent(edge.id, 'closedIdle', this.clock, grant.closedIdle)
+    }
+
+    if (grant.kind === 'wait') {
+      // Every connection is busy and the pool is at maxConnections: wait FIFO
+      // (HTTP/1.1 head-of-line blocking at the pool).
+      this.connectionPools.enqueueWaiter(waiter.poolId, waiter, requeued)
+      if (!requeued) {
+        this.metrics.recordEdgeConnectionEvent(edge.id, 'waited', this.clock)
+        const timeoutAt = request.deadline > this.clock ? request.deadline : this.clock
+        this.eventQueue.insert(
+          createEvent(
+            'request-timeout',
+            waiter.targetNodeId,
+            request.id,
+            {
+              request,
+              edge,
+              edgeId: edge.id,
+              sourceNodeId: edge.source,
+              targetNodeId: waiter.targetNodeId,
+              edgeInTimeUs: waiter.enqueuedAtUs,
+              reason: 'deadline_exceeded',
+              scope: 'connection-wait',
+              poolId: waiter.poolId,
+              timeoutSeq: request.timeoutSeq ?? 0
+            },
+            timeoutAt
+          )
+        )
+      }
+      return
+    }
+
+    const held = this.connectionLeasesByRequestId.get(request.id) ?? []
+    held.push({
+      lease: grant.lease,
+      edgeId: edge.id,
+      config: effective,
+      ephemeral: waiter.ephemeral
+    })
+    this.connectionLeasesByRequestId.set(request.id, held)
+
+    let handshakeUs = BigInt(Math.round(grant.readyWaitUs))
+    if (grant.opened) {
+      // One handshake round trip is one sample of the edge's propagation
+      // latency (the path-type defaults are round-trip figures).
+      const rttMs = Math.max(
+        0,
+        this.distributions.fromConfig(this.edgeLatencyDistribution(edge, request))
+      )
+      handshakeUs = msToMicro(grant.handshakeRtts * rttMs)
+      this.connectionPools.markReady(grant.lease, Number(this.clock + handshakeUs), effective)
+      this.metrics.recordEdgeConnectionEvent(edge.id, 'opened', this.clock)
+      if (grant.resumed) {
+        this.metrics.recordEdgeConnectionEvent(edge.id, 'resumed', this.clock)
+      }
+    } else {
+      this.metrics.recordEdgeConnectionEvent(edge.id, 'reused', this.clock)
+    }
+
+    this.dispatchEdgeTransfer(
+      request,
+      edge,
+      waiter.targetNodeId,
+      waiter.edgePhase,
+      waiter.enqueuedAtUs,
+      handshakeUs
+    )
+  }
+
+  /**
+   * Free connection streams the request holds: all of them (its response came
+   * back), or only an unpaired stream on `edgeId` once the transfer delivered.
+   * Requests waiting for those connections are then sent, oldest first.
+   */
+  private releaseConnectionLeases(
+    requestId: string,
+    edgeId?: unknown,
+    when: 'delivered' | 'response' = 'response'
+  ): void {
+    const held = this.connectionLeasesByRequestId.get(requestId)
+    if (!held) {
+      return
+    }
+    const keep: HeldConnectionLease[] = []
+    const released: HeldConnectionLease[] = []
+    for (const entry of held) {
+      if (when === 'delivered' && (entry.edgeId !== edgeId || entry.config.paired)) {
+        keep.push(entry)
+      } else {
+        released.push(entry)
+      }
+    }
+    if (keep.length > 0) {
+      this.connectionLeasesByRequestId.set(requestId, keep)
+    } else {
+      this.connectionLeasesByRequestId.delete(requestId)
+    }
+    for (const entry of released) {
+      const waiters = this.connectionPools.release(
+        entry.lease,
+        Number(this.clock),
+        entry.config,
+        entry.ephemeral
+      )
+      for (const waiter of waiters) {
+        if (this.terminalStatusByRequestId.has(waiter.request.id)) {
+          continue
+        }
+        this.acquireConnectionAndDispatch(waiter, true)
+      }
+    }
+  }
+
+  private emitConnectionWaitTimeoutFlow(request: Request, event: SimulationEvent): void {
+    const edgeId = typeof event.data.edgeId === 'string' ? event.data.edgeId : ''
+    const startedAt =
+      typeof event.data.edgeInTimeUs === 'bigint' ? event.data.edgeInTimeUs : this.clock
+    this.onEdgeFlowEvent?.({
+      sequence: ++this.edgeFlowSequence,
+      requestId: request.id,
+      edgeId,
+      sourceNodeId: typeof event.data.sourceNodeId === 'string' ? event.data.sourceNodeId : '',
+      targetNodeId: event.nodeId,
+      startedAtMs: microToMs(startedAt),
+      completedAtMs: microToMs(this.clock),
+      latencyMs: microToMs(this.clock - startedAt),
+      status: 'timeout',
+      failureCause: 'deadline_exceeded',
+      key: affinityKeyOf(request)
+    })
+  }
+
+  /** Give back the edge slot a transfer held (a batch's slot frees with its last record). */
+  private releaseEdgeSlotForEvent(event: SimulationEvent): void {
+    const batchId = event.data.edgeBatchId
+    if (typeof batchId === 'string') {
+      const remaining = (this.batchRecordsInFlight.get(batchId) ?? 0) - 1
+      if (remaining > 0) {
+        this.batchRecordsInFlight.set(batchId, remaining)
+        return
+      }
+      this.batchRecordsInFlight.delete(batchId)
+    }
+    this.releaseEdgeTransfer(event.data.edgeId)
+  }
+
+  /**
+   * Send one transfer over the edge. `startedAtUs` is when the request reached
+   * the edge (earlier than now if it waited for a connection); `handshakeUs` is
+   * the connection setup it pays before its bytes go on the link.
+   */
+  private dispatchEdgeTransfer(
+    request: Request,
+    edge: EdgeDefinition,
+    targetNodeId: string,
+    edgePhase: RequestEdgePhase,
+    startedAtUs: bigint,
+    handshakeUs: bigint
+  ): void {
     const emitEdgeFlowEvent = (
       status: EdgeFlowStatus,
       completedAt: bigint,
@@ -3769,7 +4092,7 @@ export class SimulationEngine {
         edgeId: edge.id,
         sourceNodeId: edge.source,
         targetNodeId,
-        startedAtMs: microToMs(this.clock),
+        startedAtMs: microToMs(startedAtUs),
         completedAtMs: microToMs(completedAt),
         latencyMs: microToMs(latencyUs),
         status,
@@ -3777,13 +4100,14 @@ export class SimulationEngine {
         key: affinityKeyOf(request)
       })
     }
+    const waitedUs = this.clock - startedAtUs
 
     const currentLoad = this.activeTransfersByEdgeId.get(edge.id) ?? 0
     if (
       protocolSupportsConnectionLimits(edge.protocol) &&
       currentLoad >= edge.maxConcurrentRequests
     ) {
-      emitEdgeFlowEvent('edge-error', this.clock, 0n, 'connection_refused')
+      emitEdgeFlowEvent('edge-error', this.clock, waitedUs, 'connection_refused')
       this.eventQueue.insert(
         createEvent(
           'request-rejected',
@@ -3795,9 +4119,10 @@ export class SimulationEngine {
             edgeId: edge.id,
             sourceNodeId: edge.source,
             targetNodeId,
-            edgeInTimeUs: this.clock,
+            edgeInTimeUs: startedAtUs,
             reason: 'connection_refused',
-            observationPoint: 'edge'
+            observationPoint: 'edge',
+            edgeSlotHeld: false
           },
           this.clock
         )
@@ -3815,7 +4140,7 @@ export class SimulationEngine {
         // The bytes were still sent before being dropped, so they occupy the link.
         this.reserveEdgeLink(edge, transit.transmissionMs, 1)
         const timeoutAt = request.deadline > this.clock ? request.deadline : this.clock
-        emitEdgeFlowEvent('packet-loss', timeoutAt, timeoutAt - this.clock, 'packet_loss')
+        emitEdgeFlowEvent('packet-loss', timeoutAt, timeoutAt - startedAtUs, 'packet_loss')
         this.eventQueue.insert(
           createEvent(
             'request-timeout',
@@ -3827,7 +4152,7 @@ export class SimulationEngine {
               edgeId: edge.id,
               sourceNodeId: edge.source,
               targetNodeId,
-              edgeInTimeUs: this.clock,
+              edgeInTimeUs: startedAtUs,
               reason: 'packet_loss',
               scope: 'in-flight',
               timeoutSeq: request.timeoutSeq ?? 0
@@ -3840,7 +4165,7 @@ export class SimulationEngine {
     }
 
     if (this.distributions.random() < edge.errorRate) {
-      emitEdgeFlowEvent('edge-error', this.clock, 0n, 'edge_error_rate')
+      emitEdgeFlowEvent('edge-error', this.clock, waitedUs, 'edge_error_rate')
       this.eventQueue.insert(
         createEvent(
           'request-rejected',
@@ -3852,9 +4177,10 @@ export class SimulationEngine {
             edgeId: edge.id,
             sourceNodeId: edge.source,
             targetNodeId,
-            edgeInTimeUs: this.clock,
+            edgeInTimeUs: startedAtUs,
             reason: 'edge_error_rate',
-            observationPoint: 'edge'
+            observationPoint: 'edge',
+            edgeSlotHeld: false
           },
           this.clock
         )
@@ -3863,19 +4189,26 @@ export class SimulationEngine {
     }
 
     const transitUs = retransmitted ? transit.transitUs * 2n : transit.transitUs
-    const linkQueueUs = this.reserveEdgeLink(edge, transit.transmissionMs, retransmitted ? 2 : 1)
-    const edgeLatencyUs = linkQueueUs + transitUs
+    // The link is reserved now: the FIFO serializer cannot backfill, so a slot
+    // reserved after a handshake would block warm-connection transfers behind
+    // it. The payload leaves once both the handshake and the link wait are done,
+    // so only the part of the link wait the handshake does not cover is added.
+    const rawLinkQueueUs = this.reserveEdgeLink(edge, transit.transmissionMs, retransmitted ? 2 : 1)
+    const linkQueueUs = rawLinkQueueUs > handshakeUs ? rawLinkQueueUs - handshakeUs : 0n
+    const edgeLatencyUs = waitedUs + handshakeUs + linkQueueUs + transitUs
     const latencyBreakdown: EdgeLatencyBreakdownSample = {
       ...transit.components,
       linkQueueMs: microToMs(linkQueueUs),
-      retransmissionMs: retransmitted ? microToMs(transit.transitUs) : 0
+      retransmissionMs: retransmitted ? microToMs(transit.transitUs) : 0,
+      connectionWaitMs: microToMs(waitedUs),
+      handshakeMs: microToMs(handshakeUs)
     }
 
     this.activeTransfersByEdgeId.set(edge.id, currentLoad + 1)
-    const arrivalTime = this.clock + edgeLatencyUs
+    const arrivalTime = startedAtUs + edgeLatencyUs
     if (request.deadline <= arrivalTime) {
       const timeoutAt = request.deadline > this.clock ? request.deadline : this.clock
-      emitEdgeFlowEvent('timeout', timeoutAt, timeoutAt - this.clock, 'deadline_exceeded')
+      emitEdgeFlowEvent('timeout', timeoutAt, timeoutAt - startedAtUs, 'deadline_exceeded')
       this.eventQueue.insert(
         createEvent(
           'request-timeout',
@@ -3887,7 +4220,7 @@ export class SimulationEngine {
             edgeId: edge.id,
             sourceNodeId: edge.source,
             targetNodeId,
-            edgeInTimeUs: this.clock,
+            edgeInTimeUs: startedAtUs,
             reason: 'deadline_exceeded',
             scope: 'in-flight',
             timeoutSeq: request.timeoutSeq ?? 0
@@ -3898,6 +4231,32 @@ export class SimulationEngine {
       return
     }
 
+    this.completeEdgeTransit(
+      request,
+      edge,
+      targetNodeId,
+      edgePhase,
+      startedAtUs,
+      arrivalTime,
+      latencyBreakdown,
+      undefined,
+      emitEdgeFlowEvent
+    )
+  }
+
+  /** Record a successful transit and schedule the arrival at the target. */
+  private completeEdgeTransit(
+    request: Request,
+    edge: EdgeDefinition,
+    targetNodeId: string,
+    edgePhase: RequestEdgePhase,
+    startedAtUs: bigint,
+    arrivalTime: bigint,
+    latencyBreakdown: EdgeLatencyBreakdownSample,
+    edgeBatchId: string | undefined,
+    emitEdgeFlowEvent: (status: EdgeFlowStatus, completedAt: bigint, latencyUs: bigint) => void
+  ): void {
+    const edgeLatencyUs = arrivalTime - startedAtUs
     // The flow event is a dispatch record; consumers treat a completion after
     // the run end as in flight at cutoff (see mergeEdgeFlowState).
     emitEdgeFlowEvent('success', arrivalTime, edgeLatencyUs)
@@ -3912,7 +4271,7 @@ export class SimulationEngine {
       edgeId: edge.id,
       source: edge.source,
       target: targetNodeId,
-      edgeInUs: this.clock,
+      edgeInUs: startedAtUs,
       edgeOutUs: arrivalTime
     })
     if (arrivesBeforeRunEnd) {
@@ -3931,10 +4290,192 @@ export class SimulationEngine {
         'request-arrival',
         targetNodeId,
         request.id,
-        { request, edge, edgeId: edge.id, sourceNodeId: edge.source },
+        {
+          request,
+          edge,
+          edgeId: edge.id,
+          sourceNodeId: edge.source,
+          ...(edgeBatchId ? { edgeBatchId } : {})
+        },
         arrivalTime
       )
     )
+  }
+
+  /** Put a record in the edge's open producer batch; send it when full or at linger expiry. */
+  private addToEdgeBatch(
+    request: Request,
+    edge: EdgeDefinition,
+    targetNodeId: string,
+    edgePhase: RequestEdgePhase,
+    batching: ResolvedEdgeBatching
+  ): void {
+    const { batch, opened, full } = this.edgeBatches.add(
+      edge.id,
+      { request, targetNodeId, edgePhase, enqueuedAtUs: this.clock },
+      request.sizeBytes,
+      this.clock,
+      batching.maxBatchBytes
+    )
+    if (full) {
+      const ready = this.edgeBatches.take(edge.id, batch.id)
+      if (ready) this.sendEdgeBatch(edge, ready)
+      return
+    }
+    if (opened) {
+      this.eventQueue.insert(
+        createEvent(
+          'edge-batch-flush',
+          edge.source,
+          '',
+          { edge, edgeId: edge.id, batchId: batch.id },
+          this.clock + batching.lingerUs
+        )
+      )
+    }
+  }
+
+  private handleEdgeBatchFlush(event: SimulationEvent): void {
+    const edge = event.data.edge as EdgeDefinition | undefined
+    const batchId = event.data.batchId
+    if (!edge || typeof batchId !== 'string') {
+      return
+    }
+    const batch = this.edgeBatches.take(edge.id, batchId)
+    if (!batch) {
+      // Already sent because it filled up before linger expired.
+      return
+    }
+    this.sendEdgeBatch(edge, batch)
+  }
+
+  /**
+   * Send a closed batch as one produce request: one edge slot, one propagation
+   * sample, one protocol overhead and the batch's total bytes on the link. Each
+   * record's edge latency adds the time it waited in the batch.
+   */
+  private sendEdgeBatch(edge: EdgeDefinition, batch: OpenEdgeBatch<BatchedRecord>): void {
+    const live = batch.records.filter(
+      (record) => !this.terminalStatusByRequestId.has(record.request.id)
+    )
+    if (live.length === 0) {
+      return
+    }
+    this.metrics.recordEdgeBatchSent(edge.id, this.clock, live.length, batch.bytes)
+    const flowEmitter = (record: BatchedRecord) => {
+      return (
+        status: EdgeFlowStatus,
+        completedAt: bigint,
+        latencyUs: bigint,
+        failureCause?: EdgeFailureCause
+      ): void => {
+        this.onEdgeFlowEvent?.({
+          sequence: ++this.edgeFlowSequence,
+          requestId: record.request.id,
+          edgeId: edge.id,
+          sourceNodeId: edge.source,
+          targetNodeId: record.targetNodeId,
+          startedAtMs: microToMs(record.enqueuedAtUs),
+          completedAtMs: microToMs(completedAt),
+          latencyMs: microToMs(latencyUs),
+          status,
+          failureCause,
+          key: affinityKeyOf(record.request)
+        })
+      }
+    }
+    const rejectAll = (reason: 'connection_refused' | 'edge_error_rate'): void => {
+      for (const record of live) {
+        flowEmitter(record)('edge-error', this.clock, this.clock - record.enqueuedAtUs, reason)
+        this.eventQueue.insert(
+          createEvent(
+            'request-rejected',
+            record.targetNodeId,
+            record.request.id,
+            {
+              request: record.request,
+              edge,
+              edgeId: edge.id,
+              sourceNodeId: edge.source,
+              targetNodeId: record.targetNodeId,
+              edgeInTimeUs: record.enqueuedAtUs,
+              reason,
+              observationPoint: 'edge',
+              edgeSlotHeld: false
+            },
+            this.clock
+          )
+        )
+      }
+    }
+
+    // A batch is one in-flight produce request against the edge's cap
+    // (Kafka max.in.flight.requests.per.connection).
+    const currentLoad = this.activeTransfersByEdgeId.get(edge.id) ?? 0
+    if (currentLoad >= edge.maxConcurrentRequests) {
+      rejectAll('connection_refused')
+      return
+    }
+    const lead = live[0].request
+    const transit = this.sampleEdgeTransit(edge, lead, currentLoad + 1, batch.bytes)
+    // Kafka runs over TCP, so a lost packet is retransmitted, never dropped.
+    const retransmitted = this.distributions.random() < edge.packetLossRate
+    if (this.distributions.random() < edge.errorRate) {
+      rejectAll('edge_error_rate')
+      return
+    }
+    const transitUs = retransmitted ? transit.transitUs * 2n : transit.transitUs
+    const linkQueueUs = this.reserveEdgeLink(edge, transit.transmissionMs, retransmitted ? 2 : 1)
+    const arrivalTime = this.clock + linkQueueUs + transitUs
+
+    this.activeTransfersByEdgeId.set(edge.id, currentLoad + 1)
+    this.batchRecordsInFlight.set(batch.id, live.length)
+    for (const record of live) {
+      const emit = flowEmitter(record)
+      const batchWaitUs = this.clock - record.enqueuedAtUs
+      if (record.request.deadline <= arrivalTime) {
+        const timeoutAt =
+          record.request.deadline > this.clock ? record.request.deadline : this.clock
+        emit('timeout', timeoutAt, timeoutAt - record.enqueuedAtUs, 'deadline_exceeded')
+        this.eventQueue.insert(
+          createEvent(
+            'request-timeout',
+            record.targetNodeId,
+            record.request.id,
+            {
+              request: record.request,
+              edge,
+              edgeId: edge.id,
+              edgeBatchId: batch.id,
+              sourceNodeId: edge.source,
+              targetNodeId: record.targetNodeId,
+              edgeInTimeUs: record.enqueuedAtUs,
+              reason: 'deadline_exceeded',
+              scope: 'in-flight',
+              timeoutSeq: record.request.timeoutSeq ?? 0
+            },
+            timeoutAt
+          )
+        )
+        continue
+      }
+      this.completeEdgeTransit(
+        record.request,
+        edge,
+        record.targetNodeId,
+        record.edgePhase,
+        record.enqueuedAtUs,
+        arrivalTime,
+        {
+          ...transit.components,
+          linkQueueMs: microToMs(linkQueueUs),
+          retransmissionMs: retransmitted ? microToMs(transit.transitUs) : 0,
+          batchWaitMs: microToMs(batchWaitUs)
+        },
+        batch.id,
+        emit
+      )
+    }
   }
 
   private runBeforeArrivalTraits(nodeId: string, request: Request): BeforeArrivalDecision {

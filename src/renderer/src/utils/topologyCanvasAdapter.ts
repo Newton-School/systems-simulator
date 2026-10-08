@@ -680,7 +680,15 @@ function edgeDataFromTopology(edge: EdgeDefinition): EdgeSimulationData {
     errorRate: ratioToPercent(edge.errorRate),
     condition: edge.condition,
     weight: edge.weight,
-    fanoutFactor: edge.fanoutFactor
+    fanoutFactor: edge.fanoutFactor,
+    connectionReuse: edge.connection?.reuse,
+    tlsVersion: edge.connection?.tls,
+    tlsSessionResumption: edge.connection?.tlsSessionResumption,
+    connectionIdleTimeoutMs: edge.connection?.idleTimeoutMs,
+    maxConnections: edge.connection?.maxConnections,
+    maxStreamsPerConnection: edge.connection?.maxStreamsPerConnection,
+    batchLingerMs: edge.batching?.lingerMs,
+    batchMaxBytes: edge.batching?.maxBatchBytes
   }
 }
 

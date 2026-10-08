@@ -1300,8 +1300,9 @@ function EdgeMetricsDetail({
         </div>
         {flow.totalInFlightAtCutoff > 0 ? (
           <p className="mt-3 text-[11px] leading-relaxed text-nss-muted">
-            Sent but still waiting for or crossing the link when the run ended - the edge is offered
-            more bytes than its bandwidth can carry.
+            Sent but not yet delivered when the run ended (still crossing the edge or waiting for
+            its link). A handful is normal for any edge with latency; a count that grows with the
+            run length means the edge is offered more bytes than its bandwidth can carry.
           </p>
         ) : null}
       </EdgeResultsSection>
@@ -1352,6 +1353,8 @@ function EdgeMetricsDetail({
           <EdgeLatencyBreakdownView
             breakdown={edgeResult.latencyBreakdown}
             linkUtilization={edgeResult.linkUtilization}
+            connections={edgeResult.connections}
+            batching={edgeResult.batching}
           />
         </EdgeResultsSection>
       ) : null}

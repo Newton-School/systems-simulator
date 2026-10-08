@@ -19,6 +19,11 @@ import {
   getPathTypeLatencyProfile,
   inferEdgeDefaults
 } from '../../../../engine/defaults/edgeDefaults'
+import {
+  DEFAULT_KEEP_ALIVE_IDLE_TIMEOUT_MS,
+  getProtocolConnectionProfile
+} from '../../../../engine/network/connectionPool'
+import { DEFAULT_KAFKA_BATCH_BYTES } from '../../../../engine/network/edgeBatching'
 import { EDGE_ROUTING_OPTIONS } from '@renderer/config/edgeRouting'
 import { EditableNumberInput } from './EditableNumberInput'
 
@@ -99,6 +104,209 @@ function FieldLabel({ label, help }: { label?: string; help: EdgeHelpEntry }) {
         width={320}
         content={<EdgeTooltipContent entry={help} />}
       />
+    </div>
+  )
+}
+
+function optionalPositive(raw: string, integer = false): number | undefined {
+  const parsed = Number(raw)
+  if (raw.trim() === '' || !Number.isFinite(parsed) || parsed <= 0) return undefined
+  return integer ? Math.round(parsed) : parsed
+}
+
+/**
+ * Connection model (TLS handshakes, HTTP/2 streams, persistent connections) and
+ * Kafka producer batching. Both are opt-in: unset keeps today's behaviour.
+ */
+function EdgeTransportFields({
+  value,
+  protocol,
+  onChange
+}: {
+  value: EdgePropertiesPanelValue
+  protocol: NonNullable<EdgeSimulationData['protocol']>
+  onChange: (patch: Partial<EdgePropertiesPanelValue>) => void
+}) {
+  const profile = getProtocolConnectionProfile(protocol)
+  const batchingActive = protocol === 'kafka' && value.batchLingerMs !== undefined
+  const connectionApplies = profile.connectionOriented && !batchingActive
+  const reuse = value.connectionReuse
+  const defaultStreams = Number.isFinite(profile.defaultStreams)
+    ? String(profile.defaultStreams)
+    : 'unlimited'
+  const tlsDefaultLabel = profile.defaultTls === 'none' ? 'none' : `TLS ${profile.defaultTls}`
+
+  return (
+    <div
+      className="space-y-2 rounded border border-nss-border px-2 py-2"
+      data-testid="edge-transport"
+    >
+      <p className="text-[11px] font-medium text-nss-text">Connections</p>
+      {!profile.connectionOriented ? (
+        <p className="text-[10px] leading-relaxed text-nss-muted">
+          UDP is connectionless: there is no handshake and nothing to reuse.
+        </p>
+      ) : batchingActive ? (
+        <p className="text-[10px] leading-relaxed text-nss-muted">
+          This Kafka edge batches records; each batch is one in-flight request against Max
+          concurrent requests, so the connection model is not applied on top of it.
+        </p>
+      ) : null}
+      {connectionApplies ? (
+        <>
+          <div className="space-y-1">
+            <FieldLabel help={EDGE_PROPERTY_HELP.connectionReuse} />
+            <select
+              aria-label="Connection reuse"
+              value={reuse ?? 'off'}
+              onChange={(e) =>
+                onChange({
+                  connectionReuse:
+                    e.target.value === 'off'
+                      ? undefined
+                      : (e.target.value as EdgeSimulationData['connectionReuse'])
+                })
+              }
+              className={CONTROL_CLASS}
+            >
+              <option value="off">Off (connections always warm, no setup cost)</option>
+              <option value="per-request">Per request (new connection every time)</option>
+              <option value="keep-alive">Keep-alive (reuse warm connections)</option>
+              <option value="persistent">Persistent (open once, never idles out)</option>
+            </select>
+          </div>
+          {reuse ? (
+            <>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1">
+                  <FieldLabel help={EDGE_PROPERTY_HELP.tlsVersion} />
+                  <select
+                    aria-label="TLS version"
+                    value={value.tlsVersion ?? 'default'}
+                    onChange={(e) =>
+                      onChange({
+                        tlsVersion:
+                          e.target.value === 'default'
+                            ? undefined
+                            : (e.target.value as EdgeSimulationData['tlsVersion'])
+                      })
+                    }
+                    className={CONTROL_CLASS}
+                  >
+                    <option value="default">Default ({tlsDefaultLabel})</option>
+                    <option value="none">None</option>
+                    <option value="1.2">TLS 1.2 (2 round trips)</option>
+                    <option value="1.3">TLS 1.3 (1 round trip)</option>
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <FieldLabel help={EDGE_PROPERTY_HELP.tlsSessionResumption} />
+                  <label className="flex items-center gap-2 text-xs text-nss-text">
+                    <input
+                      type="checkbox"
+                      aria-label="TLS session resumption"
+                      checked={value.tlsSessionResumption === true}
+                      onChange={(e) =>
+                        onChange({ tlsSessionResumption: e.target.checked ? true : undefined })
+                      }
+                    />
+                    Resume sessions
+                  </label>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1">
+                  <FieldLabel help={EDGE_PROPERTY_HELP.maxConnections} />
+                  <EditableNumberInput
+                    aria-label="Max connections"
+                    min={1}
+                    step={1}
+                    placeholder="Unlimited"
+                    value={value.maxConnections ?? ''}
+                    onChange={(e) =>
+                      onChange({ maxConnections: optionalPositive(e.target.value, true) })
+                    }
+                    className={CONTROL_CLASS}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <FieldLabel help={EDGE_PROPERTY_HELP.maxStreamsPerConnection} />
+                  <EditableNumberInput
+                    aria-label="Streams per connection"
+                    min={1}
+                    step={1}
+                    placeholder={`Default ${defaultStreams}`}
+                    value={value.maxStreamsPerConnection ?? ''}
+                    onChange={(e) =>
+                      onChange({ maxStreamsPerConnection: optionalPositive(e.target.value, true) })
+                    }
+                    className={CONTROL_CLASS}
+                  />
+                </div>
+              </div>
+              {reuse === 'keep-alive' ? (
+                <div className="space-y-1">
+                  <FieldLabel help={EDGE_PROPERTY_HELP.connectionIdleTimeoutMs} />
+                  <EditableNumberInput
+                    aria-label="Idle timeout"
+                    min={1}
+                    step={1000}
+                    placeholder={`Default ${DEFAULT_KEEP_ALIVE_IDLE_TIMEOUT_MS.toLocaleString()}`}
+                    value={value.connectionIdleTimeoutMs ?? ''}
+                    onChange={(e) =>
+                      onChange({ connectionIdleTimeoutMs: optionalPositive(e.target.value) })
+                    }
+                    className={CONTROL_CLASS}
+                  />
+                </div>
+              ) : null}
+            </>
+          ) : null}
+        </>
+      ) : null}
+
+      {protocol === 'kafka' ? (
+        <>
+          <p className="pt-1 text-[11px] font-medium text-nss-text">Producer batching</p>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1">
+              <FieldLabel help={EDGE_PROPERTY_HELP.batchLingerMs} />
+              <EditableNumberInput
+                aria-label="Batch linger"
+                min={0}
+                step={1}
+                placeholder="Off (no batching)"
+                value={value.batchLingerMs ?? ''}
+                onChange={(e) => {
+                  const parsed = Number(e.target.value)
+                  onChange({
+                    batchLingerMs:
+                      e.target.value.trim() === '' || !Number.isFinite(parsed) || parsed < 0
+                        ? undefined
+                        : parsed
+                  })
+                }}
+                className={CONTROL_CLASS}
+              />
+            </div>
+            <div className="space-y-1">
+              <FieldLabel help={EDGE_PROPERTY_HELP.batchMaxBytes} />
+              <EditableNumberInput
+                aria-label="Batch size"
+                min={1}
+                step={1024}
+                placeholder={`Default ${DEFAULT_KAFKA_BATCH_BYTES.toLocaleString()}`}
+                disabled={value.batchLingerMs === undefined}
+                value={value.batchMaxBytes ?? ''}
+                onChange={(e) =>
+                  onChange({ batchMaxBytes: optionalPositive(e.target.value, true) })
+                }
+                className={CONTROL_CLASS}
+              />
+            </div>
+          </div>
+        </>
+      ) : null}
     </div>
   )
 }
@@ -674,6 +882,8 @@ export const EdgePropertiesPanel = ({
                 ))}
               </ul>
             ) : null}
+
+            <EdgeTransportFields value={value} protocol={selectedProtocol} onChange={onChange} />
 
             <div className="space-y-1">
               <FieldLabel help={EDGE_PROPERTY_HELP.fanoutFactor} />

@@ -261,7 +261,7 @@ interface EdgeFieldSpec {
   label: string
   unit?: string
   options?: readonly string[]
-  kind: 'enum' | 'number' | 'text'
+  kind: 'enum' | 'number' | 'text' | 'boolean'
   /** `auto` in the path-type select stores undefined. */
   autoValue?: string
 }
@@ -321,6 +321,56 @@ const EDGE_FIELDS: readonly EdgeFieldSpec[] = [
   { key: 'packet-loss', field: 'packetLossRate', label: 'Packet loss', unit: '%', kind: 'number' },
   { key: 'error-rate', field: 'errorRate', label: 'Error rate', unit: '%', kind: 'number' },
   { key: 'fanout-factor', field: 'fanoutFactor', label: 'Fan-out factor', kind: 'number' },
+  {
+    key: 'connection-reuse',
+    field: 'connectionReuse',
+    label: 'Connection reuse',
+    kind: 'enum',
+    options: ['off', 'per-request', 'keep-alive', 'persistent'],
+    autoValue: 'off'
+  },
+  {
+    key: 'tls',
+    field: 'tlsVersion',
+    label: 'TLS version',
+    kind: 'enum',
+    options: ['default', 'none', '1.2', '1.3'],
+    autoValue: 'default'
+  },
+  {
+    key: 'tls-resumption',
+    field: 'tlsSessionResumption',
+    label: 'TLS session resumption',
+    kind: 'boolean'
+  },
+  {
+    key: 'idle-timeout',
+    field: 'connectionIdleTimeoutMs',
+    label: 'Connection idle timeout',
+    unit: 'ms',
+    kind: 'number'
+  },
+  { key: 'max-connections', field: 'maxConnections', label: 'Max connections', kind: 'number' },
+  {
+    key: 'streams-per-connection',
+    field: 'maxStreamsPerConnection',
+    label: 'Streams per connection',
+    kind: 'number'
+  },
+  {
+    key: 'batch-linger',
+    field: 'batchLingerMs',
+    label: 'Batch linger (Kafka)',
+    unit: 'ms',
+    kind: 'number'
+  },
+  {
+    key: 'batch-size',
+    field: 'batchMaxBytes',
+    label: 'Batch size (Kafka)',
+    unit: 'bytes',
+    kind: 'number'
+  },
   { key: 'condition', field: 'condition', label: 'Condition', kind: 'text' }
 ]
 
@@ -398,6 +448,12 @@ function parseEdgeValue(
     return { ok: true, value: match === spec.autoValue ? undefined : match }
   }
   if (spec.kind === 'text') return { ok: true, value: text === '' ? undefined : text }
+  if (spec.kind === 'boolean') {
+    const lowered = text.toLowerCase()
+    if (['on', 'true', 'yes'].includes(lowered)) return { ok: true, value: true }
+    if (['off', 'false', 'no', ''].includes(lowered)) return { ok: true, value: undefined }
+    return { ok: false, reason: `Expected on or off, got '${text}'.` }
+  }
   const value = Number(text.replace(/%$/, ''))
   if (!Number.isFinite(value) || value < 0)
     return { ok: false, reason: `Expected a non-negative number, got '${text}'.` }
