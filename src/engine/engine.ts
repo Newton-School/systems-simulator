@@ -546,6 +546,15 @@ export class SimulationEngine {
     return this.eventsProcessed
   }
 
+  /**
+   * Why the run ended (or will end). Chunked drivers (`step`) check this for
+   * `'saturation'`: the early-abort guard halts inside `processEvents`, but a
+   * later `step()` call would otherwise resume past the halt.
+   */
+  getStopReason(): StopReason {
+    return this.stopReason
+  }
+
   getEventStream(): CanonicalEventRecord[] {
     return this.eventRecorder.getEvents()
   }

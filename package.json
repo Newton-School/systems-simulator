@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "description": "A browser-based system design simulator",
   "author": "example.com",
+  "bin": {
+    "sim": "bin/sim.mjs"
+  },
   "scripts": {
     "format": "prettier --write .",
     "lint": "eslint --cache .",
