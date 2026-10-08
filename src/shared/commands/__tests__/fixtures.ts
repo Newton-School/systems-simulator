@@ -119,12 +119,14 @@ export function fixtureRun(): SimulationOutput {
   return cachedRun
 }
 
-export function staticDeps(options: { withResults?: boolean } = {}): CommandDeps {
+export function staticDeps(
+  options: { withResults?: boolean; results?: SimulationOutput } = {}
+): CommandDeps {
   return createStaticDeps(fixtureTopology(), {
     palette: NO_COLOR,
     validate: validateView,
     runner: () => fixtureRun(),
-    results: options.withResults ? fixtureRun() : undefined
+    results: options.results ?? (options.withResults ? fixtureRun() : undefined)
   })
 }
 

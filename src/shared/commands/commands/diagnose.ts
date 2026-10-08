@@ -179,6 +179,67 @@ const CAPACITY_REASONS = new Set(['capacity_exceeded', 'queue_full', 'oom'])
  * of the run), so show the node state from the nearest per-second snapshot
  * instead, labelled as approximate.
  */
+/**
+ * The exact admission record the tracer kept for a sampled request, used when the
+ * event stream was cut off before the rejection. Null when the request wasn't
+ * traced or has no rejecting admission (e.g. it timed out).
+ */
+function tracedAdmission(
+  scope: CommandScope,
+  topology: TopologyJSON,
+  results: SimulationOutput,
+  requestId: string
+): string[] | null {
+  const c = scope.deps.palette
+  const trace = results.traces?.find((candidate) => candidate.requestId === requestId)
+  const record = trace?.admissions?.find((candidate) => candidate.outcome === 'rejected')
+  if (!record) return null
+  const state = record.state
+  const reason = record.reasonCode ?? trace?.terminalReason ?? 'unknown'
+  const decidedBy =
+    record.stage === 'security'
+      ? 'the security policy'
+      : record.stage === 'trait'
+        ? `the ${record.traitName ?? 'admission'} trait`
+        : 'the G/G/c/K admission check'
+  const lines = [
+    heading(
+      `Why ${requestId} was rejected`,
+      c,
+      `at ${nodeName(topology, record.nodeId)}, t=${(Number(record.atUs) / 1000).toFixed(3)}ms (traced)`
+    ),
+    `  reason ${c.red}${reason}${c.reset}, decided by ${decidedBy}`
+  ]
+  if (state) {
+    lines.push(
+      `  ${c.bold}Admission check${c.reset} (node state when the request arrived)`,
+      ...keyValues(
+        [
+          ['status', state.status],
+          ['active workers', `${fmtCount(state.activeWorkers)} / ${fmtCount(state.workers)} (c)`],
+          ['waiting', fmtCount(state.queueLength)],
+          ['held', fmtCount(state.heldCount)],
+          ['in system', `${fmtCount(state.totalInSystem)} / ${fmtCount(state.capacity)} (K)`]
+        ],
+        c,
+        '    '
+      )
+    )
+    if (record.stage === 'node' && CAPACITY_REASONS.has(reason)) {
+      const full = state.totalInSystem >= state.capacity
+      lines.push(
+        `  rule: admit while in system < K  ->  ${fmtCount(state.totalInSystem)} ${full ? '>=' : '<'} ${fmtCount(state.capacity)}  ->  ${full ? `${c.red}reject${c.reset}` : 'admit'}`
+      )
+    }
+  } else {
+    lines.push(note('  This node has no queue, so no occupancy was recorded.', c))
+  }
+  if (record.concurrencyProvenance) {
+    lines.push(note(`  ${record.concurrencyProvenance}`, c))
+  }
+  return lines
+}
+
 function approximateAdmission(
   scope: CommandScope,
   topology: TopologyJSON,
@@ -246,7 +307,12 @@ function whyRejected(scope: CommandScope, requestId: string | undefined): string
         `${requestId} was not rejected: it ended as ${outcome.status}${outcome.reasonCode ? ` (${outcome.reasonCode})` : ''}.`
       ]
     }
-    if (outcome) return approximateAdmission(scope, topology, results, outcome)
+    if (outcome) {
+      return (
+        tracedAdmission(scope, topology, results, outcome.requestId) ??
+        approximateAdmission(scope, topology, results, outcome)
+      )
+    }
     throw new CommandError(
       requestId
         ? `No rejection recorded for ${requestId}. 'show rejected' lists rejected requests.`

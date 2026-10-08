@@ -174,6 +174,24 @@ describe('after a run', () => {
     expect(runLines(s, 'show cascade')).toMatch(/Failure cascade|No failure cascade/)
   })
 
+  it('why-rejected uses the traced admission record when the event stream was cut off', () => {
+    const results = fixtureRun()
+    const traced = results.traces.find((trace) =>
+      trace.admissions?.some((record) => record.outcome === 'rejected' && record.state)
+    )!
+    expect(traced).toBeDefined()
+    // Long runs keep only the first events; drop this request's rejection event.
+    const truncated = {
+      ...results,
+      eventStream: results.eventStream.filter((record) => record.requestId !== traced.requestId)
+    }
+    const s = session(staticDeps({ results: truncated }))
+    const why = runLines(s, `why-rejected ${traced.requestId}`)
+    expect(why).toContain('(traced)')
+    expect(why).toContain('decided by')
+    expect(why).not.toMatch(/approximate/i)
+  })
+
   it('commands that need data say so when nothing ran', () => {
     const s = session()
     expect(runLines(s, 'show events')).toContain("needs a completed run. Type 'run' first.")
