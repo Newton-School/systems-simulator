@@ -1,9 +1,10 @@
 import React, { memo, useState, useCallback, useMemo } from 'react'
-import { Anchor, AlertTriangle, Lock } from 'lucide-react'
+import { Anchor, AlertTriangle, Lock, XCircle } from 'lucide-react'
 import UniversalHandle from '@renderer/components/ui/UniversalHandle'
 import useStore from '@renderer/store/useStore'
 import { NODE_OFFSETS, NODE_POSITIONS } from './nodeConstants'
 import { NODE_HEALTH_STYLES, type NodeHealthStatus } from './nodePresentation'
+import type { NodeVisualStyle } from '@renderer/utils/liveVisualization'
 
 export interface NodeMenuBag {
   isMenuOpen: boolean
@@ -28,6 +29,73 @@ interface BaseNodeProps {
    * wherever it belongs visually (typically inside NodeHeader children).
    */
   children: (bag: NodeMenuBag) => React.ReactNode
+}
+
+const STATUS_LABEL: Record<NodeVisualStyle['statusIcon'], string> = {
+  healthy: 'Healthy',
+  degraded: 'Degraded',
+  failed: 'Failed'
+}
+
+/**
+ * Live run overlay: a utilization-coloured accent, a waiting-room fill bar, and
+ * a measured readout chip. Utilization and rps are time-weighted over the
+ * trailing window; queue fill is the current level.
+ */
+const LiveNodeIndicator = ({ style }: { style: NodeVisualStyle }) => {
+  const windowS = Math.round(style.windowMs / 100) / 10
+  const title = [
+    `${STATUS_LABEL[style.statusIcon]}.`,
+    style.utilization !== null
+      ? `${(style.utilization * 100).toFixed(1)}% busy, time-weighted over the last ${windowS}s of simulated time.`
+      : 'No utilization measured yet.',
+    style.throughputRps !== null ? `${style.throughputRps.toFixed(1)} requests/s completed.` : '',
+    style.queueFillPercent !== null
+      ? `Queue ${Math.round(style.queueFillPercent)}% full right now.`
+      : 'Unbounded queue.'
+  ]
+    .filter(Boolean)
+    .join(' ')
+
+  return (
+    <>
+      <div
+        aria-hidden
+        className="pointer-events-none absolute bottom-2 left-0 top-2 w-1 rounded-r"
+        style={{ backgroundColor: style.color }}
+      />
+      {style.queueFillPercent !== null && (
+        <div
+          aria-hidden
+          className="pointer-events-none absolute bottom-0 left-0 right-0 h-1 overflow-hidden rounded-b-lg bg-nss-border/40"
+        >
+          <div
+            className="h-full transition-[width] duration-300"
+            style={{ width: `${style.queueFillPercent}%`, backgroundColor: style.color }}
+          />
+        </div>
+      )}
+      {style.overlayText && (
+        <div
+          data-live-status={style.statusIcon}
+          data-live-utilization={style.utilization ?? ''}
+          title={title}
+          className="absolute -bottom-3 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1 whitespace-nowrap rounded-full border bg-nss-panel px-2 py-0.5 text-[10px] font-semibold leading-none text-nss-text shadow"
+          style={{ borderColor: style.borderColor }}
+        >
+          {style.statusIcon === 'failed' ? (
+            <XCircle size={10} style={{ color: style.color }} />
+          ) : (
+            <span
+              className="inline-block h-1.5 w-1.5 rounded-full"
+              style={{ backgroundColor: style.color }}
+            />
+          )}
+          {style.overlayText}
+        </div>
+      )}
+    </>
+  )
 }
 
 const BaseNode = ({
@@ -58,6 +126,12 @@ const BaseNode = ({
       : null
   )
   const showSpofBadges = useStore((s) => s.displaySettings.showSpofBadges)
+
+  // Live run styling (#70): measured, time-weighted values; null outside a run.
+  const liveMetricsVisible = useStore((s) => s.environmentProfile.visibility.liveMetrics)
+  const liveStyle = useStore((s) =>
+    id && liveMetricsVisible ? s.liveVisualization?.nodeStyles.get(id) : undefined
+  )
   const isSpof = showSpofBadges && spofReason !== null
 
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
@@ -130,6 +204,8 @@ const BaseNode = ({
           {isScaffoldLocked ? 'Locked' : 'Scaffold'}
         </div>
       )}
+
+      {liveStyle && <LiveNodeIndicator style={liveStyle} />}
 
       {/* Connection handles - shared by all node types */}
       {NODE_POSITIONS.map((pos) => (

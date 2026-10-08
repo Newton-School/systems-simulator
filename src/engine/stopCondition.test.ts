@@ -151,6 +151,38 @@ describe('saturation halt (discrete engine)', () => {
     expect(out.stoppedAtMs ?? Infinity).toBeLessThan(60_000)
   })
 
+  it('a chunked step() driver honours the halt instead of resuming past it', () => {
+    // The web worker and live CLI drive the engine with step(); before the halt was
+    // made sticky, the next step() reset running=true and kept simulating to the
+    // end of the window, re-tripping the guard at every snapshot.
+    const saturating = () =>
+      topo({
+        baseRps: 1000,
+        serviceMs: 10,
+        workers: 1,
+        durationMs: 60_000,
+        stopCondition: { mode: 'duration', haltOnSaturation: { utilization: 1.0 } }
+      })
+    const reference = new SimulationEngine(saturating()).run()
+
+    const chunked = new SimulationEngine(saturating())
+    let chunks = 0
+    while (chunked.hasPendingEvents() && chunks < 10_000) {
+      chunked.step(500)
+      chunks++
+    }
+    expect(chunked.isHalted()).toBe(true)
+    const haltedAt = chunked.getClockMs()
+    chunked.step(500)
+    chunked.stepUntil(60_000, 500)
+    expect(chunked.getClockMs()).toBe(haltedAt)
+
+    const out = chunked.getResults()
+    expect(out.stopReason).toBe('saturation')
+    expect(out.stoppedAtMs).toBe(reference.stoppedAtMs)
+    expect(out.eventsProcessed).toBe(reference.eventsProcessed)
+  })
+
   it('runs the full window when never saturated', () => {
     const out = new SimulationEngine(
       topo({

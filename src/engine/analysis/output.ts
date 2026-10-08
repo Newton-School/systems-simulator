@@ -42,8 +42,24 @@ export interface TimeSeriesSnapshot {
       queueLength: number
       activeWorkers: number
       totalInSystem: number
+      /** Instantaneous occupancy at `timestamp` - a point sample, never an average. */
       utilization: number
       status: string
+      /**
+       * Cumulative headline-utilization numerator (∫ busy dt, worker·µs or core·µs)
+       * from t=0 to `timestamp`. Differencing two snapshots and dividing by the
+       * matching `capacityAreaUs` delta gives the exact time-weighted utilization
+       * for that window. Optional: absent on older serialized outputs.
+       */
+      busyAreaUs?: number
+      /** Cumulative utilization denominator (∫ capacity dt) to `timestamp`. */
+      capacityAreaUs?: number
+      /** Requests this node has finished serving, cumulative to `timestamp`. */
+      completedTotal?: number
+      /** Worker ceiling c at `timestamp` (follows autoscaling). */
+      workers?: number
+      /** System capacity K (in service + waiting) at `timestamp`; may be Infinity. */
+      capacity?: number
     }
   >
 }

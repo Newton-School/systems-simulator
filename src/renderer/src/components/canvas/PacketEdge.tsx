@@ -152,6 +152,9 @@ export const PacketEdge = ({
   )
   const runConfig = useStore((state) => state.edgeFlowRunConfig)
   const playback = useStore((state) => state.edgeFlowPlayback)
+  // Live styling (#70): throughput-proportional width and latency colour, set
+  // only while a run is in progress (null otherwise).
+  const liveEdgeStyle = useStore((state) => state.liveVisualization?.edgeStyles.get(id))
   const routingVisualization = useStore((state) => state.routingStrategyVisualization)
   const colorDotsByKey = useStore((state) => state.displaySettings.colorDotsByKey)
   // While following a single request, hide the ambient aggregate dots so only the
@@ -340,11 +343,13 @@ export const PacketEdge = ({
       ? selected
         ? 3
         : CONNECTOR_IDLE_STROKE_WIDTH
-      : hasFlow
-        ? clamp(3 + Math.log2(visualRequestRate + 1) * 0.55, selected ? 3.5 : 3, 5)
-        : selected
-          ? 3
-          : 2
+      : liveEdgeStyle && flowStatus === 'running'
+        ? Math.max(liveEdgeStyle.strokeWidth, selected ? 3 : 1)
+        : hasFlow
+          ? clamp(3 + Math.log2(visualRequestRate + 1) * 0.55, selected ? 3.5 : 3, 5)
+          : selected
+            ? 3
+            : 2
   const emphasized = selected || touchesSelectedNode
   const edgeStrokeWidth = legibleStrokeWidth(
     emphasized && !selected ? trafficStrokeWidth + 0.5 : trafficStrokeWidth,
@@ -449,9 +454,13 @@ export const PacketEdge = ({
         )
       : []
   const directionCueOpacity = emphasized ? 1 : clamp(baseEdgeOpacity, 0.35, 0.9)
+  // Live throughput colour applies to network edges during a run; selection
+  // highlighting and failure colour take precedence.
+  const liveStroke =
+    flowStatus === 'running' && !edgeIsConnectorOnly ? liveEdgeStyle?.strokeColor : undefined
   const edgeStroke = isRoutingPreviewEdge
     ? EDGE_IDLE_STROKE
-    : (failureStroke ?? (emphasized ? FLOW_PRIMARY_COLOR : EDGE_IDLE_STROKE))
+    : (failureStroke ?? (emphasized ? FLOW_PRIMARY_COLOR : (liveStroke ?? EDGE_IDLE_STROKE)))
   const chevronStroke = failureStroke ?? (emphasized ? FLOW_PRIMARY_COLOR : EDGE_IDLE_STROKE)
 
   return (

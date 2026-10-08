@@ -12,6 +12,7 @@ import { FileStatus } from './FileStatus'
 import { ThemeToggle } from './ThemeToggle'
 import { SimulationControls } from '../simulation/SimulationControls'
 import type { ExperimentPreview } from '../simulation/chaosExperimentModel'
+import type { PlaybackSpeed } from '../../../../engine/worker/protocols'
 import type { FaultTargetOption, ScenarioState, SourceNodeOption } from '@renderer/types/ui'
 
 interface HeaderProps {
@@ -48,6 +49,8 @@ interface HeaderProps {
   onResume: () => void
   onStop: () => void
   onStep?: () => void
+  playbackSpeed?: PlaybackSpeed
+  onPlaybackSpeedChange?: (speed: PlaybackSpeed) => void
   isRunning: boolean
   isPaused: boolean
   sourceNodes: SourceNodeOption[]
@@ -110,6 +113,8 @@ export const Header = memo(
     onResume,
     onStop,
     onStep,
+    playbackSpeed,
+    onPlaybackSpeedChange,
     isRunning,
     isPaused,
     sourceNodes,
@@ -226,6 +231,8 @@ export const Header = memo(
             onResume={onResume}
             onStop={onStop}
             onStep={onStep}
+            playbackSpeed={playbackSpeed}
+            onPlaybackSpeedChange={onPlaybackSpeedChange}
             isRunning={isRunning}
             isPaused={isPaused}
             sourceNodes={sourceNodes}
