@@ -8,6 +8,15 @@ import type {
 } from '../core/types'
 import type { SimulationOutput } from './output'
 import {
+  BuilderPolicySchema,
+  definitionEntriesFromTopology,
+  describeBuilderPolicy,
+  evaluateBuilderPolicy,
+  isBuilderPolicyRestrictive,
+  resolveBuilderPolicy,
+  type BuilderPolicy
+} from './builderPolicy'
+import {
   evaluateSuite,
   mergeTopologyWithOverrides,
   type EvaluationBatch,
@@ -207,6 +216,12 @@ export interface QuestionPackage {
   prompt: QuestionPrompt
   scaffold: QuestionScaffold
   constraints: QuestionConstraints
+  /**
+   * Per-question gating of the Service builder and Custom Node builder
+   * (custom-node-and-service-definition-spec §15). Omit for today's behaviour:
+   * both builders on, nothing restricted.
+   */
+  builderPolicy?: BuilderPolicy
   structuralRules?: StructuralRule[]
   /** Extended anti-gaming grading axes (typed contracts; graded in a later phase). */
   semanticCriteria?: SemanticCriterion[]
@@ -279,6 +294,7 @@ export type ConstraintCheckId =
   | 'max-node-count'
   | 'max-budget'
   | 'max-total-workers'
+  | 'builder-policy'
 
 export interface ConstraintCheck {
   id: ConstraintCheckId
@@ -404,8 +420,12 @@ function formatUsdPerHour(value: number): string {
   return `$${value.toFixed(4)}/hr`
 }
 
-function hasConstraintChecks(constraints: QuestionConstraints): boolean {
+function hasConstraintChecks(
+  constraints: QuestionConstraints,
+  builderPolicy?: BuilderPolicy
+): boolean {
   return (
+    isBuilderPolicyRestrictive(builderPolicy) ||
     (constraints.allowedNodeTypes?.length ?? 0) > 0 ||
     (constraints.forbiddenNodeTypes?.length ?? 0) > 0 ||
     constraints.maxNodeCount !== undefined ||
@@ -414,11 +434,23 @@ function hasConstraintChecks(constraints: QuestionConstraints): boolean {
   )
 }
 
+/** Learner-facing name of the builder-policy constraint row. */
+export function builderPolicyCheckName(builderPolicy: BuilderPolicy | undefined): string {
+  return `Follow the question's builder policy (${describeBuilderPolicy(builderPolicy)})`
+}
+
+/** Scaffold node ids: the author's nodes, exempt from the learner builder policy. */
+export function scaffoldNodeIdsForPackage(pkg: Pick<QuestionPackage, 'scaffold'>): string[] {
+  return pkg.scaffold.topology?.nodes.map((node) => node.id) ?? []
+}
+
 function evaluateQuestionConstraints(
   constraints: QuestionConstraints,
-  topology: TopologyJSON
+  topology: TopologyJSON,
+  builderPolicy?: BuilderPolicy,
+  exemptNodeIds: readonly string[] = []
 ): ConstraintEvaluation | undefined {
-  if (!hasConstraintChecks(constraints)) {
+  if (!hasConstraintChecks(constraints, builderPolicy)) {
     return undefined
   }
 
@@ -496,6 +528,27 @@ function evaluateQuestionConstraints(
       passed: actual <= constraints.maxTotalWorkers,
       ...(actual > constraints.maxTotalWorkers
         ? { detail: `Derived total workers ${actual} exceeds cap ${constraints.maxTotalWorkers}.` }
+        : {})
+    })
+  }
+
+  if (isBuilderPolicyRestrictive(builderPolicy)) {
+    // Policy findings are about *how* a node was created (its definition), so
+    // they sit beside - never replace - the componentType-based checks above.
+    const violations = evaluateBuilderPolicy(
+      resolveBuilderPolicy(builderPolicy),
+      definitionEntriesFromTopology(topology, exemptNodeIds)
+    )
+    checks.push({
+      id: 'builder-policy',
+      description: builderPolicyCheckName(builderPolicy),
+      passed: violations.length === 0,
+      ...(violations.length > 0
+        ? {
+            detail: violations
+              .map((violation) => `${violation.message} Fix: ${violation.fix}`)
+              .join(' ')
+          }
         : {})
     })
   }
@@ -1300,6 +1353,7 @@ export const QuestionPackageSchema: z.ZodType<QuestionPackage> = z
     prompt: QuestionPromptSchema,
     scaffold: QuestionScaffoldSchema,
     constraints: QuestionConstraintsSchema,
+    builderPolicy: BuilderPolicySchema.optional(),
     structuralRules: z.array(StructuralRuleSchema).optional(),
     semanticCriteria: z.array(SemanticCriterionSchema).optional(),
     justify: z.array(JustifyPromptSchema).optional(),
@@ -1943,6 +1997,16 @@ export function buildQuestionTestRows(
           }
         ]
       : []),
+    ...(isBuilderPolicyRestrictive(pkg.builderPolicy)
+      ? [
+          {
+            id: constraintTestId('builder-policy'),
+            name: builderPolicyCheckName(pkg.builderPolicy),
+            scope: 'constraints',
+            status: 'pending' as const
+          }
+        ]
+      : []),
     ...(pkg.semanticCriteria ?? []).map((criterion) => ({
       id: semanticTestId(criterion.id),
       name: criterion.description ?? criterion.id,
@@ -2179,7 +2243,12 @@ export function gradeAttemptWithArtifacts(
 
   const batch = evaluateSuite(preparedCases, capturingRun, pkg.suite.name)
   const graded = gradeQuestionBatch(pkg.rubric, studentTopology, batch)
-  const constraints = evaluateQuestionConstraints(pkg.constraints, studentTopology)
+  const constraints = evaluateQuestionConstraints(
+    pkg.constraints,
+    studentTopology,
+    pkg.builderPolicy,
+    scaffoldNodeIdsForPackage(pkg)
+  )
   // Grade justifications first; a passed justification defends a `forbidUnjustified`
   // component via the injected SemanticContext (the anti-cargo-cult unblock).
   const justification = gradeJustificationsForPackage(pkg, studentTopology, justificationAnswers)

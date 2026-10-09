@@ -7,14 +7,21 @@ interface LibraryItemProps {
   onActivate?: (item: CatalogItem) => void
   draggableItem?: boolean
   selected?: boolean
+  /** Shown instead of activating: the item is unavailable (e.g. question builder policy). */
+  disabledReason?: string
 }
 
-function LibraryItemTooltipContent({ item }: LibraryItemProps) {
+function LibraryItemTooltipContent({ item, disabledReason }: LibraryItemProps) {
   const { icon: Icon, label, subLabel, color, info } = item
   const { bg, text } = color
 
   return (
     <>
+      {disabledReason ? (
+        <div className="mb-2 rounded border border-nss-warning/30 bg-nss-warning/10 px-1.5 py-1 text-[10px] font-semibold text-nss-warning">
+          {disabledReason}
+        </div>
+      ) : null}
       <div className="mb-2 flex items-start gap-2">
         <div
           className={`mt-0.5 h-6 w-6 shrink-0 rounded flex items-center justify-center ${bg} bg-opacity-30`}
@@ -59,9 +66,13 @@ function LibraryItemTooltipContent({ item }: LibraryItemProps) {
 export const LibraryItem = ({
   item,
   onActivate,
-  draggableItem = true,
-  selected = false
+  draggableItem: draggableProp = true,
+  selected = false,
+  disabledReason
 }: LibraryItemProps) => {
+  const disabled = Boolean(disabledReason)
+  const draggableItem = draggableProp && !disabled
+  const activate = disabled ? undefined : onActivate
   const { icon: Icon, label, color, type, templateId } = item
   const { bg, text } = color
 
@@ -76,20 +87,24 @@ export const LibraryItem = ({
   }
 
   return (
-    <HoverTooltip content={<LibraryItemTooltipContent item={item} />}>
+    <HoverTooltip
+      content={<LibraryItemTooltipContent item={item} disabledReason={disabledReason} />}
+    >
       {(triggerProps) => (
         <div
           draggable={draggableItem}
           {...triggerProps}
           role={onActivate ? 'button' : undefined}
           tabIndex={onActivate ? 0 : undefined}
-          aria-pressed={onActivate ? selected : undefined}
-          onClick={() => onActivate?.(item)}
+          aria-pressed={onActivate && !disabled ? selected : undefined}
+          aria-disabled={disabled || undefined}
+          title={disabledReason}
+          onClick={() => activate?.(item)}
           onKeyDown={(event) => {
-            if (!onActivate) return
+            if (!activate) return
             if (event.key === 'Enter' || event.key === ' ') {
               event.preventDefault()
-              onActivate(item)
+              activate(item)
             }
           }}
           onDragStart={(event) => {
@@ -104,7 +119,7 @@ export const LibraryItem = ({
             transition-all duration-200
             focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nss-primary/50
             ${selected ? 'border-nss-primary/60 bg-nss-primary/10' : ''}
-            ${draggableItem ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'}
+            ${disabled ? 'cursor-not-allowed opacity-45' : draggableItem ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'}
           `}
         >
           {/* Icon tile */}

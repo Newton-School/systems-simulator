@@ -252,6 +252,11 @@ export class WorkloadGenerator {
       metadata.__key = key
     }
 
+    const sessionCount = this.config.sessions?.count
+    if (typeof sessionCount === 'number' && sessionCount >= 1 && metadata.sessionId === undefined) {
+      metadata.sessionId = `session-${this.rng.integer(0, Math.floor(sessionCount) - 1)}`
+    }
+
     return metadata
   }
 

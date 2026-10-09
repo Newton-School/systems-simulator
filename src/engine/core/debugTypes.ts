@@ -106,7 +106,9 @@ const STATUS_BY_EVENT_TYPE: Record<EventType, DebugEvent['status']> = {
   'consumer-group-rebalance': 'info',
   'broker-failure': 'danger',
   'broker-recovery': 'success',
-  'trait-tick': 'info'
+  'trait-tick': 'info',
+  'edge-batch-flush': 'info',
+  'cluster-schedule': 'info'
 }
 
 const LIFECYCLE_EVENT_RANK: Partial<Record<EventType, number>> = {
@@ -223,6 +225,10 @@ function formatEventMessage(
       return `Broker recovered: ${nodeLabel}`
     case 'trait-tick':
       return `Timer tick at ${nodeLabel}`
+    case 'edge-batch-flush':
+      return `Producer batch sent from ${nodeLabel}`
+    case 'cluster-schedule':
+      return `Cluster scheduler (${String(event.data.action ?? 'update')}) at ${nodeLabel}`
     default: {
       const exhaustiveCheck: never = event.type
       return exhaustiveCheck

@@ -1,0 +1,120 @@
+{
+  "id": "cluster-bin-packing",
+  "name": "Cluster bin-packing: pending pods and machine failure",
+  "version": "1.0.0",
+  "global": {
+    "simulationDuration": 20000,
+    "seed": "cluster-bin-packing-seed",
+    "warmupDuration": 0,
+    "timeResolution": "microsecond",
+    "defaultTimeout": 5000
+  },
+  "nodes": [
+    {
+      "id": "client",
+      "type": "api-endpoint",
+      "category": "compute",
+      "role": "source",
+      "label": "Client App",
+      "position": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "id": "k8s",
+      "type": "kubernetes-cluster",
+      "category": "orchestration-and-infra",
+      "label": "Kubernetes Cluster",
+      "position": {
+        "x": 320,
+        "y": 220
+      },
+      "queue": {
+        "workers": 64,
+        "capacity": 1000,
+        "discipline": "fifo"
+      },
+      "processing": {
+        "distribution": {
+          "type": "constant",
+          "value": 1
+        },
+        "timeout": 5000
+      },
+      "resources": {
+        "instanceType": "m5.2xlarge",
+        "instanceCount": 3
+      },
+      "config": {
+        "placementStrategy": "bin-pack",
+        "podStartupMs": 1000,
+        "rescheduleDelayMs": 3000,
+        "machineFailureAtMs": 5000
+      }
+    },
+    {
+      "id": "api",
+      "type": "microservice",
+      "category": "compute",
+      "label": "API",
+      "position": {
+        "x": 320,
+        "y": 0
+      },
+      "queue": {
+        "workers": 64,
+        "capacity": 1000,
+        "discipline": "fifo"
+      },
+      "processing": {
+        "distribution": {
+          "type": "constant",
+          "value": 20
+        },
+        "timeout": 5000
+      },
+      "resources": {
+        "instanceType": "c5.large",
+        "instanceCount": 4,
+        "workloadKind": "cpu-bound"
+      },
+      "config": {
+        "scheduledOn": "k8s"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "client->api",
+      "source": "client",
+      "target": "api",
+      "mode": "synchronous",
+      "protocol": "https",
+      "latency": {
+        "distribution": {
+          "type": "constant",
+          "value": 1
+        },
+        "pathType": "same-dc"
+      },
+      "bandwidth": 10000,
+      "maxConcurrentRequests": 10000,
+      "packetLossRate": 0,
+      "errorRate": 0
+    }
+  ],
+  "workload": {
+    "sourceNodeId": "client",
+    "pattern": "constant",
+    "baseRps": 300,
+    "requestDistribution": [
+      {
+        "type": "GET",
+        "weight": 1,
+        "sizeBytes": 256
+      }
+    ]
+  },
+  "description": "Four 2-vCPU API pods on three 8-vCPU machines. bin-pack puts all four on one machine, so the machine failure at 5s takes the API down until the pods are evicted (3s) and restarted (1s) elsewhere: about 1,200 requests refused with no_ready_replicas. Switch Placement to spread and only two pods are lost, with no refusals."
+}

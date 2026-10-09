@@ -21,6 +21,10 @@ import type {
   DisplaySettings
 } from '@renderer/types/ui'
 import type { CanvasTextLabelData } from '../../../engine/catalog/canvasAnnotations'
+import {
+  normalizeCanvasNodeRendererType,
+  normalizeCanvasNodeRendererTypes
+} from '../../../engine/catalog/rendererNodeTypes'
 import type { CanvasAnnotation } from '@renderer/types/annotations'
 import { DEFAULT_SCENARIO_STATE } from '@renderer/types/ui'
 import type { EdgeFailureCause, EdgeFlowEvent } from '../../../engine/core/events'
@@ -36,6 +40,12 @@ import {
   loadDisplaySettings,
   persistDisplaySettings
 } from '@renderer/utils/displaySettingsPersistence'
+import { builderPolicyContext } from '@renderer/utils/builderPolicyContext'
+import {
+  admitDefinitions,
+  definitionEditBlockReason,
+  definitionEntriesFromCanvasNodes
+} from '../../../engine/analysis/builderPolicy'
 
 /**
  * A scaffold node's edit/removal permissions come from the intersection of the
@@ -144,6 +154,7 @@ function isEdgeRemovalLocked(
   )
 }
 import type { RoutingStrategy } from '../../../engine/catalog/nodeSpecTypes'
+import type { LiveVisualization } from '@renderer/utils/liveVisualization'
 
 type FailureCountsByCause = Partial<Record<EdgeFailureCause, number>>
 type GraphSnapshot = { nodes: Node[]; edges: Edge[] }
@@ -180,6 +191,13 @@ type AnnotationHistoryState = {
   future: CanvasAnnotation[][]
 }
 
+/** One traced request open in the lifecycle debugger (#156-#158). */
+export interface RequestDebugSession {
+  requestId: string
+  /** Index into the request's recorded lifecycle steps. */
+  stepIndex: number
+}
+
 export interface PendingNodePlacement {
   type: string
   templateId: string
@@ -213,6 +231,12 @@ export interface EdgeFlowState {
   totalPostWarmupAttempted: number
   totalPostWarmupSuccess: number
   totalPostWarmupFailed: number
+  /**
+   * Transfers sent on this edge that were still queued or on the wire when the
+   * run ended (bandwidth queueing can push arrival past the end). Neither a
+   * success nor a failure.
+   */
+  totalInFlightAtCutoff: number
   avgAttemptedPerSecond: number
   avgSuccessPerSecond: number
   avgFailedPerSecond: number
@@ -243,6 +267,12 @@ const EDGE_FLOW_WINDOW_MS = 6_000
 const EDGE_FLOW_MAX_EVENTS = 25_000
 const EDGE_FLOW_HISTORY_MAX_EVENTS = 10_000
 const EDGE_FLOW_PLAYBACK_SPEED = 10
+/**
+ * Paced runs (a numeric playback speed): dots for a batch arrive up to one
+ * telemetry flush (~100ms) after their simulated start, so the display clock runs
+ * this far behind live to show each dot from the start of its hop.
+ */
+const EDGE_FLOW_PACED_DISPLAY_LEAD_MS = 150
 const EDGE_FLOW_LIVE_RETAINED_EVENTS_PER_BATCH = 100
 const GRAPH_HISTORY_LIMIT = 100
 const NODE_PRESENTATION_IGNORED_KEYS = new Set(['selected', 'dragging'])
@@ -283,6 +313,7 @@ const EMPTY_EDGE_FLOW_STATE: EdgeFlowState = {
   totalPostWarmupAttempted: 0,
   totalPostWarmupSuccess: 0,
   totalPostWarmupFailed: 0,
+  totalInFlightAtCutoff: 0,
   avgAttemptedPerSecond: 0,
   avgSuccessPerSecond: 0,
   avgFailedPerSecond: 0,
@@ -1007,7 +1038,8 @@ function hasRecordPatchChanges(
 }
 
 function summarizeEdgeFlow(
-  events: EdgeFlowRenderEvent[]
+  events: EdgeFlowRenderEvent[],
+  simulationDurationMs = Number.POSITIVE_INFINITY
 ): Pick<
   EdgeFlowState,
   'attemptedPerSecond' | 'successPerSecond' | 'failedPerSecond' | 'failureRatio'
@@ -1019,16 +1051,21 @@ function summarizeEdgeFlow(
       : events.filter((event) => lastStartedAtMs - event.startedAtMs <= EDGE_FLOW_WINDOW_MS)
   let attempted = 0
   let success = 0
+  let inFlight = 0
 
   for (const event of windowedEvents) {
     const weight = event.sampleWeight
     attempted += weight
     if (event.status === 'success') {
-      success += weight
+      if (event.completedAtMs > simulationDurationMs) {
+        inFlight += weight
+      } else {
+        success += weight
+      }
     }
   }
 
-  const failed = attempted - success
+  const failed = attempted - success - inFlight
   const first = windowedEvents[0]?.startedAtMs
   const last = windowedEvents[windowedEvents.length - 1]?.startedAtMs
   const spanSeconds = Math.max(
@@ -1059,7 +1096,8 @@ function mergeEdgeFlowState(
   previous: EdgeFlowState,
   countedEvents: EdgeFlowEvent[],
   retainedEvents: EdgeFlowRenderEvent[],
-  warmupDurationMs: number
+  warmupDurationMs: number,
+  simulationDurationMs = Number.POSITIVE_INFINITY
 ): EdgeFlowState {
   const lastEvent = countedEvents[countedEvents.length - 1]
   if (!lastEvent) {
@@ -1081,9 +1119,21 @@ function mergeEdgeFlowState(
   let totalPostWarmupSuccess = previous.totalPostWarmupSuccess
   const totalFailedByCause = { ...previous.totalFailedByCause }
   const totalPostWarmupFailedByCause = { ...previous.totalPostWarmupFailedByCause }
+  let totalInFlightAtCutoff = previous.totalInFlightAtCutoff ?? 0
+  let postWarmupInFlight = 0
 
   for (const event of countedEvents) {
     const isPostWarmupEvent = event.completedAtMs >= warmupDurationMs
+
+    if (event.status === 'success' && event.completedAtMs > simulationDurationMs) {
+      // Sent but not delivered before the run ended: in flight, not a success.
+      totalInFlightAtCutoff++
+      if (isPostWarmupEvent) {
+        totalPostWarmupAttempted++
+        postWarmupInFlight++
+      }
+      continue
+    }
 
     if (event.status === 'success') {
       totalSuccess++
@@ -1102,8 +1152,12 @@ function mergeEdgeFlowState(
     }
   }
 
-  const totalFailed = totalAttempted - totalSuccess
-  const totalPostWarmupFailed = totalPostWarmupAttempted - totalPostWarmupSuccess
+  const totalFailed = totalAttempted - totalSuccess - totalInFlightAtCutoff
+  const totalPostWarmupFailed =
+    previous.totalPostWarmupFailed +
+    (totalPostWarmupAttempted - previous.totalPostWarmupAttempted) -
+    (totalPostWarmupSuccess - previous.totalPostWarmupSuccess) -
+    postWarmupInFlight
   const firstStartedAtMs =
     previous.totalAttempted === 0 ? (countedEvents[0]?.startedAtMs ?? 0) : previous.firstStartedAtMs
   const lastStartedAtMs =
@@ -1118,13 +1172,14 @@ function mergeEdgeFlowState(
 
   return {
     recent,
-    ...summarizeEdgeFlow(recent),
+    ...summarizeEdgeFlow(recent, simulationDurationMs),
     totalAttempted,
     totalSuccess,
     totalFailed,
     totalPostWarmupAttempted,
     totalPostWarmupSuccess,
     totalPostWarmupFailed,
+    totalInFlightAtCutoff,
     avgAttemptedPerSecond: totalAttempted / durationSeconds,
     avgSuccessPerSecond: totalSuccess / durationSeconds,
     avgFailedPerSecond: totalFailed / durationSeconds,
@@ -1153,6 +1208,16 @@ type RFState = {
   edgeFlowById: Record<string, EdgeFlowState>
   edgeFlowHistory: EdgeFlowRenderEvent[]
   edgeFlowPlayback: { wallStartMs: number; simStartMs: number } | null
+  /**
+   * Sim-ms per wall-ms the dot display clock runs at. null = the legacy replay
+   * rate used for as-fast-as-possible runs; a number = the worker's paced speed,
+   * so dots appear in step with the run.
+   */
+  edgeFlowPlaybackRate: number | null
+  /** Latest simulated start time (ms) among received edge-flow events. */
+  edgeFlowLatestSimMs: number | null
+  /** Per-node / per-edge live styling derived from measured run telemetry. */
+  liveVisualization: LiveVisualization | null
   edgeFlowStatus: EdgeFlowStatus
   edgeFlowRunConfig: EdgeFlowRunConfig | null
   runInspectorPinned: boolean
@@ -1192,6 +1257,15 @@ type RFState = {
   setAuthoringWarning: (message: string | null) => void
   attemptState: AttemptState | null
   setAttemptState: (attempt: AttemptState | null) => void
+  /**
+   * Simulation runs started for the active question in this session. Feeds the
+   * builder policy's lockDefinitionsAfterFirstRun (with the attempt's test runs).
+   */
+  questionRunCount: number
+  recordQuestionRun: () => void
+  /** Why the last node add / edit was refused by the question's builder policy. */
+  builderPolicyNotice: string | null
+  setBuilderPolicyNotice: (message: string | null) => void
   /** Newton host save compatibility mode for the active question. */
   newtonSaveMode: NewtonSaveMode | null
   setNewtonSaveMode: (mode: NewtonSaveMode | null) => void
@@ -1224,8 +1298,15 @@ type RFState = {
   /** Tracer playback speed: 'slow' stretches per-hop time for teaching. */
   traceSpeed: 'normal' | 'slow'
   setTraceSpeed: (speed: 'normal' | 'slow') => void
+  /** Request lifecycle debugger session: the traced request open in the debugger
+   *  and the recorded step shown. Null = debugger closed, canvas debug overlay off. */
+  requestDebug: RequestDebugSession | null
+  setRequestDebug: (session: RequestDebugSession | null) => void
   viewportFitVersion: number
   requestViewportFit: () => void
+  /** One-shot request for the canvas to pan/zoom onto these nodes (results-tray linking). */
+  viewportFocusRequest: { nodeIds: string[]; version: number } | null
+  requestViewportFocus: (nodeIds: string[]) => void
   setPendingNodePlacement: (placement: PendingNodePlacement | null) => void
   setAnnotations: (annotations: CanvasAnnotation[]) => void
   addAnnotation: (annotation: CanvasAnnotation) => void
@@ -1255,6 +1336,14 @@ type RFState = {
   setRunInspectorPinned: (pinned: boolean) => void
   setRunInspectorDrilldownActive: (active: boolean) => void
   clearEdgeFlow: () => void
+  /**
+   * Set the dot display rate (see `edgeFlowPlaybackRate`) and re-anchor the
+   * display clock at "now", so a mid-run speed change or a resume never replays a
+   * backlog or skips ahead. Switching to a paced rate jumps to the latest received
+   * event so the display tracks the live run.
+   */
+  setEdgeFlowPlaybackRate: (rate: number | null) => void
+  setLiveVisualization: (visualization: LiveVisualization | null) => void
   setRoutingStrategyVisualization: (state: RoutingStrategyVisualizationState | null) => void
   setNodes: (nodes: Node[], options?: GraphMutationOptions) => void
   setEdges: (edges: Edge[], options?: GraphMutationOptions) => void
@@ -1281,6 +1370,9 @@ const useStore = create<RFState>((set, get) => ({
   edgeFlowById: {},
   edgeFlowHistory: [],
   edgeFlowPlayback: null,
+  edgeFlowPlaybackRate: null,
+  edgeFlowLatestSimMs: null,
+  liveVisualization: null,
   edgeFlowStatus: 'idle',
   edgeFlowRunConfig: null,
   runInspectorPinned: false,
@@ -1304,6 +1396,8 @@ const useStore = create<RFState>((set, get) => ({
   hostLaunchErrorMessage: null,
   authoringWarning: null,
   attemptState: null,
+  questionRunCount: 0,
+  builderPolicyNotice: null,
   newtonSaveMode: null,
   justificationAnswers: {},
   questionLoadRequest: null,
@@ -1311,6 +1405,7 @@ const useStore = create<RFState>((set, get) => ({
   resultsRevealed: false,
   lastRunOutput: null,
   viewportFitVersion: 0,
+  viewportFocusRequest: null,
 
   onNodesChange: (changes: NodeChange[]) => {
     set((state) => {
@@ -1517,10 +1612,28 @@ const useStore = create<RFState>((set, get) => ({
     })
   },
 
-  addNode: (node: Node) => {
+  addNode: (incoming: Node) => {
+    // Any legacy renderer name (#219) is renamed before the node enters the graph.
+    const node = normalizeCanvasNodeRendererType(incoming)
     // A frozen attempt (host `lock`) admits no new nodes.
     if (get().attemptState?.status === 'LOCKED') {
       return
+    }
+    // The builder policy is enforced here too, so no UI path (builder, My
+    // Services, a future quick-add) can add a definition the question forbids.
+    const policyContext = builderPolicyContext(get())
+    if (policyContext.restrictive) {
+      const incoming = definitionEntriesFromCanvasNodes([node])
+      const admission = admitDefinitions(
+        policyContext.policy,
+        policyContext.entries,
+        incoming,
+        policyContext.locked
+      )
+      if (admission.ok === false) {
+        set({ builderPolicyNotice: admission.reason })
+        return
+      }
     }
     const currentNodes = get().nodes
     let newId = node.id
@@ -1530,7 +1643,7 @@ const useStore = create<RFState>((set, get) => ({
       newId = `${newId}_${Math.floor(Math.random() * 10000)}`
     }
 
-    const isVpcContainer = node.type === 'vpcNode'
+    const isVpcContainer = node.type === 'containerNode'
 
     let calculatedZIndex = node.zIndex
 
@@ -1567,7 +1680,8 @@ const useStore = create<RFState>((set, get) => ({
     })
   },
 
-  setNodes: (nodes: Node[], options) => {
+  setNodes: (incoming: Node[], options) => {
+    const nodes = normalizeCanvasNodeRendererTypes(incoming)
     set((state) => {
       const nextSnapshot = { nodes, edges: state.edges }
 
@@ -1620,7 +1734,11 @@ const useStore = create<RFState>((set, get) => ({
     })
   },
 
-  setGraph: (nodes: Node[], edges: Edge[], options) => {
+  setGraph: (incoming: Node[], edges: Edge[], options) => {
+    // Every load path (file open, samples, question scaffolds, host seeds, autosave
+    // restore, paste, authoring canvases) lands here: rename legacy renderer
+    // names (#219) once, at the store boundary. Same array back when nothing changed.
+    const nodes = normalizeCanvasNodeRendererTypes(incoming)
     set((state) => {
       const nextSnapshot = { nodes, edges }
 
@@ -1686,6 +1804,20 @@ const useStore = create<RFState>((set, get) => ({
         !hasRecordPatchChanges(existingNode.data as Record<string, unknown> | undefined, typedPatch)
       ) {
         return {}
+      }
+
+      const policyContext = builderPolicyContext(state)
+      if (policyContext.restrictive && !state.scaffoldNodeIds.includes(nodeId)) {
+        const before = (existingNode.data ?? {}) as Record<string, unknown>
+        const blocked = definitionEditBlockReason(
+          policyContext.policy,
+          before,
+          { ...before, ...typedPatch },
+          policyContext.locked
+        )
+        if (blocked) {
+          return { builderPolicyNotice: blocked }
+        }
       }
 
       const nextNode = {
@@ -1795,9 +1927,16 @@ const useStore = create<RFState>((set, get) => ({
     const receivedAtMs = Date.now()
 
     set((state) => {
+      const displayRate = state.edgeFlowPlaybackRate ?? EDGE_FLOW_PLAYBACK_SPEED
       const playback = state.edgeFlowPlayback ?? {
-        wallStartMs: receivedAtMs,
+        wallStartMs:
+          receivedAtMs +
+          (state.edgeFlowPlaybackRate !== null ? EDGE_FLOW_PACED_DISPLAY_LEAD_MS : 0),
         simStartMs: events[0]?.startedAtMs ?? 0
+      }
+      let latestSimMs = state.edgeFlowLatestSimMs ?? Number.NEGATIVE_INFINITY
+      for (const event of events) {
+        if (event.startedAtMs > latestSimMs) latestSimMs = event.startedAtMs
       }
       const countedEventsByEdgeId = new Map<string, EdgeFlowEvent[]>()
       const retainedEventsByEdgeId = new Map<string, EdgeFlowRenderEvent[]>()
@@ -1825,8 +1964,7 @@ const useStore = create<RFState>((set, get) => ({
           }
 
           const displayAtMs =
-            playback.wallStartMs +
-            (event.startedAtMs - playback.simStartMs) / EDGE_FLOW_PLAYBACK_SPEED
+            playback.wallStartMs + (event.startedAtMs - playback.simStartMs) / displayRate
           const renderedEvent: EdgeFlowRenderEvent = {
             ...event,
             receivedAtMs,
@@ -1851,6 +1989,8 @@ const useStore = create<RFState>((set, get) => ({
       )
       const edgeFlowById = { ...state.edgeFlowById }
       const warmupDurationMs = state.edgeFlowRunConfig?.warmupDurationMs ?? 0
+      const simulationDurationMs =
+        state.edgeFlowRunConfig?.simulationDurationMs ?? Number.POSITIVE_INFINITY
 
       for (const [edgeId, edgeEvents] of countedEventsByEdgeId) {
         const previous = edgeFlowById[edgeId] ?? EMPTY_EDGE_FLOW_STATE
@@ -1858,19 +1998,50 @@ const useStore = create<RFState>((set, get) => ({
           previous,
           edgeEvents,
           retainedEventsByEdgeId.get(edgeId) ?? [],
-          warmupDurationMs
+          warmupDurationMs,
+          simulationDurationMs
         )
       }
 
       return {
         edgeFlowStatus: 'running' as const,
         edgeFlowPlayback: playback,
+        edgeFlowLatestSimMs: latestSimMs,
         edgeFlowHistory: state.edgeFlowHistory
           .concat(retainedEvents)
           .slice(-EDGE_FLOW_HISTORY_MAX_EVENTS),
         edgeFlowById
       }
     })
+  },
+
+  setEdgeFlowPlaybackRate: (rate) => {
+    const nextRate = rate !== null && Number.isFinite(rate) && rate > 0 ? rate : null
+    set((state) => {
+      if (!state.edgeFlowPlayback) {
+        return { edgeFlowPlaybackRate: nextRate }
+      }
+      const nowMs = Date.now()
+      const previousRate = state.edgeFlowPlaybackRate ?? EDGE_FLOW_PLAYBACK_SPEED
+      const displayedSimMs =
+        state.edgeFlowPlayback.simStartMs +
+        (nowMs - state.edgeFlowPlayback.wallStartMs) * previousRate
+      const simStartMs =
+        nextRate !== null && state.edgeFlowLatestSimMs !== null
+          ? Math.max(displayedSimMs, state.edgeFlowLatestSimMs)
+          : displayedSimMs
+      return {
+        edgeFlowPlaybackRate: nextRate,
+        edgeFlowPlayback: {
+          wallStartMs: nowMs + (nextRate !== null ? EDGE_FLOW_PACED_DISPLAY_LEAD_MS : 0),
+          simStartMs
+        }
+      }
+    })
+  },
+
+  setLiveVisualization: (liveVisualization) => {
+    set({ liveVisualization })
   },
 
   setEdgeFlowStatus: (status) => {
@@ -1897,6 +2068,9 @@ const useStore = create<RFState>((set, get) => ({
       edgeFlowById: {},
       edgeFlowHistory: [],
       edgeFlowPlayback: null,
+      edgeFlowPlaybackRate: null,
+      edgeFlowLatestSimMs: null,
+      liveVisualization: null,
       edgeFlowStatus: 'idle',
       edgeFlowRunConfig: null,
       runInspectorPinned: false,
@@ -1913,8 +2087,13 @@ const useStore = create<RFState>((set, get) => ({
   setUnsaved: (isUnsaved) => set({ isUnsaved }),
   setScenario: (scenario) => set({ scenario }),
   setActiveQuestion: (activeQuestion) =>
-    set({
+    set((state) => ({
       activeQuestion,
+      questionRunCount:
+        activeQuestion && activeQuestion.id === state.activeQuestion?.id
+          ? state.questionRunCount
+          : 0,
+      builderPolicyNotice: null,
       // A node's scaffold provenance is canonical: its id is in the authored
       // scaffold topology, independent of what a resumed attempt loaded.
       scaffoldNodeIds:
@@ -1925,7 +2104,10 @@ const useStore = create<RFState>((set, get) => ({
         activeQuestion && activeQuestion.scaffold.type !== 'empty'
           ? activeQuestion.scaffold.topology.edges.map((edge) => edge.id)
           : []
-    }),
+    })),
+  recordQuestionRun: () =>
+    set((state) => (state.activeQuestion ? { questionRunCount: state.questionRunCount + 1 } : {})),
+  setBuilderPolicyNotice: (builderPolicyNotice) => set({ builderPolicyNotice }),
   setActiveQuestionPromptHtml: (activeQuestionPromptHtml) => set({ activeQuestionPromptHtml }),
   setHostLaunchErrorMessage: (hostLaunchErrorMessage) => set({ hostLaunchErrorMessage }),
   setAuthoringWarning: (authoringWarning) => set({ authoringWarning }),
@@ -1940,7 +2122,8 @@ const useStore = create<RFState>((set, get) => ({
   clearQuestionLoadRequest: () => set({ questionLoadRequest: null }),
   setEnvironmentProfile: (environmentProfile) => set({ environmentProfile }),
   setResultsRevealed: (resultsRevealed) => set({ resultsRevealed }),
-  setLastRunOutput: (lastRunOutput) => set({ lastRunOutput }),
+  // A new run invalidates the open debugger session (it points into the old traces).
+  setLastRunOutput: (lastRunOutput) => set({ lastRunOutput, requestDebug: null }),
   tracedRequestIds: [],
   // Starting/clearing a trace always resets playback to playing.
   setTracedRequestIds: (tracedRequestIds) => set({ tracedRequestIds, tracePaused: false }),
@@ -1948,9 +2131,18 @@ const useStore = create<RFState>((set, get) => ({
   setTracePaused: (tracePaused) => set({ tracePaused }),
   traceSpeed: 'slow',
   setTraceSpeed: (traceSpeed) => set({ traceSpeed }),
+  requestDebug: null,
+  setRequestDebug: (requestDebug) => set({ requestDebug }),
   requestViewportFit: () =>
     set((state) => ({
       viewportFitVersion: state.viewportFitVersion + 1
+    })),
+  requestViewportFocus: (nodeIds) =>
+    set((state) => ({
+      viewportFocusRequest: {
+        nodeIds,
+        version: (state.viewportFocusRequest?.version ?? 0) + 1
+      }
     })),
   setPendingNodePlacement: (pendingNodePlacement) => set({ pendingNodePlacement }),
   setAnnotations: (annotations) =>

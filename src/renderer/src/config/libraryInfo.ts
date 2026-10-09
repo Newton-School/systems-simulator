@@ -24,7 +24,8 @@ const INFO_BY_ID: Record<string, LibraryItemInfo> = {
     config: ['workload pattern', 'base RPS', 'request size']
   },
   'output-sink': {
-    represents: 'The final endpoint where a request flow ends after passing through the system.',
+    represents:
+      'The final endpoint where a request flow ends. Simulated as a fast acknowledging queue (about 1 ms per request) so it does not become the bottleneck - use External Service for a slow third-party dependency.',
     realWorld: 'Webhook receiver, external sink, or final consumer.',
     config: ['label', 'processing latency', 'SLO']
   },
@@ -295,6 +296,17 @@ const INFO_BY_ID: Record<string, LibraryItemInfo> = {
     represents: 'Stores context or memories that agents can retrieve across tasks and sessions.',
     realWorld: 'Vector memory, Redis memory, knowledge store.',
     config: ['retrieval latency', 'memory size', 'TTL']
+  },
+  'kubernetes-cluster': {
+    represents:
+      'A pool of worker machines that workload replicas (pods) are bin-packed onto by vCPU and RAM. Replicas that fit nowhere stay pending.',
+    realWorld: 'Kubernetes (EKS, GKE, AKS), Nomad, ECS on EC2.',
+    config: [
+      'machine type and count',
+      'placement strategy',
+      'pod startup',
+      'failure eviction delay'
+    ]
   },
   'agent-orchestrator': {
     represents: 'Coordinates multi-step agent work by planning, delegating, and tracking progress.',

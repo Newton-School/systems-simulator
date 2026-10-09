@@ -3,7 +3,7 @@
   "nodes": [
     {
       "id": "client",
-      "type": "serviceNode",
+      "type": "standardNode",
       "position": {
         "x": 1206.5045225315553,
         "y": -435.0376884128205
@@ -14,7 +14,7 @@
         "componentType": "api-endpoint",
         "structuralRole": "source",
         "profile": "source",
-        "rendererType": "serviceNode",
+        "rendererType": "standardNode",
         "label": "Client",
         "subLabel": "Browser / Mobile",
         "iconKey": "monitor",
@@ -46,7 +46,7 @@
     },
     {
       "id": "sidecar",
-      "type": "computeNode",
+      "type": "saturationNode",
       "position": {
         "x": 868.496180860711,
         "y": -170.53477385782563
@@ -57,7 +57,7 @@
         "componentType": "sidecar",
         "structuralRole": "processor",
         "profile": "compute-service",
-        "rendererType": "computeNode",
+        "rendererType": "saturationNode",
         "label": "Service Mesh Sidecar",
         "subLabel": "Local Data Plane",
         "iconKey": "SIDECAR",
@@ -96,7 +96,7 @@
     },
     {
       "id": "payment",
-      "type": "computeNode",
+      "type": "saturationNode",
       "position": {
         "x": 526.6823115559862,
         "y": 25.522211053552155
@@ -107,7 +107,7 @@
         "componentType": "microservice",
         "structuralRole": "processor",
         "profile": "compute-service",
-        "rendererType": "computeNode",
+        "rendererType": "saturationNode",
         "label": "Failing Payment Service",
         "subLabel": "Long-running Process",
         "iconKey": "SERVER",

@@ -149,7 +149,7 @@ export function parseQuestionAuthoringExportBundle(input: unknown): QuestionAuth
     input.artifact !== QUESTION_AUTHORING_EXPORT_BUNDLE_ARTIFACT ||
     input.artifactVersion !== QUESTION_AUTHORING_EXPORT_BUNDLE_VERSION
   ) {
-    throw new Error('Expected a DSDS Question Studio export bundle 1.0.')
+    throw new Error('Expected a System Design Simulator Question Studio export bundle 1.0.')
   }
 
   const project = parseQuestionAuthoringProject(input.authoringProject)

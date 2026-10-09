@@ -9,6 +9,7 @@ import {
 import { evaluateInvariantViolations } from './analysis/invariants'
 import { detectSinglePointsOfFailure } from './analysis/singlePointOfFailure'
 import { replayEventStream } from './analysis/replay'
+import { CausalGraphRecorder } from './analysis/causalGraph'
 import {
   AdmissionDecision,
   AdmissionDecisionStatus,
@@ -54,7 +55,22 @@ import {
   type ResolvedStopCondition,
   type StopReason
 } from './core/stopCondition'
-import { ComponentNode, EdgeDefinition, EventScheduler, TopologyJSON } from './core/types'
+import {
+  ComponentNode,
+  EdgeDefinition,
+  EventScheduler,
+  getInstanceCount,
+  TopologyJSON
+} from './core/types'
+import { INSTANCE_CATALOG } from './catalog/instanceCatalog'
+import { getResourceDefaults } from './catalog/resourceDefaults'
+import { ClusterScheduler, type ClusterProjection, type PodStart } from './cluster/clusterScheduler'
+import { CHANGE_STREAM_NODE_META, ORDERING_LANE_META, orderingLaneOf } from './traits/changeStream'
+import {
+  readClusterConfig,
+  resolveScheduledCluster,
+  scheduledReadyStateKey
+} from './traits/scheduler'
 import {
   getPathTypeLatencyProfile,
   getProtocolLatencyOverheadMs,
@@ -64,6 +80,13 @@ import {
 import { MetricsCollector } from './metrics'
 import { classifyRejectionCause } from './metrics/windowedLatencyAggregator'
 import { GeoLatencyResolver } from './network/geoLatencyResolver'
+import {
+  faultDomainMemberIds,
+  faultDomainRef,
+  findFaultDomain,
+  readFaultDomainRef,
+  type FaultDomainRef
+} from './core/faultDomains'
 import { GGcKNode } from './nodes/GGcKNode'
 import { deriveNodeConcurrency } from './nodes/resourceDerivation'
 import {
@@ -72,11 +95,21 @@ import {
   NodeFailureSpec,
   parseFailureSpec
 } from './nodes/failure'
+import {
+  CACHE_FLUSH_FAULT_TYPE,
+  DEFAULT_CACHE_FLUSH_REWARM_MS,
+  scheduleCacheFlush
+} from './traits/cache'
 import { RoutingTable, type ResolveRoute } from './routing'
 import { MinHeap } from './scheduler/min-heap'
 import { Distributions } from './stochastic/distribution'
 import { createRandom } from './stochastic/random'
-import { RequestTracer } from './tracer'
+import {
+  RequestTracer,
+  type RequestAdmissionOutcome,
+  type RequestAdmissionStage,
+  type TracedNodeState
+} from './tracer'
 import {
   attachCircuitBreakerTracking,
   clearCircuitBreakerTracking,
@@ -102,11 +135,14 @@ import {
   type ProbeState
 } from './traits/healthProber'
 import { resolveTraits } from './traits/resolveTraits'
+import { buildConsistencyReport } from './traits/consistencyModel'
 import { computeRetryDelayMs, readRetryBackoffConfig } from './traits/retryBackoff'
 import { ReplicaCluster, ReplicatedLog } from './semantics/v2StateMachines'
 import {
   SERVICE_TIME_DISTRIBUTION_OVERRIDE_KEY,
-  SERVICE_TIME_LATENCY_PENALTY_MS_KEY
+  SERVICE_TIME_LATENCY_PENALTY_MS_KEY,
+  SERVICE_TIME_WAIT_APPLIED_MS_KEY,
+  SERVICE_TIME_WAIT_UNTIL_US_KEY
 } from './traits/serviceTimeOverride'
 import {
   createReplicationCluster,
@@ -129,6 +165,57 @@ import type {
   TraitStateStore
 } from './traits/types'
 import { WorkloadGenerator } from './workload'
+import {
+  LinkSerializer,
+  transmissionTimeMs,
+  type EdgeLatencyBreakdownSample
+} from './network/linkTransmission'
+import {
+  EdgeConnectionPools,
+  resolveEdgeConnection,
+  type ConnectionLease,
+  type ResolvedConnectionConfig
+} from './network/connectionPool'
+import {
+  EdgeBatchAccumulator,
+  resolveEdgeBatching,
+  type OpenEdgeBatch,
+  type ResolvedEdgeBatching
+} from './network/edgeBatching'
+
+/** A request waiting at the source for a free connection stream. */
+interface ConnectionWaiter {
+  request: Request
+  edge: EdgeDefinition
+  targetNodeId: string
+  edgePhase: RequestEdgePhase
+  enqueuedAtUs: bigint
+  poolId: string
+  ephemeral: boolean
+}
+
+/** A connection stream a request holds (until delivery, or until its response). */
+interface HeldConnectionLease {
+  lease: ConnectionLease
+  edgeId: string
+  config: ResolvedConnectionConfig
+  ephemeral: boolean
+}
+
+/** A record waiting in a Kafka edge's open producer batch. */
+interface BatchedRecord {
+  request: Request
+  targetNodeId: string
+  edgePhase: RequestEdgePhase
+  enqueuedAtUs: bigint
+}
+
+/** A request parked behind an in-flight leader by request collapsing. */
+interface ParkedFollower {
+  request: Request
+  nodeId: string
+  parkedAt: bigint
+}
 
 interface SecurityPolicyConfig {
   blockRate: number
@@ -162,6 +249,24 @@ function affinityKeyOf(request: Request): string | undefined {
   return undefined
 }
 
+/** Scalar fields of a trait payload, for the debugger (counters and nested data dropped). */
+function scalarTraitDetail(
+  payload: Record<string, unknown>
+): Record<string, string | number | boolean> {
+  const detail: Record<string, string | number | boolean> = {}
+  for (const [key, value] of Object.entries(payload)) {
+    if (key === 'decision' || key === 'reason' || key === 'metricCounters') continue
+    if (typeof value === 'string' || typeof value === 'boolean') {
+      detail[key] = value
+    } else if (typeof value === 'number' && Number.isFinite(value)) {
+      detail[key] = value
+    } else if (typeof value === 'bigint') {
+      detail[key] = value.toString()
+    }
+  }
+  return detail
+}
+
 export class SimulationEngine {
   onProgress?: (percent: number, eventsProcessed: number) => void
   onSnapshot?: (snapshot: TimeSeriesSnapshot) => void
@@ -170,6 +275,7 @@ export class SimulationEngine {
   onEdgeFlowEvent?: (event: EdgeFlowEvent) => void
 
   private readonly eventQueue = new MinHeap<SimulationEvent>()
+  private readonly causalGraphRecorder = new CausalGraphRecorder()
   private readonly eventRecorder = new EventStreamRecorder({
     maxRetainedEvents: DEFAULT_MAX_RETAINED_EVENT_STREAM_EVENTS,
     onRecord: (record) => this.handleRecordedCanonicalEvent(record)
@@ -196,9 +302,36 @@ export class SimulationEngine {
   /** Run-scoped state shared across all nodes (see TraitContext.sharedState). */
   private readonly sharedTraitState = new Map<string, unknown>()
   private readonly activeTransfersByEdgeId = new Map<string, number>()
+  private readonly linkSerializer = new LinkSerializer()
+  /** Connection model (edge.connection): pools, held streams, resolved config. */
+  private readonly connectionPools = new EdgeConnectionPools<ConnectionWaiter>()
+  private readonly connectionLeasesByRequestId = new Map<string, HeldConnectionLease[]>()
+  private readonly edgeConnectionById = new Map<string, ResolvedConnectionConfig | null>()
+  /** Kafka producer batching (edge.batching): open batches and in-flight batch slots. */
+  private readonly edgeBatches = new EdgeBatchAccumulator<BatchedRecord>()
+  private readonly edgeBatchingById = new Map<string, ResolvedEdgeBatching | null>()
+  /** Records of a sent batch still to leave the edge; the batch's slot frees at zero. */
+  private readonly batchRecordsInFlight = new Map<string, number>()
   private readonly workload?: WorkloadGenerator
 
   private readonly requestById = new Map<string, Request>()
+  /**
+   * Request collapsing (single-flight): followers parked at a node behind an
+   * in-flight leader request, keyed by the leader's request id. A parked
+   * follower holds no worker or queue slot; it is resolved when the leader goes
+   * terminal (see resolveParkedFollowers) or times out on its own deadline.
+   */
+  private readonly parkedFollowersByLeader = new Map<string, ParkedFollower[]>()
+  /** Cluster bin-packing (scheduler trait): one scheduler per cluster node. */
+  private readonly clusters = new Map<string, ClusterScheduler>()
+  private readonly clusterIdByWorkload = new Map<string, string>()
+  private readonly failedMachinesByCluster = new Map<string, number[]>()
+  /** Ordered change consumption: the delivery holding each lane, and those waiting behind it. */
+  private readonly orderingLaneHolder = new Map<string, string>()
+  private readonly orderingLaneWaiting = new Map<
+    string,
+    Array<{ request: Request; nodeId: string; heldAt: bigint }>
+  >()
   private readonly terminalStatusByRequestId = new Map<string, bigint>()
   private readonly terminalTombstoneOrder: Array<{ requestId: string; terminalAtUs: bigint }> = []
   private terminalTombstoneHead = 0
@@ -217,6 +350,8 @@ export class SimulationEngine {
   private stopReason: StopReason = 'duration'
   /** Sim time (µs) the run was aborted at, when saturation halted it. */
   private stoppedAtUs: bigint | null = null
+  /** Sim time (µs) a driver stopped the run at before its configured end (user stop). */
+  private endedEarlyAtUs: bigint | null = null
 
   private clock = 0n
   private lastSnapshotAt = -1n
@@ -235,10 +370,19 @@ export class SimulationEngine {
     mode: string
     startUs: bigint
     endUs: bigint | null
+    faultDomain?: FaultDomainRef
   }> = []
+  /**
+   * Fault domains (Region / AZ / Subnet faults) currently holding each node
+   * down. A node stays failed until every domain holding it has recovered, and
+   * a node-level recovery does not lift a domain outage.
+   */
+  private readonly domainHoldsByNodeId = new Map<string, Set<string>>()
   private debugTarget: 'all' | string | null = null
   private forcedTraceRequestId: string | null = null
   private readonly debugEvents: DebugEvent[] = []
+  /** Name of the beforeArrival trait that returned the last non-continue decision. */
+  private lastDecidingArrivalTrait: string | null = null
 
   constructor(
     private readonly topology: TopologyJSON,
@@ -287,6 +431,16 @@ export class SimulationEngine {
         workers: derived.effectiveC,
         capacity: derived.effectiveK
       })
+      if (derived.heldConnections) {
+        // Steady-state held connections: held for the whole run, the overflow
+        // refused once (persistentConnFanout).
+        this.metrics.recordNodeTraitCounters(node.id, {
+          connectionsHeld: derived.heldConnections.held,
+          ...(derived.heldConnections.refused > 0
+            ? { connectionsRefused: derived.heldConnections.refused }
+            : {})
+        })
+      }
 
       const nodeErrorRate = this.readNodeErrorRate(normalized)
       if (nodeErrorRate !== null && nodeErrorRate > 0) {
@@ -349,6 +503,7 @@ export class SimulationEngine {
     }
 
     this.scheduleInitialStreamConsumerRebalances(scheduler)
+    this.initializeClusterScheduling(scheduler)
 
     if (topology.workload) {
       this.workload = new WorkloadGenerator(topology.workload, rng, scheduler, {
@@ -369,14 +524,29 @@ export class SimulationEngine {
    *   { atMs, durationMs?, mode?, inFlightPolicy?, recoveryPolicy?, degradation? }
    * A `fixed`-duration fault recovers after `durationMs`; `permanent` never does.
    * An unspecified mode defaults to the realistic silent dead server (blackhole).
+   * A `cache-flush` fault is not a failure: it empties a cache node at `atMs`
+   * (see `scheduleCacheFlush` in traits/cache.ts for how each hit model reacts).
    */
   private scheduleConfiguredFaults(scheduler: EventScheduler): void {
     for (const fault of this.topology.faults ?? []) {
       if (!this.nodes.has(fault.targetId)) {
+        this.scheduleFaultDomainFault(scheduler, fault)
         continue
       }
       const params = (fault.params ?? {}) as Record<string, unknown>
       const atMs = typeof params.atMs === 'number' && params.atMs >= 0 ? params.atMs : 0
+      if (fault.faultType === CACHE_FLUSH_FAULT_TYPE) {
+        // Not a node failure: the cache keeps serving but loses its contents.
+        const durationMs =
+          typeof params.durationMs === 'number' && params.durationMs > 0
+            ? params.durationMs
+            : DEFAULT_CACHE_FLUSH_REWARM_MS
+        scheduleCacheFlush(this.getTraitStateStore(fault.targetId), {
+          atUs: msToMicro(atMs),
+          untilUs: msToMicro(atMs + durationMs)
+        })
+        continue
+      }
       const spec = parseFailureSpec(params) ?? DEFAULT_CHAOS_FAILURE_SPEC
 
       scheduler.schedule(
@@ -387,6 +557,52 @@ export class SimulationEngine {
       if (fault.duration !== 'permanent' && durationMs > 0) {
         scheduler.schedule(
           createEvent('node-recovery', fault.targetId, '', {}, msToMicro(atMs + durationMs))
+        )
+      }
+    }
+  }
+
+  /**
+   * A fault whose target is a Region / AZ / Subnet location fails every node
+   * placed inside it (see core/faultDomains.ts) with the same spec and window,
+   * through the ordinary node-failure / node-recovery events. The events carry
+   * the domain so results can say which outage took each node down. A location
+   * with no members schedules nothing (the validator warns about it); a cache
+   * flush is per cache and does not apply to a location.
+   */
+  private scheduleFaultDomainFault(
+    scheduler: EventScheduler,
+    fault: NonNullable<TopologyJSON['faults']>[number]
+  ): void {
+    if (fault.faultType === CACHE_FLUSH_FAULT_TYPE) return
+    const location = findFaultDomain(this.topology, fault.targetId)
+    if (!location) return
+    const domain = faultDomainRef(location)
+    const params = (fault.params ?? {}) as Record<string, unknown>
+    const atMs = typeof params.atMs === 'number' && params.atMs >= 0 ? params.atMs : 0
+    const spec = parseFailureSpec(params) ?? DEFAULT_CHAOS_FAILURE_SPEC
+    const durationMs = typeof params.durationMs === 'number' ? params.durationMs : 0
+    const recovers = fault.duration !== 'permanent' && durationMs > 0
+    for (const nodeId of faultDomainMemberIds(this.topology, location.id)) {
+      if (!this.nodes.has(nodeId)) continue
+      scheduler.schedule(
+        createEvent(
+          'node-failure',
+          nodeId,
+          '',
+          { failureSpec: spec, faultDomain: domain },
+          msToMicro(atMs)
+        )
+      )
+      if (recovers) {
+        scheduler.schedule(
+          createEvent(
+            'node-recovery',
+            nodeId,
+            '',
+            { faultDomain: domain },
+            msToMicro(atMs + durationMs)
+          )
         )
       }
     }
@@ -506,17 +722,62 @@ export class SimulationEngine {
   }
 
   step(count: number): void {
-    if (count <= 0) {
+    this.stepBounded(count)
+  }
+
+  /**
+   * Process up to `maxEvents` events whose timestamp is at or before
+   * `simTimeMs`. This is what paced (playback-speed) drivers use to advance the
+   * run to a wall-clock-derived target without overshooting it. Like `step`, a
+   * no-op once the run has halted.
+   */
+  stepUntil(simTimeMs: number, maxEvents: number): void {
+    if (!Number.isFinite(simTimeMs)) {
+      this.stepBounded(maxEvents)
+      return
+    }
+    this.stepBounded(maxEvents, msToMicro(Math.max(0, simTimeMs)))
+  }
+
+  private stepBounded(count: number, untilUs?: bigint): void {
+    if (count <= 0 || this.isHalted()) {
       return
     }
     const wasPaused = this.paused
     this.running = true
     this.paused = false
-    this.processEvents(count)
+    this.processEvents(count, untilUs)
     this.paused = wasPaused
   }
 
+  /**
+   * True once the saturation guard has halted the run. The halt is sticky: a
+   * chunked driver calling `step()` afterwards must not resume past it (that
+   * would silently turn an early abort into a full-length run), so `step` and
+   * `stepUntil` become no-ops and `hasPendingEvents` reports false.
+   */
+  isHalted(): boolean {
+    return this.stopReason === 'saturation'
+  }
+
+  /** Current simulated time in ms (the timestamp of the last processed event). */
+  getClockMs(): number {
+    return microToMs(this.clock)
+  }
+
+  /** Timestamp (ms) of the next event inside the run window, or null when none. */
+  peekNextEventTimeMs(): number | null {
+    if (!this.hasPendingEvents()) {
+      return null
+    }
+    const next = this.eventQueue.peek()
+    return next ? microToMs(next.timestamp) : null
+  }
+
   hasPendingEvents(): boolean {
+    if (this.isHalted()) {
+      return false
+    }
     if (this.clock >= this.simulationDurationUs) {
       return false
     }
@@ -526,6 +787,19 @@ export class SimulationEngine {
 
   getResults(): SimulationOutput {
     return this.generateResults()
+  }
+
+  /**
+   * Record that a driver stopped the run before its configured end (the user
+   * pressed Stop). Results then measure rates and utilization over the time the
+   * run actually covered instead of the full configured duration.
+   */
+  markStoppedEarly(): void {
+    // A finished run can end with the clock short of the window (no events left),
+    // so only a run that still had work pending counts as stopped early.
+    if (this.stoppedAtUs === null && this.hasPendingEvents()) {
+      this.endedEarlyAtUs = this.clock
+    }
   }
 
   captureSnapshot(): TimeSeriesSnapshot {
@@ -538,6 +812,15 @@ export class SimulationEngine {
     return this.eventsProcessed
   }
 
+  /**
+   * Why the run ended (or will end). Chunked drivers (`step`) check this for
+   * `'saturation'`: the early-abort guard halts inside `processEvents`, but a
+   * later `step()` call would otherwise resume past the halt.
+   */
+  getStopReason(): StopReason {
+    return this.stopReason
+  }
+
   getEventStream(): CanonicalEventRecord[] {
     return this.eventRecorder.getEvents()
   }
@@ -547,6 +830,7 @@ export class SimulationEngine {
   }
 
   private recordCanonicalEvent(input: AppendEventInput): CanonicalEventRecord {
+    this.causalGraphRecorder.observe(input)
     return this.eventRecorder.append(input)
   }
 
@@ -584,6 +868,62 @@ export class SimulationEngine {
     })
   }
 
+  /** Live G/G/c/K occupancy of a node, for a traced request's admission record. */
+  private captureTracedNodeState(nodeId: string): TracedNodeState | null {
+    const node = this.nodes.get(nodeId)
+    if (!node) {
+      return null
+    }
+
+    const state = node.getState()
+    return {
+      status: state.status,
+      activeWorkers: state.activeWorkers,
+      queueLength: state.queueLength,
+      heldCount: Math.max(0, state.totalInSystem - state.activeWorkers - state.queueLength),
+      totalInSystem: state.totalInSystem,
+      workers: node.getMaxWorkers(),
+      capacity: node.getMaxCapacity()
+    }
+  }
+
+  /**
+   * Records one admission decision for a traced request (no-op otherwise). The
+   * state defaults to the node's occupancy now; callers that change occupancy
+   * before recording pass the pre-decision state explicitly.
+   */
+  private traceAdmission(
+    request: Request,
+    nodeId: string,
+    stage: RequestAdmissionStage,
+    outcome: RequestAdmissionOutcome,
+    extra: {
+      reasonCode?: string
+      traitName?: string
+      state?: TracedNodeState | null
+      policy?: Record<string, number>
+    } = {}
+  ): void {
+    if (!this.tracer.shouldTrace(request.id)) {
+      return
+    }
+
+    const node = this.nodes.get(nodeId)
+    this.tracer.recordAdmission(request.id, {
+      nodeId,
+      atUs: this.clock,
+      stage,
+      outcome,
+      reasonCode: extra.reasonCode,
+      traitName: extra.traitName,
+      state: extra.state !== undefined ? extra.state : this.captureTracedNodeState(nodeId),
+      admissionBoundBy: node?.getAdmissionBoundBy(),
+      concurrencyProvenance: node?.concurrencyProvenance || undefined,
+      failureMode: node?.getFailureMode() ?? undefined,
+      policy: extra.policy
+    })
+  }
+
   private createNodeSnapshot(nodeId: string): NodeSnapshot | undefined {
     const node = this.nodes.get(nodeId)
     if (!node) {
@@ -605,7 +945,7 @@ export class SimulationEngine {
     }
   }
 
-  private processEvents(maxEvents?: number): void {
+  private processEvents(maxEvents?: number, untilUs?: bigint): void {
     let processedInCall = 0
 
     while (this.running && !this.paused && !this.eventQueue.isEmpty) {
@@ -615,6 +955,11 @@ export class SimulationEngine {
 
       const nextEvent = this.eventQueue.peek()
       if (!nextEvent) {
+        break
+      }
+
+      // Paced drivers: stop at the wall-clock-derived target without ending the run.
+      if (untilUs !== undefined && nextEvent.timestamp > untilUs) {
         break
       }
 
@@ -710,6 +1055,12 @@ export class SimulationEngine {
         break
       case 'broker-recovery':
         this.handleBrokerRecovery(event)
+        break
+      case 'edge-batch-flush':
+        this.handleEdgeBatchFlush(event)
+        break
+      case 'cluster-schedule':
+        this.handleClusterSchedule(event)
         break
       default:
         // Other event types are integrated in later tickets.
@@ -842,7 +1193,8 @@ export class SimulationEngine {
       })
     }
 
-    this.releaseEdgeTransfer(event.data.edgeId)
+    this.releaseEdgeSlotForEvent(event)
+    this.releaseConnectionLeases(request.id, event.data.edgeId, 'delivered')
     this.appendNodeToPath(request, event.nodeId)
     const arrivedRegionId = this.geoLatency.servingRegionId(event.nodeId)
     request.servingRegionId = arrivedRegionId ?? request.servingRegionId
@@ -862,16 +1214,46 @@ export class SimulationEngine {
       return
     }
 
-    if (this.applySecurityPolicy(event.nodeId, request)) {
+    if (this.holdForOrderingLane(event.nodeId, request)) {
       return
     }
 
-    const arrivalTraitDecision = this.runBeforeArrivalTraits(event.nodeId, request)
+    this.continueArrival(node, event.nodeId, request)
+  }
+
+  /**
+   * Arrival processing after a request is at the node and counted: security
+   * policy, arrival traits, then the queue. Split out so a change delivery that
+   * waited for its ordering lane resumes exactly here when released.
+   */
+  private continueArrival(node: GGcKNode, nodeId: string, request: Request): void {
+    if (this.applySecurityPolicy(nodeId, request)) {
+      return
+    }
+
+    const arrivalTraitDecision = this.runBeforeArrivalTraits(nodeId, request)
+    if (arrivalTraitDecision.action !== 'continue') {
+      this.traceAdmission(
+        request,
+        nodeId,
+        'trait',
+        arrivalTraitDecision.action === 'rejected'
+          ? 'rejected'
+          : arrivalTraitDecision.action === 'parked'
+            ? 'parked'
+            : 'handled',
+        {
+          reasonCode:
+            arrivalTraitDecision.action === 'rejected' ? arrivalTraitDecision.reason : undefined,
+          traitName: this.lastDecidingArrivalTrait ?? undefined
+        }
+      )
+    }
     if (arrivalTraitDecision.action === 'rejected') {
       this.eventQueue.insert(
         createEvent(
           'request-rejected',
-          event.nodeId,
+          nodeId,
           request.id,
           {
             request,
@@ -884,16 +1266,101 @@ export class SimulationEngine {
       return
     }
 
+    if (arrivalTraitDecision.action === 'parked') {
+      this.parkFollower(nodeId, request, arrivalTraitDecision.leaderRequestId)
+      return
+    }
+
     if (arrivalTraitDecision.action === 'handled') {
-      this.completeRequestViaTrait(event.nodeId, request, arrivalTraitDecision)
+      this.completeRequestViaTrait(nodeId, request, arrivalTraitDecision)
 
       if (arrivalTraitDecision.payload?.forkConsumerRequest === true) {
-        this.forkConsumerRequest(node, event.nodeId, request)
+        this.forkConsumerRequest(node, nodeId, request)
       }
       return
     }
 
-    this.admitToNodeQueue(node, event.nodeId, request)
+    this.admitToNodeQueue(node, nodeId, request)
+  }
+
+  /**
+   * Ordered change consumption (change-stream trait). A change delivery from a
+   * stream with `consumerOrdering` per-partition / per-key waits at the consumer
+   * while an earlier delivery in its lane (same partition, or same entity) is
+   * still in flight, and is released when that one finishes. Returns true when
+   * the request was held.
+   */
+  private holdForOrderingLane(nodeId: string, request: Request): boolean {
+    const streamNodeId = request.metadata[CHANGE_STREAM_NODE_META]
+    if (typeof streamNodeId !== 'string') return false
+    if (request.path[request.path.length - 2] !== streamNodeId) return false
+    const lane = orderingLaneOf(request, nodeId)
+    if (!lane) return false
+    const holder = this.orderingLaneHolder.get(lane)
+    if (holder === undefined || holder === request.id) {
+      this.orderingLaneHolder.set(lane, request.id)
+      request.metadata[ORDERING_LANE_META] = lane
+      return false
+    }
+    const waiting = this.orderingLaneWaiting.get(lane) ?? []
+    waiting.push({ request, nodeId, heldAt: this.clock })
+    this.orderingLaneWaiting.set(lane, waiting)
+    this.metrics.recordNodeTraitCounters(streamNodeId, { changeEventsWaitedForOrder: 1 })
+    this.recordRequestState(request, 'queued', {
+      nodeId,
+      timestampUs: this.clock,
+      source: 'trait',
+      detail: `Waiting for the earlier change in ordering lane ${lane} to finish.`
+    })
+    this.eventQueue.insert(
+      createEvent(
+        'request-timeout',
+        nodeId,
+        request.id,
+        {
+          request,
+          nodeArrivalTime: this.clock,
+          scope: 'ordering-lane',
+          lane,
+          timeoutSeq: request.timeoutSeq ?? 0
+        },
+        request.deadline > this.clock ? request.deadline : this.clock
+      )
+    )
+    return true
+  }
+
+  /** The lane's in-flight change finished: hand the lane to the next waiting delivery. */
+  private releaseOrderingLane(request: Request): void {
+    const lane = request.metadata[ORDERING_LANE_META]
+    if (typeof lane !== 'string' || this.orderingLaneHolder.get(lane) !== request.id) return
+    this.orderingLaneHolder.delete(lane)
+    const waiting = this.orderingLaneWaiting.get(lane)
+    while (waiting && waiting.length > 0) {
+      const next = waiting.shift()!
+      if (next.request.metadata.__terminal || this.terminalStatusByRequestId.has(next.request.id)) {
+        continue
+      }
+      const node = this.nodes.get(next.nodeId)
+      if (!node) continue
+      this.orderingLaneHolder.set(lane, next.request.id)
+      next.request.metadata[ORDERING_LANE_META] = lane
+      if (waiting.length === 0) this.orderingLaneWaiting.delete(lane)
+      this.continueArrival(node, next.nodeId, next.request)
+      return
+    }
+    this.orderingLaneWaiting.delete(lane)
+  }
+
+  /** A held delivery's deadline passed while it waited; returns false when it was already released. */
+  private dropFromOrderingLane(lane: string, requestId: string): boolean {
+    const waiting = this.orderingLaneWaiting.get(lane)
+    if (!waiting) return false
+    const index = waiting.findIndex((entry) => entry.request.id === requestId)
+    if (index < 0) return false
+    waiting.splice(index, 1)
+    if (waiting.length === 0) this.orderingLaneWaiting.delete(lane)
+    return true
   }
 
   private completeRequestViaTrait(
@@ -934,13 +1401,17 @@ export class SimulationEngine {
     if (servedFromCache) {
       request.metadata.servedFromCache = true
     }
-    request.spans.push({
-      nodeId,
-      arrivalTime: this.clock,
-      queueWait: 0n,
-      serviceTime: decision.latencyUs,
-      departureTime: completionTime
-    })
+    // A trait that discards the request (a dropped telemetry event) ends it here
+    // without serving it, so it must not count as work this node processed.
+    if (decision.payload?.notServed !== true) {
+      request.spans.push({
+        nodeId,
+        arrivalTime: this.clock,
+        queueWait: 0n,
+        serviceTime: decision.latencyUs,
+        departureTime: completionTime
+      })
+    }
     this.markNodePhaseDeparture(request, nodeId, completionTime)
     this.eventQueue.insert(
       createEvent(
@@ -951,6 +1422,142 @@ export class SimulationEngine {
         completionTime
       )
     )
+  }
+
+  /**
+   * Parks a follower behind an in-flight leader (request collapsing). The
+   * follower is not admitted to the node's queue, so it consumes no worker or
+   * queue slot and makes no downstream call. Its own deadline still applies:
+   * if the leader has not returned by then, the follower times out here.
+   */
+  private parkFollower(nodeId: string, request: Request, leaderRequestId: string): void {
+    const followers = this.parkedFollowersByLeader.get(leaderRequestId) ?? []
+    followers.push({ request, nodeId, parkedAt: this.clock })
+    this.parkedFollowersByLeader.set(leaderRequestId, followers)
+    this.recordRequestState(request, 'queued', {
+      nodeId,
+      timestampUs: this.clock,
+      source: 'trait',
+      detail: `Collapsed: waiting for in-flight miss ${leaderRequestId} instead of calling downstream.`
+    })
+    this.eventQueue.insert(
+      createEvent(
+        'request-timeout',
+        nodeId,
+        request.id,
+        {
+          request,
+          nodeArrivalTime: this.clock,
+          scope: 'collapse',
+          collapseLeaderId: leaderRequestId,
+          timeoutSeq: request.timeoutSeq ?? 0
+        },
+        request.deadline
+      )
+    )
+  }
+
+  private unparkFollower(leaderRequestId: string, requestId: string): void {
+    const followers = this.parkedFollowersByLeader.get(leaderRequestId)
+    if (!followers) {
+      return
+    }
+    const remaining = followers.filter((follower) => follower.request.id !== requestId)
+    if (remaining.length === 0) {
+      this.parkedFollowersByLeader.delete(leaderRequestId)
+    } else {
+      this.parkedFollowersByLeader.set(leaderRequestId, remaining)
+    }
+  }
+
+  /**
+   * Resolves every follower parked behind `leader` once the leader is terminal.
+   * Success: each follower completes now, at the node it parked on, with its
+   * wait recorded as queue time (so its end-to-end latency is the leader's
+   * remaining time plus its own path). Failure: each follower fails with the
+   * leader's cause (single-flight shares one result, error included). A leader
+   * timeout surfaces as a follower timeout with reason `collapsed_leader_timeout`.
+   */
+  private resolveParkedFollowers(
+    leader: Request,
+    status: TerminalRequestStatus,
+    reasonCode?: string | null
+  ): void {
+    const followers = this.parkedFollowersByLeader.get(leader.id)
+    if (!followers) {
+      return
+    }
+    this.parkedFollowersByLeader.delete(leader.id)
+    const servedByNode = new Map<string, number>()
+    const failedByNode = new Map<string, number>()
+    for (const { request, nodeId, parkedAt } of followers) {
+      if (request.metadata.__terminal || this.terminalStatusByRequestId.has(request.id)) {
+        continue
+      }
+      // Supersede the follower's own deadline timeout scheduled at park time.
+      request.timeoutSeq = (request.timeoutSeq ?? 0) + 1
+      if (status === 'success') {
+        request.spans.push({
+          nodeId,
+          arrivalTime: parkedAt,
+          queueWait: this.clock - parkedAt,
+          serviceTime: 0n,
+          departureTime: this.clock
+        })
+        this.markNodePhaseServiceStart(request, nodeId, this.clock)
+        this.markNodePhaseDeparture(request, nodeId, this.clock)
+        this.eventQueue.insert(
+          createEvent(
+            'request-complete',
+            nodeId,
+            request.id,
+            { request, collapsedFollower: true },
+            this.clock
+          )
+        )
+        servedByNode.set(nodeId, (servedByNode.get(nodeId) ?? 0) + 1)
+        continue
+      }
+
+      failedByNode.set(nodeId, (failedByNode.get(nodeId) ?? 0) + 1)
+      if (status === 'timeout') {
+        this.eventQueue.insert(
+          createEvent(
+            'request-timeout',
+            nodeId,
+            request.id,
+            {
+              request,
+              nodeArrivalTime: parkedAt,
+              scope: 'collapse-leader',
+              reason: 'collapsed_leader_timeout',
+              timeoutSeq: request.timeoutSeq
+            },
+            this.clock
+          )
+        )
+        continue
+      }
+      this.eventQueue.insert(
+        createEvent(
+          'request-rejected',
+          nodeId,
+          request.id,
+          {
+            request,
+            reason: reasonCode ?? (status === 'connection_reset' ? 'connection_reset' : 'rejected'),
+            nodeArrivalTime: parkedAt
+          },
+          this.clock
+        )
+      )
+    }
+    for (const [nodeId, count] of servedByNode) {
+      this.metrics.recordNodeTraitCounters(nodeId, { collapsedFollowersServed: count })
+    }
+    for (const [nodeId, count] of failedByNode) {
+      this.metrics.recordNodeTraitCounters(nodeId, { collapsedFollowersFailed: count })
+    }
   }
 
   /**
@@ -967,8 +1574,22 @@ export class SimulationEngine {
   }
 
   private admitToNodeQueue(node: GGcKNode, nodeId: string, request: Request): void {
+    // The debugger's intake lens needs the occupancy the rule compared, i.e.
+    // BEFORE this arrival is counted. Read only for traced requests.
+    const tracedState = this.tracer.shouldTrace(request.id)
+      ? this.captureTracedNodeState(nodeId)
+      : null
     const result = node.handleArrival(request, this.clock)
     const nodeSnapshot = this.createNodeSnapshot(nodeId)
+    if (tracedState) {
+      this.traceAdmission(
+        request,
+        nodeId,
+        'node',
+        result.status === 'processed' ? 'processing' : result.status,
+        { reasonCode: result.status === 'rejected' ? result.reason : undefined, state: tracedState }
+      )
+    }
     if (result.status === 'rejected') {
       this.emitAdmissionDecision(request.id, nodeId, 'rejected', result.reason, nodeSnapshot)
       this.eventQueue.insert(
@@ -1244,9 +1865,31 @@ export class SimulationEngine {
     }
 
     const scope = typeof event.data.scope === 'string' ? event.data.scope : undefined
-    const observationPoint = scope === 'in-flight' ? 'edge' : 'node'
+    const observationPoint = scope === 'in-flight' || scope === 'connection-wait' ? 'edge' : 'node'
+    if (scope === 'connection-wait') {
+      // The request's deadline fired while it waited for a connection stream; a
+      // waiter already handed a connection has moved on, so this is stale.
+      const poolId = typeof event.data.poolId === 'string' ? event.data.poolId : ''
+      if (
+        !this.connectionPools.removeWaiter(poolId, (waiter) => waiter.request.id === request.id)
+      ) {
+        return
+      }
+      this.emitConnectionWaitTimeoutFlow(request, event)
+    }
+    if (scope === 'ordering-lane' && typeof event.data.lane === 'string') {
+      // Still waiting for its ordering lane when the deadline passed; a
+      // delivery already released has moved on, so this event is stale.
+      if (!this.dropFromOrderingLane(event.data.lane, request.id)) {
+        return
+      }
+    }
+    if (scope === 'collapse' && typeof event.data.collapseLeaderId === 'string') {
+      // A parked follower's own deadline fired before its leader returned.
+      this.unparkFollower(event.data.collapseLeaderId, request.id)
+    }
     if (scope === 'in-flight') {
-      this.releaseEdgeTransfer(event.data.edgeId)
+      this.releaseEdgeSlotForEvent(event)
     }
     if (scope === 'node') {
       const cancellation = this.nodes.get(event.nodeId)?.cancelRequest(request.id, this.clock)
@@ -1349,7 +1992,11 @@ export class SimulationEngine {
     if (!request) {
       return
     }
-    this.releaseEdgeTransfer(event.data.edgeId)
+    // Edge rejections (connection cap, edge error rate) happen before the
+    // transfer takes an edge slot, so there is no slot to give back.
+    if (event.data.edgeSlotHeld !== false) {
+      this.releaseEdgeSlotForEvent(event)
+    }
     if (observationPoint === 'node') {
       this.markNodeUnhealthyForReason(event.nodeId, reason)
     }
@@ -1404,6 +2051,12 @@ export class SimulationEngine {
 
   private handleNodeFailure(event: SimulationEvent): void {
     const spec = this.resolveFailureSpec(event, event.nodeId)
+    const faultDomain = readFaultDomainRef(event.data.faultDomain)
+    if (faultDomain) {
+      const holds = this.domainHoldsByNodeId.get(event.nodeId) ?? new Set<string>()
+      holds.add(faultDomain.id)
+      this.domainHoldsByNodeId.set(event.nodeId, holds)
+    }
     const node = this.nodes.get(event.nodeId)
     if (node) {
       const onset = node.fail(spec, this.clock)
@@ -1419,7 +2072,8 @@ export class SimulationEngine {
         componentId: event.nodeId,
         mode: spec.mode,
         startUs: this.clock,
-        endUs: null
+        endUs: null,
+        ...(faultDomain ? { faultDomain } : {})
       })
     }
     this.recordSimulationEvent(event, this.createNodeSnapshot(event.nodeId))
@@ -1431,6 +2085,14 @@ export class SimulationEngine {
   }
 
   private handleNodeRecovery(event: SimulationEvent): void {
+    const holds = this.domainHoldsByNodeId.get(event.nodeId)
+    if (holds && holds.size > 0) {
+      const faultDomain = readFaultDomainRef(event.data.faultDomain)
+      if (faultDomain) holds.delete(faultDomain.id)
+      // Still inside a domain that is down (an overlapping region + zone
+      // outage, or a node-level recovery during a zone outage): stay failed.
+      if (holds.size > 0) return
+    }
     const node = this.nodes.get(event.nodeId)
     if (node) {
       const recovery = node.recover(this.clock)
@@ -1593,7 +2255,8 @@ export class SimulationEngine {
       componentId: w.componentId,
       mode: w.mode,
       startMs: microToMs(w.startUs),
-      endMs: microToMs(w.endUs ?? this.simulationDurationUs)
+      endMs: microToMs(w.endUs ?? this.simulationDurationUs),
+      ...(w.faultDomain ? { faultDomain: { ...w.faultDomain } } : {})
     }))
   }
 
@@ -1878,30 +2541,77 @@ export class SimulationEngine {
     }
   }
 
-  private sampleEdgeLatencyUs(
-    edge: EdgeDefinition,
-    request: Request,
-    activeTransfers: number
-  ): bigint {
-    const latencyDistribution =
+  /**
+   * Sample the per-transfer edge transit (everything except waiting for the
+   * link, which depends on link occupancy and is added by the caller). Returns
+   * the rounded transit in µs plus its component split for the breakdown.
+   */
+  private edgeLatencyDistribution(edge: EdgeDefinition, request: Request) {
+    return (
       this.geoLatency.distributionFor(edge, request) ??
       (edge.latency.derivedFromPathType
         ? getPathTypeLatencyProfile(edge.latency.pathType)
         : edge.latency.distribution)
+    )
+  }
+
+  private sampleEdgeTransit(
+    edge: EdgeDefinition,
+    request: Request,
+    activeTransfers: number,
+    sizeBytes = request.sizeBytes
+  ): { transitUs: bigint; transmissionMs: number; components: EdgeLatencyBreakdownSample } {
+    const latencyDistribution = this.edgeLatencyDistribution(edge, request)
     const propagationMs = Math.max(0, this.distributions.fromConfig(latencyDistribution))
-    const transmissionMs = request.sizeBytes / (edge.bandwidth * 125)
+    // Mbps -> bytes per ms is x125; see network/linkTransmission.ts.
+    const transmissionMs = transmissionTimeMs(sizeBytes, edge.bandwidth)
     // Streaming links reuse an already-open channel, so only a small framing
     // cost remains on each message instead of the full per-request setup cost.
     const protocolOverheadMs =
+      edge.protocolOverheadMs ??
       getProtocolLatencyOverheadMs(edge.protocol) * (edge.mode === 'streaming' ? 0.25 : 1)
     const utilization =
       edge.maxConcurrentRequests > 0
         ? Math.min(0.98, activeTransfers / edge.maxConcurrentRequests)
         : 0
     const delayMultiplier = Math.min(50, 1 / Math.max(0.02, 1 - utilization))
-    const totalLatencyMs =
-      Math.max(0, propagationMs * delayMultiplier) + transmissionMs + protocolOverheadMs
-    return msToMicro(totalLatencyMs)
+    const congestedPropagationMs = Math.max(0, propagationMs * delayMultiplier)
+    const totalLatencyMs = congestedPropagationMs + transmissionMs + protocolOverheadMs
+    return {
+      transitUs: msToMicro(totalLatencyMs),
+      transmissionMs,
+      components: {
+        propagationMs,
+        congestionMs: congestedPropagationMs - propagationMs,
+        transmissionMs,
+        linkQueueMs: 0,
+        protocolOverheadMs,
+        retransmissionMs: 0,
+        connectionWaitMs: 0,
+        handshakeMs: 0,
+        batchWaitMs: 0
+      }
+    }
+  }
+
+  /**
+   * Hold the edge's serializing link for `transmissionMs` (x copies when the
+   * payload is retransmitted). Returns the wait for earlier transfers, rounded
+   * to whole µs, and records link busy time for utilization.
+   */
+  private reserveEdgeLink(edge: EdgeDefinition, transmissionMs: number, copies: number): bigint {
+    const reservation = this.linkSerializer.reserve(
+      edge.id,
+      Number(this.clock),
+      transmissionMs * 1000 * copies
+    )
+    this.metrics.recordEdgeLinkBusy(
+      edge.id,
+      reservation.startUs,
+      reservation.busyUs,
+      Number(this.simulationDurationUs)
+    )
+    return BigInt(Math.round(reservation.queueWaitUs))
   }
 
   private getRequest(event: SimulationEvent, hydrate = true): Request | undefined {
@@ -2262,6 +2972,8 @@ export class SimulationEngine {
     clearCircuitBreakerTracking(request)
     delete request.metadata[SERVICE_TIME_DISTRIBUTION_OVERRIDE_KEY]
     delete request.metadata[SERVICE_TIME_LATENCY_PENALTY_MS_KEY]
+    delete request.metadata[SERVICE_TIME_WAIT_UNTIL_US_KEY]
+    delete request.metadata[SERVICE_TIME_WAIT_APPLIED_MS_KEY]
   }
 
   private resolveRetryOwnerNodeId(
@@ -2342,6 +3054,8 @@ export class SimulationEngine {
     }
 
     this.releaseRequestLockLeases(request)
+    // The failed attempt's error came back over its connections; free them.
+    this.releaseConnectionLeases(request.id)
     this.clearPerAttemptRequestMetadata(request)
     request.retryCount = (request.retryCount ?? 0) + 1
     this.recordRequestState(request, 'retry-scheduled', {
@@ -2517,8 +3231,13 @@ export class SimulationEngine {
     reasonCode?: string | null
   ): void {
     this.resolveTerminalTraitOutcomes(request, status, reasonCode)
+    // The response (or failure) has returned, so held connection streams free.
+    this.releaseConnectionLeases(request.id)
+    this.tracer.setTerminalReason(request.id, reasonCode)
     request.metadata.__terminal = status
+    this.resolveParkedFollowers(request, status, reasonCode)
     this.markTerminalTombstone(request.id)
+    this.releaseOrderingLane(request)
     const createdAtMs = microToMs(request.createdAt)
     const terminalAtMs = microToMs(this.clock)
     const operation = describeRequestOperation(request)
@@ -2580,7 +3299,8 @@ export class SimulationEngine {
           sharedState: this.getSharedTraitStateStore(),
           nodeState: this.nodes.get(nodeId)?.getState(),
           status,
-          reasonCode
+          reasonCode,
+          getNode: (id) => this.nodeDefinitionsById.get(id)
         })
         if (!payload) {
           continue
@@ -2740,12 +3460,22 @@ export class SimulationEngine {
     for (const [nodeId, node] of this.nodes) {
       const state = node.getState()
       this.metrics.recordNodeSnapshot(nodeId, state, this.clock)
+      const areas = node.utilizationAreasAt(this.clock)
+      const limits = this.nodeLimitsById.get(nodeId)
       nodes[nodeId] = {
         queueLength: state.queueLength,
         activeWorkers: state.activeWorkers,
         totalInSystem: state.totalInSystem,
         utilization: state.utilization,
-        status: state.status
+        status: state.status,
+        busyAreaUs: areas.busyAreaUs,
+        capacityAreaUs: areas.capacityAreaUs,
+        completedTotal: node.getTotalCompleted(),
+        workers: limits?.workers ?? state.workerCapacity,
+        capacity:
+          limits?.capacity !== undefined && Number.isFinite(limits.capacity)
+            ? limits.capacity
+            : undefined
       }
     }
 
@@ -2765,8 +3495,13 @@ export class SimulationEngine {
 
     // Close each node's busy-area integral at the run horizon and report it as
     // the single source of truth for utilization (never snapshot-averaged).
+    // A run that ended early (saturation halt or user stop) is measured up to
+    // where it ended, so throughput and utilization aren't diluted by time that
+    // was never simulated.
+    const earlyEndUs = this.stoppedAtUs ?? this.endedEarlyAtUs
     const horizonUs =
-      this.clock < this.simulationDurationUs ? this.simulationDurationUs : this.clock
+      earlyEndUs ??
+      (this.clock < this.simulationDurationUs ? this.simulationDurationUs : this.clock)
     for (const [nodeId, node] of this.nodes) {
       node.finalizeUtilization(horizonUs)
       const workers = this.nodeLimitsById.get(nodeId)?.workers ?? 1
@@ -2792,9 +3527,14 @@ export class SimulationEngine {
       this.metrics,
       this.tracer,
       this.timeSeries,
-      null,
+      this.causalGraphRecorder.build(this.topology.edges),
       [],
-      this.topology.global,
+      earlyEndUs === null
+        ? this.topology.global
+        : {
+            ...this.topology.global,
+            simulationDuration: Math.max(microToMs(earlyEndUs), this.topology.global.warmupDuration)
+          },
       this.eventsProcessed,
       eventStream,
       eventCountsByType,
@@ -2811,9 +3551,18 @@ export class SimulationEngine {
       }
     )
 
+    const consistency = buildConsistencyReport(this.getSharedTraitStateStore())
+    const outputWithConsistency = consistency ? { ...output, consistency } : output
+
     return {
-      ...output,
-      invariantViolations: evaluateInvariantViolations(this.topology.invariants, output),
+      ...outputWithConsistency,
+      ...(this.clusters.size > 0
+        ? { clusterProjection: this.buildClusterProjection(horizonUs) }
+        : {}),
+      invariantViolations: evaluateInvariantViolations(
+        this.topology.invariants,
+        outputWithConsistency
+      ),
       singlePointsOfFailure: detectSinglePointsOfFailure(this.topology),
       stopReason: this.stopReason,
       stoppedAtMs: this.stoppedAtUs !== null ? microToMs(this.stoppedAtUs) : microToMs(this.clock)
@@ -2876,6 +3625,10 @@ export class SimulationEngine {
     if (!policy) return false
 
     if (policy.droppedPackets > 0 && this.distributions.random() < policy.droppedPackets) {
+      this.traceAdmission(request, nodeId, 'security', 'dropped', {
+        reasonCode: 'security_dropped',
+        policy: { blockRate: policy.blockRate, droppedPackets: policy.droppedPackets }
+      })
       const timeoutAt = request.deadline > this.clock ? request.deadline : this.clock
       this.eventQueue.insert(
         createEvent(
@@ -2890,6 +3643,10 @@ export class SimulationEngine {
     }
 
     if (policy.blockRate > 0 && this.distributions.random() < policy.blockRate) {
+      this.traceAdmission(request, nodeId, 'security', 'rejected', {
+        reasonCode: 'security_blocked',
+        policy: { blockRate: policy.blockRate, droppedPackets: policy.droppedPackets }
+      })
       this.eventQueue.insert(
         createEvent(
           'request-rejected',
@@ -3000,7 +3757,13 @@ export class SimulationEngine {
         // A control-loop tick may request an autoscale: resize the node's
         // effective concurrency to the requested instance count.
         if (typeof payload['scaleInstancesTo'] === 'number') {
-          this.applyNodeScale(event.nodeId, payload['scaleInstancesTo'])
+          if (this.clusterIdByWorkload.has(event.nodeId)) {
+            // Replicas on a cluster: the autoscaler only changes the desired
+            // count; capacity follows the pods the cluster can place and start.
+            this.setScheduledReplicas(event.nodeId, payload['scaleInstancesTo'])
+          } else {
+            this.applyNodeScale(event.nodeId, payload['scaleInstancesTo'])
+          }
         }
       }
     }
@@ -3051,6 +3814,277 @@ export class SimulationEngine {
         nodeSnapshot: this.createNodeSnapshot(nodeId)
       })
     }
+  }
+
+  /**
+   * Cluster bin-packing (scheduler trait). Every workload whose `scheduledOn`
+   * names a Kubernetes Cluster node becomes pods on that cluster's machines; at
+   * t=0 the replicas that fit are placed and ready (the run starts in steady
+   * state), the rest stay pending, and each workload's serving capacity is
+   * resized to its ready pods. Configured machine failures and recoveries are
+   * scheduled here.
+   */
+  private initializeClusterScheduling(scheduler: EventScheduler): void {
+    const workloadsByCluster = new Map<string, ComponentNode[]>()
+    for (const node of this.nodeDefinitionsById.values()) {
+      const cluster = resolveScheduledCluster(this.topology, node)
+      if (!cluster || cluster.id === node.id || !this.nodes.has(cluster.id)) continue
+      const list = workloadsByCluster.get(cluster.id) ?? []
+      list.push(node)
+      workloadsByCluster.set(cluster.id, list)
+    }
+
+    for (const [clusterId, workloads] of workloadsByCluster) {
+      const def = this.nodeDefinitionsById.get(clusterId)
+      if (!def) continue
+      const machineType = def.resources?.instanceType ?? getResourceDefaults(def.type).instanceType
+      const machine = INSTANCE_CATALOG[machineType]
+      const machineCount = Math.max(0, Math.round(getInstanceCount(def.resources)))
+      const config = readClusterConfig(def.config)
+      const cluster = new ClusterScheduler({
+        clusterId,
+        machineVcpu: machine.vcpu,
+        machineRamGb: machine.ramGb,
+        machineCount,
+        strategy: config.strategy,
+        podStartupUs: msToMicro(config.podStartupMs),
+        rescheduleDelayUs: msToMicro(config.rescheduleDelayMs),
+        maxMachines: Math.max(machineCount, Math.round(config.maxMachines ?? machineCount)),
+        machineProvisionUs: msToMicro(config.machineProvisionMs)
+      })
+      for (const workload of workloads) {
+        const podType =
+          workload.resources?.instanceType ?? getResourceDefaults(workload.type).instanceType
+        const pod = INSTANCE_CATALOG[podType]
+        cluster.register({
+          nodeId: workload.id,
+          podVcpu: pod.vcpu,
+          podRamGb: pod.ramGb,
+          desired: getInstanceCount(workload.resources)
+        })
+        this.clusterIdByWorkload.set(workload.id, clusterId)
+      }
+      this.clusters.set(clusterId, cluster)
+
+      const started = cluster.initialPlacement(0n)
+      this.recordPodStarts(clusterId, started)
+      for (const workload of workloads) {
+        const unplaced = cluster.pendingCount(workload.id)
+        if (unplaced > 0) {
+          this.metrics.recordNodeTraitCounters(workload.id, { podsUnplaced: unplaced })
+          this.metrics.recordNodeTraitCounters(clusterId, { clusterPodsUnplaced: unplaced })
+        }
+        this.applyClusterCapacity(workload.id)
+      }
+      this.maybeProvisionMachines(clusterId)
+
+      if (config.machineFailureAtMs !== null) {
+        scheduler.schedule(
+          createEvent(
+            'cluster-schedule',
+            clusterId,
+            '',
+            { action: 'machine-failure', count: config.machineFailureCount },
+            msToMicro(config.machineFailureAtMs)
+          )
+        )
+        if (
+          config.machineRecoveryAtMs !== null &&
+          config.machineRecoveryAtMs > config.machineFailureAtMs
+        ) {
+          scheduler.schedule(
+            createEvent(
+              'cluster-schedule',
+              clusterId,
+              '',
+              { action: 'machine-recovery' },
+              msToMicro(config.machineRecoveryAtMs)
+            )
+          )
+        }
+      }
+    }
+  }
+
+  /** Count placements and schedule each starting pod's ready event. */
+  private recordPodStarts(clusterId: string, started: readonly PodStart[]): void {
+    if (started.length === 0) return
+    this.metrics.recordNodeTraitCounters(clusterId, { clusterPodsScheduled: started.length })
+    for (const { pod, readyAtUs } of started) {
+      this.metrics.recordNodeTraitCounters(pod.workloadId, { podsScheduled: 1 })
+      if (pod.state === 'starting') {
+        this.eventQueue.insert(
+          createEvent(
+            'cluster-schedule',
+            clusterId,
+            '',
+            { action: 'pod-ready', podId: pod.id },
+            readyAtUs
+          )
+        )
+      }
+    }
+  }
+
+  /**
+   * Resize a scheduled workload to the pods that are ready right now. Each pod
+   * contributes one instance's derived c / K / cores, so a fully placed
+   * workload runs exactly as it would on dedicated instances.
+   */
+  private applyClusterCapacity(workloadId: string): void {
+    const clusterId = this.clusterIdByWorkload.get(workloadId)
+    const cluster = clusterId ? this.clusters.get(clusterId) : undefined
+    const def = this.nodeDefinitionsById.get(workloadId)
+    const node = this.nodes.get(workloadId)
+    if (!cluster || !def || !node) return
+    const ready = cluster.readyCount(workloadId)
+    this.getSharedTraitStateStore().set(scheduledReadyStateKey(workloadId), ready)
+    const perPod = deriveNodeConcurrency({
+      ...def,
+      resources: { ...(def.resources ?? {}), instanceCount: 1 }
+    })
+    const workers = perPod.effectiveC * ready
+    const capacity = Math.max(1, perPod.effectiveK * ready)
+    const { started } = node.resizeConcurrency(
+      workers,
+      capacity,
+      this.clock,
+      perPod.physicalCores * ready
+    )
+    this.nodeLimitsById.set(workloadId, { workers: Math.max(1, workers), capacity })
+    for (const resumed of started) {
+      this.markNodePhaseServiceStart(resumed, workloadId, this.clock)
+      this.recordCanonicalEvent({
+        timestampUs: this.clock,
+        type: 'processing-started',
+        priority: EventPriority.PROCESSING,
+        requestId: resumed.id,
+        nodeId: workloadId,
+        payload: { request: resumed },
+        nodeSnapshot: this.createNodeSnapshot(workloadId)
+      })
+    }
+  }
+
+  /** Place whatever pending pods now fit, then let the cluster autoscaler react. */
+  private runClusterScheduling(clusterId: string): void {
+    const cluster = this.clusters.get(clusterId)
+    if (!cluster) return
+    this.recordPodStarts(clusterId, cluster.schedulePending(this.clock))
+    this.maybeProvisionMachines(clusterId)
+  }
+
+  /** Cluster autoscaler: boot machines for pods that fit nowhere, up to the max. */
+  private maybeProvisionMachines(clusterId: string): void {
+    const cluster = this.clusters.get(clusterId)
+    if (!cluster) return
+    const needed = cluster.machinesNeededForPending()
+    if (needed <= 0) return
+    const indexes = cluster.provisionMachines(needed, this.clock)
+    this.metrics.recordNodeTraitCounters(clusterId, { clusterMachinesProvisioned: indexes.length })
+    for (const machineIndex of indexes) {
+      this.eventQueue.insert(
+        createEvent(
+          'cluster-schedule',
+          clusterId,
+          '',
+          { action: 'machine-joined', machineIndex },
+          this.clock + cluster.options.machineProvisionUs
+        )
+      )
+    }
+  }
+
+  /** The autoscaler asked a scheduled workload for `replicas` pods. */
+  private setScheduledReplicas(workloadId: string, replicas: number): void {
+    const clusterId = this.clusterIdByWorkload.get(workloadId)
+    const cluster = clusterId ? this.clusters.get(clusterId) : undefined
+    if (!clusterId || !cluster) return
+    const before = cluster.desiredCount(workloadId)
+    const { removedReady } = cluster.setDesired(workloadId, replicas, this.clock)
+    if (removedReady > 0) this.applyClusterCapacity(workloadId)
+    this.runClusterScheduling(clusterId)
+    const added = cluster.desiredCount(workloadId) - before
+    if (added > 0) {
+      const unplaced = Math.min(added, cluster.pendingCount(workloadId))
+      if (unplaced > 0) {
+        this.metrics.recordNodeTraitCounters(workloadId, { podsUnplaced: unplaced })
+        this.metrics.recordNodeTraitCounters(clusterId, { clusterPodsUnplaced: unplaced })
+      }
+    }
+  }
+
+  private handleClusterSchedule(event: SimulationEvent): void {
+    const clusterId = event.nodeId
+    const cluster = this.clusters.get(clusterId)
+    if (!cluster) return
+    const action = event.data.action
+    if (action === 'pod-ready') {
+      const workloadId =
+        typeof event.data.podId === 'string'
+          ? cluster.markReady(event.data.podId, this.clock)
+          : null
+      if (workloadId) this.applyClusterCapacity(workloadId)
+      return
+    }
+    if (action === 'machine-failure') {
+      const count = typeof event.data.count === 'number' ? event.data.count : 1
+      const failure = cluster.failMachines(count, this.clock)
+      if (failure.machineIndexes.length === 0) return
+      this.metrics.recordNodeTraitCounters(clusterId, {
+        clusterMachineFailures: failure.machineIndexes.length,
+        clusterPodsLost: failure.podsLost
+      })
+      for (const workloadId of failure.affectedWorkloads) {
+        this.applyClusterCapacity(workloadId)
+      }
+      for (const lost of failure.lostPods) {
+        this.metrics.recordNodeTraitCounters(lost.workloadId, { podsLost: lost.count })
+      }
+      for (const machineIndex of failure.machineIndexes) {
+        this.eventQueue.insert(
+          createEvent(
+            'cluster-schedule',
+            clusterId,
+            '',
+            { action: 'evict', machineIndex },
+            this.clock + cluster.options.rescheduleDelayUs
+          )
+        )
+      }
+      this.failedMachinesByCluster.set(clusterId, failure.machineIndexes)
+      return
+    }
+    if (action === 'evict') {
+      const machineIndex =
+        typeof event.data.machineIndex === 'number' ? event.data.machineIndex : -1
+      const evicted = cluster.evictLost(machineIndex, this.clock)
+      if (evicted.total > 0) {
+        this.metrics.recordNodeTraitCounters(clusterId, { clusterPodsEvicted: evicted.total })
+        for (const [workloadId, count] of evicted.byWorkload) {
+          this.metrics.recordNodeTraitCounters(workloadId, { podsEvicted: count })
+        }
+      }
+      this.runClusterScheduling(clusterId)
+      return
+    }
+    if (action === 'machine-recovery') {
+      for (const machineIndex of this.failedMachinesByCluster.get(clusterId) ?? []) {
+        this.recordPodStarts(clusterId, cluster.recoverMachine(machineIndex, this.clock))
+      }
+      this.failedMachinesByCluster.delete(clusterId)
+      this.runClusterScheduling(clusterId)
+      return
+    }
+    if (action === 'machine-joined') {
+      const machineIndex =
+        typeof event.data.machineIndex === 'number' ? event.data.machineIndex : -1
+      if (cluster.machineJoined(machineIndex, this.clock)) this.runClusterScheduling(clusterId)
+    }
+  }
+
+  private buildClusterProjection(horizonUs: bigint): ClusterProjection[] {
+    return [...this.clusters.values()].map((cluster) => cluster.projection(horizonUs))
   }
 
   private handleHealthProbe(event: SimulationEvent): void {
@@ -3317,6 +4351,249 @@ export class SimulationEngine {
 
   private enqueueEdgeTransfer(request: Request, edge: EdgeDefinition, targetNodeId: string): void {
     const edgePhase = this.beginEdgePhase(request, edge, targetNodeId, this.clock)
+
+    const batching = this.edgeBatchingFor(edge)
+    if (batching) {
+      this.addToEdgeBatch(request, edge, targetNodeId, edgePhase, batching)
+      return
+    }
+
+    const connection = this.edgeConnectionFor(edge)
+    if (!connection) {
+      this.dispatchEdgeTransfer(request, edge, targetNodeId, edgePhase, this.clock, 0n)
+      return
+    }
+
+    const pool = this.connectionPoolFor(edge, request)
+    this.acquireConnectionAndDispatch(
+      {
+        request,
+        edge,
+        targetNodeId,
+        edgePhase,
+        enqueuedAtUs: this.clock,
+        poolId: pool.poolId,
+        ephemeral: pool.ephemeral
+      },
+      false
+    )
+  }
+
+  private edgeConnectionFor(edge: EdgeDefinition): ResolvedConnectionConfig | null {
+    let resolved = this.edgeConnectionById.get(edge.id)
+    if (resolved === undefined) {
+      // Batching owns a Kafka edge's transfers; the connection model does not stack on it.
+      resolved = this.edgeBatchingFor(edge) ? null : resolveEdgeConnection(edge)
+      this.edgeConnectionById.set(edge.id, resolved)
+    }
+    return resolved
+  }
+
+  private edgeBatchingFor(edge: EdgeDefinition): ResolvedEdgeBatching | null {
+    let resolved = this.edgeBatchingById.get(edge.id)
+    if (resolved === undefined) {
+      resolved = resolveEdgeBatching(edge)
+      this.edgeBatchingById.set(edge.id, resolved)
+    }
+    return resolved
+  }
+
+  /**
+   * Which pool serves this request. A service's outbound edge has one pool. An
+   * edge leaving the workload source carries many independent clients, so each
+   * client identity gets its own pool; a request without one is a new client
+   * whose pool is never reused.
+   */
+  private connectionPoolFor(
+    edge: EdgeDefinition,
+    request: Request
+  ): { poolId: string; ephemeral: boolean } {
+    if (edge.source !== this.topology.workload?.sourceNodeId) {
+      return { poolId: edge.id, ephemeral: false }
+    }
+    const metadata = request.metadata
+    for (const field of ['sessionId', 'clientIp', '__key'] as const) {
+      const value = metadata[field]
+      if ((typeof value === 'string' && value.length > 0) || typeof value === 'number') {
+        return { poolId: `${edge.id}::client:${String(value)}`, ephemeral: false }
+      }
+    }
+    return { poolId: `${edge.id}::anon:${request.id}`, ephemeral: true }
+  }
+
+  /** Get a connection stream for the waiter and send, or park it until one frees. */
+  private acquireConnectionAndDispatch(waiter: ConnectionWaiter, requeued: boolean): void {
+    const { request, edge } = waiter
+    const config = this.edgeConnectionFor(edge)
+    if (!config) {
+      return
+    }
+    const effective: ResolvedConnectionConfig = waiter.ephemeral
+      ? { ...config, reuse: 'per-request', tlsSessionResumption: false }
+      : config
+    const grant = this.connectionPools.acquire(waiter.poolId, Number(this.clock), effective)
+    if (grant.closedIdle > 0) {
+      this.metrics.recordEdgeConnectionEvent(edge.id, 'closedIdle', this.clock, grant.closedIdle)
+    }
+
+    if (grant.kind === 'wait') {
+      // Every connection is busy and the pool is at maxConnections: wait FIFO
+      // (HTTP/1.1 head-of-line blocking at the pool).
+      this.connectionPools.enqueueWaiter(waiter.poolId, waiter, requeued)
+      if (!requeued) {
+        this.metrics.recordEdgeConnectionEvent(edge.id, 'waited', this.clock)
+        const timeoutAt = request.deadline > this.clock ? request.deadline : this.clock
+        this.eventQueue.insert(
+          createEvent(
+            'request-timeout',
+            waiter.targetNodeId,
+            request.id,
+            {
+              request,
+              edge,
+              edgeId: edge.id,
+              sourceNodeId: edge.source,
+              targetNodeId: waiter.targetNodeId,
+              edgeInTimeUs: waiter.enqueuedAtUs,
+              reason: 'deadline_exceeded',
+              scope: 'connection-wait',
+              poolId: waiter.poolId,
+              timeoutSeq: request.timeoutSeq ?? 0
+            },
+            timeoutAt
+          )
+        )
+      }
+      return
+    }
+
+    const held = this.connectionLeasesByRequestId.get(request.id) ?? []
+    held.push({
+      lease: grant.lease,
+      edgeId: edge.id,
+      config: effective,
+      ephemeral: waiter.ephemeral
+    })
+    this.connectionLeasesByRequestId.set(request.id, held)
+
+    let handshakeUs = BigInt(Math.round(grant.readyWaitUs))
+    if (grant.opened) {
+      // One handshake round trip is one sample of the edge's propagation
+      // latency (the path-type defaults are round-trip figures).
+      const rttMs = Math.max(
+        0,
+        this.distributions.fromConfig(this.edgeLatencyDistribution(edge, request))
+      )
+      handshakeUs = msToMicro(grant.handshakeRtts * rttMs)
+      this.connectionPools.markReady(grant.lease, Number(this.clock + handshakeUs), effective)
+      this.metrics.recordEdgeConnectionEvent(edge.id, 'opened', this.clock)
+      if (grant.resumed) {
+        this.metrics.recordEdgeConnectionEvent(edge.id, 'resumed', this.clock)
+      }
+    } else {
+      this.metrics.recordEdgeConnectionEvent(edge.id, 'reused', this.clock)
+    }
+
+    this.dispatchEdgeTransfer(
+      request,
+      edge,
+      waiter.targetNodeId,
+      waiter.edgePhase,
+      waiter.enqueuedAtUs,
+      handshakeUs
+    )
+  }
+
+  /**
+   * Free connection streams the request holds: all of them (its response came
+   * back), or only an unpaired stream on `edgeId` once the transfer delivered.
+   * Requests waiting for those connections are then sent, oldest first.
+   */
+  private releaseConnectionLeases(
+    requestId: string,
+    edgeId?: unknown,
+    when: 'delivered' | 'response' = 'response'
+  ): void {
+    const held = this.connectionLeasesByRequestId.get(requestId)
+    if (!held) {
+      return
+    }
+    const keep: HeldConnectionLease[] = []
+    const released: HeldConnectionLease[] = []
+    for (const entry of held) {
+      if (when === 'delivered' && (entry.edgeId !== edgeId || entry.config.paired)) {
+        keep.push(entry)
+      } else {
+        released.push(entry)
+      }
+    }
+    if (keep.length > 0) {
+      this.connectionLeasesByRequestId.set(requestId, keep)
+    } else {
+      this.connectionLeasesByRequestId.delete(requestId)
+    }
+    for (const entry of released) {
+      const waiters = this.connectionPools.release(
+        entry.lease,
+        Number(this.clock),
+        entry.config,
+        entry.ephemeral
+      )
+      for (const waiter of waiters) {
+        if (this.terminalStatusByRequestId.has(waiter.request.id)) {
+          continue
+        }
+        this.acquireConnectionAndDispatch(waiter, true)
+      }
+    }
+  }
+
+  private emitConnectionWaitTimeoutFlow(request: Request, event: SimulationEvent): void {
+    const edgeId = typeof event.data.edgeId === 'string' ? event.data.edgeId : ''
+    const startedAt =
+      typeof event.data.edgeInTimeUs === 'bigint' ? event.data.edgeInTimeUs : this.clock
+    this.onEdgeFlowEvent?.({
+      sequence: ++this.edgeFlowSequence,
+      requestId: request.id,
+      edgeId,
+      sourceNodeId: typeof event.data.sourceNodeId === 'string' ? event.data.sourceNodeId : '',
+      targetNodeId: event.nodeId,
+      startedAtMs: microToMs(startedAt),
+      completedAtMs: microToMs(this.clock),
+      latencyMs: microToMs(this.clock - startedAt),
+      status: 'timeout',
+      failureCause: 'deadline_exceeded',
+      key: affinityKeyOf(request)
+    })
+  }
+
+  /** Give back the edge slot a transfer held (a batch's slot frees with its last record). */
+  private releaseEdgeSlotForEvent(event: SimulationEvent): void {
+    const batchId = event.data.edgeBatchId
+    if (typeof batchId === 'string') {
+      const remaining = (this.batchRecordsInFlight.get(batchId) ?? 0) - 1
+      if (remaining > 0) {
+        this.batchRecordsInFlight.set(batchId, remaining)
+        return
+      }
+      this.batchRecordsInFlight.delete(batchId)
+    }
+    this.releaseEdgeTransfer(event.data.edgeId)
+  }
+
+  /**
+   * Send one transfer over the edge. `startedAtUs` is when the request reached
+   * the edge (earlier than now if it waited for a connection); `handshakeUs` is
+   * the connection setup it pays before its bytes go on the link.
+   */
+  private dispatchEdgeTransfer(
+    request: Request,
+    edge: EdgeDefinition,
+    targetNodeId: string,
+    edgePhase: RequestEdgePhase,
+    startedAtUs: bigint,
+    handshakeUs: bigint
+  ): void {
     const emitEdgeFlowEvent = (
       status: EdgeFlowStatus,
       completedAt: bigint,
@@ -3329,7 +4606,7 @@ export class SimulationEngine {
         edgeId: edge.id,
         sourceNodeId: edge.source,
         targetNodeId,
-        startedAtMs: microToMs(this.clock),
+        startedAtMs: microToMs(startedAtUs),
         completedAtMs: microToMs(completedAt),
         latencyMs: microToMs(latencyUs),
         status,
@@ -3337,13 +4614,14 @@ export class SimulationEngine {
         key: affinityKeyOf(request)
       })
     }
+    const waitedUs = this.clock - startedAtUs
 
     const currentLoad = this.activeTransfersByEdgeId.get(edge.id) ?? 0
     if (
       protocolSupportsConnectionLimits(edge.protocol) &&
       currentLoad >= edge.maxConcurrentRequests
     ) {
-      emitEdgeFlowEvent('edge-error', this.clock, 0n, 'connection_refused')
+      emitEdgeFlowEvent('edge-error', this.clock, waitedUs, 'connection_refused')
       this.eventQueue.insert(
         createEvent(
           'request-rejected',
@@ -3355,9 +4633,10 @@ export class SimulationEngine {
             edgeId: edge.id,
             sourceNodeId: edge.source,
             targetNodeId,
-            edgeInTimeUs: this.clock,
+            edgeInTimeUs: startedAtUs,
             reason: 'connection_refused',
-            observationPoint: 'edge'
+            observationPoint: 'edge',
+            edgeSlotHeld: false
           },
           this.clock
         )
@@ -3365,13 +4644,17 @@ export class SimulationEngine {
       return
     }
 
-    let edgeLatencyUs = this.sampleEdgeLatencyUs(edge, request, currentLoad + 1)
+    const transit = this.sampleEdgeTransit(edge, request, currentLoad + 1)
+    let retransmitted = false
     if (this.distributions.random() < edge.packetLossRate) {
       if (isReliableProtocol(edge.protocol)) {
-        edgeLatencyUs += edgeLatencyUs
+        // TCP-style retransmission: the payload crosses the link a second time.
+        retransmitted = true
       } else {
+        // The bytes were still sent before being dropped, so they occupy the link.
+        this.reserveEdgeLink(edge, transit.transmissionMs, 1)
         const timeoutAt = request.deadline > this.clock ? request.deadline : this.clock
-        emitEdgeFlowEvent('packet-loss', timeoutAt, timeoutAt - this.clock, 'packet_loss')
+        emitEdgeFlowEvent('packet-loss', timeoutAt, timeoutAt - startedAtUs, 'packet_loss')
         this.eventQueue.insert(
           createEvent(
             'request-timeout',
@@ -3383,7 +4666,7 @@ export class SimulationEngine {
               edgeId: edge.id,
               sourceNodeId: edge.source,
               targetNodeId,
-              edgeInTimeUs: this.clock,
+              edgeInTimeUs: startedAtUs,
               reason: 'packet_loss',
               scope: 'in-flight',
               timeoutSeq: request.timeoutSeq ?? 0
@@ -3396,7 +4679,7 @@ export class SimulationEngine {
     }
 
     if (this.distributions.random() < edge.errorRate) {
-      emitEdgeFlowEvent('edge-error', this.clock, 0n, 'edge_error_rate')
+      emitEdgeFlowEvent('edge-error', this.clock, waitedUs, 'edge_error_rate')
       this.eventQueue.insert(
         createEvent(
           'request-rejected',
@@ -3408,9 +4691,10 @@ export class SimulationEngine {
             edgeId: edge.id,
             sourceNodeId: edge.source,
             targetNodeId,
-            edgeInTimeUs: this.clock,
+            edgeInTimeUs: startedAtUs,
             reason: 'edge_error_rate',
-            observationPoint: 'edge'
+            observationPoint: 'edge',
+            edgeSlotHeld: false
           },
           this.clock
         )
@@ -3418,11 +4702,27 @@ export class SimulationEngine {
       return
     }
 
+    const transitUs = retransmitted ? transit.transitUs * 2n : transit.transitUs
+    // The link is reserved now: the FIFO serializer cannot backfill, so a slot
+    // reserved after a handshake would block warm-connection transfers behind
+    // it. The payload leaves once both the handshake and the link wait are done,
+    // so only the part of the link wait the handshake does not cover is added.
+    const rawLinkQueueUs = this.reserveEdgeLink(edge, transit.transmissionMs, retransmitted ? 2 : 1)
+    const linkQueueUs = rawLinkQueueUs > handshakeUs ? rawLinkQueueUs - handshakeUs : 0n
+    const edgeLatencyUs = waitedUs + handshakeUs + linkQueueUs + transitUs
+    const latencyBreakdown: EdgeLatencyBreakdownSample = {
+      ...transit.components,
+      linkQueueMs: microToMs(linkQueueUs),
+      retransmissionMs: retransmitted ? microToMs(transit.transitUs) : 0,
+      connectionWaitMs: microToMs(waitedUs),
+      handshakeMs: microToMs(handshakeUs)
+    }
+
     this.activeTransfersByEdgeId.set(edge.id, currentLoad + 1)
-    const arrivalTime = this.clock + edgeLatencyUs
+    const arrivalTime = startedAtUs + edgeLatencyUs
     if (request.deadline <= arrivalTime) {
       const timeoutAt = request.deadline > this.clock ? request.deadline : this.clock
-      emitEdgeFlowEvent('timeout', timeoutAt, timeoutAt - this.clock, 'deadline_exceeded')
+      emitEdgeFlowEvent('timeout', timeoutAt, timeoutAt - startedAtUs, 'deadline_exceeded')
       this.eventQueue.insert(
         createEvent(
           'request-timeout',
@@ -3434,7 +4734,7 @@ export class SimulationEngine {
             edgeId: edge.id,
             sourceNodeId: edge.source,
             targetNodeId,
-            edgeInTimeUs: this.clock,
+            edgeInTimeUs: startedAtUs,
             reason: 'deadline_exceeded',
             scope: 'in-flight',
             timeoutSeq: request.timeoutSeq ?? 0
@@ -3445,7 +4745,39 @@ export class SimulationEngine {
       return
     }
 
+    this.completeEdgeTransit(
+      request,
+      edge,
+      targetNodeId,
+      edgePhase,
+      startedAtUs,
+      arrivalTime,
+      latencyBreakdown,
+      undefined,
+      emitEdgeFlowEvent
+    )
+  }
+
+  /** Record a successful transit and schedule the arrival at the target. */
+  private completeEdgeTransit(
+    request: Request,
+    edge: EdgeDefinition,
+    targetNodeId: string,
+    edgePhase: RequestEdgePhase,
+    startedAtUs: bigint,
+    arrivalTime: bigint,
+    latencyBreakdown: EdgeLatencyBreakdownSample,
+    edgeBatchId: string | undefined,
+    emitEdgeFlowEvent: (status: EdgeFlowStatus, completedAt: bigint, latencyUs: bigint) => void
+  ): void {
+    const edgeLatencyUs = arrivalTime - startedAtUs
+    // The flow event is a dispatch record; consumers treat a completion after
+    // the run end as in flight at cutoff (see mergeEdgeFlowState).
     emitEdgeFlowEvent('success', arrivalTime, edgeLatencyUs)
+    // A transfer still queued or on the wire when the run ends never arrives,
+    // so it is not a completed transit (matters once bandwidth queueing can push
+    // arrival past the end of the run).
+    const arrivesBeforeRunEnd = arrivalTime <= this.simulationDurationUs
     // Record the completed hop so the phase timeline can attribute this transit
     // latency to the edge (rather than blaming the downstream node).
     edgePhase.edgeOutUs = arrivalTime
@@ -3453,26 +4785,211 @@ export class SimulationEngine {
       edgeId: edge.id,
       source: edge.source,
       target: targetNodeId,
-      edgeInUs: this.clock,
+      edgeInUs: startedAtUs,
       edgeOutUs: arrivalTime
     })
-    this.metrics.recordEdgeTransit(
-      edge.id,
-      edge.source,
-      targetNodeId,
-      edgeLatencyUs,
-      arrivalTime,
-      request.sizeBytes
-    )
+    if (arrivesBeforeRunEnd) {
+      this.metrics.recordEdgeTransit(
+        edge.id,
+        edge.source,
+        targetNodeId,
+        edgeLatencyUs,
+        arrivalTime,
+        request.sizeBytes,
+        latencyBreakdown
+      )
+    }
     this.eventQueue.insert(
       createEvent(
         'request-arrival',
         targetNodeId,
         request.id,
-        { request, edge, edgeId: edge.id, sourceNodeId: edge.source },
+        {
+          request,
+          edge,
+          edgeId: edge.id,
+          sourceNodeId: edge.source,
+          ...(edgeBatchId ? { edgeBatchId } : {})
+        },
         arrivalTime
       )
     )
+  }
+
+  /** Put a record in the edge's open producer batch; send it when full or at linger expiry. */
+  private addToEdgeBatch(
+    request: Request,
+    edge: EdgeDefinition,
+    targetNodeId: string,
+    edgePhase: RequestEdgePhase,
+    batching: ResolvedEdgeBatching
+  ): void {
+    const { batch, opened, full } = this.edgeBatches.add(
+      edge.id,
+      { request, targetNodeId, edgePhase, enqueuedAtUs: this.clock },
+      request.sizeBytes,
+      this.clock,
+      batching.maxBatchBytes
+    )
+    if (full) {
+      const ready = this.edgeBatches.take(edge.id, batch.id)
+      if (ready) this.sendEdgeBatch(edge, ready)
+      return
+    }
+    if (opened) {
+      this.eventQueue.insert(
+        createEvent(
+          'edge-batch-flush',
+          edge.source,
+          '',
+          { edge, edgeId: edge.id, batchId: batch.id },
+          this.clock + batching.lingerUs
+        )
+      )
+    }
+  }
+
+  private handleEdgeBatchFlush(event: SimulationEvent): void {
+    const edge = event.data.edge as EdgeDefinition | undefined
+    const batchId = event.data.batchId
+    if (!edge || typeof batchId !== 'string') {
+      return
+    }
+    const batch = this.edgeBatches.take(edge.id, batchId)
+    if (!batch) {
+      // Already sent because it filled up before linger expired.
+      return
+    }
+    this.sendEdgeBatch(edge, batch)
+  }
+
+  /**
+   * Send a closed batch as one produce request: one edge slot, one propagation
+   * sample, one protocol overhead and the batch's total bytes on the link. Each
+   * record's edge latency adds the time it waited in the batch.
+   */
+  private sendEdgeBatch(edge: EdgeDefinition, batch: OpenEdgeBatch<BatchedRecord>): void {
+    const live = batch.records.filter(
+      (record) => !this.terminalStatusByRequestId.has(record.request.id)
+    )
+    if (live.length === 0) {
+      return
+    }
+    this.metrics.recordEdgeBatchSent(edge.id, this.clock, live.length, batch.bytes)
+    const flowEmitter = (record: BatchedRecord) => {
+      return (
+        status: EdgeFlowStatus,
+        completedAt: bigint,
+        latencyUs: bigint,
+        failureCause?: EdgeFailureCause
+      ): void => {
+        this.onEdgeFlowEvent?.({
+          sequence: ++this.edgeFlowSequence,
+          requestId: record.request.id,
+          edgeId: edge.id,
+          sourceNodeId: edge.source,
+          targetNodeId: record.targetNodeId,
+          startedAtMs: microToMs(record.enqueuedAtUs),
+          completedAtMs: microToMs(completedAt),
+          latencyMs: microToMs(latencyUs),
+          status,
+          failureCause,
+          key: affinityKeyOf(record.request)
+        })
+      }
+    }
+    const rejectAll = (reason: 'connection_refused' | 'edge_error_rate'): void => {
+      for (const record of live) {
+        flowEmitter(record)('edge-error', this.clock, this.clock - record.enqueuedAtUs, reason)
+        this.eventQueue.insert(
+          createEvent(
+            'request-rejected',
+            record.targetNodeId,
+            record.request.id,
+            {
+              request: record.request,
+              edge,
+              edgeId: edge.id,
+              sourceNodeId: edge.source,
+              targetNodeId: record.targetNodeId,
+              edgeInTimeUs: record.enqueuedAtUs,
+              reason,
+              observationPoint: 'edge',
+              edgeSlotHeld: false
+            },
+            this.clock
+          )
+        )
+      }
+    }
+
+    // A batch is one in-flight produce request against the edge's cap
+    // (Kafka max.in.flight.requests.per.connection).
+    const currentLoad = this.activeTransfersByEdgeId.get(edge.id) ?? 0
+    if (currentLoad >= edge.maxConcurrentRequests) {
+      rejectAll('connection_refused')
+      return
+    }
+    const lead = live[0].request
+    const transit = this.sampleEdgeTransit(edge, lead, currentLoad + 1, batch.bytes)
+    // Kafka runs over TCP, so a lost packet is retransmitted, never dropped.
+    const retransmitted = this.distributions.random() < edge.packetLossRate
+    if (this.distributions.random() < edge.errorRate) {
+      rejectAll('edge_error_rate')
+      return
+    }
+    const transitUs = retransmitted ? transit.transitUs * 2n : transit.transitUs
+    const linkQueueUs = this.reserveEdgeLink(edge, transit.transmissionMs, retransmitted ? 2 : 1)
+    const arrivalTime = this.clock + linkQueueUs + transitUs
+
+    this.activeTransfersByEdgeId.set(edge.id, currentLoad + 1)
+    this.batchRecordsInFlight.set(batch.id, live.length)
+    for (const record of live) {
+      const emit = flowEmitter(record)
+      const batchWaitUs = this.clock - record.enqueuedAtUs
+      if (record.request.deadline <= arrivalTime) {
+        const timeoutAt =
+          record.request.deadline > this.clock ? record.request.deadline : this.clock
+        emit('timeout', timeoutAt, timeoutAt - record.enqueuedAtUs, 'deadline_exceeded')
+        this.eventQueue.insert(
+          createEvent(
+            'request-timeout',
+            record.targetNodeId,
+            record.request.id,
+            {
+              request: record.request,
+              edge,
+              edgeId: edge.id,
+              edgeBatchId: batch.id,
+              sourceNodeId: edge.source,
+              targetNodeId: record.targetNodeId,
+              edgeInTimeUs: record.enqueuedAtUs,
+              reason: 'deadline_exceeded',
+              scope: 'in-flight',
+              timeoutSeq: record.request.timeoutSeq ?? 0
+            },
+            timeoutAt
+          )
+        )
+        continue
+      }
+      this.completeEdgeTransit(
+        record.request,
+        edge,
+        record.targetNodeId,
+        record.edgePhase,
+        record.enqueuedAtUs,
+        arrivalTime,
+        {
+          ...transit.components,
+          linkQueueMs: microToMs(linkQueueUs),
+          retransmissionMs: retransmitted ? microToMs(transit.transitUs) : 0,
+          batchWaitMs: microToMs(batchWaitUs)
+        },
+        batch.id,
+        emit
+      )
+    }
   }
 
   private runBeforeArrivalTraits(nodeId: string, request: Request): BeforeArrivalDecision {
@@ -3493,7 +5010,8 @@ export class SimulationEngine {
         random: () => this.distributions.random(),
         state: this.getTraitStateStore(nodeId),
         sharedState: this.getSharedTraitStateStore(),
-        nodeState: this.nodes.get(nodeId)?.getState()
+        nodeState: this.nodes.get(nodeId)?.getState(),
+        countInSystem: (predicate) => this.nodes.get(nodeId)?.countInSystem(predicate) ?? 0
       })
       this.recordTraitPayloadMetrics(nodeId, decision.payload)
       this.recordTraitDecision(nodeId, request, trait.name, 'beforeArrival', {
@@ -3505,10 +5023,12 @@ export class SimulationEngine {
       this.maybeScheduleStreamRetentionEvent(nodeId, decision.payload)
 
       if (decision.action !== 'continue') {
+        this.lastDecidingArrivalTrait = trait.name
         return decision
       }
     }
 
+    this.lastDecidingArrivalTrait = null
     return { action: 'continue' }
   }
 
@@ -3575,6 +5095,17 @@ export class SimulationEngine {
           ? EventPriority.DEPARTURE
           : EventPriority.PROCESSING
     const semanticTransitions = this.recordTraitStateTransitions(request, nodeId, payload)
+    if (this.tracer.shouldTrace(request.id)) {
+      this.tracer.recordTraitDecision(request.id, {
+        nodeId,
+        atUs: this.clock,
+        traitName,
+        hook,
+        decision: typeof payload.decision === 'string' ? payload.decision : 'unknown',
+        reasonCode: typeof payload.reason === 'string' ? payload.reason : undefined,
+        detail: scalarTraitDetail(payload)
+      })
+    }
 
     this.recordCanonicalEvent({
       timestampUs: this.clock,

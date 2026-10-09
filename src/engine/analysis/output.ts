@@ -1,3 +1,4 @@
+import type { ConsistencyReport } from '../traits/consistencyModel'
 import { GlobalConfig } from '../core/types'
 import type {
   CanonicalEventRecord,
@@ -8,6 +9,7 @@ import type {
 } from '../core/event-stream'
 import { createEmptyEventCounts } from '../core/event-stream'
 import type { SpofFinding } from './singlePointOfFailure'
+import type { FaultDomainRef } from '../core/faultDomains'
 import {
   createEmptyRequestOutcomeBreakdown,
   type RequestOutcomeFamily
@@ -42,8 +44,24 @@ export interface TimeSeriesSnapshot {
       queueLength: number
       activeWorkers: number
       totalInSystem: number
+      /** Instantaneous occupancy at `timestamp` - a point sample, never an average. */
       utilization: number
       status: string
+      /**
+       * Cumulative headline-utilization numerator (∫ busy dt, worker·µs or core·µs)
+       * from t=0 to `timestamp`. Differencing two snapshots and dividing by the
+       * matching `capacityAreaUs` delta gives the exact time-weighted utilization
+       * for that window. Optional: absent on older serialized outputs.
+       */
+      busyAreaUs?: number
+      /** Cumulative utilization denominator (∫ capacity dt) to `timestamp`. */
+      capacityAreaUs?: number
+      /** Requests this node has finished serving, cumulative to `timestamp`. */
+      completedTotal?: number
+      /** Worker ceiling c at `timestamp` (follows autoscaling). */
+      workers?: number
+      /** System capacity K (in service + waiting) at `timestamp`; may be Infinity. */
+      capacity?: number
     }
   >
 }
@@ -53,6 +71,8 @@ export interface CausalGraph {
     nodeId: string
     event: string
     time: number
+    /** Set when the root cause is a Region / AZ / Subnet outage containing the node. */
+    faultDomain?: FaultDomainRef
   }>
   propagation: Array<{
     from: string
@@ -65,6 +85,26 @@ export interface CausalGraph {
     cascadeDepth: number
     timeToFullCascade: number
   }
+  /**
+   * Per-node detail for every affected node, in first-affected order. Optional
+   * so older serialized outputs (and the analytic fluid tier, which reports
+   * `causalGraph: null`) stay valid.
+   */
+  nodes?: CausalGraphNode[]
+}
+
+export interface CausalGraphNode {
+  nodeId: string
+  /** `failed` = an injected fault; `degraded` = failure signals only. */
+  severity: 'failed' | 'degraded'
+  firstAffectedMs: number
+  faultMode: string | null
+  /** The Region / AZ / Subnet outage that failed this node, when that was the cause. */
+  faultDomain?: FaultDomainRef
+  rejected: number
+  timedOut: number
+  circuitOpens: number
+  dominantReason: string | null
 }
 
 export interface InvariantViolation {
@@ -153,6 +193,12 @@ export interface StatusWindow {
   mode: string
   startMs: number
   endMs: number
+  /**
+   * Set when the window was opened by a Region / AZ / Subnet fault rather than
+   * a fault on this component: the domain that was down. Absent otherwise, so
+   * runs without a container fault serialize exactly as before.
+   */
+  faultDomain?: FaultDomainRef
 }
 
 export type RuntimeDeliveryGuarantee = Exclude<DeliveryGuarantee, 'best-effort' | 'exactly-once'>
@@ -269,6 +315,21 @@ export interface SimulationOutput {
   streamProjection: StreamBrokerProjection[]
   /** Durable replication cluster projections for storage nodes with replication enabled. */
   replicationProjection: ReplicationProjection[]
+  /**
+   * Read-consistency oracles for datastores with a `consistencyModel`: stale
+   * reads, read-your-writes / monotonic-read violations, catch-up waits, and a
+   * bounded per-key linearizability check. Absent when no node tracks
+   * consistency, so a `consistency.*` check on such a run does not resolve
+   * (it never passes vacuously).
+   */
+  consistency?: ConsistencyReport
+  /**
+   * Cluster bin-packing (scheduler trait): per Kubernetes Cluster node, the
+   * time-weighted machines, allocation, pending pods, per-workload ready
+   * replicas and measured failure-recovery time. Absent when no workload is
+   * scheduled onto a cluster.
+   */
+  clusterProjection?: import('../cluster/clusterScheduler').ClusterProjection[]
   /**
    * Structural single points of failure: nodes whose loss disconnects the
    * source(s) from part of the system and which run <2 instances. Computed from
@@ -446,7 +507,9 @@ export function generateSimulationOutput(
   const perNode = Object.fromEntries(
     metrics.getPerNodeMetrics(config.simulationDuration)
   ) as Record<string, PerNodeMetrics>
-  const perEdge = Object.fromEntries(metrics.getPerEdgeMetrics()) as Record<string, PerEdgeMetrics>
+  const perEdge = Object.fromEntries(
+    metrics.getPerEdgeMetrics(config.simulationDuration)
+  ) as Record<string, PerEdgeMetrics>
   const littlesLawCheck = calculateLittlesLaw(perNode, config)
   const sloBreaches = detectSLOBreaches(metrics, perNode)
   const sloTargetCount = countSLOTargets(metrics, perNode)

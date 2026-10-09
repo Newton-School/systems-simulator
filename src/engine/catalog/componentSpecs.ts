@@ -373,6 +373,10 @@ function buildRuntimeNode(
     config.cacheModel = data.sim.cacheModel
   }
 
+  if (typeof data.sim?.requestCollapsing === 'boolean') {
+    config.requestCollapsing = data.sim.requestCollapsing
+  }
+
   if (
     typeof data.sim?.cacheRamMb === 'number' &&
     Number.isFinite(data.sim.cacheRamMb) &&
@@ -481,6 +485,34 @@ function buildRuntimeNode(
     resilience.bulkhead = { maxConcurrent: Math.round(data.sim.maxConcurrency) }
   }
 
+  const bulkheadPartitions: Record<string, number> = {}
+  for (const [compartment, limit] of Object.entries(data.sim?.bulkheadPartitions ?? {})) {
+    if (compartment.trim() && typeof limit === 'number' && Number.isFinite(limit) && limit >= 1) {
+      bulkheadPartitions[compartment.trim()] = Math.floor(limit)
+    }
+  }
+  const bulkheadDefault = data.sim?.bulkheadDefaultMaxConcurrent
+  const hasBulkheadDefault =
+    typeof bulkheadDefault === 'number' && Number.isFinite(bulkheadDefault) && bulkheadDefault >= 1
+  if (Object.keys(bulkheadPartitions).length > 0 || hasBulkheadDefault) {
+    resilience.bulkhead = {
+      ...resilience.bulkhead,
+      ...(Object.keys(bulkheadPartitions).length > 0 ? { partitions: bulkheadPartitions } : {}),
+      ...(hasBulkheadDefault ? { defaultMaxConcurrent: Math.floor(bulkheadDefault) } : {}),
+      ...(data.sim?.bulkheadKeyField?.trim() ? { keyField: data.sim.bulkheadKeyField.trim() } : {})
+    }
+  }
+
+  for (const field of ['loadShedQueueDepth', 'loadShedMaxQueueDelayMs'] as const) {
+    const value = data.sim?.[field]
+    if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+      config[field] = value
+    }
+  }
+  if (data.sim?.loadShedProtectHighPriority === true) {
+    config.loadShedProtectHighPriority = true
+  }
+
   if (typeof data.sim?.routingKeyField === 'string' && data.sim.routingKeyField.trim().length > 0) {
     config.routingKeyField = data.sim.routingKeyField.trim()
   }
@@ -518,6 +550,9 @@ function buildRuntimeNode(
     if (data.sim?.replicaMembers?.trim()) config.replicaMembers = data.sim.replicaMembers.trim()
     if (data.sim?.consensusProtocol) config.consensusProtocol = data.sim.consensusProtocol
     if (data.sim?.conflictResolution) config.conflictResolution = data.sim.conflictResolution
+    if (data.sim?.consistencyModel && data.sim.consistencyModel !== 'off') {
+      config.consistencyModel = data.sim.consistencyModel
+    }
   }
 
   if (
@@ -632,6 +667,75 @@ function buildRuntimeNode(
 
   if (typeof data.sim?.fencing === 'boolean') {
     config.fencing = data.sim.fencing
+  }
+
+  // Scheduler, telemetry sink, change stream and held-connection traits.
+  for (const field of [
+    'podStartupMs',
+    'rescheduleDelayMs',
+    'machineProvisionMs',
+    'machineFailureAtMs',
+    'machineRecoveryAtMs',
+    'telemetryIngestRps',
+    'memPerConnectionKb',
+    'heartbeatCostMs',
+    'pushSendMs'
+  ] as const) {
+    const value = data.sim?.[field]
+    if (typeof value === 'number' && Number.isFinite(value) && value >= 0) config[field] = value
+  }
+  for (const field of ['clusterMaxMachines', 'machineFailureCount', 'pushRecipients'] as const) {
+    const value = data.sim?.[field]
+    if (typeof value === 'number' && Number.isFinite(value) && value >= 1) {
+      config[field] = Math.round(value)
+    }
+  }
+  if (
+    typeof data.sim?.telemetrySampleRate === 'number' &&
+    data.sim.telemetrySampleRate >= 0 &&
+    data.sim.telemetrySampleRate <= 1
+  ) {
+    config.telemetrySampleRate = data.sim.telemetrySampleRate
+  }
+  for (const field of ['telemetryAsyncIngest', 'changeStreamOrdering'] as const) {
+    if (typeof data.sim?.[field] === 'boolean') config[field] = data.sim[field]
+  }
+  for (const field of ['scheduledOn', 'changeKeyField'] as const) {
+    const value = data.sim?.[field]
+    if (typeof value === 'string' && value.trim().length > 0) config[field] = value.trim()
+  }
+  if (data.sim?.placementStrategy === 'spread' || data.sim?.placementStrategy === 'bin-pack') {
+    config.placementStrategy = data.sim.placementStrategy
+  }
+  if (
+    data.sim?.consumerOrdering === 'parallel' ||
+    data.sim?.consumerOrdering === 'per-partition' ||
+    data.sim?.consumerOrdering === 'per-key'
+  ) {
+    config.consumerOrdering = data.sim.consumerOrdering
+  }
+  // Held connections (Connection Server tier): only a declared offered count
+  // reaches the engine, so an untouched node exports nothing new.
+  const connection = data.sim?.connection
+  if (
+    connection &&
+    Number.isFinite(connection.offeredConnections) &&
+    connection.offeredConnections > 0
+  ) {
+    config.heldConnections = Math.floor(connection.offeredConnections)
+    if (
+      Number.isFinite(connection.maxConnectionsPerInstance) &&
+      connection.maxConnectionsPerInstance > 0
+    ) {
+      config.maxConnectionsPerInstance = Math.floor(connection.maxConnectionsPerInstance)
+    }
+    if (
+      typeof connection.heartbeatIntervalMs === 'number' &&
+      Number.isFinite(connection.heartbeatIntervalMs) &&
+      connection.heartbeatIntervalMs > 0
+    ) {
+      config.heartbeatIntervalMs = connection.heartbeatIntervalMs
+    }
   }
 
   const queue = data.sim?.queue
@@ -860,7 +964,7 @@ function validateSimulationNode(data: CanvasNodeDataV2): string[] {
     data.sim.replicationRole !== 'leader' &&
     data.sim.replicationRole !== 'follower'
   ) {
-    errors.push('Replication role must be Primary, Replica, Leader, or Follower.')
+    errors.push(oneOf('Database role', ['Leader', 'Follower']))
   }
 
   if (
@@ -1116,7 +1220,7 @@ register('api-endpoint', {
   category: 'compute',
   structuralRole: 'source',
   profile: 'source',
-  defaultRenderer: 'serviceNode'
+  defaultRenderer: 'standardNode'
 })
 
 for (const componentType of [
@@ -1140,7 +1244,7 @@ for (const componentType of [
     category: 'network-and-edge',
     structuralRole: 'router',
     profile: 'router',
-    defaultRenderer: 'serviceNode',
+    defaultRenderer: 'standardNode',
     routingStrategy:
       componentType === 'load-balancer' ||
       componentType === 'load-balancer-l4' ||
@@ -1156,7 +1260,7 @@ register('internal-dns', {
   category: 'dns-and-certs',
   structuralRole: 'router',
   profile: 'router',
-  defaultRenderer: 'serviceNode',
+  defaultRenderer: 'standardNode',
   routingStrategy: 'passthrough'
 })
 
@@ -1165,7 +1269,7 @@ for (const componentType of ['sharding', 'hashing'] as const) {
     category: 'auxiliary',
     structuralRole: 'router',
     profile: 'router',
-    defaultRenderer: 'serviceNode',
+    defaultRenderer: 'standardNode',
     routingStrategy: 'passthrough'
   })
 }
@@ -1181,7 +1285,7 @@ for (const componentType of [
     category: 'compute',
     structuralRole: 'processor',
     profile: 'compute-service',
-    defaultRenderer: 'computeNode'
+    defaultRenderer: 'saturationNode'
   })
 }
 
@@ -1189,49 +1293,49 @@ register('llm-gateway', {
   category: 'external-and-integration',
   structuralRole: 'processor',
   profile: 'compute-service',
-  defaultRenderer: 'serviceNode'
+  defaultRenderer: 'standardNode'
 })
 
 register('rate-limiter', {
   category: 'auxiliary',
   structuralRole: 'processor',
   profile: 'control-plane',
-  defaultRenderer: 'serviceNode'
+  defaultRenderer: 'standardNode'
 })
 
 register('circuit-breaker-controller', {
   category: 'auxiliary',
   structuralRole: 'processor',
   profile: 'control-plane',
-  defaultRenderer: 'serviceNode'
+  defaultRenderer: 'standardNode'
 })
 
 register('idempotency-manager', {
   category: 'auxiliary',
   structuralRole: 'processor',
   profile: 'control-plane',
-  defaultRenderer: 'serviceNode'
+  defaultRenderer: 'standardNode'
 })
 
 register('reservation-store', {
   category: 'auxiliary',
   structuralRole: 'processor',
   profile: 'control-plane',
-  defaultRenderer: 'serviceNode'
+  defaultRenderer: 'standardNode'
 })
 
 register('distributed-lock', {
   category: 'consensus-and-coordination',
   structuralRole: 'processor',
   profile: 'control-plane',
-  defaultRenderer: 'serviceNode'
+  defaultRenderer: 'standardNode'
 })
 
 register('streaming-analytics', {
   category: 'data-infra-and-analytics',
   structuralRole: 'processor',
   profile: 'compute-service',
-  defaultRenderer: 'serviceNode'
+  defaultRenderer: 'standardNode'
 })
 
 for (const componentType of ['batch-worker'] as const) {
@@ -1239,7 +1343,7 @@ for (const componentType of ['batch-worker'] as const) {
     category: 'compute',
     structuralRole: 'processor',
     profile: 'worker',
-    defaultRenderer: 'computeNode',
+    defaultRenderer: 'saturationNode',
     asyncBoundary: true
   })
 }
@@ -1248,7 +1352,7 @@ register('push-notification-service', {
   category: 'real-time-and-media',
   structuralRole: 'processor',
   profile: 'worker',
-  defaultRenderer: 'serviceNode',
+  defaultRenderer: 'standardNode',
   asyncBoundary: true
 })
 
@@ -1269,7 +1373,7 @@ for (const componentType of [
     category: 'storage-and-data',
     structuralRole: 'storage',
     profile: 'datastore',
-    defaultRenderer: 'serviceNode'
+    defaultRenderer: 'standardNode'
   })
 }
 
@@ -1277,7 +1381,7 @@ register('memory-fabric', {
   category: 'data-infra-and-analytics',
   structuralRole: 'storage',
   profile: 'datastore',
-  defaultRenderer: 'serviceNode'
+  defaultRenderer: 'standardNode'
 })
 
 for (const componentType of ['shard-node', 'partition-node'] as const) {
@@ -1285,7 +1389,7 @@ for (const componentType of ['shard-node', 'partition-node'] as const) {
     category: 'auxiliary',
     structuralRole: 'storage',
     profile: 'datastore',
-    defaultRenderer: 'serviceNode'
+    defaultRenderer: 'standardNode'
   })
 }
 
@@ -1293,7 +1397,7 @@ register('queue', {
   category: 'messaging-and-streaming',
   structuralRole: 'storage',
   profile: 'broker',
-  defaultRenderer: 'serviceNode',
+  defaultRenderer: 'standardNode',
   asyncBoundary: true
 })
 
@@ -1301,7 +1405,7 @@ register('stream', {
   category: 'messaging-and-streaming',
   structuralRole: 'storage',
   profile: 'broker',
-  defaultRenderer: 'serviceNode',
+  defaultRenderer: 'standardNode',
   asyncBoundary: true
 })
 
@@ -1310,7 +1414,7 @@ for (const componentType of ['message-broker', 'pub-sub'] as const) {
     category: 'messaging-and-streaming',
     structuralRole: 'router',
     profile: 'broker',
-    defaultRenderer: 'serviceNode',
+    defaultRenderer: 'standardNode',
     asyncBoundary: true,
     routingStrategy: 'broadcast'
   })
@@ -1341,7 +1445,7 @@ for (const componentType of [
     category: 'orchestration-and-infra',
     structuralRole: 'processor',
     profile: 'control-plane',
-    defaultRenderer: 'serviceNode'
+    defaultRenderer: 'standardNode'
   })
 }
 
@@ -1349,22 +1453,31 @@ register('agent-orchestrator', {
   category: 'orchestration-and-infra',
   structuralRole: 'processor',
   profile: 'control-plane',
-  defaultRenderer: 'serviceNode',
+  defaultRenderer: 'standardNode',
   asyncBoundary: true
+})
+
+// A Kubernetes cluster: its instances are the worker machines that scheduled
+// workloads' pods are bin-packed onto (scheduler trait). Carries no traffic.
+register('kubernetes-cluster', {
+  category: 'orchestration-and-infra',
+  structuralRole: 'processor',
+  profile: 'control-plane',
+  defaultRenderer: 'standardNode'
 })
 
 register('feature-flag-service', {
   category: 'devops-and-delivery',
   structuralRole: 'processor',
   profile: 'control-plane',
-  defaultRenderer: 'serviceNode'
+  defaultRenderer: 'standardNode'
 })
 
 register('metrics-store', {
   category: 'observability',
   structuralRole: 'processor',
   profile: 'observability',
-  defaultRenderer: 'serviceNode',
+  defaultRenderer: 'standardNode',
   asyncBoundary: true
 })
 
@@ -1372,7 +1485,7 @@ register('centralized-logging', {
   category: 'observability',
   structuralRole: 'processor',
   profile: 'observability',
-  defaultRenderer: 'serviceNode',
+  defaultRenderer: 'standardNode',
   asyncBoundary: true
 })
 
@@ -1380,7 +1493,7 @@ register('distributed-tracing', {
   category: 'observability',
   structuralRole: 'processor',
   profile: 'observability',
-  defaultRenderer: 'serviceNode',
+  defaultRenderer: 'standardNode',
   asyncBoundary: true
 })
 
@@ -1388,7 +1501,7 @@ register('alerting-hook', {
   category: 'observability',
   structuralRole: 'sink',
   profile: 'observability',
-  defaultRenderer: 'serviceNode',
+  defaultRenderer: 'standardNode',
   asyncBoundary: true
 })
 
@@ -1396,14 +1509,14 @@ register('health-check-manager', {
   category: 'observability',
   structuralRole: 'processor',
   profile: 'control-plane',
-  defaultRenderer: 'serviceNode'
+  defaultRenderer: 'standardNode'
 })
 
 register('safety-observability-mesh', {
   category: 'observability',
   structuralRole: 'processor',
   profile: 'observability',
-  defaultRenderer: 'serviceNode',
+  defaultRenderer: 'standardNode',
   asyncBoundary: true
 })
 
@@ -1411,7 +1524,7 @@ register('third-party-api-connector', {
   category: 'external-and-integration',
   structuralRole: 'sink',
   profile: 'integration',
-  defaultRenderer: 'serviceNode'
+  defaultRenderer: 'standardNode'
 })
 
 export const COMPONENT_SPECS = specMap as Readonly<Partial<Record<ComponentType, ComponentSpec>>>

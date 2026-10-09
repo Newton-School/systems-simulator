@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { BaseEdge, EdgeProps, EdgeLabelRenderer } from 'reactflow'
+import { BaseEdge, EdgeProps, EdgeLabelRenderer, useStore as useFlowViewStore } from 'reactflow'
 import type { AnyNodeData, EdgeSimulationData } from '@renderer/types/ui'
 import {
   getEdgeModePresentation,
@@ -14,6 +14,7 @@ import { resolveEdgeModel } from '../../../../engine/analysis/environmentProfile
 import { patternMultiplier } from './edgeFlowPatterns'
 import { resolveEdgeLensProjection } from './edgeLensPresentation'
 import { getCanvasEdgePath } from './edgePathGeometry'
+import { directionCueScale, legibleStrokeWidth, midEdgeChevronPositions } from './edgeDirectionCues'
 
 const EDGE_VISUAL_WINDOW_MS = 3_000
 const FAILED_PULSE_MS = 650
@@ -23,6 +24,7 @@ const FLOW_SUCCESS_COLOR = 'rgb(var(--nss-success))'
 const FLOW_WARNING_COLOR = 'rgb(var(--nss-warning))'
 const FLOW_DANGER_COLOR = 'rgb(var(--nss-danger))'
 const FLOW_PRIMARY_COLOR = 'rgb(var(--nss-primary))'
+const EDGE_IDLE_STROKE = 'var(--nss-edge-stroke)'
 const ROUTING_PREVIEW_DECISION_SAMPLE_LIMIT = 2_000
 
 /** Stable, evenly-spread hue for a key so the same key always gets the same color. */
@@ -150,6 +152,9 @@ export const PacketEdge = ({
   )
   const runConfig = useStore((state) => state.edgeFlowRunConfig)
   const playback = useStore((state) => state.edgeFlowPlayback)
+  // Live styling (#70): throughput-proportional width and latency colour, set
+  // only while a run is in progress (null otherwise).
+  const liveEdgeStyle = useStore((state) => state.liveVisualization?.edgeStyles.get(id))
   const routingVisualization = useStore((state) => state.routingStrategyVisualization)
   const colorDotsByKey = useStore((state) => state.displaySettings.colorDotsByKey)
   // While following a single request, hide the ambient aggregate dots so only the
@@ -162,6 +167,13 @@ export const PacketEdge = ({
   )
   const nodes = useStore((state) => state.nodes)
   const edges = useStore((state) => state.edges)
+  // Zoom-out compensation for arrowheads and stroke width (quantized, so edges
+  // re-render only when the zoom crosses a step).
+  const cueScale = useFlowViewStore((state) => directionCueScale(state.transform[2]))
+  // Upstream/downstream cue: the connections of a selected node are emphasized.
+  const touchesSelectedNode = nodes.some(
+    (node) => node.selected && (node.id === source || node.id === target)
+  )
   const metricsByNode = useStore((state) => state.simulationMetricsByNode)
   const sourceNodeData = nodes.find((node) => node.id === source)?.data as AnyNodeData | undefined
   const targetNodeData = nodes.find((node) => node.id === target)?.data as AnyNodeData | undefined
@@ -331,11 +343,18 @@ export const PacketEdge = ({
       ? selected
         ? 3
         : CONNECTOR_IDLE_STROKE_WIDTH
-      : hasFlow
-        ? clamp(3 + Math.log2(visualRequestRate + 1) * 0.55, selected ? 3.5 : 3, 5)
-        : selected
-          ? 3
-          : 2
+      : liveEdgeStyle && flowStatus === 'running'
+        ? Math.max(liveEdgeStyle.strokeWidth, selected ? 3 : 1)
+        : hasFlow
+          ? clamp(3 + Math.log2(visualRequestRate + 1) * 0.55, selected ? 3.5 : 3, 5)
+          : selected
+            ? 3
+            : 2
+  const emphasized = selected || touchesSelectedNode
+  const edgeStrokeWidth = legibleStrokeWidth(
+    emphasized && !selected ? trafficStrokeWidth + 0.5 : trafficStrokeWidth,
+    cueScale
+  )
   // Health severity drives the stroke colour and is computed independently of
   // the active lens, so a failing link stays red even under a non-error lens.
   const failureStroke =
@@ -355,7 +374,7 @@ export const PacketEdge = ({
       ? routingPreview?.isSelected
         ? 1
         : UNSELECTED_ROUTING_PREVIEW_OPACITY
-      : edgeIsConnectorOnly && !selected
+      : edgeIsConnectorOnly && !emphasized
         ? CONNECTOR_IDLE_OPACITY
         : isInactiveAfterRun
           ? INACTIVE_EDGE_OPACITY
@@ -402,21 +421,47 @@ export const PacketEdge = ({
   const approximatePathLength = Math.hypot(targetX - sourceX, targetY - sourceY)
   const semanticBadgeAnchor =
     approximatePathLength >= 24 && !isTracing ? pointForProgress(0.62) : { x: labelX, y: labelY }
-  const endpointDirection = (() => {
+  const showDirectionCues = !isTracing
+  const pathGeometry = (() => {
     const path = pathRef.current
     const pathLength = path?.getTotalLength() ?? 0
-    if (!path || pathLength < 24 || isTracing) return null
-
-    // Keep the chevron just outside the target handle/node while still reading as
-    // an arrowhead at the end of the connector.
-    const tipLength = Math.max(0, pathLength - 11)
-    const point = path.getPointAtLength(tipLength)
-    const before = path.getPointAtLength(Math.max(0, tipLength - 6))
-    const after = path.getPointAtLength(Math.min(pathLength, tipLength + 3))
-    const angle = (Math.atan2(after.y - before.y, after.x - before.x) * 180) / Math.PI
-
-    return { x: point.x, y: point.y, angle }
+    if (!path || pathLength < 24) return null
+    return { path, pathLength }
   })()
+  const pointAngle = (path: SVGPathElement, length: number, span: number) => {
+    const point = path.getPointAtLength(length)
+    const before = path.getPointAtLength(Math.max(0, length - span))
+    const after = path.getPointAtLength(Math.min(path.getTotalLength(), length + span * 0.4))
+    const angle = (Math.atan2(after.y - before.y, after.x - before.x) * 180) / Math.PI
+    return { x: point.x, y: point.y, angle }
+  }
+  const endpointDirection =
+    pathGeometry && showDirectionCues
+      ? // Tip just outside the target handle so it reads as the end of the connector.
+        pointAngle(
+          pathGeometry.path,
+          Math.max(0, pathGeometry.pathLength - 4 * cueScale),
+          8 * cueScale
+        )
+      : null
+  // Moving dots already show direction, so body chevrons only appear on idle edges.
+  const midChevrons =
+    pathGeometry && showDirectionCues && streamPacketCount === 0
+      ? midEdgeChevronPositions(pathGeometry.pathLength, cueScale, {
+          avoidCenter: hasLabel || showFlowLabel || weightSharePct !== null
+        }).map((progress) =>
+          pointAngle(pathGeometry.path, pathGeometry.pathLength * progress, 6 * cueScale)
+        )
+      : []
+  const directionCueOpacity = emphasized ? 1 : clamp(baseEdgeOpacity, 0.35, 0.9)
+  // Live throughput colour applies to network edges during a run; selection
+  // highlighting and failure colour take precedence.
+  const liveStroke =
+    flowStatus === 'running' && !edgeIsConnectorOnly ? liveEdgeStyle?.strokeColor : undefined
+  const edgeStroke = isRoutingPreviewEdge
+    ? EDGE_IDLE_STROKE
+    : (failureStroke ?? (emphasized ? FLOW_PRIMARY_COLOR : (liveStroke ?? EDGE_IDLE_STROKE)))
+  const chevronStroke = failureStroke ?? (emphasized ? FLOW_PRIMARY_COLOR : EDGE_IDLE_STROKE)
 
   return (
     <>
@@ -436,31 +481,43 @@ export const PacketEdge = ({
         path={edgePath}
         style={{
           ...style,
-          strokeWidth: trafficStrokeWidth,
+          strokeWidth: edgeStrokeWidth,
           strokeDasharray: edgeModePresentation.strokeDasharray,
-          stroke: isRoutingPreviewEdge
-            ? 'var(--nss-border-high)'
-            : selected
-              ? FLOW_PRIMARY_COLOR
-              : (failureStroke ?? 'var(--nss-border-high)'),
+          stroke: selected && !isRoutingPreviewEdge ? FLOW_PRIMARY_COLOR : edgeStroke,
           opacity: baseEdgeOpacity
         }}
         interactionWidth={30}
       />
 
+      {midChevrons.map((chevron, index) => (
+        <path
+          key={`${id}-chevron-${index}`}
+          transform={`translate(${chevron.x} ${chevron.y}) rotate(${chevron.angle}) scale(${cueScale})`}
+          d="M -3.5 -4 L 1.5 0 L -3.5 4"
+          fill="none"
+          stroke={chevronStroke}
+          strokeWidth={1.75}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          vectorEffect="non-scaling-stroke"
+          opacity={directionCueOpacity}
+          pointerEvents="none"
+        />
+      ))}
+
       {endpointDirection && (
         <g
-          transform={`translate(${endpointDirection.x} ${endpointDirection.y}) rotate(${endpointDirection.angle})`}
-          opacity={selected ? 1 : clamp(baseEdgeOpacity * 0.82, 0.28, 0.82)}
+          transform={`translate(${endpointDirection.x} ${endpointDirection.y}) rotate(${endpointDirection.angle}) scale(${cueScale})`}
+          opacity={directionCueOpacity}
           pointerEvents="none"
         >
           <title>{`${edgeProtocolPresentation.shortLabel} · ${edgeModePresentation.title} · ${source} to ${target}`}</title>
+          {/* Filled arrowhead with a panel-colored rim so it reads on the line and the canvas in both themes. */}
           <path
-            d="M -5 -4 L 0 0 L -5 4"
-            fill="none"
-            stroke={edgeProtocolPresentation.accent}
-            strokeWidth={2}
-            strokeLinecap="round"
+            d="M -9 -5 L 0 0 L -9 5 L -6.5 0 Z"
+            fill={edgeProtocolPresentation.accent}
+            stroke="var(--nss-panel)"
+            strokeWidth={1}
             strokeLinejoin="round"
             vectorEffect="non-scaling-stroke"
           />

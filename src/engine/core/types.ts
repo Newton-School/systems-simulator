@@ -280,8 +280,7 @@ export type WorkloadKind = 'cpu-bound' | 'io-bound'
  * Physical resource allocation for a node, in the AWS instance-family model. The
  * author picks a discrete `instanceType` (per-instance vCPU/RAM/price resolve from
  * INSTANCE_CATALOG — never free-typed) and scales by `instanceCount`. Workers and
- * queue depth get sensible defaults derived from the instance + `workloadKind`, but
- * remain editable so they can be tuned or intentionally misconfigured.
+ * queue depth are derived from the instance + `workloadKind` and are not authored.
  *
  * See ns-simulator-docs/specs/resource-allocation-and-derived-concurrency.md.
  */
@@ -294,9 +293,14 @@ export interface ResourceConfig {
   maxInstances?: number
   /** CPU-bound vs IO-bound — decides whether the vCPU ceiling caps workers. */
   workloadKind?: WorkloadKind
-  /** App concurrency per instance (parallel servers). Derived default, editable, vCPU-capped. */
+  /**
+   * Accepted for back-compat but NOT read by the simulator: workers per instance
+   * are derived (vCPU x workers-per-vCPU for the workload kind, see
+   * resourceDerivation.ts). The validator warns when it is set; the panel and
+   * the TopologyJSON viewer show it read-only.
+   */
   workersPerInstance?: number
-  /** Waiting-room depth beyond in-service workers. Derived default, editable, RAM-capped. */
+  /** Accepted for back-compat but NOT read: admission is derived from RAM. Same warning. */
   queueSlots?: number
   /** Memory footprint of one in-flight request, in MB. Divides RAM into the admission ceiling. */
   perRequestMemMb?: number
@@ -370,7 +374,24 @@ export interface ResilienceConfig {
     refillRate: number
   }
   bulkhead?: {
-    maxConcurrent: number
+    /**
+     * Legacy field: the serverless concurrency cap read by cold start
+     * (`max_concurrency_exceeded`). It has no runtime effect on other node
+     * types; the validator warns when it is set there.
+     */
+    maxConcurrent?: number
+    /**
+     * Per-compartment cap on requests held at this node at once (queued + in
+     * service). A compartment is the request type, or `request.metadata[keyField]`
+     * when `keyField` is set. Arrivals over their compartment's cap are rejected
+     * with `bulkhead_full`, so one slow or noisy compartment cannot occupy every
+     * worker and queue slot.
+     */
+    partitions?: Record<string, number>
+    /** Cap for compartments not listed in `partitions`. Absent = unlisted compartments are uncapped. */
+    defaultMaxConcurrent?: number
+    /** request.metadata field that names the compartment; defaults to request.type. */
+    keyField?: string
   }
 }
 
@@ -437,6 +458,31 @@ export interface EdgePresentation {
   routingStyle?: EdgePresentationRoutingStyle
 }
 
+export type EdgeConnectionReuse = 'per-request' | 'keep-alive' | 'persistent'
+export type EdgeTlsVersion = 'none' | '1.2' | '1.3'
+
+export interface EdgeConnectionConfig {
+  /** How the source obtains a connection for each request on this edge. */
+  reuse: EdgeConnectionReuse
+  /** TLS version negotiated on new connections; default depends on protocol. */
+  tls?: EdgeTlsVersion
+  /** Resume an earlier TLS session instead of a full handshake. */
+  tlsSessionResumption?: boolean
+  /** keep-alive only: close a warm connection after this long idle (ms). */
+  idleTimeoutMs?: number
+  /** Most connections one pool may open; unset = open as many as needed. */
+  maxConnections?: number
+  /** Concurrent requests per connection; default depends on protocol. */
+  maxStreamsPerConnection?: number
+}
+
+export interface EdgeBatchingConfig {
+  /** Kafka `linger.ms`: how long a batch waits for more records before sending. */
+  lingerMs: number
+  /** Kafka `batch.size`: send as soon as the batch holds this many bytes. */
+  maxBatchBytes?: number
+}
+
 export interface EdgeDefinition {
   id: string
   source: string
@@ -451,6 +497,12 @@ export interface EdgeDefinition {
   }
   bandwidth: number //Mbps
   maxConcurrentRequests: number
+  /**
+   * Per-request protocol cost (ms) in place of the protocol's default (https 0.5,
+   * kafka 2, ...). Connector-mode edges set 0 so a wire that only expresses
+   * topology adds no latency while keeping its protocol for routing and grading.
+   */
+  protocolOverheadMs?: number
   /**
    * Probability of packet loss on this edge.
    * Expected range: 0.0 (no loss) to 1.0 (all packets lost).
@@ -470,6 +522,17 @@ export interface EdgeDefinition {
    * downstream target genuinely receives N× the load and can saturate.
    */
   fanoutFactor?: number
+  /**
+   * Connection model (TLS handshakes, HTTP/2 multiplexing, persistent
+   * connections). Unset keeps the historical assumption that every request finds
+   * a warm connection with no setup cost. See network/connectionPool.ts.
+   */
+  connection?: EdgeConnectionConfig
+  /**
+   * Producer record batching (Kafka linger.ms / batch.size). Only applies to
+   * `protocol: 'kafka'` edges. See network/edgeBatching.ts.
+   */
+  batching?: EdgeBatchingConfig
 
   // React Flow metadata
   sourceHandle?: string
@@ -546,6 +609,18 @@ export interface WorkloadProfile {
   baseRps: number
   /** Weighted client populations. Omitted means use the source node placement. */
   origins?: TrafficOrigin[]
+  /**
+   * Client sessions. When set, every generated request is stamped with
+   * `metadata.sessionId` = one of `count` session ids, drawn uniformly, so one
+   * client's reads and writes share an identity (the substrate for
+   * read-your-writes / monotonic-read guarantees and sticky routing). A request
+   * that already carries a `sessionId` (static metadata or keyspace) keeps it.
+   * Omitted → requests carry no session.
+   */
+  sessions?: {
+    /** Distinct client sessions; omitted/empty = no sessions. */
+    count?: number
+  }
   diurnal?: {
     peakMultiplier: number
     /**
@@ -678,6 +753,13 @@ export interface NodeState {
   queueLength: number
   utilization: number
   totalInSystem: number
+  /**
+   * Current worker ceiling (effective c, follows autoscaling). Optional so
+   * hand-built states in tests stay valid; GGcKNode always sets it.
+   */
+  workerCapacity?: number
+  /** Current admission capacity K (queued + in service). Optional like workerCapacity. */
+  systemCapacity?: number
   /**
    * Cumulative mean service time (ms) over completed requests, or 0 before any
    * completion. Used by the `least-response-time` routing strategy.

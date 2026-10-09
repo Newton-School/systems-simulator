@@ -1,4 +1,4 @@
-import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { memo, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { ChevronLeft, FolderOpen, Save, Sidebar, Workflow } from 'lucide-react'
 
 import { Divider } from '../ui/Divider'
@@ -6,10 +6,13 @@ import { IconButton } from '../ui/IconButton'
 import { ToggleButton } from '../ui/ToggleButton'
 import { Branding } from './Branding'
 import { CostChip } from './CostChip'
+import { DesignChecksChip } from './DesignChecksChip'
 import { ModeBadge } from './ModeBadge'
 import { FileStatus } from './FileStatus'
 import { ThemeToggle } from './ThemeToggle'
 import { SimulationControls } from '../simulation/SimulationControls'
+import type { ExperimentPreview } from '../simulation/chaosExperimentModel'
+import type { PlaybackSpeed } from '../../../../engine/worker/protocols'
 import type { FaultTargetOption, ScenarioState, SourceNodeOption } from '@renderer/types/ui'
 
 interface HeaderProps {
@@ -33,6 +36,8 @@ interface HeaderProps {
   onSave: () => void
   onOpen: () => void
   onAutoLayout: () => void
+  /** TopologyJSON import/export/viewer controls, shown after the file actions. */
+  topologyJsonControls?: ReactNode
   fileName: string | null
   isUnsaved: boolean
 
@@ -43,12 +48,16 @@ interface HeaderProps {
   onPause: () => void
   onResume: () => void
   onStop: () => void
+  onStep?: () => void
+  playbackSpeed?: PlaybackSpeed
+  onPlaybackSpeedChange?: (speed: PlaybackSpeed) => void
   isRunning: boolean
   isPaused: boolean
   sourceNodes: SourceNodeOption[]
   faultTargets: FaultTargetOption[]
   scenario: ScenarioState
   onScenarioChange: (updater: (current: ScenarioState) => ScenarioState) => void
+  previewExperiment?: (entries: NonNullable<ScenarioState['experiment']>) => ExperimentPreview
   simulationDisabled?: boolean
   /** Minimal chrome (EnvironmentProfile ASSIGNMENT/PRACTICE): hide file status chrome. */
   minimal?: boolean
@@ -94,6 +103,7 @@ export const Header = memo(
     onSave,
     onOpen,
     onAutoLayout,
+    topologyJsonControls,
     fileName,
     isUnsaved,
     onRun,
@@ -102,12 +112,16 @@ export const Header = memo(
     onPause,
     onResume,
     onStop,
+    onStep,
+    playbackSpeed,
+    onPlaybackSpeedChange,
     isRunning,
     isPaused,
     sourceNodes,
     faultTargets,
     scenario,
     onScenarioChange,
+    previewExperiment,
     simulationDisabled,
     minimal,
     canOpen = true,
@@ -173,6 +187,7 @@ export const Header = memo(
           <div className="nss-desktop-only contents">
             <Divider />
             <CostChip />
+            <DesignChecksChip />
           </div>
           <Divider />
           <ModeBadge />
@@ -201,6 +216,7 @@ export const Header = memo(
               <IconButton onClick={onSave} icon={<Save size={18} />} label="Save (Ctrl+S)" />
             )}
             <IconButton onClick={onAutoLayout} icon={<Workflow size={18} />} label="Auto Layout" />
+            {topologyJsonControls}
           </div>
 
           <div className="nss-desktop-only">
@@ -214,12 +230,16 @@ export const Header = memo(
             onPause={onPause}
             onResume={onResume}
             onStop={onStop}
+            onStep={onStep}
+            playbackSpeed={playbackSpeed}
+            onPlaybackSpeedChange={onPlaybackSpeedChange}
             isRunning={isRunning}
             isPaused={isPaused}
             sourceNodes={sourceNodes}
             faultTargets={faultTargets}
             scenario={scenario}
             onScenarioChange={onScenarioChange}
+            previewExperiment={previewExperiment}
             disabled={simulationDisabled}
           />
         </div>

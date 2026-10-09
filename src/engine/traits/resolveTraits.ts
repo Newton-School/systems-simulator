@@ -45,7 +45,11 @@ export function createTraitResolver(registry: TraitRegistry = {}): TraitResolver
 
     const registeredTraits = mergedRegistry[node.type]
     if (registeredTraits) {
-      traits.push(...registeredTraits)
+      for (const trait of registeredTraits) {
+        if (!trait.isEnabledFor || trait.isEnabledFor(node)) {
+          traits.push(trait)
+        }
+      }
     }
 
     return traits

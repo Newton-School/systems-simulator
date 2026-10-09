@@ -1,3 +1,4 @@
+import { isClusterType } from '../../../../engine/traits/scheduler'
 import type {
   AnyNodeData,
   MetricLens,
@@ -546,6 +547,14 @@ export function getPreRunMetric(lens: PreRunMetricLens, data: AnyNodeData): Summ
       }
     }
     case 'concurrency': {
+      if (isClusterType(data.componentType)) {
+        const type = data.sim?.resources?.instanceType
+        if (!type) return null
+        return {
+          label: 'Machines',
+          value: `${getInstanceCount(data.sim?.resources)} × ${type}`
+        }
+      }
       if (!data.sim?.queue) return null
       return {
         label: vocabulary.concurrencyLabel,
@@ -556,6 +565,7 @@ export function getPreRunMetric(lens: PreRunMetricLens, data: AnyNodeData): Summ
       }
     }
     case 'queueCapacity': {
+      if (isClusterType(data.componentType)) return null
       if (!data.sim?.queue) return null
       return {
         label: vocabulary.queueLabel,

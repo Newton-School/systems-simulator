@@ -2,12 +2,14 @@ import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } fro
 import { Panel, PanelGroup, ImperativePanelHandle } from 'react-resizable-panels'
 
 // Store
+import { buildFaultTargetOptions } from '@renderer/utils/faultTargets'
 import useStore, { type EdgeFlowState } from '@renderer/store/useStore'
 
 // Hooks
 import { useFlowPersistence } from '@renderer/hooks/useFlowPersistence'
 import { useConfirmDialog } from '@renderer/hooks/useConfirmDialog'
 import { useSimulation } from '@renderer/hooks/useSimulation'
+import { useLiveVisualization, type NodeVisualStyle } from '@renderer/hooks/useLiveVisualization'
 import { useTopologySerializer } from '@renderer/hooks/useTopologySerializer'
 import {
   loadPersistedAttemptState,
@@ -30,6 +32,8 @@ import {
   repostLastNewtonSave
 } from '@renderer/utils/newtonHostMessaging'
 import { applyAutoLayout } from '@renderer/utils/autoLayout'
+import { ImportTopologyDialog } from '@renderer/components/topology/ImportTopologyDialog'
+import { TopologyJsonMenu } from '@renderer/components/topology/TopologyJsonMenu'
 import { validateTopology } from '../../../../engine/validation/validator'
 import type { LatencyPercentiles } from '../../../../engine/metrics'
 import type { TimeSeriesSnapshot } from '../../../../engine/analysis/output'
@@ -53,7 +57,6 @@ import {
   resolveEdgeModel,
   resolveEnvironmentProfile
 } from '../../../../engine/analysis/environmentProfile'
-import type { ValidationError } from '../../../../engine/validation/validator'
 import {
   hasWorkloadSourceConfig,
   isSourceComponentData
@@ -84,6 +87,9 @@ import {
 import { ErrorBoundary } from '../ui/ErrorBoundary'
 import { ResizeHandle } from '../ui/ResizeHandle'
 import { RunToast } from '../ui/RunToast'
+import { builderPolicyViolations } from '@renderer/utils/builderPolicyContext'
+import { TerminalDock, type BottomDockTab } from '../terminal/TerminalDock'
+import { trackSavedTopologyBaseline } from '../terminal/terminalStore'
 import { RoutingVisualizationToast } from '../ui/RoutingVisualizationToast'
 import type { CanvasNodeDataV2 } from '../../../../engine/catalog/nodeSpecTypes'
 import {
@@ -94,6 +100,17 @@ import {
   type SourceNodeOption
 } from '@renderer/types/ui'
 import { generateRunSeed } from '@renderer/components/simulation/simulationControlModel'
+import {
+  buildExperimentForTopology,
+  type ExperimentPreview
+} from '@renderer/components/simulation/chaosExperimentModel'
+import { ExperimentResultPanel } from '@renderer/components/simulation/ChaosExperimentPanel'
+import { evaluateExperiment, type ExperimentPlan } from '../../../../engine/scenarios'
+import {
+  compareRunGraph,
+  snapshotRunGraph,
+  type RunGraphSnapshot
+} from '@renderer/components/simulation/resultsTopologyRelation'
 import { PRE_RUN_LENSES, RUNTIME_LENSES } from '@renderer/config/metricLensConfig'
 import {
   useCompactWorkspace,
@@ -116,74 +133,20 @@ const ResultsTray = lazy(async () => {
   return { default: module.ResultsTray }
 })
 
+const TerminalTab = lazy(async () => {
+  const module = await import('../terminal/TerminalTab')
+  return { default: module.TerminalTab }
+})
+
+const TopologyJsonViewer = lazy(async () => {
+  const module = await import('../topology/TopologyJsonViewer')
+  return { default: module.TopologyJsonViewer }
+})
+
 const FlowCanvas = lazy(async () => {
   const module = await import('../canvas/FlowCanvas')
   return { default: module.FlowCanvas }
 })
-
-function titleCaseField(field: string): string {
-  switch (field) {
-    case 'latencyP99':
-      return 'Latency target (p99)'
-    case 'availabilityTarget':
-      return 'Availability target'
-    case 'errorBudget':
-      return 'Error budget'
-    default:
-      return field.replace(/([A-Z])/g, ' $1').replace(/^./, (c) => c.toUpperCase())
-  }
-}
-
-function formatValidationIssue(
-  error: ValidationError,
-  nodes: ReturnType<typeof useStore.getState>['nodes'],
-  edges: ReturnType<typeof useStore.getState>['edges']
-): string {
-  if (error.path === 'workload.sourceNodeId') {
-    return error.message
-  }
-
-  const nodeMatch = error.path.match(/^nodes\.(\d+)\.(.+)$/)
-  if (nodeMatch) {
-    const nodeIndex = Number(nodeMatch[1])
-    const node = nodes[nodeIndex]
-    const rawFieldPath = nodeMatch[2]
-    const lastSegment = rawFieldPath.split('.').pop() ?? rawFieldPath
-    const nodeLabel = (node?.data as CanvasNodeDataV2 | undefined)?.label ?? `Node ${nodeIndex + 1}`
-
-    if (error.message.includes('received undefined')) {
-      return `${nodeLabel}: ${titleCaseField(lastSegment)} is missing.`
-    }
-
-    return `${nodeLabel}: ${titleCaseField(lastSegment)} - ${error.message}`
-  }
-
-  const edgeMatch = error.path.match(/^edges(?:\.|\[)(\d+)(?:\]|\.)?(.+)?$/)
-  if (edgeMatch) {
-    const edgeIndex = Number(edgeMatch[1])
-    const edge = edges[edgeIndex]
-    const sourceNode = nodes.find((node) => node.id === edge?.source)
-    const targetNode = nodes.find((node) => node.id === edge?.target)
-    const sourceLabel = (sourceNode?.data as CanvasNodeDataV2 | undefined)?.label ?? edge?.source
-    const targetLabel = (targetNode?.data as CanvasNodeDataV2 | undefined)?.label ?? edge?.target
-    const edgeLabel =
-      typeof edge?.label === 'string' && edge.label.length > 0
-        ? edge.label
-        : sourceLabel && targetLabel
-          ? `${sourceLabel} -> ${targetLabel}`
-          : (edge?.id ?? `Edge ${edgeIndex + 1}`)
-
-    if (error.message.includes('received undefined')) {
-      const rawFieldPath = edgeMatch[2]?.replace(/^\./, '') ?? ''
-      const lastSegment = rawFieldPath.split('.').pop() ?? 'field'
-      return `${edgeLabel}: ${titleCaseField(lastSegment)} is missing.`
-    }
-
-    return `${edgeLabel}: ${error.message}`
-  }
-
-  return error.path ? `${error.path}: ${error.message}` : error.message
-}
 
 function PanelFallback({ label }: { label: string }) {
   return (
@@ -257,12 +220,15 @@ function buildLiveNodeMetrics({
   snapshot,
   nodes,
   edges,
-  edgeFlowById
+  edgeFlowById,
+  liveNodeStyles
 }: {
   snapshot: TimeSeriesSnapshot
   nodes: StoreNode[]
   edges: StoreEdge[]
   edgeFlowById: Record<string, EdgeFlowState>
+  /** Windowed, time-weighted node values (never the snapshot's point sample). */
+  liveNodeStyles: Map<string, NodeVisualStyle>
 }): Record<string, NodeSimulationMetrics> {
   return Object.fromEntries(
     nodes.map((node) => {
@@ -302,7 +268,9 @@ function buildLiveNodeMetrics({
           postWarmupConnectionReset: 0,
           postWarmupInFlight: totalInSystem,
           queueDepth: Math.round((nodeSnapshot?.queueLength ?? 0) * 10) / 10,
-          utilization: Math.round((nodeSnapshot?.utilization ?? 0) * 1000) / 10,
+          // Time-weighted over the trailing window from the engine's busy-area
+          // integrals; the snapshot's instantaneous occupancy is a point sample.
+          utilization: Math.round((liveNodeStyles.get(node.id)?.utilization ?? 0) * 1000) / 10,
           errorRate,
           active: source ? outgoing.totalAttempted > 0 : arrived > 0 || totalInSystem > 0,
           latencyNodeLocal: {
@@ -333,7 +301,19 @@ export const WorkspaceLayout = () => {
   const [isLeftOpen, setIsLeftOpen] = useState(true)
   const [leftSidebarTab, setLeftSidebarTab] = useState<LibrarySidebarTab>('library')
   const [isRightOpen, setIsRightOpen] = useState(false)
+  // The right panel slot shows the inspector or the JSON Topology Viewer (#87).
+  const [rightPanelView, setRightPanelView] = useState<'inspector' | 'json'>('inspector')
+  const rightPanelViewRef = useRef(rightPanelView)
+  rightPanelViewRef.current = rightPanelView
+  const [showImportJson, setShowImportJson] = useState(false)
   const [showResults, setShowResults] = useState(false)
+  const [terminalOpen, setTerminalOpen] = useState(false)
+  const [dockTab, setDockTab] = useState<BottomDockTab>('terminal')
+  const toggleTerminal = useCallback(() => {
+    setTerminalOpen((open) => !open)
+    setDockTab('terminal')
+  }, [])
+  useEffect(() => trackSavedTopologyBaseline(), [])
   const [showSamples, setShowSamples] = useState(false)
   const [showShortcuts, setShowShortcuts] = useState(false)
   const [componentLibrarySearchFocusVersion, setComponentLibrarySearchFocusVersion] = useState(0)
@@ -343,6 +323,15 @@ export const WorkspaceLayout = () => {
     tone: 'warning'
   })
   const [lastRunContext, setLastRunContext] = useState<ScenarioRunContext | null>(null)
+  // The chaos experiment the last run executed, evaluated once its results arrive.
+  // Node labels are frozen at run time so the verdict still reads right after edits.
+  const [lastExperimentPlan, setLastExperimentPlan] = useState<{
+    plan: ExperimentPlan
+    labels: Record<string, string>
+  } | null>(null)
+  // Graph the current results were produced from (#184): results are only shown
+  // for the topology they were run on.
+  const [lastRunGraph, setLastRunGraph] = useState<RunGraphSnapshot | null>(null)
   /**
    * The Newton host asked us to draw the back control in our own header rather than stacking
    * a strip above the iframe. Off unless a seed says otherwise, so an older host that still
@@ -381,6 +370,8 @@ export const WorkspaceLayout = () => {
   const selectGraphElements = useStore((s) => s.selectGraphElements)
   const activeQuestion = useStore((s) => s.activeQuestion)
   const attemptState = useStore((s) => s.attemptState)
+  const builderPolicyNotice = useStore((s) => s.builderPolicyNotice)
+  const setBuilderPolicyNotice = useStore((s) => s.setBuilderPolicyNotice)
   const environmentProfile = useStore((s) => s.environmentProfile)
   const setActiveQuestion = useStore((s) => s.setActiveQuestion)
   const setActiveQuestionPromptHtml = useStore((s) => s.setActiveQuestionPromptHtml)
@@ -451,24 +442,8 @@ export const WorkspaceLayout = () => {
     setResultsRevealed
   ])
 
-  const handleOpenTopology = useCallback(async () => {
-    const loaded = await handleOpen()
-    if (!loaded) {
-      return
-    }
-
-    // In AUTHOR/standalone mode (local or the public simulator URL) keep the
-    // active question so an author can open a solution topology and Test it
-    // against the loaded question. In a real assignment (ASSIGNMENT/PRACTICE)
-    // opening a topology still clears the question to avoid bypassing it.
-    if (environmentProfile.mode !== 'AUTHOR') {
-      clearQuestionSession()
-    }
-  }, [clearQuestionSession, handleOpen, environmentProfile.mode])
-
   const selectedNodeId = nodes.find((n) => n.selected)?.id
   const selectedEdgeId = edges.find((e) => e.selected)?.id
-  const hasElectronCloseBridge = typeof window.nssimulator?.onCloseRequest === 'function'
   const handleLeftSidebarTabSelect = useCallback(
     (tab: LibrarySidebarTab) => {
       setLeftSidebarTab(tab)
@@ -492,7 +467,7 @@ export const WorkspaceLayout = () => {
   }, [isCompactWorkspace, pendingNodePlacement])
 
   useEffect(() => {
-    if (!isUnsaved || hasElectronCloseBridge) {
+    if (!isUnsaved) {
       return
     }
 
@@ -503,16 +478,7 @@ export const WorkspaceLayout = () => {
 
     window.addEventListener('beforeunload', handleBeforeUnload)
     return () => window.removeEventListener('beforeunload', handleBeforeUnload)
-  }, [hasElectronCloseBridge, isUnsaved])
-
-  useEffect(() => {
-    const onCloseRequest = window.nssimulator?.onCloseRequest
-    if (typeof onCloseRequest !== 'function') {
-      return
-    }
-
-    return onCloseRequest(() => useStore.getState().isUnsaved)
-  }, [])
+  }, [isUnsaved])
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -534,7 +500,13 @@ export const WorkspaceLayout = () => {
   }, [])
 
   useEffect(() => {
-    if (!selectedNodeId && !selectedEdgeId && !runInspectorPinned) {
+    // The JSON viewer shows the whole design, so it stays open without a selection.
+    if (
+      !selectedNodeId &&
+      !selectedEdgeId &&
+      !runInspectorPinned &&
+      rightPanelViewRef.current !== 'json'
+    ) {
       setIsRightOpen(false)
     }
   }, [runInspectorPinned, selectedNodeId, selectedEdgeId])
@@ -564,6 +536,17 @@ export const WorkspaceLayout = () => {
   // Simulation
   const sim = useSimulation()
   const runSimulation = sim.run
+  const liveVisualization = useLiveVisualization(sim.snapshots, sim.topology)
+  const isLiveRun = !sim.results && (sim.status === 'running' || sim.status === 'paused')
+  useEffect(() => {
+    // Live styling exists only while a run is in progress; cleared on
+    // complete, error and reset so post-run views use the final results.
+    useStore
+      .getState()
+      .setLiveVisualization(
+        isLiveRun && liveVisualization.nodeStyles.size > 0 ? liveVisualization : null
+      )
+  }, [isLiveRun, liveVisualization])
   const { serialize } = useTopologySerializer()
   const currentQuestionTopology = useMemo(() => {
     if (!activeQuestion) {
@@ -929,7 +912,8 @@ export const WorkspaceLayout = () => {
         snapshot: sim.snapshot,
         nodes,
         edges,
-        edgeFlowById: useStore.getState().edgeFlowById
+        edgeFlowById: useStore.getState().edgeFlowById,
+        liveNodeStyles: liveVisualization.nodeStyles
       })
     )
     if (!runInspectorPinned && !selectedNodeId && !selectedEdgeId) {
@@ -941,6 +925,7 @@ export const WorkspaceLayout = () => {
   }, [
     edges,
     isCompactWorkspace,
+    liveVisualization,
     nodes,
     runInspectorPinned,
     selectedEdgeId,
@@ -1039,36 +1024,74 @@ export const WorkspaceLayout = () => {
       edgeModel: resolveEdgeModel(environmentProfile, activeQuestion)
     })
     if (!validation.valid) {
-      const validationErrors = validation.errors?.map((error) =>
-        formatValidationIssue(error, nodes, edges)
-      ) ?? ['Topology validation failed.']
+      // Messages arrive in plain English, already prefixed with the component or
+      // connection they belong to (see engine/validation/issueMessages.ts).
+      const validationErrors = validation.errors?.map((error) => error.message) ?? [
+        'Topology validation failed.'
+      ]
       setRunIssues({ messages: validationErrors, tone: 'error' })
       return
     }
 
-    setRunIssues({ messages: validation.warnings ?? [], tone: 'warning' })
+    let topologyToRun = topology
+    let contextForRun = runContext
+    const experimentEntries = scenarioForRun.experiment ?? []
+    if (experimentEntries.length > 0) {
+      const experiment = buildExperimentForTopology(topology, experimentEntries)
+      if (experiment.ok === false) {
+        setRunIssues({ messages: [experiment.reason], tone: 'error' })
+        return
+      }
+      topologyToRun = experiment.compiled.topology
+      contextForRun = {
+        ...runContext,
+        global: {
+          ...runContext.global,
+          simulationDuration: topologyToRun.global.simulationDuration,
+          warmupDuration: topologyToRun.global.warmupDuration
+        },
+        workload: topologyToRun.workload ?? runContext.workload
+      }
+      setLastExperimentPlan({
+        plan: experiment.compiled.plan,
+        labels: Object.fromEntries(
+          topology.nodes.map((node) => [node.id, node.label?.trim() ? node.label : node.id])
+        )
+      })
+    } else {
+      setLastExperimentPlan(null)
+    }
+
+    // Builder policy findings never block a run (grading reports them as a failed
+    // constraint); they surface here as warnings with the fix.
+    const policyWarnings = builderPolicyViolations(useStore.getState()).map(
+      (violation) => `Question policy: ${violation.message} Fix: ${violation.fix}`
+    )
+    setRunIssues({ messages: [...policyWarnings, ...(validation.warnings ?? [])], tone: 'warning' })
+    useStore.getState().recordQuestionRun()
     setShowResults(displaySettings.autoOpenSimulationTray)
-    setLastRunContext(runContext)
+    setLastRunContext(contextForRun)
     clearSimulationMetrics()
     const flowStore = useStore.getState()
     flowStore.clearEdgeFlow()
     flowStore.setEdgeFlowRunConfig({
-      workload: runContext.workload,
-      simulationDurationMs: runContext.global.simulationDuration,
-      warmupDurationMs: runContext.global.warmupDuration
+      workload: contextForRun.workload,
+      simulationDurationMs: contextForRun.global.simulationDuration,
+      warmupDurationMs: contextForRun.global.warmupDuration
     })
     flowStore.setEdgeFlowStatus('running')
-    runSimulation(topology)
+    // Read the graph from the store at run time, not from the render closure, so the
+    // snapshot can't go stale if this callback's dependency list changes.
+    setLastRunGraph(snapshotRunGraph(flowStore.nodes, flowStore.edges))
+    runSimulation(topologyToRun)
     flowStore.setRunInspectorPinned(true)
     setIsRightOpen(!isCompactWorkspace)
   }, [
     activeQuestion,
     clearSimulationMetrics,
     displaySettings.autoOpenSimulationTray,
-    edges,
     environmentProfile,
     isCompactWorkspace,
-    nodes,
     scenario,
     serialize,
     runSimulation,
@@ -1079,6 +1102,11 @@ export const WorkspaceLayout = () => {
     startSimulation()
   }, [startSimulation])
 
+  const resultsTopologyRelation = useMemo(
+    () => (lastRunGraph ? compareRunGraph(lastRunGraph, nodes, edges) : 'same'),
+    [edges, lastRunGraph, nodes]
+  )
+
   // Leave the post-run state and return to pre-run setup: discard the run's
   // results (node metrics, edge flow) and reset the lens back to the pre-run
   // family. The topology itself is untouched. sim.reset() clears the edge flow
@@ -1088,9 +1116,68 @@ export const WorkspaceLayout = () => {
     clearSimulationMetrics()
     setShowResults(false)
     setLastRunContext(null)
+    setLastExperimentPlan(null)
     setRunIssues({ messages: [], tone: 'warning' })
     setRunInspectorPinned(false)
   }, [clearSimulationMetrics, setRunInspectorPinned, sim])
+
+  // #184: an emptied or replaced canvas no longer has anything these results
+  // describe, so discard them and close the tray (also stops a run in flight).
+  useEffect(() => {
+    if (sim.status === 'idle') {
+      return
+    }
+    if (resultsTopologyRelation === 'empty' || resultsTopologyRelation === 'replaced') {
+      setLastRunGraph(null)
+      handleResetRun()
+    }
+  }, [handleResetRun, resultsTopologyRelation, sim.status])
+
+  const handleOpenTopology = useCallback(async () => {
+    const loaded = await handleOpen()
+    if (!loaded) {
+      return
+    }
+
+    // A newly opened file replaces the topology the current results describe (#184).
+    if (sim.status !== 'idle') {
+      handleResetRun()
+    }
+
+    // In AUTHOR/standalone mode (local or the public simulator URL) keep the
+    // active question so an author can open a solution topology and Test it
+    // against the loaded question. In a real assignment (ASSIGNMENT/PRACTICE)
+    // opening a topology still clears the question to avoid bypassing it.
+    if (environmentProfile.mode !== 'AUTHOR') {
+      clearQuestionSession()
+    }
+  }, [clearQuestionSession, handleOpen, environmentProfile.mode, handleResetRun, sim.status])
+
+  // Import JSON (#89): same replacement semantics as opening a file.
+  const handleImportTopologyJson = useCallback(
+    async (canvasData: object, importedFileName: string) => {
+      const loaded = await loadFromData(canvasData, importedFileName)
+      if (!loaded) {
+        return false
+      }
+      if (sim.status !== 'idle') {
+        handleResetRun()
+      }
+      if (environmentProfile.mode !== 'AUTHOR') {
+        clearQuestionSession()
+      }
+      requestViewportFit()
+      return true
+    },
+    [
+      clearQuestionSession,
+      environmentProfile.mode,
+      handleResetRun,
+      loadFromData,
+      requestViewportFit,
+      sim.status
+    ]
+  )
 
   const handleSampleLoad = useCallback(
     async (sample: SampleScenario) => {
@@ -1112,11 +1199,49 @@ export const WorkspaceLayout = () => {
   const isPaused = sim.status === 'paused' && !sim.stopped
   const isPostRun = sim.status === 'complete'
 
+  // Events advanced per Step click while paused: enough to see the canvas move,
+  // small enough to follow a fault taking effect.
+  const STEP_EVENT_BATCH = 500
+  const handleStep = useCallback(() => sim.step(STEP_EVENT_BATCH), [sim])
+
+  const previewExperiment = useCallback(
+    (entries: NonNullable<typeof scenario.experiment>): ExperimentPreview => {
+      const { topology } = serialize(scenario)
+      if (!topology) {
+        return {
+          ok: false,
+          reason: 'Add a traffic source and components before picking an experiment.'
+        }
+      }
+      return buildExperimentForTopology(topology, entries)
+    },
+    [scenario, serialize]
+  )
+
+  const experimentNodeLabel = useCallback(
+    (nodeId: string) => lastExperimentPlan?.labels[nodeId] ?? nodeId,
+    [lastExperimentPlan]
+  )
+
+  const experimentResult = useMemo(() => {
+    if (!lastExperimentPlan || !sim.results || sim.status !== 'complete') return null
+    return evaluateExperiment(lastExperimentPlan.plan, sim.results, {
+      nodeLabel: experimentNodeLabel,
+      ...(sim.stopped ? { stoppedAtMs: sim.results.stoppedAtMs ?? 0 } : {})
+    })
+  }, [experimentNodeLabel, lastExperimentPlan, sim.results, sim.status, sim.stopped])
+
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       const key = event.key.toLowerCase()
       const isMod = isPrimaryModifier(event)
       const switchesLeftTab = isMod && /^[1-9]$/.test(key)
+
+      if (event.ctrlKey && !event.altKey && event.key === '`') {
+        event.preventDefault()
+        toggleTerminal()
+        return
+      }
 
       if (isEditableShortcutTarget(event.target) && !switchesLeftTab) {
         return
@@ -1263,6 +1388,7 @@ export const WorkspaceLayout = () => {
     selectedNodeId,
     setRunInspectorPinned,
     sim.results,
+    toggleTerminal,
     sim.status
   ])
   const sourceNodes: SourceNodeOption[] = nodes
@@ -1289,19 +1415,9 @@ export const WorkspaceLayout = () => {
       }
     })
 
-  // Non-source components can be targeted with an injected fault.
-  const faultTargets: FaultTargetOption[] = nodes
-    .filter((node) => {
-      const data = node.data as CanvasNodeDataV2
-      return data.profile !== 'source' && data.structuralRole !== 'composite'
-    })
-    .map((node) => {
-      const data = node.data as CanvasNodeDataV2
-      return {
-        id: node.id,
-        label: data.label && data.label.trim().length > 0 ? `${data.label} (${node.id})` : node.id
-      }
-    })
+  // Non-source components, and Region / AZ / Subnet containers (a fault domain),
+  // can be targeted with an injected fault.
+  const faultTargets: FaultTargetOption[] = buildFaultTargetOptions(nodes)
 
   const libraryContent = (
     <LibrarySidebarContent
@@ -1312,10 +1428,59 @@ export const WorkspaceLayout = () => {
   )
 
   const propertiesContent = (
-    <Suspense fallback={<PanelFallback label="Loading inspector..." />}>
-      <PropertiesPanel results={sim.results} />
-    </Suspense>
+    <div className="flex h-full min-h-0 flex-col bg-nss-panel">
+      <div
+        role="tablist"
+        aria-label="Right panel view"
+        className="flex shrink-0 items-center gap-1 border-b border-l border-nss-border px-2 pt-1.5"
+      >
+        {(
+          [
+            ['inspector', 'Inspector'],
+            ['json', 'JSON']
+          ] as const
+        ).map(([view, label]) => (
+          <button
+            key={view}
+            type="button"
+            role="tab"
+            aria-selected={rightPanelView === view}
+            onClick={() => setRightPanelView(view)}
+            className={`-mb-px border-b-2 px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-wide transition-colors ${
+              rightPanelView === view
+                ? 'border-nss-primary text-nss-primary'
+                : 'border-transparent text-nss-muted hover:text-nss-text'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      <div className="min-h-0 flex-1">
+        {rightPanelView === 'json' ? (
+          <Suspense fallback={<PanelFallback label="Loading JSON viewer..." />}>
+            <TopologyJsonViewer
+              onImport={canUseTopologyFiles ? () => setShowImportJson(true) : undefined}
+            />
+          </Suspense>
+        ) : (
+          <Suspense fallback={<PanelFallback label="Loading inspector..." />}>
+            <PropertiesPanel results={sim.results} />
+          </Suspense>
+        )}
+      </div>
+    </div>
   )
+
+  const toggleJsonViewer = () => {
+    if (isRightOpen && rightPanelView === 'json') {
+      setIsRightOpen(false)
+      return
+    }
+    setRightPanelView('json')
+    setIsRightOpen(true)
+    if (isCompactWorkspace) setIsLeftOpen(false)
+  }
 
   const canvasContent = (
     <div className="relative h-full min-h-0">
@@ -1349,11 +1514,13 @@ export const WorkspaceLayout = () => {
             interactionLocked={experienceEnvelope.canvasLocked}
             onNodeDoubleClick={(_, node) => {
               selectGraphElements({ nodeId: node.id })
+              setRightPanelView('inspector')
               setIsRightOpen(true)
               if (isCompactWorkspace) setIsLeftOpen(false)
             }}
             onEdgeDoubleClick={(_, edge) => {
               selectGraphElements({ edgeId: edge.id })
+              setRightPanelView('inspector')
               setIsRightOpen(true)
               if (isCompactWorkspace) setIsLeftOpen(false)
             }}
@@ -1373,8 +1540,8 @@ export const WorkspaceLayout = () => {
     </div>
   )
 
-  const resultsContent =
-    showResults && sim.status !== 'idle' ? (
+  const resultsTray =
+    sim.status !== 'idle' ? (
       <Suspense fallback={<PanelFallback label="Loading simulation results..." />}>
         <ResultsTray
           status={sim.status}
@@ -1386,10 +1553,36 @@ export const WorkspaceLayout = () => {
           results={sim.results}
           error={sim.error}
           runContext={lastRunContext}
-          onClose={() => setShowResults(false)}
+          topologyEdited={resultsTopologyRelation === 'edited'}
+          experimentPanel={
+            experimentResult ? (
+              <ExperimentResultPanel result={experimentResult} nodeLabel={experimentNodeLabel} />
+            ) : null
+          }
+          onClose={() => (terminalOpen ? setDockTab('terminal') : setShowResults(false))}
         />
       </Suspense>
     ) : null
+
+  const resultsContent = terminalOpen ? (
+    <TerminalDock
+      activeTab={dockTab}
+      onTabChange={(tab) => {
+        setDockTab(tab)
+        if (tab === 'results') setShowResults(true)
+      }}
+      results={resultsTray}
+      hasRun={sim.status !== 'idle'}
+      terminal={
+        <Suspense fallback={<PanelFallback label="Loading terminal..." />}>
+          <TerminalTab sim={sim} onRun={handleRun} />
+        </Suspense>
+      }
+      onClose={() => setTerminalOpen(false)}
+    />
+  ) : showResults ? (
+    resultsTray
+  ) : null
 
   const toggleLeft = () => {
     const next = !isLeftOpen
@@ -1417,6 +1610,14 @@ export const WorkspaceLayout = () => {
         onSave={handleSave}
         onOpen={handleOpenTopology}
         onAutoLayout={handleAutoLayout}
+        topologyJsonControls={
+          <TopologyJsonMenu
+            isViewerOpen={isRightOpen && rightPanelView === 'json'}
+            onToggleViewer={toggleJsonViewer}
+            onImport={canUseTopologyFiles ? () => setShowImportJson(true) : undefined}
+            canExport={canUseTopologyFiles}
+          />
+        }
         fileName={fileName}
         isUnsaved={isUnsaved}
         onRun={handleRun}
@@ -1424,6 +1625,9 @@ export const WorkspaceLayout = () => {
         isPostRun={isPostRun}
         onPause={sim.pause}
         onResume={sim.resume}
+        onStep={handleStep}
+        playbackSpeed={sim.playbackSpeed}
+        onPlaybackSpeedChange={sim.setPlaybackSpeed}
         onStop={() => {
           sim.stop()
           setRunIssues({ messages: [], tone: 'warning' })
@@ -1434,6 +1638,7 @@ export const WorkspaceLayout = () => {
         faultTargets={faultTargets}
         scenario={scenario}
         onScenarioChange={updateScenario}
+        previewExperiment={previewExperiment}
         minimal={environmentProfile.chromeDensity === 'minimal'}
         canOpen={canUseTopologyFiles}
         canSave={canUseTopologyFiles}
@@ -1449,6 +1654,15 @@ export const WorkspaceLayout = () => {
             evaluationPassed: latestVisibleQuestionGrade?.contract.allPassed ?? false,
             testRunCount: attemptState?.testRunCount ?? 0
           }}
+        />
+      )}
+
+      {builderPolicyNotice && (
+        <RunToast
+          messages={[builderPolicyNotice]}
+          tone="warning"
+          title="Question policy"
+          onClose={() => setBuilderPolicyNotice(null)}
         />
       )}
 
@@ -1474,6 +1688,8 @@ export const WorkspaceLayout = () => {
           experience={experienceEnvelope}
           onSelect={handleLeftSidebarTabSelect}
           onShowShortcuts={() => setShowShortcuts(true)}
+          onToggleTerminal={toggleTerminal}
+          terminalOpen={terminalOpen}
           settingsOpenRequestVersion={settingsOpenRequestVersion}
         />
 
@@ -1530,7 +1746,7 @@ export const WorkspaceLayout = () => {
 
             <Panel order={2} minSize={30} id="center-panel">
               <PanelGroup direction="vertical" autoSaveId="main-layout-vertical">
-                <Panel defaultSize={showResults ? 65 : 100} minSize={10} order={1}>
+                <Panel defaultSize={showResults || terminalOpen ? 65 : 100} minSize={10} order={1}>
                   {canvasContent}
                 </Panel>
 
@@ -1570,6 +1786,13 @@ export const WorkspaceLayout = () => {
       )}
 
       {showShortcuts && <ShortcutsModal onClose={() => setShowShortcuts(false)} />}
+
+      {showImportJson && (
+        <ImportTopologyDialog
+          onClose={() => setShowImportJson(false)}
+          onImport={handleImportTopologyJson}
+        />
+      )}
 
       {dialog}
     </div>

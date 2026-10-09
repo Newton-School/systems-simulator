@@ -3,6 +3,7 @@ import type {
   EdgePresentationRoutingStyle,
   FaultSpec,
   GlobalConfig,
+  TopologyJSON,
   WorkloadProfile
 } from '../../../engine/core/types'
 import type { CanvasNodeDataV2, RendererNodeType } from '../../../engine/catalog/nodeSpecTypes'
@@ -10,17 +11,24 @@ import type { LatencyPercentiles, TimeToErrorSummary } from '../../../engine/met
 import type { LibraryItemInfo } from '@renderer/config/libraryInfo'
 
 export type AnyNodeData = CanvasNodeDataV2
-export type ServiceNodeData = CanvasNodeDataV2
-export type ComputeNodeData = CanvasNodeDataV2
+export type StandardNodeData = CanvasNodeDataV2
+export type SaturationNodeData = CanvasNodeDataV2
 export type SecurityNodeData = CanvasNodeDataV2
-export type VpcNodeData = CanvasNodeDataV2
+export type ContainerNodeData = CanvasNodeDataV2
 
 export type ThemeMode = 'light' | 'dark'
 export type PreRunMetricLens = 'instance' | 'concurrency' | 'queueCapacity' | 'timeout' | 'cost'
 export type RuntimeMetricLens = 'traffic' | 'saturation' | 'latency' | 'errors' | 'throughput'
 export type MetricLens = PreRunMetricLens | RuntimeMetricLens
 export type LatencyLensPercentile = 'p50' | 'p95' | 'p99'
-export type ResultsTabId = 'overview' | 'bottlenecks' | 'nodes' | 'traffic'
+export type ResultsTabId =
+  | 'overview'
+  | 'bottlenecks'
+  | 'nodes'
+  | 'events'
+  | 'failures'
+  | 'traces'
+  | 'traffic'
 export type ComponentLibraryMode = 'default' | 'all'
 export type EdgeRoutingStyle = EdgePresentationRoutingStyle
 
@@ -121,6 +129,24 @@ export interface EdgeSimulationData {
    * recipients (e.g. a post → N follower feed writes). ≤1 or empty = no amplification.
    */
   fanoutFactor?: number
+  /**
+   * Connection model (engine `edge.connection`). Unset = every request finds a
+   * warm connection with no setup cost. The fields below only apply when set.
+   */
+  connectionReuse?: 'per-request' | 'keep-alive' | 'persistent'
+  /** TLS version on new connections; unset = protocol default. */
+  tlsVersion?: 'none' | '1.2' | '1.3'
+  tlsSessionResumption?: boolean
+  /** keep-alive idle timeout before a warm connection closes (ms). */
+  connectionIdleTimeoutMs?: number
+  /** Most connections the pool opens; unset = as many as needed. */
+  maxConnections?: number
+  /** Concurrent requests per connection (HTTP/2 streams); unset = protocol default. */
+  maxStreamsPerConnection?: number
+  /** Kafka producer linger.ms (engine `edge.batching`); unset = no batching. */
+  batchLingerMs?: number
+  /** Kafka producer batch.size in bytes; unset = 16384. */
+  batchMaxBytes?: number
 }
 
 export type NodeType = RendererNodeType
@@ -159,6 +185,32 @@ export interface ScenarioState {
   faults?: FaultSpec[]
   /** Regenerate the seed before each run, while still recording the actual seed used. */
   randomizeSeedEachRun?: boolean
+  /**
+   * Design-level TopologyJSON fields with no canvas editor, kept from an import
+   * so exporting the design reproduces them (identity, time resolution, the
+   * network model, invariants, scenario refs).
+   */
+  topologyMeta?: TopologyMeta
+  /**
+   * Chaos experiment presets to run instead of the single fault above. More
+   * than one entry composes them, each starting `offsetS` after the baseline.
+   */
+  experiment?: ExperimentEntry[]
+}
+
+export interface ExperimentEntry {
+  presetId: string
+  offsetS: number
+}
+
+export interface TopologyMeta {
+  id?: string
+  name?: string
+  version?: string
+  timeResolution?: GlobalConfig['timeResolution']
+  networkModel?: TopologyJSON['networkModel']
+  invariants?: TopologyJSON['invariants']
+  scenarios?: TopologyJSON['scenarios']
 }
 
 export interface SourceNodeOption {
@@ -167,10 +219,14 @@ export interface SourceNodeOption {
   workload: NonNullable<CanvasNodeDataV2['source']>['defaultWorkload']
 }
 
-/** A node the operator can target with an injected fault. */
+/**
+ * Something the operator can target with an injected fault: a runtime
+ * component, or a Region / AZ / Subnet container (fails everything inside it).
+ */
 export interface FaultTargetOption {
   id: string
   label: string
+  group?: 'component' | 'location'
 }
 
 export interface ScenarioRunContext {
@@ -237,6 +293,19 @@ export function normalizeScenarioState(value: unknown): ScenarioState {
         : undefined,
     workloadOverride: workloadOverride ? { ...workloadOverride } : {},
     faults: Array.isArray(scenario.faults) ? scenario.faults : [],
-    randomizeSeedEachRun: scenario.randomizeSeedEachRun === true
+    randomizeSeedEachRun: scenario.randomizeSeedEachRun === true,
+    ...(scenario.topologyMeta && typeof scenario.topologyMeta === 'object'
+      ? { topologyMeta: { ...scenario.topologyMeta } }
+      : {}),
+    ...(Array.isArray(scenario.experiment) && scenario.experiment.length > 0
+      ? {
+          experiment: scenario.experiment
+            .filter((entry) => entry && typeof entry.presetId === 'string')
+            .map((entry) => ({
+              presetId: entry.presetId,
+              offsetS: typeof entry.offsetS === 'number' && entry.offsetS >= 0 ? entry.offsetS : 0
+            }))
+        }
+      : {})
   }
 }

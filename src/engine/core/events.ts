@@ -31,6 +31,8 @@ export type EventType =
   | 'broker-failure'
   | 'broker-recovery'
   | 'trait-tick'
+  | 'edge-batch-flush'
+  | 'cluster-schedule'
 
 /**
  * Priorities for tie-breaking when two events share the same timestamp.
@@ -204,6 +206,7 @@ function getDefaultPriority(type: EventType): number {
       return EventPriority.PROCESSING
 
     case 'request-forwarded':
+    case 'edge-batch-flush':
       return EventPriority.DEPARTURE
 
     case 'request-timeout':
@@ -225,6 +228,7 @@ function getDefaultPriority(type: EventType): number {
     case 'broker-failure':
     case 'broker-recovery':
     case 'trait-tick':
+    case 'cluster-schedule':
       return EventPriority.SYSTEM
 
     default: {

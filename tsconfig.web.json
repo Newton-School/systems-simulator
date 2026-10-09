@@ -18,7 +18,7 @@
       "@renderer/*": ["src/renderer/src/*"]
     }
   },
-  "include": ["src/renderer/src/**/*", "src/engine/**/*.ts"],
+  "include": ["src/renderer/src/**/*", "src/engine/**/*.ts", "src/shared/**/*.ts"],
   "exclude": [
     "src/engine/**/*.test.ts",
     "src/engine/**/__tests__/**/*"

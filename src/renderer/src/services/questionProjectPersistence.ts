@@ -9,7 +9,7 @@ import type { IFileService } from './FileService.types'
 
 const QUESTION_PROJECT_DIALOG_OPTIONS = {
   dialogTitle: 'Question Studio project',
-  fileDescription: 'DSDS Question Studio Projects, Packages, or Newton Rows'
+  fileDescription: 'System Design Simulator Question Studio Projects, Packages, or Newton Rows'
 } as const
 
 export type SaveQuestionProjectResult =

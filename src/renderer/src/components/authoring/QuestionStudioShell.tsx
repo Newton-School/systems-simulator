@@ -82,6 +82,7 @@ import { MetricGradingEditor } from './MetricGradingEditor'
 import { DiscriminationLab, type ObligationOption } from './DiscriminationLab'
 import { QuestionBriefEditor } from './QuestionBriefEditor'
 import { QuestionConstraintsEditor } from './QuestionConstraintsEditor'
+import { BuilderPolicyEditor } from './BuilderPolicyEditor'
 import { QuestionSetupEditor } from './QuestionSetupEditor'
 import { QuestionMetadataEditor } from './QuestionMetadataEditor'
 import { PromptDetailsEditor } from './PromptDetailsEditor'
@@ -571,7 +572,7 @@ export function QuestionStudioShell({
   }, [fileService, generatedPreview])
 
   useEffect(() => {
-    if (!isDirty || typeof window.nssimulator?.onCloseRequest === 'function') return
+    if (!isDirty) return
 
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
       event.preventDefault()
@@ -579,12 +580,6 @@ export function QuestionStudioShell({
     }
     window.addEventListener('beforeunload', handleBeforeUnload)
     return () => window.removeEventListener('beforeunload', handleBeforeUnload)
-  }, [isDirty])
-
-  useEffect(() => {
-    const onCloseRequest = window.nssimulator?.onCloseRequest
-    if (typeof onCloseRequest !== 'function') return
-    return onCloseRequest(() => isDirty)
   }, [isDirty])
 
   return (
@@ -739,6 +734,9 @@ export function QuestionStudioShell({
                 />
                 <div className="mt-4">
                   <QuestionConstraintsEditor setup={setup} onChange={handleSetupChange} />
+                </div>
+                <div className="mt-4">
+                  <BuilderPolicyEditor setup={setup} onChange={handleSetupChange} />
                 </div>
                 <div className="mt-4">
                   <ScaffoldContractEditor

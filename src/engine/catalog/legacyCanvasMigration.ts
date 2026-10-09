@@ -3,6 +3,7 @@ import { getComponentSpec } from './componentSpecs'
 import { getPaletteTemplate, instantiateTemplate } from './paletteTemplates'
 import { isCanvasAnnotationNodeType } from './canvasAnnotations'
 import { buildReproducingResources } from './resourceDefaults'
+import { normalizeCanvasNodeRendererType } from './rendererNodeTypes'
 import type { CanvasNodeDataV2 } from './nodeSpecTypes'
 
 const LEGACY_COMPUTE_TYPE_TO_TEMPLATE: Record<string, string> = {
@@ -104,7 +105,7 @@ function resolveLegacyTemplateId(node: Node): string | null {
     return registryId
   }
 
-  if (node.type === 'computeNode' && typeof data.computeType === 'string') {
+  if (node.type === 'saturationNode' && typeof data.computeType === 'string') {
     return LEGACY_COMPUTE_TYPE_TO_TEMPLATE[data.computeType] ?? null
   }
 
@@ -197,14 +198,20 @@ export function migrateCanvasNodeData(node: Node): CanvasNodeDataV2 {
   return next
 }
 
+/**
+ * Brings one saved canvas node up to the current format: legacy renderer names
+ * (`serviceNode` / `computeNode` / `vpcNode`, #219) are renamed first, then
+ * pre-V2 data is rebuilt from its template.
+ */
 export function migrateCanvasNode(node: Node): Node {
-  if (isCanvasAnnotationNodeType(node.type)) {
-    return node
+  const renamed = normalizeCanvasNodeRendererType(node)
+  if (isCanvasAnnotationNodeType(renamed.type)) {
+    return renamed
   }
 
   return {
-    ...node,
-    data: migrateCanvasNodeData(node)
+    ...renamed,
+    data: migrateCanvasNodeData(renamed)
   }
 }
 

@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { copyFileSync, existsSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import type { ServerResponse } from 'node:http'
@@ -203,6 +204,11 @@ export default defineConfig(({ mode }) => {
       fs: {
         allow: [sourceRoot]
       }
+    },
+    test: {
+      // Engine integration tests run whole simulations; the 5s default passes
+      // locally but times out on slower CI runners.
+      testTimeout: 20_000
     },
     build: {
       outDir: resolve(projectRoot, 'dist'),

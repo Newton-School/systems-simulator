@@ -38,7 +38,7 @@ function workloadOverlayNode(id: string): { id: string; data: AnyNodeData } {
       componentType: 'api-gateway',
       profile: 'router',
       structuralRole: 'router',
-      rendererType: 'serviceNode',
+      rendererType: 'standardNode',
       label: 'API Gateway',
       iconKey: 'api-gateway',
       source: {

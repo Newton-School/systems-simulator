@@ -46,6 +46,7 @@ import {
   isAuthoringStructuralRuleKind,
   type AuthoringStructuralRuleDraft
 } from './questionAuthoringStructuralRules'
+import { BuilderPolicySchema, type BuilderPolicy } from './builderPolicy'
 
 export const QUESTION_AUTHORING_PROJECT_ARTIFACT = 'dsds-question-project' as const
 export const QUESTION_AUTHORING_PROJECT_VERSION = '1.0' as const
@@ -76,6 +77,8 @@ export interface QuestionAuthoringSetupDraft {
   suiteVisibleToStudent: boolean
   budget?: Budget
   constraints: QuestionConstraints
+  /** Builder policy (spec §15). Omit for today's behaviour (both builders on). */
+  builderPolicy?: BuilderPolicy
 }
 
 export const DEFAULT_QUESTION_AUTHORING_SETUP: QuestionAuthoringSetupDraft = {
@@ -465,7 +468,8 @@ const QuestionAuthoringSetupDraftSchema: z.ZodType<QuestionAuthoringSetupDraft> 
         canModifyScaffold: z.boolean(),
         canRemoveScaffoldNodes: z.boolean()
       })
-      .strict()
+      .strict(),
+    builderPolicy: BuilderPolicySchema.optional()
   })
   .strict()
 

@@ -1,0 +1,196 @@
+{
+  "id": "read-consistency-replica",
+  "name": "Read consistency: primary + lagging replica",
+  "version": "1.0.0",
+  "global": {
+    "simulationDuration": 10000,
+    "seed": "consistency-seed",
+    "warmupDuration": 0,
+    "timeResolution": "microsecond",
+    "defaultTimeout": 5000
+  },
+  "nodes": [
+    {
+      "id": "client",
+      "type": "api-endpoint",
+      "category": "compute",
+      "role": "source",
+      "label": "Client App",
+      "position": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "id": "api",
+      "type": "microservice",
+      "category": "compute",
+      "label": "API",
+      "position": {
+        "x": 320,
+        "y": 0
+      },
+      "queue": {
+        "workers": 256,
+        "capacity": 10000,
+        "discipline": "fifo"
+      },
+      "processing": {
+        "distribution": {
+          "type": "constant",
+          "value": 1
+        },
+        "timeout": 5000
+      }
+    },
+    {
+      "id": "primary",
+      "type": "relational-db",
+      "category": "storage-and-data",
+      "label": "Primary DB",
+      "position": {
+        "x": 640,
+        "y": -160
+      },
+      "queue": {
+        "workers": 64,
+        "capacity": 10000,
+        "discipline": "fifo"
+      },
+      "processing": {
+        "distribution": {
+          "type": "constant",
+          "value": 2
+        },
+        "timeout": 5000
+      },
+      "config": {
+        "replicationEnabled": true,
+        "replicationRole": "leader",
+        "consistencyModel": "eventual"
+      }
+    },
+    {
+      "id": "replica",
+      "type": "relational-db",
+      "category": "storage-and-data",
+      "label": "Read Replica",
+      "position": {
+        "x": 640,
+        "y": 160
+      },
+      "queue": {
+        "workers": 64,
+        "capacity": 10000,
+        "discipline": "fifo"
+      },
+      "processing": {
+        "distribution": {
+          "type": "constant",
+          "value": 2
+        },
+        "timeout": 5000
+      },
+      "config": {
+        "replicationEnabled": true,
+        "replicationRole": "follower",
+        "replicationLagMs": 80,
+        "consistencyModel": "eventual"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "client->api",
+      "source": "client",
+      "target": "api",
+      "mode": "synchronous",
+      "protocol": "https",
+      "latency": {
+        "distribution": {
+          "type": "constant",
+          "value": 1
+        },
+        "pathType": "same-dc"
+      },
+      "bandwidth": 10000,
+      "maxConcurrentRequests": 10000,
+      "packetLossRate": 0,
+      "errorRate": 0
+    },
+    {
+      "id": "api->primary",
+      "source": "api",
+      "target": "primary",
+      "mode": "conditional",
+      "protocol": "tcp",
+      "latency": {
+        "distribution": {
+          "type": "constant",
+          "value": 1
+        },
+        "pathType": "same-dc"
+      },
+      "bandwidth": 10000,
+      "maxConcurrentRequests": 10000,
+      "packetLossRate": 0,
+      "errorRate": 0,
+      "condition": "request.type === \"write\""
+    },
+    {
+      "id": "api->replica",
+      "source": "api",
+      "target": "replica",
+      "mode": "conditional",
+      "protocol": "tcp",
+      "latency": {
+        "distribution": {
+          "type": "constant",
+          "value": 1
+        },
+        "pathType": "same-dc"
+      },
+      "bandwidth": 10000,
+      "maxConcurrentRequests": 10000,
+      "packetLossRate": 0,
+      "errorRate": 0,
+      "condition": "request.type === \"read\""
+    }
+  ],
+  "workload": {
+    "sourceNodeId": "client",
+    "pattern": "poisson",
+    "baseRps": 400,
+    "sessions": {
+      "count": 20
+    },
+    "requestDistribution": [
+      {
+        "type": "read",
+        "weight": 0.75,
+        "sizeBytes": 256,
+        "keyspace": {
+          "field": "itemId",
+          "size": 10
+        }
+      },
+      {
+        "type": "write",
+        "weight": 0.25,
+        "sizeBytes": 256,
+        "keyspace": {
+          "field": "itemId",
+          "size": 10
+        }
+      }
+    ]
+  },
+  "invariants": [
+    {
+      "id": "no-stale-reads",
+      "description": "Reads never return data older than the primary has committed",
+      "condition": "consistency.staleReads == 0"
+    }
+  ],
+  "description": "Writes go to the primary, reads to a replica that applies writes 80 ms later. With consistencyModel eventual on both databases about half the reads are stale and the linearizability check fails; switch both to strong (or route reads to the primary) to remove stale reads and see the catch-up wait show up as read latency. read-your-writes removes only the session's own read-your-writes violations."
+}

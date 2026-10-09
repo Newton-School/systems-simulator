@@ -25,7 +25,23 @@ export type NodeProfile =
   | 'integration'
   | 'composite'
 
-export type RendererNodeType = 'serviceNode' | 'computeNode' | 'securityNode' | 'vpcNode'
+/**
+ * Which React Flow component paints a canvas node - presentation only.
+ *
+ * It is persisted as the React Flow `node.type` (and `CanvasNodeDataV2.rendererType`)
+ * but carries no domain meaning, and it is orthogonal to `ComponentType` (what the
+ * node is), `ComponentCategory` (its semantic group) and `StructuralRole` (how the
+ * engine treats it). The engine and TopologyJSON never read it.
+ *
+ * - `standardNode`   - the catch-all card (datastores, caches, gateways, LBs, ...)
+ * - `saturationNode` - card with the saturation / overload treatment (compute)
+ * - `securityNode`   - card with the block / filter treatment (WAF, firewall, ...)
+ * - `containerNode`  - resizable group box (Region / AZ / Subnet)
+ *
+ * Files saved before #219 use `serviceNode` / `computeNode` / `vpcNode`; those are
+ * rewritten on load by `normalizeRendererNodeType` (see `rendererNodeTypes.ts`).
+ */
+export type RendererNodeType = 'standardNode' | 'saturationNode' | 'securityNode' | 'containerNode'
 
 export type RoutingStrategy =
   | 'round-robin'
@@ -99,6 +115,8 @@ export interface NodeSimulationConfig {
   healthCheckEnabled?: boolean
   cacheHitRate?: number
   cacheModel?: 'declared-rate' | 'derived-lru'
+  /** Single-flight concurrent misses for the same request key (cache trait). */
+  requestCollapsing?: boolean
   cacheRamMb?: number
   valueSizeBytes?: number
   cacheHitLatencyMs?: number
@@ -153,6 +171,18 @@ export interface NodeSimulationConfig {
   coldStartLatencyMs?: number
   idleTimeoutMs?: number
   maxConcurrency?: number
+  /** Bulkhead: per-compartment cap on requests held at once (serializes to resilience.bulkhead.partitions). */
+  bulkheadPartitions?: Record<string, number>
+  /** Bulkhead: cap for compartments not listed in bulkheadPartitions. */
+  bulkheadDefaultMaxConcurrent?: number
+  /** Bulkhead: request.metadata field naming the compartment; request type when empty. */
+  bulkheadKeyField?: string
+  /** Load shedding: shed new arrivals once this many requests are waiting. */
+  loadShedQueueDepth?: number
+  /** Load shedding: shed when the estimated queueing delay exceeds this (ms). */
+  loadShedMaxQueueDelayMs?: number
+  /** Load shedding: never shed priority-0 requests. */
+  loadShedProtectHighPriority?: boolean
   locationId?: string
   locationProvider?: import('../core/types').LocationProvider
   locationLatitude?: number
@@ -177,6 +207,8 @@ export interface NodeSimulationConfig {
   replicaMembers?: string
   consensusProtocol?: 'raft' | 'none'
   conflictResolution?: 'leader-wins' | 'highest-index-wins'
+  /** Read consistency on a replicated datastore; absent/'off' = reads are not version-tracked. */
+  consistencyModel?: 'off' | 'eventual' | 'monotonic-reads' | 'read-your-writes' | 'strong'
   shardCount?: number
   readLatency?: DistributionConfig
   writeLatency?: DistributionConfig
@@ -207,6 +239,44 @@ export interface NodeSimulationConfig {
   workingSetPenaltyMs?: number
   gcPressureStartRatio?: number
   gcPauseMs?: number
+  /** Scheduler (workload): the Kubernetes Cluster node (id or label) these replicas run on as pods. */
+  scheduledOn?: string
+  /** Scheduler (cluster): pod placement scoring. */
+  placementStrategy?: 'spread' | 'bin-pack'
+  /** Scheduler (cluster): placed pod to ready (ms). */
+  podStartupMs?: number
+  /** Scheduler (cluster): failed-machine detection + pod eviction delay (ms). */
+  rescheduleDelayMs?: number
+  /** Scheduler (cluster): cluster autoscaler ceiling on machines. */
+  clusterMaxMachines?: number
+  /** Scheduler (cluster): new machine boot + join time (ms). */
+  machineProvisionMs?: number
+  /** Scheduler (cluster): deterministic machine failure time (ms). */
+  machineFailureAtMs?: number
+  /** Scheduler (cluster): how many machines fail. */
+  machineFailureCount?: number
+  /** Scheduler (cluster): failed machines come back at this time (ms). */
+  machineRecoveryAtMs?: number
+  /** Telemetry sink: fire-and-forget ingest (drops, never back-pressure or caller errors). */
+  telemetryAsyncIngest?: boolean
+  /** Telemetry sink: ingest ceiling (events/s) before events are dropped. */
+  telemetryIngestRps?: number
+  /** Telemetry sink: head-sampling fraction of events exported (0-1). */
+  telemetrySampleRate?: number
+  /** Change stream: stamp per-key change order and count out-of-order applies. */
+  changeStreamOrdering?: boolean
+  /** Change stream: request metadata field naming the changed entity (default: the request key). */
+  changeKeyField?: string
+  /** Change stream: how consumers take deliveries (parallel, one at a time per partition, or per key). */
+  consumerOrdering?: 'parallel' | 'per-partition' | 'per-key'
+  /** Held connections: memory each open connection pins (KB). */
+  memPerConnectionKb?: number
+  /** Held connections: CPU cost of one keepalive / heartbeat (ms). */
+  heartbeatCostMs?: number
+  /** Push fan-out: connected recipients each message is written to. */
+  pushRecipients?: number
+  /** Push fan-out: CPU time to write one message to one connection (ms). */
+  pushSendMs?: number
   slo?: SLOConfig
 }
 
@@ -235,6 +305,30 @@ export interface CanvasNodeDataV2 {
   /** Learner-authored HLD contract. Runtime behavior still comes from componentType traits. */
   customDefinition?: CustomNodeDefinition
   ui?: CanvasNodeUiState
+  /**
+   * Engine fields of an imported TopologyJSON node that the canvas has no editor
+   * for. Carried so TopologyJSON import -> export is lossless; see
+   * TopologyNodeCarry.
+   */
+  topologyCarry?: TopologyNodeCarry
+}
+
+/**
+ * What a TopologyJSON import keeps on a canvas node beyond what the canvas
+ * models. The serializer merges it back in on export, filling only fields the
+ * canvas did not produce, so anything the canvas can edit always wins.
+ */
+export interface TopologyNodeCarry {
+  /** Parts of the imported ComponentNode the canvas serialization does not produce. */
+  extra?: Partial<ComponentNode>
+  /**
+   * The imported engine type and category when the canvas renders the node with
+   * a stand-in component (the engine type has no canvas component of its own).
+   */
+  type?: ComponentType
+  category?: ComponentCategory
+  /** An imported explicit role that differs from the component's default role. */
+  role?: ComponentNode['role']
 }
 
 export interface LegacySeedMetrics {
@@ -286,7 +380,7 @@ export interface ComponentSpec {
   category: ComponentCategory
   structuralRole: Exclude<StructuralRole, 'composite'>
   profile: Exclude<NodeProfile, 'composite'>
-  defaultRenderer: Exclude<RendererNodeType, 'vpcNode'>
+  defaultRenderer: Exclude<RendererNodeType, 'containerNode'>
   routingStrategy?: RoutingStrategy
   asyncBoundary?: boolean
   createDefaultSimulationConfig: (seed?: LegacySeedMetrics) => NodeSimulationConfig

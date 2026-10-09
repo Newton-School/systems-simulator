@@ -1,6 +1,7 @@
 import {
   lazy,
   Suspense,
+  useCallback,
   useEffect,
   useMemo,
   useState,
@@ -20,6 +21,7 @@ import {
   X
 } from 'lucide-react'
 import type { SimulationOutput } from '../../../../engine/analysis/output'
+import { EdgeLatencyBreakdownView } from '../simulation/EdgeLatencyBreakdownView'
 import {
   canEditEdgeLabelsForQuestion,
   canEditEdgesForQuestion,
@@ -33,10 +35,16 @@ import {
 import { describeRequestOperation } from '../../../../engine/core/requestSemantics'
 import type { WorkloadProfile } from '../../../../engine/core/types'
 import type { FieldPath } from '@renderer/config/fieldConfig'
+import { setPathValue } from '@renderer/utils/nodeFieldEdit'
 import type { AnyNodeData, EdgeSimulationData, NodeSimulationMetrics } from '@renderer/types/ui'
 import { useNodeMetrics } from '@renderer/hooks/useNodeMetrics'
 import type { CanvasNodeDataV2 } from '../../../../engine/catalog/nodeSpecTypes'
 import { applyDefinitionTraits } from '../../../../engine/catalog/customDefinitions'
+import {
+  DEFINITIONS_LOCKED_REASON,
+  definitionFieldLockReason
+} from '../../../../engine/analysis/builderPolicy'
+import { useBuilderPolicy } from '@renderer/hooks/useBuilderPolicy'
 import { reconcileContractWithGraph } from '../../../../engine/catalog/contractReconciliation'
 import { BROADCAST_FANOUT_COMPONENT_TYPES } from '../../../../engine/traits/broadcastFanout'
 import type { ComponentType } from '../../../../engine/core/types'
@@ -50,7 +58,11 @@ import {
   deriveDisplayThroughputCapacity,
   formatCapacityRps
 } from '@renderer/utils/nodeThroughputCapacity'
-import { NodeMetricsDetail, SourceNodeMetricsDetail } from './NodeMetricsDetail'
+import {
+  type ClusterSchedulingView,
+  NodeMetricsDetail,
+  SourceNodeMetricsDetail
+} from './NodeMetricsDetail'
 import { MetricItem } from './MetricItem'
 import type { EdgePropertiesPanelValue } from '../ui/EdgePropertiesPanel'
 import { TooltipInfo } from '../ui/Tooltip'
@@ -195,62 +207,6 @@ const RUN_INSPECTOR_TOOLTIP = (
     </p>
   </div>
 )
-
-function setPathValue(target: AnyNodeData, path: FieldPath, value: unknown): Partial<AnyNodeData> {
-  const segments = path.split('.')
-  const [root, ...rest] = segments
-
-  if (rest.length === 0) {
-    return { [root]: value } as Partial<AnyNodeData>
-  }
-
-  const currentRootValue = (target as unknown as Record<string, unknown>)[root]
-  const clonedRoot = Array.isArray(currentRootValue)
-    ? [...currentRootValue]
-    : currentRootValue && typeof currentRootValue === 'object'
-      ? { ...(currentRootValue as Record<string, unknown>) }
-      : {}
-
-  let cursor: unknown = clonedRoot
-  let sourceCursor: unknown = currentRootValue
-
-  for (let index = 0; index < rest.length - 1; index++) {
-    const segment = rest[index]
-    const nextSegment = rest[index + 1]
-    const sourceValue =
-      Array.isArray(sourceCursor) && Number.isInteger(Number(segment))
-        ? sourceCursor[Number(segment)]
-        : sourceCursor && typeof sourceCursor === 'object'
-          ? (sourceCursor as Record<string, unknown>)[segment]
-          : undefined
-
-    const nextValue = Array.isArray(sourceValue)
-      ? [...sourceValue]
-      : sourceValue && typeof sourceValue === 'object'
-        ? { ...(sourceValue as Record<string, unknown>) }
-        : Number.isInteger(Number(nextSegment))
-          ? []
-          : {}
-
-    if (Array.isArray(cursor)) {
-      cursor[Number(segment)] = nextValue
-    } else {
-      ;(cursor as Record<string, unknown>)[segment] = nextValue
-    }
-
-    cursor = nextValue
-    sourceCursor = sourceValue
-  }
-
-  const lastSegment = rest[rest.length - 1]
-  if (Array.isArray(cursor) && Number.isInteger(Number(lastSegment))) {
-    cursor[Number(lastSegment)] = value
-  } else {
-    ;(cursor as Record<string, unknown>)[lastSegment] = value
-  }
-
-  return { [root]: clonedRoot } as Partial<AnyNodeData>
-}
 
 type PanelTab = 'metrics' | 'config'
 type RunInspectorTab = 'nodes' | 'links' | 'locality'
@@ -1290,8 +1246,21 @@ function RunInspector({
   )
 }
 
-function EdgeMetricsDetail({ flow }: { flow: EdgeFlowState }) {
-  const successfulRecent = flow.recent.filter((event) => event.status === 'success')
+function EdgeMetricsDetail({
+  flow,
+  edgeResult
+}: {
+  flow: EdgeFlowState
+  edgeResult?: SimulationOutput['perEdge'][string]
+}) {
+  const runEndMs = useStore(
+    (state) => state.edgeFlowRunConfig?.simulationDurationMs ?? Number.POSITIVE_INFINITY
+  )
+  // Only delivered packets have a transit latency; ones still queued for the
+  // link when the run ended are in flight, not slow successes.
+  const successfulRecent = flow.recent.filter(
+    (event) => event.status === 'success' && event.completedAtMs <= runEndMs
+  )
   const p50 = percentile(
     successfulRecent.map((event) => event.latencyMs),
     0.5
@@ -1332,7 +1301,20 @@ function EdgeMetricsDetail({ flow }: { flow: EdgeFlowState }) {
             value={formatPercentFromRatio(flow.failureRatio)}
             textColor={flow.failureRatio > 0 ? 'text-nss-danger' : 'text-nss-text'}
           />
+          {flow.totalInFlightAtCutoff > 0 ? (
+            <MetricItem
+              label="In Flight at Cutoff"
+              value={formatNumber(flow.totalInFlightAtCutoff)}
+            />
+          ) : null}
         </div>
+        {flow.totalInFlightAtCutoff > 0 ? (
+          <p className="mt-3 text-[11px] leading-relaxed text-nss-muted">
+            Sent but not yet delivered when the run ended (still crossing the edge or waiting for
+            its link). A handful is normal for any edge with latency; a count that grows with the
+            run length means the edge is offered more bytes than its bandwidth can carry.
+          </p>
+        ) : null}
       </EdgeResultsSection>
 
       <EdgeResultsSection title="Throughput">
@@ -1376,6 +1358,17 @@ function EdgeMetricsDetail({ flow }: { flow: EdgeFlowState }) {
         </p>
       </EdgeResultsSection>
 
+      {edgeResult?.latencyBreakdown ? (
+        <EdgeResultsSection title="Latency Breakdown">
+          <EdgeLatencyBreakdownView
+            breakdown={edgeResult.latencyBreakdown}
+            linkUtilization={edgeResult.linkUtilization}
+            connections={edgeResult.connections}
+            batching={edgeResult.batching}
+          />
+        </EdgeResultsSection>
+      ) : null}
+
       {hasFailures && (
         <EdgeResultsSection title="Failures by Cause">
           <div className="space-y-1.5">
@@ -1392,6 +1385,19 @@ function EdgeMetricsDetail({ flow }: { flow: EdgeFlowState }) {
       )}
     </div>
   )
+}
+
+/** The cluster-scheduling result for a cluster node, or for a workload scheduled on one. */
+function findClusterScheduling(
+  results: SimulationOutput | null,
+  nodeId: string
+): ClusterSchedulingView | undefined {
+  for (const cluster of results?.clusterProjection ?? []) {
+    if (cluster.clusterId === nodeId) return { kind: 'cluster', cluster }
+    const workload = cluster.workloads.find((entry) => entry.nodeId === nodeId)
+    if (workload) return { kind: 'workload', cluster, workload }
+  }
+  return undefined
 }
 
 export const PropertiesPanel = ({ results = null }: { results?: SimulationOutput | null }) => {
@@ -1437,6 +1443,26 @@ export const PropertiesPanel = ({ results = null }: { results?: SimulationOutput
   const selectedNode = nodes.find((node) => node.selected)
   const selectedEdge = edges.find((edge) => edge.selected)
   const selectedNodeId = selectedNode?.id
+  const builderPolicy = useBuilderPolicy()
+  // Builder policy applies to learner-created definitions; scaffold nodes are the author's.
+  const builderPolicyApplies =
+    builderPolicy.restrictive &&
+    selectedNodeId !== undefined &&
+    !scaffoldNodeIds.includes(selectedNodeId)
+  const definitionLockedReason =
+    builderPolicyApplies && builderPolicy.locked ? DEFINITIONS_LOCKED_REASON : undefined
+  const lockedFieldReason = useCallback(
+    (path: string): string | null => {
+      if (!builderPolicyApplies || !selectedNode) return null
+      return definitionFieldLockReason(
+        builderPolicy.policy,
+        (selectedNode.data ?? {}) as Record<string, unknown>,
+        path,
+        builderPolicy.locked
+      )
+    },
+    [builderPolicy, builderPolicyApplies, selectedNode]
+  )
 
   // Advisory contract ⇄ graph reconciliation for the selected custom-definition node
   // (spec §21). Feedback only — never affects grading.
@@ -1646,6 +1672,7 @@ export const PropertiesPanel = ({ results = null }: { results?: SimulationOutput
                 configuredCacheHitRate={data.sim?.cacheHitRate}
                 downstreamSplit={downstreamSplit}
                 isBroadcastFanout={isBroadcastFanout}
+                clusterScheduling={findClusterScheduling(results, selectedNode.id)}
               />
             )
           ) : (
@@ -1699,6 +1726,10 @@ export const PropertiesPanel = ({ results = null }: { results?: SimulationOutput
                 <CustomDefinitionSection
                   definition={data.customDefinition}
                   contractFindings={contractFindings}
+                  lockedReason={definitionLockedReason}
+                  maxOperations={
+                    builderPolicyApplies ? builderPolicy.policy.maxOperationsPerService : null
+                  }
                   onChange={(customDefinition) => {
                     // Keep the stored definition and live sim.* in sync (honesty
                     // contract §0.2 rule 4): re-project runtime traits whenever the
@@ -1720,6 +1751,7 @@ export const PropertiesPanel = ({ results = null }: { results?: SimulationOutput
                 data={data}
                 onUpdate={handleUpdate}
                 resourcesLocked={!canEditResources}
+                lockedFieldReason={lockedFieldReason}
                 executionProfileEnabled={canEditExecutionProfile}
               />
             </>
@@ -1825,7 +1857,10 @@ export const PropertiesPanel = ({ results = null }: { results?: SimulationOutput
           )}
           {selectedEdgeHasRuntime && tab === 'metrics' ? (
             selectedEdgeFlow ? (
-              <EdgeMetricsDetail flow={selectedEdgeFlow} />
+              <EdgeMetricsDetail
+                flow={selectedEdgeFlow}
+                edgeResult={results?.perEdge[selectedEdge.id]}
+              />
             ) : undefined
           ) : undefined}
         </EdgePropertiesPanel>

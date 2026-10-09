@@ -2,6 +2,7 @@ import { getComponentSpec } from '../../../engine/catalog/componentSpecs'
 import { getPaletteTemplate } from '../../../engine/catalog/paletteTemplates'
 import type { CanvasNodeDataV2 } from '../../../engine/catalog/nodeSpecTypes'
 import type { EdgeDefinition } from '../../../engine/core/types'
+import { edgeFieldTitle } from '../../../engine/defaults/edgeFieldLabels'
 import type { EdgeSimulationData } from '@renderer/types/ui'
 
 export type EdgeModeValue = EdgeDefinition['mode']
@@ -49,8 +50,8 @@ export const EDGE_MODE_PRESENTATION: Record<EdgeModeValue, EdgeModePresentation>
     shortLabel: 'STREAM',
     summary: 'Represents a long-lived channel such as WebSocket or bidirectional RPC.',
     simulationEffect:
-      'Competes like a synchronous edge for route selection, but amortizes protocol overhead to model a persistent channel.',
-    note: 'Useful for teaching stream topology today; full session state and multiplexed message behavior are still not modeled.',
+      'Competes like a synchronous edge for route selection, but amortizes protocol overhead to model a persistent channel. Messages are not paired with a response, so with a connection model they free their stream on delivery.',
+    note: 'Set Connection reuse to persistent to pay the connection handshake once instead of assuming it is free.',
     strokeDasharray: '4 6',
     badgeClassName: 'border-nss-primary/30 bg-nss-primary/10 text-nss-primary'
   },
@@ -66,37 +67,37 @@ export const EDGE_MODE_PRESENTATION: Record<EdgeModeValue, EdgeModePresentation>
 
 export const EDGE_PROPERTY_HELP = {
   label: {
-    title: 'Label',
+    title: edgeFieldTitle('label'),
     summary: 'Short display name shown on the canvas, inspector, validation, and results panels.',
     simulationEffect: 'No runtime effect. This is documentation for humans.'
   },
   protocol: {
-    title: 'Protocol',
+    title: edgeFieldTitle('protocol'),
     summary: 'Transport used on the edge: HTTP, gRPC, TCP, UDP, WebSocket, AMQP, or Kafka.',
     simulationEffect:
       'Changes protocol overhead, retransmission behavior, and whether connection-limit rejection applies.'
   },
   mode: {
-    title: 'Mode',
+    title: edgeFieldTitle('mode'),
     summary: 'How the edge participates in routing: wait, fan out, stream, or branch by condition.',
     simulationEffect:
       'Controls whether one route is chosen, all async routes are chosen, or a condition must match first.'
   },
   connectorProtocol: {
-    title: 'Protocol',
+    title: edgeFieldTitle('protocol'),
     summary: 'Describes the transport represented by this connector.',
     simulationEffect:
       'Presentation only in connector mode. It changes the badge and arrow accent, not latency, reliability, capacity, cost, or results.'
   },
   connectorMode: {
-    title: 'Interaction',
+    title: edgeFieldTitle('connectorMode'),
     summary:
       'Describes whether the connection is synchronous, asynchronous, streaming, or conditional.',
     simulationEffect:
       'Presentation only in connector mode. It changes the badge and line pattern without changing routing or results.'
   },
   pathType: {
-    title: 'Path Type',
+    title: edgeFieldTitle('pathType'),
     summary:
       'Physical distance and network locality: same rack, same DC, cross-zone, cross-region, or internet.',
     simulationEffect:
@@ -104,76 +105,137 @@ export const EDGE_PROPERTY_HELP = {
     note: 'If you set a fixed latency value or explicit mu/sigma, path type becomes descriptive metadata.'
   },
   condition: {
-    title: 'Condition',
+    title: edgeFieldTitle('condition'),
     summary: 'Predicate that filters traffic by request type or request metadata.',
     simulationEffect:
       'A non-empty condition gates the edge even outside conditional mode; conditional mode simply makes it required.',
     note: 'Supported forms today are request.type and request.metadata.<field> with ==, ===, !=, or !==.'
   },
   latencyModel: {
-    title: 'Latency Model',
+    title: edgeFieldTitle('latencyModel'),
     summary:
       'Auto follows the path-type median with no jitter; manual lets you choose a fixed constant delay or a jittered log-normal profile.',
     simulationEffect:
       'Auto keeps latency derived from path type. Manual directly changes the sampled transit time for every request on the edge.'
   },
   latencyValue: {
-    title: 'Latency (ms)',
+    title: edgeFieldTitle('latencyValue'),
     summary: 'Fixed one-way delay added to every hop when constant latency is selected.',
     simulationEffect:
       'Every request pays exactly this transit delay before transmission and protocol overhead.'
   },
   latencyMu: {
-    title: 'Latency Mu (log-space)',
+    title: edgeFieldTitle('latencyMu'),
     summary:
       'Natural-log median of the base latency distribution before transmission and protocol overhead.',
     simulationEffect:
       'Higher mu shifts the whole latency distribution upward and increases the typical hop time.'
   },
   latencySigma: {
-    title: 'Jitter Sigma',
+    title: edgeFieldTitle('latencySigma'),
     summary: 'Spread of the log-normal latency distribution.',
     simulationEffect:
       'Higher sigma increases jitter and tail latency without necessarily changing the median.'
   },
   bandwidth: {
-    title: 'Bandwidth (Mbps)',
-    summary: 'Link throughput used to convert request size into transmission time.',
+    title: edgeFieldTitle('bandwidth'),
+    summary: 'Link capacity in megabits per second, shared by every request crossing this edge.',
     simulationEffect:
-      'Adds transmission delay as request.sizeBytes / (bandwidth * 125). Large payloads slow down more on narrow links.'
+      'Each request holds the link for sizeBytes / (bandwidth * 125) ms. Requests that arrive while it is busy wait in line, so the edge can never carry more than its bandwidth.',
+    note: 'Only request payloads cross edges; response sizes are not modeled.'
   },
   maxConcurrentRequests: {
-    title: 'Max Concurrent',
+    title: edgeFieldTitle('maxConcurrentRequests'),
     summary:
       'How many transfers the edge can carry at once before it behaves like a saturated connection pool.',
     simulationEffect:
       'Near the cap, latency inflates; at or above the cap, reliable protocols reject new transfers with connection_refused.'
   },
   weight: {
-    title: 'Weight',
+    title: edgeFieldTitle('weight'),
     summary: "Relative share of the source's traffic sent down this edge under weighted routing.",
     simulationEffect:
       "Each edge gets weight ÷ sum-of-sibling-weights of the traffic. Only applies when the source's strategy is Weighted (or unset with weights present); empty is treated as 1.",
     note: 'Shown as a % badge on the edge when the source routes by weight.'
   },
   packetLossRate: {
-    title: 'Packet Loss (%)',
+    title: edgeFieldTitle('packetLossRate'),
     summary: 'Probability that packets are dropped while traversing the edge.',
     simulationEffect:
       'UDP loss becomes a timeout/drop. Reliable protocols simulate retransmission by adding extra delay instead of immediate failure.'
   },
   errorRate: {
-    title: 'Edge Error (%)',
+    title: edgeFieldTitle('errorRate'),
     summary: 'Probability that the link itself rejects the request independent of packet loss.',
     simulationEffect:
       'Produces an immediate edge-level failure before the request arrives at the target node.'
   },
   fanoutFactor: {
-    title: 'Fan-out factor',
+    title: edgeFieldTitle('fanoutFactor'),
     summary:
       'Amplification: each request delivered over this edge fans out to this many recipients (e.g. one post → N follower feed writes). Leave empty or 1 for no amplification.',
     simulationEffect:
       'The target genuinely receives N× the load — the write storm — so it can saturate. Use an asynchronous edge so the caller does not block on all N deliveries. The extra writes are counted as fanoutAmplifiedWrites on the source.'
+  },
+  connectionReuse: {
+    title: edgeFieldTitle('connectionReuse'),
+    summary:
+      'How the caller gets a connection for each request. Off keeps the default assumption that a warm connection is always ready. Per request opens and closes a connection every time; keep-alive reuses warm connections until they idle out; persistent opens once and keeps it (WebSocket, long-lived gRPC channels).',
+    simulationEffect:
+      'A new connection pays its handshake round trips before the request goes out: TCP 1, TLS 1.2 +2 (1.3 +1), WebSocket upgrade +1, AMQP open +4, Kafka ApiVersions +1. One round trip is one sample of this edge latency. Reused connections pay nothing, so reuse is why keep-alive and persistent connections win.',
+    note: 'Pools are per edge for service-to-service calls. On an edge leaving the traffic source each client (sessionId, clientIp or workload key) has its own connections; a request with no client identity is a new client. Not used on UDP (connectionless) or on a Kafka edge with batching.'
+  },
+  tlsVersion: {
+    title: edgeFieldTitle('tlsVersion'),
+    summary:
+      'TLS on new connections. Default: TLS 1.3 for HTTPS, gRPC and WebSocket (wss); none for TCP, AMQP and Kafka.',
+    simulationEffect:
+      'TLS 1.2 adds 2 round trips to every new connection, TLS 1.3 adds 1. This is why CDNs and load balancers terminate TLS close to the user, and why connection reuse matters.',
+    note: 'The per-request record encryption cost is part of the protocol overhead already; handshake CPU cost is not modeled.'
+  },
+  tlsSessionResumption: {
+    title: edgeFieldTitle('tlsSessionResumption'),
+    summary:
+      'Reuse a session ticket from an earlier full handshake with the same server when opening a new connection.',
+    simulationEffect:
+      'After the first full handshake, new connections resume: TLS 1.2 pays 1 round trip instead of 2; TLS 1.3 uses 0-RTT early data and pays none.',
+    note: 'Assumes the server accepts 0-RTT early data for TLS 1.3 (without it, a 1.3 resumption still costs 1 round trip). Ticket expiry is not modeled.'
+  },
+  connectionIdleTimeoutMs: {
+    title: edgeFieldTitle('connectionIdleTimeoutMs'),
+    summary:
+      'Keep-alive only: a warm connection that has been idle this long is closed. Default 60,000 ms (typical server keep-alive timeouts are 60-90 s).',
+    simulationEffect:
+      'Bursty or low-rate traffic finds its connections closed and pays the handshake again; a short timeout turns keep-alive back into per-request.'
+  },
+  maxConnections: {
+    title: edgeFieldTitle('maxConnections'),
+    summary:
+      'Most connections one pool may open (a client connection pool size). Empty means open as many as the load needs.',
+    simulationEffect:
+      'When every connection is busy and the pool is full, requests wait in line for a free one (connection wait in the latency breakdown) or time out. With one request per connection (HTTP/1.1) a slow downstream blocks the line; HTTP/2 multiplexing does not.'
+  },
+  maxStreamsPerConnection: {
+    title: edgeFieldTitle('maxStreamsPerConnection'),
+    summary:
+      'Concurrent requests one connection carries. Defaults: HTTPS and TCP 1 (HTTP/1.1, database wire protocols), gRPC 100 (HTTP/2 SETTINGS_MAX_CONCURRENT_STREAMS), Kafka 5 (max.in.flight), WebSocket and AMQP unlimited.',
+    simulationEffect:
+      'A synchronous HTTPS, gRPC or TCP request holds its stream until its response returns; WebSocket, AMQP and Kafka messages free it on delivery. More streams per connection means fewer connections, fewer handshakes and no head-of-line wait.'
+  },
+  batchLingerMs: {
+    title: edgeFieldTitle('batchLingerMs'),
+    summary:
+      'Kafka producer linger.ms: records wait this long for more records to join their batch before it is sent. Empty means no batching (each record is its own request). Kafka 4 defaults to 5 ms.',
+    simulationEffect:
+      'Each batch is one produce request: one edge slot, one protocol overhead, one trip. Fewer requests in flight means more records get through the same Max concurrent requests (in-flight) cap, at the cost of each record waiting in the batch.',
+    note: 'Only on Kafka edges. Compression, acks levels and buffer.memory back-pressure are not modeled.'
+  },
+  batchMaxBytes: {
+    title: edgeFieldTitle('batchMaxBytes'),
+    summary:
+      'Kafka producer batch.size: a batch is sent as soon as it holds this many bytes, before linger expires. Default 16,384.',
+    simulationEffect:
+      'At high rates batches fill before linger expires, so the batch wait shrinks while throughput stays high.'
   }
 } satisfies Record<string, EdgeHelpEntry>
 

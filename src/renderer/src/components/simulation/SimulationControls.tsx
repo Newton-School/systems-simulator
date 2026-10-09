@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Pause, Play, RotateCcw, Square, X } from 'lucide-react'
+import { Pause, Play, RotateCcw, SkipForward, Square, X } from 'lucide-react'
 import type { FaultTargetOption, ScenarioState, SourceNodeOption } from '@renderer/types/ui'
 import type { WorkloadStopCondition } from '../../../../engine/core/types'
 import { EditableNumberInput } from '@renderer/components/ui/EditableNumberInput'
@@ -14,6 +14,13 @@ import {
   type WorkloadPattern,
   type FailureMode
 } from './simulationControlModel'
+import { ExperimentSetupSection } from './ChaosExperimentPanel'
+import type { ExperimentPreview } from './chaosExperimentModel'
+import type { PlaybackSpeed } from '../../../../engine/worker/protocols'
+import { PLAYBACK_SPEED_OPTIONS } from './simulationControlModel'
+
+const PLAYBACK_SPEED_TITLE =
+  'Playback speed. 1x runs simulated time in real time; Max runs as fast as possible (default). Speed changes pacing only, never the results.'
 
 type WorkloadOverride = NonNullable<ScenarioState['workloadOverride']>
 
@@ -40,12 +47,19 @@ interface SimulationControlsProps {
   onPause: () => void
   onResume: () => void
   onStop: () => void
+  /** Advance a paused run by a batch of events (the worker's step command). */
+  onStep?: () => void
+  /** Current playback speed; the control is hidden when no handler is given. */
+  playbackSpeed?: PlaybackSpeed
+  onPlaybackSpeedChange?: (speed: PlaybackSpeed) => void
   isRunning: boolean
   isPaused: boolean
   sourceNodes: SourceNodeOption[]
   faultTargets: FaultTargetOption[]
   scenario: ScenarioState
   onScenarioChange: (updater: (current: ScenarioState) => ScenarioState) => void
+  /** Resolve the selected experiment preset(s) against the current topology. */
+  previewExperiment?: (entries: NonNullable<ScenarioState['experiment']>) => ExperimentPreview
   disabled?: boolean
 }
 
@@ -66,12 +80,16 @@ export function SimulationControls({
   onPause,
   onResume,
   onStop,
+  onStep,
+  playbackSpeed = 'max',
+  onPlaybackSpeedChange,
   isRunning,
   isPaused,
   sourceNodes,
   faultTargets,
   scenario,
   onScenarioChange,
+  previewExperiment,
   disabled = false
 }: SimulationControlsProps) {
   const [isOpen, setIsOpen] = useState(false)
@@ -192,6 +210,15 @@ export function SimulationControls({
   }
 
   const hasSourceNodes = sourceNodes.length > 0
+  const experimentEntries = useMemo(() => scenario.experiment ?? [], [scenario.experiment])
+  const experimentActive = experimentEntries.length > 0
+  const experimentPreview = useMemo(
+    () =>
+      isOpen && experimentActive && previewExperiment ? previewExperiment(experimentEntries) : null,
+    // previewExperiment reads the live topology and scenario, so it changes with them.
+    [isOpen, experimentActive, previewExperiment, experimentEntries]
+  )
+  const experimentBlocked = experimentActive && experimentPreview !== null && !experimentPreview.ok
 
   // Stop condition (workload-level): how the run ends and the saturation guard.
   const stopCondition = effectiveWorkload?.stopCondition
@@ -260,6 +287,28 @@ export function SimulationControls({
 
   return (
     <div ref={wrapperRef} className="relative flex items-center gap-1.5">
+      {onPlaybackSpeedChange && (
+        <label className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-nss-muted">
+          <span className="nss-desktop-only">Speed</span>
+          <select
+            aria-label="Playback speed"
+            title={PLAYBACK_SPEED_TITLE}
+            value={String(playbackSpeed)}
+            disabled={disabled}
+            onChange={(event) => {
+              const raw = event.target.value
+              onPlaybackSpeedChange(raw === 'max' ? 'max' : Number(raw))
+            }}
+            className="h-7 rounded-md border border-nss-border bg-nss-input-bg px-1 text-xs font-sans normal-case text-nss-text outline-none focus:border-nss-primary disabled:opacity-50"
+          >
+            {PLAYBACK_SPEED_OPTIONS.map((option) => (
+              <option key={option.label} value={String(option.value)}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       {!isRunning && !isPaused && (
         <>
           {isPostRun && (
@@ -311,6 +360,16 @@ export function SimulationControls({
             <Play size={12} className="fill-black" />
             Resume
           </button>
+          {onStep && (
+            <button
+              onClick={onStep}
+              title="Advance the paused run by a small batch of events"
+              className={`${ACTION_BUTTON_BASE} flex items-center gap-1.5 bg-nss-surface text-nss-text border-nss-border hover:bg-nss-bg`}
+            >
+              <SkipForward size={12} />
+              Step
+            </button>
+          )}
           <button
             onClick={onStop}
             className={`${ACTION_BUTTON_BASE} flex items-center gap-1.5 bg-nss-surface text-nss-text border-nss-border hover:bg-nss-bg`}
@@ -567,69 +626,108 @@ export function SimulationControls({
 
             <div className="h-px bg-nss-border my-3" />
 
-            <label className="flex items-center justify-between mb-2 cursor-pointer">
-              <span className="text-[10px] font-semibold uppercase tracking-widest text-nss-muted">
-                Chaos - inject a failure
-              </span>
-              <input
-                type="checkbox"
-                checked={faultEnabled}
-                disabled={faultTargets.length === 0}
-                onChange={(event) => toggleFault(event.target.checked)}
-                className="accent-nss-danger"
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-nss-muted mb-2">
+              Chaos experiment
+            </p>
+            <div className="mb-3">
+              <ExperimentSetupSection
+                entries={experimentEntries}
+                preview={experimentPreview}
+                onScenarioChange={onScenarioChange}
               />
-            </label>
-            {faultTargets.length === 0 ? (
+            </div>
+
+            {experimentActive ? (
               <p className="text-[10px] text-nss-muted mb-3">
-                Add a non-source component to target with a fault.
+                The experiment schedules its own faults, so the single injected failure below is not
+                used while an experiment is selected.
               </p>
             ) : (
-              faultEnabled && (
-                <div className="space-y-2 mb-3">
-                  <Field label="Target">
-                    <select
-                      value={fault.targetId}
-                      onChange={(event) => patchFault({ targetId: event.target.value })}
-                      className={CONTROL_BASE}
-                    >
-                      {faultTargets.map((target) => (
-                        <option key={target.id} value={target.id}>
-                          {target.label}
-                        </option>
-                      ))}
-                    </select>
-                  </Field>
-                  <Field label="Mode">
-                    <select
-                      value={fault.mode}
-                      onChange={(event) => patchFault({ mode: event.target.value as FailureMode })}
-                      className={CONTROL_BASE}
-                    >
-                      {FAILURE_MODE_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </Field>
-                  <div className="grid grid-cols-2 gap-2">
-                    <Field label="Fail at (s)">
-                      <NumberInput
-                        value={fault.atS}
-                        min={0}
-                        onChange={(value) => patchFault({ atS: value })}
-                      />
-                    </Field>
-                    <Field label="Duration (s, 0 = never recovers)">
-                      <NumberInput
-                        value={fault.durationS}
-                        min={0}
-                        onChange={(value) => patchFault({ durationS: value })}
-                      />
-                    </Field>
-                  </div>
-                </div>
-              )
+              <>
+                <label className="flex items-center justify-between mb-2 cursor-pointer">
+                  <span className="text-[10px] font-semibold uppercase tracking-widest text-nss-muted">
+                    Chaos - inject a failure
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={faultEnabled}
+                    disabled={faultTargets.length === 0}
+                    onChange={(event) => toggleFault(event.target.checked)}
+                    className="accent-nss-danger"
+                  />
+                </label>
+                {faultTargets.length === 0 ? (
+                  <p className="text-[10px] text-nss-muted mb-3">
+                    Add a non-source component to target with a fault.
+                  </p>
+                ) : (
+                  faultEnabled && (
+                    <div className="space-y-2 mb-3">
+                      <Field label="Target">
+                        <select
+                          value={fault.targetId}
+                          onChange={(event) => patchFault({ targetId: event.target.value })}
+                          className={CONTROL_BASE}
+                        >
+                          {(['component', 'location'] as const).map((group) => {
+                            const options = faultTargets.filter(
+                              (target) => (target.group ?? 'component') === group
+                            )
+                            if (options.length === 0) return null
+                            return (
+                              <optgroup
+                                key={group}
+                                label={
+                                  group === 'component'
+                                    ? 'Components'
+                                    : 'Fault domains (fail everything inside)'
+                                }
+                              >
+                                {options.map((target) => (
+                                  <option key={target.id} value={target.id}>
+                                    {target.label}
+                                  </option>
+                                ))}
+                              </optgroup>
+                            )
+                          })}
+                        </select>
+                      </Field>
+                      <Field label="Mode">
+                        <select
+                          value={fault.mode}
+                          onChange={(event) =>
+                            patchFault({ mode: event.target.value as FailureMode })
+                          }
+                          className={CONTROL_BASE}
+                        >
+                          {FAILURE_MODE_OPTIONS.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      </Field>
+                      <div className="grid grid-cols-2 gap-2">
+                        <Field label="Fail at (s)">
+                          <NumberInput
+                            value={fault.atS}
+                            min={0}
+                            onChange={(value) => patchFault({ atS: value })}
+                          />
+                        </Field>
+                        <Field label="Duration (s, 0 = never recovers)">
+                          <NumberInput
+                            value={fault.durationS}
+                            min={0}
+                            onChange={(value) => patchFault({ durationS: value })}
+                          />
+                        </Field>
+                      </div>
+                    </div>
+                  )
+                )}
+              </>
             )}
 
             <button
@@ -637,10 +735,10 @@ export function SimulationControls({
                 setIsOpen(false)
                 onRun()
               }}
-              disabled={disabled || !hasSourceNodes}
+              disabled={disabled || !hasSourceNodes || experimentBlocked}
               className="w-full h-8 rounded-md bg-nss-primary text-white text-xs font-semibold hover:bg-nss-primary-hover disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              Start Simulation
+              {experimentActive ? 'Start Experiment' : 'Start Simulation'}
             </button>
           </div>,
           document.body

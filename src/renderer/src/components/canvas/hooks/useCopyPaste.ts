@@ -2,6 +2,9 @@ import { useEffect, useRef, useCallback } from 'react'
 import { Node, Edge, XYPosition, useReactFlow } from 'reactflow'
 import { useFlowStore } from './useFlowStore'
 import { isEditableShortcutTarget, isModalOpen } from '@renderer/config/keyboardShortcuts'
+import useStore from '@renderer/store/useStore'
+import { builderPolicyAdmissionBlock } from '@renderer/utils/builderPolicyContext'
+import { normalizeCanvasNodeRendererType } from '../../../../../engine/catalog/rendererNodeTypes'
 
 interface ClipboardNodeEntry {
   node: Node
@@ -79,7 +82,8 @@ export function materializeClipboardSelection(
 
   const nodes = clipboardNodes.map(
     ({ node, absolutePosition: originalAbsolute, parentWasCopied }) => {
-      const pastedNode = cloneValue(node)
+      // A clipboard captured before #219 may still carry a legacy renderer name.
+      const pastedNode = normalizeCanvasNodeRendererType(cloneValue(node))
       pastedNode.id = idMap.get(node.id)!
       pastedNode.selected = true
 
@@ -151,6 +155,13 @@ export const useCopyPaste = ({ disabled = false }: { disabled?: boolean } = {}) 
         y: mousePosRef.current.y
       })
     )
+    // A pasted created node is a new definition: the question's builder policy
+    // (disallowed builders, max definitions, lock after first run) applies to it.
+    const policyBlock = builderPolicyAdmissionBlock(useStore.getState(), selection.nodes)
+    if (policyBlock) {
+      useStore.getState().setBuilderPolicyNotice(`Paste blocked: ${policyBlock}`)
+      return
+    }
     const nextNodes: Node[] = [
       ...currentNodes.map((node) => ({ ...node, selected: false })),
       ...selection.nodes

@@ -3,7 +3,9 @@ import type { CanvasNodeDataV2 } from '../../../../../engine/catalog/nodeSpecTyp
 import { hasWorkloadSourceConfig } from '../../../../../engine/catalog/sourceNodeSemantics'
 import useStore from '@renderer/store/useStore'
 import { mergeWorkloadDefaults } from '@renderer/utils/workloadDefaults'
+import { buildFaultTargetOptions } from '@renderer/utils/faultTargets'
 import type { FaultTargetOption, ScenarioState, SourceNodeOption } from '@renderer/types/ui'
+import { GLOBAL_FIELD_LABELS } from '../../../../../engine/validation/validationCopy'
 import {
   buildFault,
   DEFAULT_DEGRADED_FRACTION,
@@ -64,23 +66,7 @@ export function SimulationTab(): React.JSX.Element {
     [nodes]
   )
 
-  const faultTargets = useMemo<FaultTargetOption[]>(
-    () =>
-      nodes
-        .filter((node) => {
-          const data = node.data as CanvasNodeDataV2
-          return data.profile !== 'source' && data.structuralRole !== 'composite'
-        })
-        .map((node) => {
-          const data = node.data as CanvasNodeDataV2
-          return {
-            id: node.id,
-            label:
-              data.label && data.label.trim().length > 0 ? `${data.label} (${node.id})` : node.id
-          }
-        }),
-    [nodes]
-  )
+  const faultTargets = useMemo<FaultTargetOption[]>(() => buildFaultTargetOptions(nodes), [nodes])
 
   const selectedSource =
     sourceNodes.find((node) => node.id === scenario.selectedSourceNodeId) ?? sourceNodes[0]
@@ -172,7 +158,7 @@ export function SimulationTab(): React.JSX.Element {
     <div className="space-y-1">
       <SettingRow
         id="settings-simulation-duration"
-        label="Run duration"
+        label={GLOBAL_FIELD_LABELS.simulationDuration}
         hint="How long the simulated clock runs before the worker drains and results are finalized."
       >
         <NumberField
@@ -185,7 +171,7 @@ export function SimulationTab(): React.JSX.Element {
 
       <SettingRow
         id="settings-simulation-warmup"
-        label="Warmup duration"
+        label={GLOBAL_FIELD_LABELS.warmupDuration}
         hint="Warmup traffic is excluded from the post-warmup metrics and scorecards."
       >
         <NumberField
@@ -198,7 +184,7 @@ export function SimulationTab(): React.JSX.Element {
 
       <SettingRow
         id="settings-simulation-seed"
-        label="Seed"
+        label={GLOBAL_FIELD_LABELS.seed}
         hint="Controls deterministic replay. The actual seed used is shown in the results footer after a run."
       >
         <TextField
@@ -292,7 +278,7 @@ export function SimulationTab(): React.JSX.Element {
         <>
           <SettingRow
             label="Fault target"
-            hint="Which runtime component the injected failure applies to."
+            hint="Which runtime component the injected failure applies to. Picking a Region, Availability zone or Subnet fails every component inside it for the same window."
           >
             <SelectField
               value={fault.targetId}
