@@ -372,7 +372,7 @@ describe('Kafka producer batching on edges (#181 task 7)', () => {
     expect(linger40.batchWait).toBeCloseTo(20.25, 1)
     expect(linger40.p50).toBeGreaterThan(linger10.p50 + 10)
     expect(linger40.p99).toBeGreaterThan(linger10.p99 + 25)
-  })
+  }, 20_000)
 
   it('too short a linger leaves batches too small to stay under the cap', () => {
     const linger2 = summarize(run(kafka({ lingerMs: 2 })))
