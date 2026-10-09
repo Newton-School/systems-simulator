@@ -550,6 +550,9 @@ function buildRuntimeNode(
     if (data.sim?.replicaMembers?.trim()) config.replicaMembers = data.sim.replicaMembers.trim()
     if (data.sim?.consensusProtocol) config.consensusProtocol = data.sim.consensusProtocol
     if (data.sim?.conflictResolution) config.conflictResolution = data.sim.conflictResolution
+    if (data.sim?.consistencyModel && data.sim.consistencyModel !== 'off') {
+      config.consistencyModel = data.sim.consistencyModel
+    }
   }
 
   if (

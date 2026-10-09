@@ -4052,6 +4052,104 @@ function ComponentDrilldown({
   )
 }
 
+type ConsistencyReport = NonNullable<SimulationOutput['consistency']>
+
+function consistencyLevel(report: ConsistencyReport): HealthLevel {
+  const lin = report.linearizability
+  return report.staleReads > 0 ||
+    report.readYourWritesViolations > 0 ||
+    report.monotonicReadViolations > 0 ||
+    lin.keysViolating > 0
+    ? 'warnings'
+    : 'healthy'
+}
+
+function ConsistencyHealthCheck({ report }: { report: ConsistencyReport }) {
+  const lin = report.linearizability
+  const level = consistencyLevel(report)
+  const count = (value: number) => (
+    <span className={value > 0 ? 'text-nss-warning font-semibold' : 'text-nss-text'}>
+      {value.toLocaleString()}
+    </span>
+  )
+  const linearizabilityText =
+    lin.keysViolating > 0
+      ? `Not linearizable: ${lin.keysViolating} of ${lin.keysChecked} checked keys have a history no sequential order explains.`
+      : lin.verified
+        ? `Linearizable: all ${lin.opsChecked.toLocaleString()} recorded operations checked, no violation.`
+        : lin.keysChecked > 0
+          ? `No violation in the ${lin.opsChecked.toLocaleString()} operations checked. Not a linearizability claim: ${lin.opsNotChecked.toLocaleString()} operations were not checked (bound ${lin.opsPerKeyBound} ops per key, ${lin.keysBound} keys${lin.keysInconclusive > 0 ? `, ${lin.keysInconclusive} keys over the search budget` : ''}).`
+          : 'Not checked: no keyed reads or writes reached a tracked datastore.'
+  return (
+    <CollapsibleCheck
+      title={
+        level === 'healthy'
+          ? 'Read consistency: no stale reads or violations'
+          : `Read consistency: ${report.staleReads.toLocaleString()} stale read${report.staleReads !== 1 ? 's' : ''}`
+      }
+      level={level}
+      tooltip="Datastores with a consistency model track a version per request key. A stale read returned an older version than the leader had committed when the read arrived. Read-your-writes and monotonic-read violations need client sessions on the source. The linearizability check runs a single-key register checker over a bounded per-key history."
+    >
+      <div className="space-y-2 text-xs">
+        <div className="grid grid-cols-2 gap-x-3 gap-y-1 tabular-nums">
+          <span className="text-nss-muted">Stale reads</span>
+          <span className="text-right">
+            {count(report.staleReads)} / {report.reads.toLocaleString()}
+          </span>
+          <span className="text-nss-muted">Read-your-writes violations</span>
+          <span className="text-right">{count(report.readYourWritesViolations)}</span>
+          <span className="text-nss-muted">Monotonic-read violations</span>
+          <span className="text-right">{count(report.monotonicReadViolations)}</span>
+          <span className="text-nss-muted">Replication catch-up waits</span>
+          <span className="text-right">
+            {report.catchUpWaits.toLocaleString()}
+            {report.catchUpWaits > 0 && (
+              <span className="text-nss-muted">
+                {' '}
+                ({fmtMs(report.catchUpWaitMs / report.catchUpWaits)} avg)
+              </span>
+            )}
+          </span>
+          {report.maxStalenessMs > 0 && (
+            <>
+              <span className="text-nss-muted">Oldest stale data served</span>
+              <span className="text-right">{fmtMs(report.maxStalenessMs)}</span>
+            </>
+          )}
+        </div>
+        {report.sessionlessReads > 0 && (
+          <p className="text-[11px] text-nss-warning">
+            {report.sessionlessReads.toLocaleString()} reads carried no session id, so
+            read-your-writes and monotonic reads were not checked for them. Set Client sessions on
+            the source.
+          </p>
+        )}
+        <p
+          className={`text-[11px] ${lin.keysViolating > 0 ? 'text-nss-warning' : 'text-nss-muted'}`}
+        >
+          {linearizabilityText}
+        </p>
+        <div className="space-y-0.5 border-t border-nss-border pt-1.5 text-[10px] tabular-nums text-nss-muted">
+          {report.nodes.map((node) => (
+            <div key={node.nodeId} className="flex justify-between gap-2">
+              <span className="truncate text-nss-text">
+                {node.nodeLabel}{' '}
+                <span className="text-nss-muted">
+                  ({node.role}, {node.model}
+                  {node.role === 'follower' ? `, lag ${fmtMs(node.replicationLagMs)}` : ''})
+                </span>
+              </span>
+              <span>
+                {node.reads.toLocaleString()} reads, {node.staleReads.toLocaleString()} stale
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </CollapsibleCheck>
+  )
+}
+
 function SimulationHealth({ output }: { output: SimulationOutput }) {
   const selectGraphElements = useStore((state) => state.selectGraphElements)
   const spofs = output.singlePointsOfFailure
@@ -4101,7 +4199,8 @@ function SimulationHealth({ output }: { output: SimulationOutput }) {
     llLevel,
     conservationLevel,
     warmupLevel,
-    errorLevel
+    errorLevel,
+    ...(output.consistency ? [consistencyLevel(output.consistency)] : [])
   ])
   const hasConfiguredSloTargets = output.sloTargetCount > 0
 
@@ -4147,6 +4246,8 @@ function SimulationHealth({ output }: { output: SimulationOutput }) {
           </div>
         )}
       </CollapsibleCheck>
+
+      {output.consistency && <ConsistencyHealthCheck report={output.consistency} />}
 
       {/* SLO */}
       <CollapsibleCheck

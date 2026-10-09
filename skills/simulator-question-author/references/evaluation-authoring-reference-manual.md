@@ -297,7 +297,21 @@ A `rubric` check's `kind` is inferred from the metric prefix
 `locks.contentions` · `locks.acquires` · `locks.keyless` (distributed-lock) ·
 `retries.attempts` · `retries.budgetExhausted` (retry-backoff callers) ·
 `rateLimit.breaches` · `rateLimit.admitted` · `rateLimit.rejected` ·
-`rateLimit.keyless` (rate-limiter — an over-admit is `rateLimit.breaches > 0`).
+`rateLimit.keyless` (rate-limiter - an over-admit is `rateLimit.breaches > 0`) ·
+`consistency.staleReads` · `consistency.readYourWritesViolations` ·
+`consistency.monotonicReadViolations` · `consistency.catchUpWaits` ·
+`consistency.catchUpWaitMs` · `consistency.sessionlessReads` ·
+`consistency.linearizabilityViolations` · `consistency.linearizabilityOpsChecked` ·
+`consistency.linearizabilityOpsNotChecked` · `consistency.linearizableVerified`
+(replicated `relational-db` / `nosql-db` with `config.consistencyModel` set to
+`eventual` / `monotonic-reads` / `read-your-writes` / `strong` on the leader and
+every follower; needs keyed reads and writes, and `workload.sessions.count` for
+the session guarantees). The `consistency.*` section exists only when some
+datastore tracks consistency, so on an untracked design the check fails to
+resolve instead of passing vacuously. `linearizableVerified` is 1 only when every
+recorded operation was checked (bound: 100 ops per key, 200 keys); pair a
+`linearizabilityViolations == 0` check with it or with `OpsNotChecked == 0` before
+claiming linearizability.
 These are `kind: "simulation"` checks. Any single trait counter is also reachable
 per node as `perNode.<nodeId>.traitCounters.<counter>`, but prefer the run-wide
 aggregate so the check does not depend on a node id the student can rename.

@@ -1,3 +1,4 @@
+import type { ConsistencyReport } from '../traits/consistencyModel'
 import { GlobalConfig } from '../core/types'
 import type {
   CanonicalEventRecord,
@@ -314,6 +315,14 @@ export interface SimulationOutput {
   streamProjection: StreamBrokerProjection[]
   /** Durable replication cluster projections for storage nodes with replication enabled. */
   replicationProjection: ReplicationProjection[]
+  /**
+   * Read-consistency oracles for datastores with a `consistencyModel`: stale
+   * reads, read-your-writes / monotonic-read violations, catch-up waits, and a
+   * bounded per-key linearizability check. Absent when no node tracks
+   * consistency, so a `consistency.*` check on such a run does not resolve
+   * (it never passes vacuously).
+   */
+  consistency?: ConsistencyReport
   /**
    * Structural single points of failure: nodes whose loss disconnects the
    * source(s) from part of the system and which run <2 instances. Computed from

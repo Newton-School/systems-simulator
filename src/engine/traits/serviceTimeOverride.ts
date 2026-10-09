@@ -46,3 +46,23 @@ export function readServiceTimeLatencyPenaltyMs(request: Request): number {
   const raw = request.metadata?.[SERVICE_TIME_LATENCY_PENALTY_MS_KEY]
   return typeof raw === 'number' && Number.isFinite(raw) && raw > 0 ? raw : 0
 }
+
+/**
+ * Absolute simulation time (microseconds, as a number) the request must wait
+ * for before its service can finish - e.g. a replica read that must wait for
+ * replication to catch up to a version (read-your-writes, strong follower
+ * reads). The node adds `max(0, waitUntil - serviceStart)` to the service time
+ * as external wait (not CPU work), so the wait is measured against the real
+ * service-start clock, after any queueing, and holds the worker like a blocked
+ * connection would. The node records the wait it actually applied under
+ * `SERVICE_TIME_WAIT_APPLIED_MS_KEY`.
+ */
+export const SERVICE_TIME_WAIT_UNTIL_US_KEY = 'serviceTimeWaitUntilUs'
+export const SERVICE_TIME_WAIT_APPLIED_MS_KEY = 'serviceTimeWaitAppliedMs'
+
+export function readServiceTimeWaitMs(request: Request, serviceStartUs: bigint): number {
+  const raw = request.metadata?.[SERVICE_TIME_WAIT_UNTIL_US_KEY]
+  if (typeof raw !== 'number' || !Number.isFinite(raw)) return 0
+  const waitUs = raw - Number(serviceStartUs)
+  return waitUs > 0 ? waitUs / 1000 : 0
+}

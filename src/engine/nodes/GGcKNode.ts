@@ -1,7 +1,10 @@
 import { createEvent, Request, RequestSpan } from '../core/events'
 import {
   readServiceTimeDistributionOverride,
-  readServiceTimeLatencyPenaltyMs
+  readServiceTimeLatencyPenaltyMs,
+  readServiceTimeWaitMs,
+  SERVICE_TIME_WAIT_APPLIED_MS_KEY,
+  SERVICE_TIME_WAIT_UNTIL_US_KEY
 } from '../traits/serviceTimeOverride'
 import {
   ComponentNode,
@@ -733,6 +736,14 @@ export class GGcKNode {
     // The additive latency penalty (geo/external/crypto traits) is external wait,
     // not local core work — it is not subject to CPU contention.
     let serviceTimeMs = computeTimeMs + readServiceTimeLatencyPenaltyMs(request)
+
+    // A wait-until deadline (e.g. a replica read waiting for replication to catch
+    // up) is also external wait, measured from the actual service start.
+    if (request.metadata?.[SERVICE_TIME_WAIT_UNTIL_US_KEY] !== undefined) {
+      const waitMs = readServiceTimeWaitMs(request, currentTime)
+      request.metadata[SERVICE_TIME_WAIT_APPLIED_MS_KEY] = waitMs
+      serviceTimeMs += waitMs
+    }
 
     // Degraded mode: a `fraction` of requests take `serviceTimeMultiplier`× as
     // long. Decided at service start; already-scheduled completions are untouched.

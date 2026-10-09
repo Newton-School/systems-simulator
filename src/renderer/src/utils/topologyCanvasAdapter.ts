@@ -298,6 +298,14 @@ function overlaySimulationConfig(
   ) {
     sim.conflictResolution = config['conflictResolution']
   }
+  if (
+    config['consistencyModel'] === 'eventual' ||
+    config['consistencyModel'] === 'monotonic-reads' ||
+    config['consistencyModel'] === 'read-your-writes' ||
+    config['consistencyModel'] === 'strong'
+  ) {
+    sim.consistencyModel = config['consistencyModel']
+  }
 
   if (Array.isArray(config['routingRules'])) {
     sim.routingRules = structuredClone(config['routingRules']) as NonNullable<

@@ -120,11 +120,14 @@ import {
   type ProbeState
 } from './traits/healthProber'
 import { resolveTraits } from './traits/resolveTraits'
+import { buildConsistencyReport } from './traits/consistencyModel'
 import { computeRetryDelayMs, readRetryBackoffConfig } from './traits/retryBackoff'
 import { ReplicaCluster, ReplicatedLog } from './semantics/v2StateMachines'
 import {
   SERVICE_TIME_DISTRIBUTION_OVERRIDE_KEY,
-  SERVICE_TIME_LATENCY_PENALTY_MS_KEY
+  SERVICE_TIME_LATENCY_PENALTY_MS_KEY,
+  SERVICE_TIME_WAIT_APPLIED_MS_KEY,
+  SERVICE_TIME_WAIT_UNTIL_US_KEY
 } from './traits/serviceTimeOverride'
 import {
   createReplicationCluster,
@@ -2826,6 +2829,8 @@ export class SimulationEngine {
     clearCircuitBreakerTracking(request)
     delete request.metadata[SERVICE_TIME_DISTRIBUTION_OVERRIDE_KEY]
     delete request.metadata[SERVICE_TIME_LATENCY_PENALTY_MS_KEY]
+    delete request.metadata[SERVICE_TIME_WAIT_UNTIL_US_KEY]
+    delete request.metadata[SERVICE_TIME_WAIT_APPLIED_MS_KEY]
   }
 
   private resolveRetryOwnerNodeId(
@@ -3401,9 +3406,15 @@ export class SimulationEngine {
       }
     )
 
+    const consistency = buildConsistencyReport(this.getSharedTraitStateStore())
+    const outputWithConsistency = consistency ? { ...output, consistency } : output
+
     return {
-      ...output,
-      invariantViolations: evaluateInvariantViolations(this.topology.invariants, output),
+      ...outputWithConsistency,
+      invariantViolations: evaluateInvariantViolations(
+        this.topology.invariants,
+        outputWithConsistency
+      ),
       singlePointsOfFailure: detectSinglePointsOfFailure(this.topology),
       stopReason: this.stopReason,
       stoppedAtMs: this.stoppedAtUs !== null ? microToMs(this.stoppedAtUs) : microToMs(this.clock)

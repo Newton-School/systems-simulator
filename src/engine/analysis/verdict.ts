@@ -112,6 +112,35 @@ export interface SimulationVerdict {
     breaches: number
     keyless: number
   }
+  /**
+   * Run-wide read-consistency oracles, present only when at least one
+   * datastore has a `consistencyModel` (absent otherwise, so a
+   * `consistency.*` check never passes vacuously on an untracked design).
+   * `staleReads` counts reads that returned an older version than the leader
+   * had committed when the read arrived; `readYourWritesViolations` /
+   * `monotonicReadViolations` count session-guarantee breaks (they need client
+   * sessions on the workload). `linearizabilityViolations` is the number of
+   * keys whose recorded history failed the single-key register check;
+   * `linearizabilityOpsNotChecked` counts operations beyond the per-key /
+   * key bound or whose search hit its budget, and `linearizableVerified` is 1
+   * only when every recorded operation was checked and no key violated. Grade a
+   * consistency lesson with e.g. `consistency.staleReads == 0`.
+   */
+  consistency?: {
+    reads: number
+    writes: number
+    staleReads: number
+    readYourWritesViolations: number
+    monotonicReadViolations: number
+    catchUpWaits: number
+    catchUpWaitMs: number
+    sessionlessReads: number
+    linearizabilityKeysChecked: number
+    linearizabilityViolations: number
+    linearizabilityOpsChecked: number
+    linearizabilityOpsNotChecked: number
+    linearizableVerified: number
+  }
   sloTargetCount: number
   sloBreaches: Array<{
     nodeId: string
@@ -201,6 +230,27 @@ function sumRateLimitCounters(output: SimulationOutput): SimulationVerdict['rate
   }
 }
 
+/** Run-wide consistency oracles (see the consistency-model capability). */
+function projectConsistency(
+  report: NonNullable<SimulationOutput['consistency']>
+): NonNullable<SimulationVerdict['consistency']> {
+  return {
+    reads: report.reads,
+    writes: report.writes,
+    staleReads: report.staleReads,
+    readYourWritesViolations: report.readYourWritesViolations,
+    monotonicReadViolations: report.monotonicReadViolations,
+    catchUpWaits: report.catchUpWaits,
+    catchUpWaitMs: report.catchUpWaitMs,
+    sessionlessReads: report.sessionlessReads,
+    linearizabilityKeysChecked: report.linearizability.keysChecked,
+    linearizabilityViolations: report.linearizability.keysViolating,
+    linearizabilityOpsChecked: report.linearizability.opsChecked,
+    linearizabilityOpsNotChecked: report.linearizability.opsNotChecked,
+    linearizableVerified: report.linearizability.verified ? 1 : 0
+  }
+}
+
 export function projectToVerdict(output: SimulationOutput): SimulationVerdict {
   return {
     version: SIMULATION_VERDICT_VERSION,
@@ -261,6 +311,7 @@ export function projectToVerdict(output: SimulationOutput): SimulationVerdict {
     locks: sumLockCounters(output),
     retries: sumRetryCounters(output),
     rateLimit: sumRateLimitCounters(output),
+    ...(output.consistency ? { consistency: projectConsistency(output.consistency) } : {}),
     sloTargetCount: output.sloTargetCount,
     sloBreaches: output.sloBreaches.map((breach) => ({ ...breach })),
     invariantViolations: output.invariantViolations.map((violation) => ({
