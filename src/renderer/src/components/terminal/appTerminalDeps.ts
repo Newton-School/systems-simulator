@@ -30,6 +30,8 @@ import type { AnyNodeData, EdgeSimulationData, ScenarioState } from '@renderer/t
 import { serializeCanvasToTopology } from '@renderer/utils/canvasTopologySerializer'
 import { coerceFieldInput, getPathValue, setPathValue } from '@renderer/utils/nodeFieldEdit'
 import { getSavedTopologyBaseline } from './terminalStore'
+import { builderPolicyContext } from '@renderer/utils/builderPolicyContext'
+import { definitionEditBlockReason } from '../../../../engine/analysis/builderPolicy'
 
 /**
  * CommandDeps for the in-app terminal. Every read goes through the same
@@ -229,6 +231,20 @@ function writeNodeField(
   }
 
   const patch = setPathValue(data, path, value)
+  // Same builder-policy guard as the store and the properties panel: a created
+  // node's definition (and its trait-backed settings) cannot be changed here
+  // when the question locks or disallows them.
+  const policy = builderPolicyContext(state)
+  if (policy.restrictive && !state.scaffoldNodeIds.includes(nodeId)) {
+    const before = data as unknown as Record<string, unknown>
+    const blocked = definitionEditBlockReason(
+      policy.policy,
+      before,
+      { ...before, ...(patch as Record<string, unknown>) },
+      policy.locked
+    )
+    if (blocked) return { ok: false, reason: blocked }
+  }
   const nextNodes = state.nodes.map((candidate) =>
     candidate.id === nodeId ? { ...candidate, data: { ...data, ...patch } } : candidate
   )

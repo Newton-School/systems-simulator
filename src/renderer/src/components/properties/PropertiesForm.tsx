@@ -46,6 +46,8 @@ interface PropertiesFormProps {
   resourcesLocked?: boolean
   /** Whether the advanced CPU-bound / IO-bound control is exposed at all. */
   executionProfileEnabled?: boolean
+  /** Why a field is read-only for this node (question builder policy), or null. */
+  lockedFieldReason?: (path: string) => string | null
 }
 
 /** Config sections gated by `resourcesLocked` (the allocation lesson). Workers/K are
@@ -129,7 +131,8 @@ export const PropertiesForm = ({
   data,
   onUpdate,
   resourcesLocked = false,
-  executionProfileEnabled = true
+  executionProfileEnabled = true,
+  lockedFieldReason
 }: PropertiesFormProps) => {
   const effectiveSourceWorkload = useEffectiveSourceWorkload(nodeId, data)
   const effectiveSelectedSourceNodeId = useStore((state) =>
@@ -210,6 +213,22 @@ export const PropertiesForm = ({
   }
 
   const renderField = (field: ResolvedFieldDefinition) => {
+    const reason = lockedFieldReason?.(field.path) ?? null
+    if (!reason) return renderEditableField(field)
+    return (
+      <fieldset
+        key={field.path}
+        disabled
+        title={reason}
+        className="m-0 min-w-0 border-0 p-0 opacity-60"
+      >
+        {renderEditableField(field)}
+        <p className="-mt-2 mb-3 text-[10px] leading-snug text-nss-warning">{reason}</p>
+      </fieldset>
+    )
+  }
+
+  const renderEditableField = (field: ResolvedFieldDefinition) => {
     const value = getPathValue(formData, field.path)
     const isOptionalHidden =
       field.optional && value === undefined && !expandedOptionalFields.has(field.path)

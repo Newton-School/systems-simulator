@@ -5,10 +5,17 @@ import { filterCatalogCategories, type ComponentLibraryFilter } from '../../conf
 import { LibraryItem } from './LibraryItem'
 import { CustomDefinitionCreator, type DefinitionBuilderMode } from './CustomDefinitionCreator'
 import type { CatalogItem } from '@renderer/types/ui'
+import { useBuilderPolicy } from '@renderer/hooks/useBuilderPolicy'
+import { builderAvailability } from '../../../../engine/analysis/builderPolicy'
 
 export type { ComponentLibraryFilter }
 
 const FILTERS: readonly ComponentLibraryFilter[] = ['common', 'all']
+const BUILDER_ENTRY_LABELS: Readonly<Record<DefinitionBuilderMode, string>> = {
+  service: 'Service builder',
+  'my-service': 'My Services',
+  'custom-node': 'Custom Node builder'
+}
 const BUILDER_TEMPLATE_MODES: Readonly<Record<string, DefinitionBuilderMode>> = {
   'generic-service': 'service',
   'my-service': 'my-service',
@@ -80,9 +87,33 @@ export function ComponentLibrarySidebarPanel({
     ]
   )
 
+  const builderPolicy = useBuilderPolicy()
+  // Why each builder tile is unavailable under the question's builder policy
+  // (undefined = usable). An absent / all-default policy leaves every tile on.
+  const builderDisabledReason = (templateId: string): string | undefined => {
+    const mode = BUILDER_TEMPLATE_MODES[templateId]
+    if (!mode || !builderPolicy.restrictive) return undefined
+    return builderAvailability(builderPolicy.policy, mode, {
+      definitionCount: builderPolicy.entries.length,
+      locked: builderPolicy.locked
+    }).reason
+  }
+  const builderNotices = [
+    ...new Map(
+      filtered
+        .flatMap((category) => category.items)
+        .flatMap((item) => {
+          const mode = BUILDER_TEMPLATE_MODES[item.templateId]
+          const reason = builderDisabledReason(item.templateId)
+          return mode && reason ? [[mode, `${BUILDER_ENTRY_LABELS[mode]}: ${reason}`] as const] : []
+        })
+    ).values()
+  ]
+
   const handleItemActivate = (item: CatalogItem): void => {
     const mode = BUILDER_TEMPLATE_MODES[item.templateId]
     if (mode) {
+      if (builderDisabledReason(item.templateId)) return
       setBuilderMode(mode)
       return
     }
@@ -147,6 +178,22 @@ export function ComponentLibrarySidebarPanel({
       </div>
 
       <div className="flex-1 space-y-4 overflow-y-auto p-2">
+        {builderNotices.length > 0 ? (
+          <div
+            role="note"
+            aria-label="Builder policy"
+            className="rounded-md border border-nss-warning/30 bg-nss-warning/10 px-2.5 py-2 text-[10px] leading-snug text-nss-text"
+          >
+            <p className="mb-1 font-semibold uppercase tracking-wide text-nss-warning">
+              Question policy
+            </p>
+            <ul className="space-y-0.5">
+              {builderNotices.map((notice) => (
+                <li key={notice}>{notice}</li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
         {filtered.length > 0 ? (
           filtered.map((category) => (
             <div key={category.id}>
@@ -160,6 +207,7 @@ export function ComponentLibrarySidebarPanel({
                     <LibraryItem
                       key={item.id}
                       item={item}
+                      disabledReason={builderDisabledReason(item.templateId)}
                       draggableItem={!builderModeForItem}
                       onActivate={handleItemActivate}
                       selected={pendingNodePlacement?.templateId === item.templateId}
