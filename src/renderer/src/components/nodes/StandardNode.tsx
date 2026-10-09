@@ -2,7 +2,7 @@ import { memo, useCallback, useMemo } from 'react'
 import { NodeProps } from 'reactflow'
 import { NodeHeader } from '@renderer/components/nodes/NodeHeader'
 import { NodeSettingsMenu } from '@renderer/components/nodes/NodeSettingsMenu'
-import { ServiceNodeData } from '@renderer/types/ui'
+import { StandardNodeData } from '@renderer/types/ui'
 import { resolveNodeConfig } from '@renderer/config/nodeRegistry'
 import { useNodeMetrics } from '@renderer/hooks/useNodeMetrics'
 import { useEffectiveSourceWorkload } from '@renderer/hooks/useEffectiveSourceWorkload'
@@ -23,7 +23,7 @@ import {
   describeNodeEffects
 } from './nodePresentation'
 
-const ServiceNode = ({ id, data, selected }: NodeProps<ServiceNodeData>) => {
+const StandardNode = ({ id, data, selected }: NodeProps<StandardNodeData>) => {
   const { updateNodeData } = useFlowStore()
   const { icon: IconComponent, theme } = resolveNodeConfig(data.templateId || data.iconKey)
   const effectiveSourceWorkload = useEffectiveSourceWorkload(id, data)
@@ -134,4 +134,4 @@ const ServiceNode = ({ id, data, selected }: NodeProps<ServiceNodeData>) => {
   )
 }
 
-export default memo(ServiceNode)
+export default memo(StandardNode)

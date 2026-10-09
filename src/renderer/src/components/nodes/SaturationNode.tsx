@@ -1,6 +1,6 @@
 import { memo, useCallback, useMemo } from 'react'
 import { NodeProps } from 'reactflow'
-import { ComputeNodeData } from '@renderer/types/ui'
+import { SaturationNodeData } from '@renderer/types/ui'
 import { resolveNodeConfig } from '@renderer/config/nodeRegistry'
 import { useNodeMetrics } from '@renderer/hooks/useNodeMetrics'
 import { useEffectiveSourceWorkload } from '@renderer/hooks/useEffectiveSourceWorkload'
@@ -22,7 +22,7 @@ import {
   isBroadcastFanoutData
 } from './nodePresentation'
 
-const ComputeNode = ({ id, data, selected }: NodeProps<ComputeNodeData>) => {
+const SaturationNode = ({ id, data, selected }: NodeProps<SaturationNodeData>) => {
   const { updateNodeData } = useFlowStore()
   const { icon: Icon, theme } = resolveNodeConfig(data.templateId || data.iconKey)
   const effectiveSourceWorkload = useEffectiveSourceWorkload(id, data)
@@ -143,4 +143,4 @@ const ComputeNode = ({ id, data, selected }: NodeProps<ComputeNodeData>) => {
   )
 }
 
-export default memo(ComputeNode)
+export default memo(SaturationNode)

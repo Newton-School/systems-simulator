@@ -55,7 +55,7 @@ function service(): CustomNodeDefinition {
 function definitionNode(id: string, definition: CustomNodeDefinition = service()): Node {
   return {
     id,
-    type: 'serviceNode',
+    type: 'standardNode',
     position: { x: 0, y: 0 },
     data: { label: id, componentType: 'microservice', customDefinition: definition, sim: {} }
   }

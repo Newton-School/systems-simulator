@@ -4,6 +4,7 @@ import { useFlowStore } from './useFlowStore'
 import { isEditableShortcutTarget, isModalOpen } from '@renderer/config/keyboardShortcuts'
 import useStore from '@renderer/store/useStore'
 import { builderPolicyAdmissionBlock } from '@renderer/utils/builderPolicyContext'
+import { normalizeCanvasNodeRendererType } from '../../../../../engine/catalog/rendererNodeTypes'
 
 interface ClipboardNodeEntry {
   node: Node
@@ -81,7 +82,8 @@ export function materializeClipboardSelection(
 
   const nodes = clipboardNodes.map(
     ({ node, absolutePosition: originalAbsolute, parentWasCopied }) => {
-      const pastedNode = cloneValue(node)
+      // A clipboard captured before #219 may still carry a legacy renderer name.
+      const pastedNode = normalizeCanvasNodeRendererType(cloneValue(node))
       pastedNode.id = idMap.get(node.id)!
       pastedNode.selected = true
 

@@ -73,7 +73,7 @@ describe('cacheTrait', () => {
       componentType: 'in-memory-cache',
       structuralRole: 'storage',
       profile: 'datastore',
-      rendererType: 'serviceNode',
+      rendererType: 'standardNode',
       label: 'Redis Cache',
       sim: {}
     } as const

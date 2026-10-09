@@ -34,7 +34,7 @@ export function nodeTemplateId(node: Node | undefined): string | null {
 }
 
 export function isContainerNode(node: Node | undefined): boolean {
-  return node?.type === 'vpcNode'
+  return node?.type === 'containerNode'
 }
 
 function styleDimension(node: Node, key: 'width' | 'height'): number | undefined {
@@ -52,7 +52,7 @@ export function nodeSize(node: Node): Size {
 }
 
 export function templateSize(type: string): Size {
-  return type === 'vpcNode' ? DEFAULT_CONTAINER_SIZE : DEFAULT_COMPONENT_SIZE
+  return type === 'containerNode' ? DEFAULT_CONTAINER_SIZE : DEFAULT_COMPONENT_SIZE
 }
 
 interface Rect {
@@ -83,7 +83,7 @@ export function canPlaceTemplateIn(templateId: string, container: Node | undefin
 export function isConnectableTargetTemplate(templateId: string): boolean {
   const template = getPaletteTemplate(templateId)
   if (!template) return false
-  if (template.rendererType === 'vpcNode') return false
+  if (template.rendererType === 'containerNode') return false
   if (template.structuralRole === 'composite' || template.structuralRole === 'source') return false
   return template.profile !== 'source'
 }
@@ -207,13 +207,13 @@ export function createPlacedNode(
     position: absolutePosition,
     data: instantiateTemplate(templateId)
   }
-  if (type === 'vpcNode') node.zIndex = containerZIndex(nodes, container?.id)
+  if (type === 'containerNode') node.zIndex = containerZIndex(nodes, container?.id)
 
   if (container) {
     const containerPosition = getAbsoluteNodePosition(container, nodes)
     node.parentNode = container.id
     node.extent = 'parent'
-    if (type !== 'vpcNode') node.zIndex = 10
+    if (type !== 'containerNode') node.zIndex = 10
     node.position = {
       x: absolutePosition.x - containerPosition.x,
       y: absolutePosition.y - containerPosition.y

@@ -40,7 +40,7 @@ function gatewayNode(overrides: Partial<ComponentNode> = {}): ComponentNode {
   }
 }
 
-function serviceNode(overrides: Partial<ComponentNode> = {}): ComponentNode {
+function appServiceNode(overrides: Partial<ComponentNode> = {}): ComponentNode {
   return {
     id: 'api',
     type: 'microservice',
@@ -88,7 +88,7 @@ function topology(
   return {
     ...base,
     global: { ...base.global, ...overrides.global },
-    nodes: [sourceNode(), gatewayNode(overrides.gateway), serviceNode(overrides.service)],
+    nodes: [sourceNode(), gatewayNode(overrides.gateway), appServiceNode(overrides.service)],
     edges: [
       edge('client-gateway', 'client', 'gateway'),
       edge('gateway-api', 'gateway', 'api', overrides.edge)

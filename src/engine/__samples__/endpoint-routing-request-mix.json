@@ -3,7 +3,7 @@
   "nodes": [
     {
       "id": "client",
-      "type": "serviceNode",
+      "type": "standardNode",
       "position": {
         "x": 80,
         "y": 340
@@ -14,7 +14,7 @@
         "componentType": "api-endpoint",
         "structuralRole": "source",
         "profile": "source",
-        "rendererType": "serviceNode",
+        "rendererType": "standardNode",
         "label": "Storefront Client",
         "subLabel": "Endpoint Traffic Mix",
         "iconKey": "monitor",
@@ -80,7 +80,7 @@
     },
     {
       "id": "api-gateway",
-      "type": "serviceNode",
+      "type": "standardNode",
       "position": {
         "x": 620,
         "y": 320
@@ -91,7 +91,7 @@
         "componentType": "api-gateway",
         "structuralRole": "router",
         "profile": "router",
-        "rendererType": "serviceNode",
+        "rendererType": "standardNode",
         "label": "API Gateway",
         "subLabel": "Path Routing + Rate Limit",
         "iconKey": "globe",
@@ -139,7 +139,7 @@
     },
     {
       "id": "catalog-api",
-      "type": "computeNode",
+      "type": "saturationNode",
       "position": {
         "x": 1180,
         "y": 80
@@ -150,7 +150,7 @@
         "componentType": "microservice",
         "structuralRole": "processor",
         "profile": "compute-service",
-        "rendererType": "computeNode",
+        "rendererType": "saturationNode",
         "label": "Catalog API",
         "subLabel": "Fast Read Endpoint",
         "iconKey": "SERVER",
@@ -178,7 +178,7 @@
     },
     {
       "id": "checkout-api",
-      "type": "computeNode",
+      "type": "saturationNode",
       "position": {
         "x": 1180,
         "y": 320
@@ -189,7 +189,7 @@
         "componentType": "microservice",
         "structuralRole": "processor",
         "profile": "compute-service",
-        "rendererType": "computeNode",
+        "rendererType": "saturationNode",
         "label": "Checkout API",
         "subLabel": "Write Path Bottleneck",
         "iconKey": "SERVER",
@@ -217,7 +217,7 @@
     },
     {
       "id": "fraud-api",
-      "type": "computeNode",
+      "type": "saturationNode",
       "position": {
         "x": 1180,
         "y": 560
@@ -228,7 +228,7 @@
         "componentType": "microservice",
         "structuralRole": "processor",
         "profile": "compute-service",
-        "rendererType": "computeNode",
+        "rendererType": "saturationNode",
         "label": "Fraud API",
         "subLabel": "Slow Review Path",
         "iconKey": "SERVER",

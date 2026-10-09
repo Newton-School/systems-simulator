@@ -65,7 +65,7 @@ export function fillMissing(target: Record<string, unknown>, extra: Record<strin
 }
 
 /** The node fields of `original` the canvas serialization (`produced`) did not reproduce. */
-export function computeNodeExtra(
+export function deriveNodeExtra(
   original: ComponentNode,
   produced: ComponentNode | null
 ): Partial<ComponentNode> | undefined {

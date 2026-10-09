@@ -25,7 +25,23 @@ export type NodeProfile =
   | 'integration'
   | 'composite'
 
-export type RendererNodeType = 'serviceNode' | 'computeNode' | 'securityNode' | 'vpcNode'
+/**
+ * Which React Flow component paints a canvas node - presentation only.
+ *
+ * It is persisted as the React Flow `node.type` (and `CanvasNodeDataV2.rendererType`)
+ * but carries no domain meaning, and it is orthogonal to `ComponentType` (what the
+ * node is), `ComponentCategory` (its semantic group) and `StructuralRole` (how the
+ * engine treats it). The engine and TopologyJSON never read it.
+ *
+ * - `standardNode`   - the catch-all card (datastores, caches, gateways, LBs, ...)
+ * - `saturationNode` - card with the saturation / overload treatment (compute)
+ * - `securityNode`   - card with the block / filter treatment (WAF, firewall, ...)
+ * - `containerNode`  - resizable group box (Region / AZ / Subnet)
+ *
+ * Files saved before #219 use `serviceNode` / `computeNode` / `vpcNode`; those are
+ * rewritten on load by `normalizeRendererNodeType` (see `rendererNodeTypes.ts`).
+ */
+export type RendererNodeType = 'standardNode' | 'saturationNode' | 'securityNode' | 'containerNode'
 
 export type RoutingStrategy =
   | 'round-robin'
@@ -364,7 +380,7 @@ export interface ComponentSpec {
   category: ComponentCategory
   structuralRole: Exclude<StructuralRole, 'composite'>
   profile: Exclude<NodeProfile, 'composite'>
-  defaultRenderer: Exclude<RendererNodeType, 'vpcNode'>
+  defaultRenderer: Exclude<RendererNodeType, 'containerNode'>
   routingStrategy?: RoutingStrategy
   asyncBoundary?: boolean
   createDefaultSimulationConfig: (seed?: LegacySeedMetrics) => NodeSimulationConfig

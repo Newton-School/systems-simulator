@@ -14,7 +14,7 @@ const VPC_ICON_LOOKUP: Record<string, LucideIcon> = {
   subnet: LayoutGrid
 }
 
-const VpcNode = ({ id, data, selected }: NodeProps) => {
+const ContainerNode = ({ id, data, selected }: NodeProps) => {
   const { updateNodeData } = useFlowStore()
   const { isUngrouped, hasChildren, minSize, handleUngroup } = useVpcLogic(id)
   const { theme } = resolveNodeConfig(data.templateId || data.iconKey)
@@ -90,4 +90,4 @@ const VpcNode = ({ id, data, selected }: NodeProps) => {
   )
 }
 
-export default memo(VpcNode)
+export default memo(ContainerNode)

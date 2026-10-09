@@ -3,17 +3,22 @@ import type { Edge, Node } from 'reactflow'
 import { instantiateTemplate } from '../../../../../engine/catalog/paletteTemplates'
 import { checkCanvasConnection, reconnectCanvasEdge } from './connectionRules'
 
-function component(id: string, templateId: string, type = 'serviceNode'): Node {
+function component(id: string, templateId: string, type = 'standardNode'): Node {
   return { id, type, position: { x: 0, y: 0 }, data: instantiateTemplate(templateId) }
 }
 
 const nodes: Node[] = [
   component('client', 'client-user'),
-  component('api', 'backend-server', 'computeNode'),
-  component('worker', 'backend-server', 'computeNode'),
+  component('api', 'backend-server', 'saturationNode'),
+  component('worker', 'backend-server', 'saturationNode'),
   component('db', 'primary-db'),
   component('sink', 'output-sink'),
-  { id: 'region', type: 'vpcNode', position: { x: 0, y: 0 }, data: { templateId: 'vpc-region' } },
+  {
+    id: 'region',
+    type: 'containerNode',
+    position: { x: 0, y: 0 },
+    data: { templateId: 'vpc-region' }
+  },
   { id: 'note', type: 'textLabelNode', position: { x: 0, y: 0 }, data: { text: 'Label' } }
 ]
 

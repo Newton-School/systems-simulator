@@ -52,7 +52,7 @@ function buildCandidates(
   const candidates: HandleCandidate[] = []
 
   nodeInternals.forEach((node) => {
-    if (node.type === 'vpcNode') return
+    if (node.type === 'containerNode') return
     if (node.id === excludeNodeId) return
 
     const internals = node[internalsSymbol as unknown as keyof typeof node] as

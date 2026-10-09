@@ -1220,7 +1220,7 @@ register('api-endpoint', {
   category: 'compute',
   structuralRole: 'source',
   profile: 'source',
-  defaultRenderer: 'serviceNode'
+  defaultRenderer: 'standardNode'
 })
 
 for (const componentType of [
@@ -1244,7 +1244,7 @@ for (const componentType of [
     category: 'network-and-edge',
     structuralRole: 'router',
     profile: 'router',
-    defaultRenderer: 'serviceNode',
+    defaultRenderer: 'standardNode',
     routingStrategy:
       componentType === 'load-balancer' ||
       componentType === 'load-balancer-l4' ||
@@ -1260,7 +1260,7 @@ register('internal-dns', {
   category: 'dns-and-certs',
   structuralRole: 'router',
   profile: 'router',
-  defaultRenderer: 'serviceNode',
+  defaultRenderer: 'standardNode',
   routingStrategy: 'passthrough'
 })
 
@@ -1269,7 +1269,7 @@ for (const componentType of ['sharding', 'hashing'] as const) {
     category: 'auxiliary',
     structuralRole: 'router',
     profile: 'router',
-    defaultRenderer: 'serviceNode',
+    defaultRenderer: 'standardNode',
     routingStrategy: 'passthrough'
   })
 }
@@ -1285,7 +1285,7 @@ for (const componentType of [
     category: 'compute',
     structuralRole: 'processor',
     profile: 'compute-service',
-    defaultRenderer: 'computeNode'
+    defaultRenderer: 'saturationNode'
   })
 }
 
@@ -1293,49 +1293,49 @@ register('llm-gateway', {
   category: 'external-and-integration',
   structuralRole: 'processor',
   profile: 'compute-service',
-  defaultRenderer: 'serviceNode'
+  defaultRenderer: 'standardNode'
 })
 
 register('rate-limiter', {
   category: 'auxiliary',
   structuralRole: 'processor',
   profile: 'control-plane',
-  defaultRenderer: 'serviceNode'
+  defaultRenderer: 'standardNode'
 })
 
 register('circuit-breaker-controller', {
   category: 'auxiliary',
   structuralRole: 'processor',
   profile: 'control-plane',
-  defaultRenderer: 'serviceNode'
+  defaultRenderer: 'standardNode'
 })
 
 register('idempotency-manager', {
   category: 'auxiliary',
   structuralRole: 'processor',
   profile: 'control-plane',
-  defaultRenderer: 'serviceNode'
+  defaultRenderer: 'standardNode'
 })
 
 register('reservation-store', {
   category: 'auxiliary',
   structuralRole: 'processor',
   profile: 'control-plane',
-  defaultRenderer: 'serviceNode'
+  defaultRenderer: 'standardNode'
 })
 
 register('distributed-lock', {
   category: 'consensus-and-coordination',
   structuralRole: 'processor',
   profile: 'control-plane',
-  defaultRenderer: 'serviceNode'
+  defaultRenderer: 'standardNode'
 })
 
 register('streaming-analytics', {
   category: 'data-infra-and-analytics',
   structuralRole: 'processor',
   profile: 'compute-service',
-  defaultRenderer: 'serviceNode'
+  defaultRenderer: 'standardNode'
 })
 
 for (const componentType of ['batch-worker'] as const) {
@@ -1343,7 +1343,7 @@ for (const componentType of ['batch-worker'] as const) {
     category: 'compute',
     structuralRole: 'processor',
     profile: 'worker',
-    defaultRenderer: 'computeNode',
+    defaultRenderer: 'saturationNode',
     asyncBoundary: true
   })
 }
@@ -1352,7 +1352,7 @@ register('push-notification-service', {
   category: 'real-time-and-media',
   structuralRole: 'processor',
   profile: 'worker',
-  defaultRenderer: 'serviceNode',
+  defaultRenderer: 'standardNode',
   asyncBoundary: true
 })
 
@@ -1373,7 +1373,7 @@ for (const componentType of [
     category: 'storage-and-data',
     structuralRole: 'storage',
     profile: 'datastore',
-    defaultRenderer: 'serviceNode'
+    defaultRenderer: 'standardNode'
   })
 }
 
@@ -1381,7 +1381,7 @@ register('memory-fabric', {
   category: 'data-infra-and-analytics',
   structuralRole: 'storage',
   profile: 'datastore',
-  defaultRenderer: 'serviceNode'
+  defaultRenderer: 'standardNode'
 })
 
 for (const componentType of ['shard-node', 'partition-node'] as const) {
@@ -1389,7 +1389,7 @@ for (const componentType of ['shard-node', 'partition-node'] as const) {
     category: 'auxiliary',
     structuralRole: 'storage',
     profile: 'datastore',
-    defaultRenderer: 'serviceNode'
+    defaultRenderer: 'standardNode'
   })
 }
 
@@ -1397,7 +1397,7 @@ register('queue', {
   category: 'messaging-and-streaming',
   structuralRole: 'storage',
   profile: 'broker',
-  defaultRenderer: 'serviceNode',
+  defaultRenderer: 'standardNode',
   asyncBoundary: true
 })
 
@@ -1405,7 +1405,7 @@ register('stream', {
   category: 'messaging-and-streaming',
   structuralRole: 'storage',
   profile: 'broker',
-  defaultRenderer: 'serviceNode',
+  defaultRenderer: 'standardNode',
   asyncBoundary: true
 })
 
@@ -1414,7 +1414,7 @@ for (const componentType of ['message-broker', 'pub-sub'] as const) {
     category: 'messaging-and-streaming',
     structuralRole: 'router',
     profile: 'broker',
-    defaultRenderer: 'serviceNode',
+    defaultRenderer: 'standardNode',
     asyncBoundary: true,
     routingStrategy: 'broadcast'
   })
@@ -1445,7 +1445,7 @@ for (const componentType of [
     category: 'orchestration-and-infra',
     structuralRole: 'processor',
     profile: 'control-plane',
-    defaultRenderer: 'serviceNode'
+    defaultRenderer: 'standardNode'
   })
 }
 
@@ -1453,7 +1453,7 @@ register('agent-orchestrator', {
   category: 'orchestration-and-infra',
   structuralRole: 'processor',
   profile: 'control-plane',
-  defaultRenderer: 'serviceNode',
+  defaultRenderer: 'standardNode',
   asyncBoundary: true
 })
 
@@ -1463,21 +1463,21 @@ register('kubernetes-cluster', {
   category: 'orchestration-and-infra',
   structuralRole: 'processor',
   profile: 'control-plane',
-  defaultRenderer: 'serviceNode'
+  defaultRenderer: 'standardNode'
 })
 
 register('feature-flag-service', {
   category: 'devops-and-delivery',
   structuralRole: 'processor',
   profile: 'control-plane',
-  defaultRenderer: 'serviceNode'
+  defaultRenderer: 'standardNode'
 })
 
 register('metrics-store', {
   category: 'observability',
   structuralRole: 'processor',
   profile: 'observability',
-  defaultRenderer: 'serviceNode',
+  defaultRenderer: 'standardNode',
   asyncBoundary: true
 })
 
@@ -1485,7 +1485,7 @@ register('centralized-logging', {
   category: 'observability',
   structuralRole: 'processor',
   profile: 'observability',
-  defaultRenderer: 'serviceNode',
+  defaultRenderer: 'standardNode',
   asyncBoundary: true
 })
 
@@ -1493,7 +1493,7 @@ register('distributed-tracing', {
   category: 'observability',
   structuralRole: 'processor',
   profile: 'observability',
-  defaultRenderer: 'serviceNode',
+  defaultRenderer: 'standardNode',
   asyncBoundary: true
 })
 
@@ -1501,7 +1501,7 @@ register('alerting-hook', {
   category: 'observability',
   structuralRole: 'sink',
   profile: 'observability',
-  defaultRenderer: 'serviceNode',
+  defaultRenderer: 'standardNode',
   asyncBoundary: true
 })
 
@@ -1509,14 +1509,14 @@ register('health-check-manager', {
   category: 'observability',
   structuralRole: 'processor',
   profile: 'control-plane',
-  defaultRenderer: 'serviceNode'
+  defaultRenderer: 'standardNode'
 })
 
 register('safety-observability-mesh', {
   category: 'observability',
   structuralRole: 'processor',
   profile: 'observability',
-  defaultRenderer: 'serviceNode',
+  defaultRenderer: 'standardNode',
   asyncBoundary: true
 })
 
@@ -1524,7 +1524,7 @@ register('third-party-api-connector', {
   category: 'external-and-integration',
   structuralRole: 'sink',
   profile: 'integration',
-  defaultRenderer: 'serviceNode'
+  defaultRenderer: 'standardNode'
 })
 
 export const COMPONENT_SPECS = specMap as Readonly<Partial<Record<ComponentType, ComponentSpec>>>

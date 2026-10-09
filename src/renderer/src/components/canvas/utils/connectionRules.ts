@@ -75,7 +75,7 @@ export function isSinkOnlyNode(node: Node | undefined): boolean {
 /** Containers and annotations have no connection handles and carry no traffic. */
 export function isConnectableNode(node: Node | undefined): boolean {
   if (!node) return false
-  if (node.type === 'vpcNode' || isCanvasAnnotationNodeType(node.type)) return false
+  if (node.type === 'containerNode' || isCanvasAnnotationNodeType(node.type)) return false
   return structuralRoleOf(node) !== 'composite'
 }
 

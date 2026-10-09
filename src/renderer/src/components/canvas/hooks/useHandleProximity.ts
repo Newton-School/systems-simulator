@@ -72,7 +72,7 @@ export function useHandleProximity() {
         let winner: { domId: string; dist: number } | null = null
 
         nodeInternals.forEach((node) => {
-          if (node.type === 'vpcNode') return
+          if (node.type === 'containerNode') return
 
           const internals = node[internalsSymbol as unknown as keyof typeof node] as
             | { handleBounds?: { source?: HandleBound[]; target?: HandleBound[] } }

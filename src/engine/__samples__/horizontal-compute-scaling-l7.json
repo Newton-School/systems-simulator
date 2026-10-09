@@ -3,7 +3,7 @@
   "nodes": [
     {
       "id": "client",
-      "type": "serviceNode",
+      "type": "standardNode",
       "position": {
         "x": 80,
         "y": 340
@@ -14,7 +14,7 @@
         "componentType": "api-endpoint",
         "structuralRole": "source",
         "profile": "source",
-        "rendererType": "serviceNode",
+        "rendererType": "standardNode",
         "label": "Client App",
         "subLabel": "HTTP Clients",
         "iconKey": "monitor",
@@ -55,7 +55,7 @@
     },
     {
       "id": "l7-lb",
-      "type": "serviceNode",
+      "type": "standardNode",
       "position": {
         "x": 620,
         "y": 317.2437586807738
@@ -66,7 +66,7 @@
         "componentType": "load-balancer-l7",
         "structuralRole": "router",
         "profile": "router",
-        "rendererType": "serviceNode",
+        "rendererType": "standardNode",
         "label": "Load Balancer L7",
         "subLabel": "HTTP / gRPC Routing",
         "iconKey": "load-balancer-l7",
@@ -100,7 +100,7 @@
     },
     {
       "id": "api-a",
-      "type": "computeNode",
+      "type": "saturationNode",
       "position": {
         "x": 1160,
         "y": 120
@@ -111,7 +111,7 @@
         "componentType": "microservice",
         "structuralRole": "processor",
         "profile": "compute-service",
-        "rendererType": "computeNode",
+        "rendererType": "saturationNode",
         "label": "API Server A",
         "subLabel": "Stateless Instance",
         "iconKey": "SERVER",
@@ -139,7 +139,7 @@
     },
     {
       "id": "api-b",
-      "type": "computeNode",
+      "type": "saturationNode",
       "position": {
         "x": 1160,
         "y": 560
@@ -150,7 +150,7 @@
         "componentType": "microservice",
         "structuralRole": "processor",
         "profile": "compute-service",
-        "rendererType": "computeNode",
+        "rendererType": "saturationNode",
         "label": "API Server B",
         "subLabel": "Stateless Instance",
         "iconKey": "SERVER",
@@ -178,7 +178,7 @@
     },
     {
       "id": "primary-db",
-      "type": "serviceNode",
+      "type": "standardNode",
       "position": {
         "x": 1700,
         "y": 340
@@ -189,7 +189,7 @@
         "componentType": "relational-db",
         "structuralRole": "storage",
         "profile": "datastore",
-        "rendererType": "serviceNode",
+        "rendererType": "standardNode",
         "label": "Primary DB",
         "subLabel": "Shared Storage",
         "iconKey": "database",
