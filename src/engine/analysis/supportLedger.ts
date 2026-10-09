@@ -89,17 +89,22 @@ export const DOMAIN_SUPPORT_LEDGER: Record<QuestionDomain, SupportLedgerEntry> =
   correctness: {
     tier: 'guided',
     summary:
-      'Guarded paths, lock contention, duplicate suppression, commit-outcome journaling, modeled external reconciliation, and quorum commit evidence are teachable, but exactly-once and linearizability are not formally proved.',
+      'Guarded paths, lock contention, duplicate suppression, commit-outcome journaling, modeled external reconciliation, quorum commit evidence, and read-consistency oracles (stale reads, read-your-writes and monotonic-read violations, and a bounded single-key linearizability check) are teachable; exactly-once is not proved and linearizability is only checked within a per-key history bound.',
     simulates: [
       'lock contention',
       'duplicate suppression',
       'commit outcome journal transitions',
       'guarded write paths',
       'modeled external outcome probes',
-      'quorum commit evidence'
+      'quorum commit evidence',
+      'stale-read, read-your-writes, and monotonic-read oracles over recorded data versions',
+      'bounded single-key register linearizability check'
     ],
     inferred: ['topology proxies', 'justification-backed decisions'],
-    deferred: ['exactly-once commit coordination', 'formal linearizability proof']
+    deferred: [
+      'exactly-once commit coordination',
+      'linearizability beyond the per-key history bound or across keys (reported as not checked)'
+    ]
   },
   cost: {
     tier: 'guided',
@@ -252,6 +257,11 @@ export const TRAIT_SUPPORT_LEDGER = {
     tier: 'first-class',
     summary:
       'Reservation state and guard-store behavior are modeled as first-class runtime effects.'
+  },
+  'storage.consistency-model': {
+    tier: 'guided',
+    summary:
+      "Opt-in on replicated SQL/NoSQL datastores (sim.consistencyModel): writes the leader serves commit a new version of their request key, followers apply it after the configured replica lag (quorum-acked writes at commit), and reads observe the version their node has applied. Follower reads wait for replication catch-up as the model requires (strong: newest committed; read-your-writes: the session's acknowledged writes; monotonic reads: the session's newest read), so the cost is measured read latency and worker time. Oracles count stale reads, read-your-writes and monotonic-read violations (sessions come from workload.sessions) and run a single-key register linearizability check over at most 100 recorded ops per key for the first 200 keys, reporting the rest as not checked. Leader round trips for follower reads, quorum membership, variable lag, and multi-key transactions are not modeled."
   },
   'access.read-write-split': {
     tier: 'first-class',
@@ -450,8 +460,14 @@ export const CONCEPT_SUPPORT_LEDGER = {
       'Consensus protocol labels, quorum membership, durable indexes, and deterministic leader promotion are modeled; real election timing and log conflict resolution are simplified.'
   },
   linearizability: {
-    tier: 'deferred',
-    summary: 'Linearizability is not a first-class runtime or grading surface today.'
+    tier: 'guided',
+    summary:
+      'Datastores with a consistency model record per-key read/write histories and run a real single-key register linearizability check (Wing and Gong search) within a bound of 100 ops per key and 200 keys; consistency.linearizabilityViolations counts failing keys and consistency.linearizableVerified is 1 only when nothing was left unchecked. Multi-key (transactional) linearizability is not checked.'
+  },
+  'read-consistency': {
+    tier: 'guided',
+    summary:
+      'Eventual, monotonic-read, read-your-writes, and strong reads on replicated datastores, with stale-read and session-guarantee oracles gradable as consistency.staleReads, consistency.readYourWritesViolations, and consistency.monotonicReadViolations; the latency cost of stronger models is measured catch-up wait.'
   },
   'protocol-semantics': {
     tier: 'guided',

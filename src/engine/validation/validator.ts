@@ -575,6 +575,12 @@ export const WorkloadProfileSchema = z.object({
     )
     .optional(),
 
+  sessions: z
+    .object({
+      count: z.number().int().positive().optional()
+    })
+    .optional(),
+
   requestDistribution: z
     .array(
       z.object({

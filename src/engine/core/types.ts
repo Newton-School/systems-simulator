@@ -605,6 +605,18 @@ export interface WorkloadProfile {
   baseRps: number
   /** Weighted client populations. Omitted means use the source node placement. */
   origins?: TrafficOrigin[]
+  /**
+   * Client sessions. When set, every generated request is stamped with
+   * `metadata.sessionId` = one of `count` session ids, drawn uniformly, so one
+   * client's reads and writes share an identity (the substrate for
+   * read-your-writes / monotonic-read guarantees and sticky routing). A request
+   * that already carries a `sessionId` (static metadata or keyspace) keeps it.
+   * Omitted → requests carry no session.
+   */
+  sessions?: {
+    /** Distinct client sessions; omitted/empty = no sessions. */
+    count?: number
+  }
   diurnal?: {
     peakMultiplier: number
     /**

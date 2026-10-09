@@ -486,6 +486,17 @@ function printResults(output: SimulationOutput, wallMs: number): void {
     console.log(`\n${GREEN}✓ No SLO breaches${RESET}`)
   }
 
+  if (output.consistency) printConsistency(output.consistency)
+
+  if (output.invariantViolations.length > 0) {
+    console.log(`\n${BOLD}Invariant Violations${RESET}`)
+    for (const violation of output.invariantViolations) {
+      console.log(
+        `  ${RED}✕${RESET} ${violation.invariantName}  ${DIM}${violation.details}${RESET}`
+      )
+    }
+  }
+
   // Little's Law
   const llViolations = littlesLawCheck.filter((r) => !r.withinTolerance)
   if (llViolations.length > 0) {
@@ -502,6 +513,47 @@ function printResults(output: SimulationOutput, wallMs: number): void {
     `\n${DIM}Seed: ${output.seed}` +
       `  |  Events processed: ${output.eventsProcessed.toLocaleString()}` +
       `  |  Reproducible: ${output.reproducible}${RESET}\n`
+  )
+}
+
+function printConsistency(report: NonNullable<SimulationOutput['consistency']>): void {
+  const flag = (count: number) => (count > 0 ? `${RED}${count.toLocaleString()}${RESET}` : '0')
+  console.log(`\n${BOLD}Read Consistency${RESET}`)
+  for (const node of report.nodes) {
+    console.log(
+      `  ${node.nodeLabel} ${DIM}(${node.role}, ${node.model}` +
+        `${node.role === 'follower' ? `, lag ${fmtMs(node.replicationLagMs)}` : ''})${RESET}` +
+        `  reads ${node.reads.toLocaleString()}  stale ${flag(node.staleReads)}` +
+        `  catch-up waits ${node.catchUpWaits.toLocaleString()}` +
+        (node.catchUpWaits > 0
+          ? ` ${DIM}(${fmtMs(node.catchUpWaitMs / node.catchUpWaits)} avg)${RESET}`
+          : '')
+    )
+  }
+  console.log(
+    `  Stale reads ${flag(report.staleReads)} of ${report.reads.toLocaleString()}` +
+      `  |  Read-your-writes violations ${flag(report.readYourWritesViolations)}` +
+      `  |  Monotonic-read violations ${flag(report.monotonicReadViolations)}`
+  )
+  if (report.sessionlessReads > 0) {
+    console.log(
+      `  ${YELLOW}${report.sessionlessReads.toLocaleString()} reads had no sessionId${RESET}` +
+        ` ${DIM}(session guarantees not checked for them; set workload sessions)${RESET}`
+    )
+  }
+  const lin = report.linearizability
+  const verdict =
+    lin.keysViolating > 0
+      ? `${RED}not linearizable${RESET} (${lin.keysViolating} of ${lin.keysChecked} keys)`
+      : lin.verified
+        ? `${GREEN}linearizable${RESET} (all ${lin.opsChecked.toLocaleString()} ops checked)`
+        : lin.keysChecked > 0
+          ? `${YELLOW}no violation in checked ops${RESET}`
+          : `${YELLOW}not checked${RESET}`
+  console.log(
+    `  Linearizability ${verdict}  ${DIM}(${lin.opsChecked.toLocaleString()} ops checked,` +
+      ` ${lin.opsNotChecked.toLocaleString()} not checked beyond ${lin.opsPerKeyBound} ops/key` +
+      ` x ${lin.keysBound} keys${lin.keysInconclusive > 0 ? `, ${lin.keysInconclusive} keys over search budget` : ''})${RESET}`
   )
 }
 

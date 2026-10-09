@@ -279,7 +279,20 @@ const SIMULATION_METRIC_IDS = [
   'rateLimit.admitted',
   'rateLimit.rejected',
   'rateLimit.breaches',
-  'rateLimit.keyless'
+  'rateLimit.keyless',
+  'consistency.reads',
+  'consistency.writes',
+  'consistency.staleReads',
+  'consistency.readYourWritesViolations',
+  'consistency.monotonicReadViolations',
+  'consistency.catchUpWaits',
+  'consistency.catchUpWaitMs',
+  'consistency.sessionlessReads',
+  'consistency.linearizabilityKeysChecked',
+  'consistency.linearizabilityViolations',
+  'consistency.linearizabilityOpsChecked',
+  'consistency.linearizabilityOpsNotChecked',
+  'consistency.linearizableVerified'
 ] as const
 
 const INVARIANT_METRIC_IDS = [

@@ -191,6 +191,8 @@ export interface NodeSimulationConfig {
   replicaMembers?: string
   consensusProtocol?: 'raft' | 'none'
   conflictResolution?: 'leader-wins' | 'highest-index-wins'
+  /** Read consistency on a replicated datastore; absent/'off' = reads are not version-tracked. */
+  consistencyModel?: 'off' | 'eventual' | 'monotonic-reads' | 'read-your-writes' | 'strong'
   shardCount?: number
   readLatency?: DistributionConfig
   writeLatency?: DistributionConfig

@@ -33,6 +33,7 @@ import { rateLimiterCapabilityModule } from './rateLimiter'
 import { readOnlyCapabilityModule } from './readOnly'
 import { readWriteSplitCapabilityModule } from './readWriteSplit'
 import { replicationCapabilityModule } from './replication'
+import { consistencyModelCapabilityModule } from './consistencyModel'
 import { protocolSessionCapabilityModule } from './protocolSession'
 import { retryBackoffCapabilityModule } from './retryBackoff'
 import { storageProfileCapabilityModule } from './storageProfile'
@@ -241,6 +242,16 @@ const SOURCE_WORKLOAD_MODULE: NodeCapabilityModule = {
             label: 'Traffic origins',
             renderer: 'traffic-origins',
             why: 'Defines weighted client populations used for request-aware network latency and routing.'
+          },
+          {
+            path: 'source.defaultWorkload.sessions.count',
+            type: 'input',
+            label: 'Client sessions',
+            min: 1,
+            step: 1,
+            altitude: 'advanced',
+            placeholder: 'Off',
+            why: "Stamps every request with one of N client session ids (request.metadata.sessionId), so a client's reads and writes share an identity. Needed for read-your-writes and monotonic-read guarantees and checks; sticky routing also hashes it. Fewer sessions means each client issues requests more often."
           }
         ]
       },
@@ -993,6 +1004,7 @@ export const TRAIT_CAPABILITY_MODULES: readonly NodeCapabilityModule[] = [
   readOnlyCapabilityModule,
   readWriteSplitCapabilityModule,
   replicationCapabilityModule,
+  consistencyModelCapabilityModule,
   protocolSessionCapabilityModule,
   storageProfileCapabilityModule,
   retryBackoffCapabilityModule,
