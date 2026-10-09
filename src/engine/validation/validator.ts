@@ -448,6 +448,7 @@ export const EdgeDefinitionSchema = z.object({
   }),
   bandwidth: z.number().positive(),
   maxConcurrentRequests: z.number().int().positive(),
+  protocolOverheadMs: z.number().min(0).optional(),
   packetLossRate: z.number().min(0).max(1),
   errorRate: z.number().min(0).max(1),
   weight: z.number().optional(),

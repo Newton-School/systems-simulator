@@ -2345,6 +2345,7 @@ export class SimulationEngine {
     // Streaming links reuse an already-open channel, so only a small framing
     // cost remains on each message instead of the full per-request setup cost.
     const protocolOverheadMs =
+      edge.protocolOverheadMs ??
       getProtocolLatencyOverheadMs(edge.protocol) * (edge.mode === 'streaming' ? 0.25 : 1)
     const utilization =
       edge.maxConcurrentRequests > 0

@@ -494,6 +494,12 @@ export interface EdgeDefinition {
   bandwidth: number //Mbps
   maxConcurrentRequests: number
   /**
+   * Per-request protocol cost (ms) in place of the protocol's default (https 0.5,
+   * kafka 2, ...). Connector-mode edges set 0 so a wire that only expresses
+   * topology adds no latency while keeping its protocol for routing and grading.
+   */
+  protocolOverheadMs?: number
+  /**
    * Probability of packet loss on this edge.
    * Expected range: 0.0 (no loss) to 1.0 (all packets lost).
    */

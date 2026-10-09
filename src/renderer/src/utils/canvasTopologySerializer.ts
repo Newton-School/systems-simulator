@@ -448,7 +448,8 @@ function serializeEdge(
  * Connector mode (`edgeModel === 'connector'`): the edge is a dumb wire that only
  * expresses topology, so it must contribute NOTHING to the simulation or the cost
  * model. We keep the edge (routing/topology needs it) but strip all physics to
- * neutral values: zero transit latency, a free same-rack path (no egress bill),
+ * neutral values: zero transit latency and protocol overhead (the protocol itself
+ * is kept for routing and grading), a free same-rack path (no egress bill),
  * effectively-unlimited bandwidth/concurrency, and no packet loss / error. Applied
  * to the serialized copy only — the authored edge data on the canvas is untouched.
  */
@@ -462,6 +463,7 @@ function neutralizeConnectorEdge(edge: EdgeDefinition): EdgeDefinition {
     },
     bandwidth: Number.MAX_SAFE_INTEGER,
     maxConcurrentRequests: Number.MAX_SAFE_INTEGER,
+    protocolOverheadMs: 0,
     packetLossRate: 0,
     errorRate: 0,
     fanoutFactor: undefined,

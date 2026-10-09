@@ -158,3 +158,24 @@ describe('TopologyJSON round-trip: question-bank topologies', () => {
     expect(byId(second)).toEqual(byId(first))
   })
 })
+
+describe('connector-mode export', () => {
+  it('zeroes the protocol overhead but keeps each edge protocol', () => {
+    const [, canvas] = Object.entries(SAMPLE_CANVASES).find(
+      ([, candidate]) => (candidate.edges ?? []).length > 0
+    )!
+    const input = {
+      nodes: migrateCanvasNodes(convertNestedToFlat(structuredClone(canvas.nodes))),
+      edges: structuredClone(canvas.edges ?? []) as Edge[],
+      scenario: normalizeScenarioState(canvas.scenario)
+    }
+    const network = serializeCanvasToTopology(input).topology!
+    const connector = serializeCanvasToTopology(input, { connectorMode: true }).topology!
+    expect(connector.edges.length).toBeGreaterThan(0)
+    for (const edge of connector.edges) {
+      expect(edge.protocolOverheadMs).toBe(0)
+      expect(edge.protocol).toBe(network.edges.find((other) => other.id === edge.id)?.protocol)
+    }
+    expect(network.edges.every((edge) => edge.protocolOverheadMs === undefined)).toBe(true)
+  })
+})
