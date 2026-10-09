@@ -850,6 +850,21 @@ export const PALETTE_TEMPLATES: Record<string, PaletteTemplate> = {
     serializable: true,
     seed: { throughput: 2500, load: 12, queueDepth: 4 }
   },
+  'kubernetes-cluster': {
+    id: 'kubernetes-cluster',
+    componentType: 'kubernetes-cluster',
+    category: 'orchestration-and-infra',
+    structuralRole: 'processor',
+    profile: 'control-plane',
+    rendererType: 'serviceNode',
+    iconKey: 'kubernetes-cluster',
+    label: 'Kubernetes Cluster',
+    subLabel: 'Pod Scheduling',
+    serializable: true,
+    seed: { throughput: 0, load: 0, queueDepth: 0 },
+    // Three general-purpose worker machines; workloads opt in with "Scheduled on".
+    simDefaults: { resources: { instanceType: 'm5.xlarge', instanceCount: 3 } }
+  },
   'agent-orchestrator': {
     id: 'agent-orchestrator',
     componentType: 'agent-orchestrator',

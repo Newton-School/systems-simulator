@@ -297,6 +297,17 @@ const INFO_BY_ID: Record<string, LibraryItemInfo> = {
     realWorld: 'Vector memory, Redis memory, knowledge store.',
     config: ['retrieval latency', 'memory size', 'TTL']
   },
+  'kubernetes-cluster': {
+    represents:
+      'A pool of worker machines that workload replicas (pods) are bin-packed onto by vCPU and RAM. Replicas that fit nowhere stay pending.',
+    realWorld: 'Kubernetes (EKS, GKE, AKS), Nomad, ECS on EC2.',
+    config: [
+      'machine type and count',
+      'placement strategy',
+      'pod startup',
+      'failure eviction delay'
+    ]
+  },
   'agent-orchestrator': {
     represents: 'Coordinates multi-step agent work by planning, delegating, and tracking progress.',
     realWorld: 'Agent runtime, workflow orchestrator, LangGraph service.',

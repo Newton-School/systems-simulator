@@ -32,6 +32,7 @@ export type EventType =
   | 'broker-recovery'
   | 'trait-tick'
   | 'edge-batch-flush'
+  | 'cluster-schedule'
 
 /**
  * Priorities for tie-breaking when two events share the same timestamp.
@@ -227,6 +228,7 @@ function getDefaultPriority(type: EventType): number {
     case 'broker-failure':
     case 'broker-recovery':
     case 'trait-tick':
+    case 'cluster-schedule':
       return EventPriority.SYSTEM
 
     default: {

@@ -38,6 +38,17 @@ import { protocolSessionCapabilityModule } from './protocolSession'
 import { retryBackoffCapabilityModule } from './retryBackoff'
 import { storageProfileCapabilityModule } from './storageProfile'
 import { streamBrokerCapabilityModule } from './streamBroker'
+import { changeStreamCapabilityModule } from './changeStream'
+import { telemetrySinkCapabilityModule } from './telemetrySink'
+import {
+  persistentConnFanoutCapabilityModule,
+  persistentConnFanoutHookModule
+} from './persistentConnFanout'
+import {
+  clusterSchedulerCapabilityModule,
+  isClusterType,
+  scheduledWorkloadCapabilityModule
+} from './scheduler'
 import type { ConfigField, NodeCapabilityModule } from './types'
 import type { ComponentNode } from '../core/types'
 import { INSTANCE_CATALOG, INSTANCE_TYPES, PRICING_MODELS } from '../catalog/instanceCatalog'
@@ -165,8 +176,18 @@ function isRuntimeNode(data: CanvasNodeDataV2) {
   return data.profile !== 'source' && data.profile !== 'composite'
 }
 
+/** A Kubernetes Cluster is machine capacity for pods, not a request hop. */
+function isMachinePool(data: CanvasNodeDataV2) {
+  return isClusterType(data.componentType)
+}
+
+/** Runtime nodes that serve requests (queue, service time, failures, SLOs). */
+function isServingNode(data: CanvasNodeDataV2) {
+  return isRuntimeNode(data) && !isMachinePool(data)
+}
+
 function supportsSloTargets(data: CanvasNodeDataV2) {
-  return isRuntimeNode(data) && data.profile !== 'broker'
+  return isServingNode(data) && data.profile !== 'broker'
 }
 
 function resolveRoutingOptions(data: CanvasNodeDataV2): readonly string[] {
@@ -508,6 +529,10 @@ function resourcesNote(data: CanvasNodeDataV2): string | null {
 
   const spec = INSTANCE_CATALOG[resources.instanceType]
   const node = { type, queue: data.sim?.queue, resources } as unknown as ComponentNode
+  if (isClusterType(type)) {
+    const machines = resources.instanceCount ?? 1
+    return `${machines} worker machines × ${spec.vcpu} vCPU · ${spec.ramGb} GB = ${spec.vcpu * machines} vCPU · ${spec.ramGb * machines} GB for pods · $${nodeCostPerHour(node).toFixed(3)}/hr`
+  }
   const derived = deriveNodeConcurrency(node)
   const costModel = getResourceDefaults(type).costModel ?? 'provisioned'
 
@@ -531,7 +556,17 @@ function resourcesNote(data: CanvasNodeDataV2): string | null {
           ? 'not billable'
           : `$${nodeCostPerHour(node).toFixed(3)}/hr${pricing}`
 
-  return `${hw} · ${profile} · ${conc} · ${admission}${speed} · ${cost}`
+  const ignored = (['workersPerInstance', 'queueSlots'] as const)
+    .filter((field) => resources[field] !== undefined)
+    .map((field) =>
+      field === 'workersPerInstance'
+        ? `${resources[field]} workers/inst`
+        : `${resources[field]} queue slots`
+    )
+  const ignoredNote =
+    ignored.length > 0 ? ` · declared ${ignored.join(' and ')} ignored (derived instead)` : ''
+
+  return `${hw} · ${profile} · ${conc} · ${admission}${speed} · ${cost}${ignoredNote}`
 }
 
 function isProvisionedPurchaseNode(data: CanvasNodeDataV2): boolean {
@@ -555,7 +590,16 @@ const RESOURCES_FIELDS: readonly ConfigField[] = [
         ? 'Node instances'
         : 'Service instances',
     unit: 'count',
+    visible: (data) => !isClusterType(data.componentType),
     why: 'Scales request-serving capacity, memory, and cost. For databases, this does not create read replicas or shards; configure replication or partitioning separately.'
+  },
+  {
+    path: 'sim.resources.instanceCount',
+    type: 'input',
+    label: 'Worker machines',
+    unit: 'count',
+    visible: (data) => isClusterType(data.componentType),
+    why: 'How many machines of the instance type the cluster has. Their vCPU and RAM are the room pods are bin-packed into, and they are what the cluster costs.'
   },
   {
     path: 'sim.resources.pricingModel',
@@ -630,7 +674,7 @@ const BASE_QUEUE_FIELDS: readonly ConfigField[] = [
 
 const BASE_QUEUE_MODULE: NodeCapabilityModule = {
   name: 'base.queue',
-  appliesWhen: (data) => isRuntimeNode(data),
+  appliesWhen: (data) => isServingNode(data),
   config: {
     sections: [
       {
@@ -652,7 +696,7 @@ const BASE_QUEUE_MODULE: NodeCapabilityModule = {
 
 const PROCESSING_MODULE: NodeCapabilityModule = {
   name: 'base.processing',
-  appliesWhen: (data) => isRuntimeNode(data),
+  appliesWhen: (data) => isServingNode(data),
   config: {
     sections: [
       {
@@ -753,7 +797,7 @@ const PROCESSING_MODULE: NodeCapabilityModule = {
 
 const CHAOS_MODULE: NodeCapabilityModule = {
   name: 'chaos.node-failure',
-  appliesWhen: (data) => isRuntimeNode(data),
+  appliesWhen: (data) => isServingNode(data),
   config: {
     sections: [
       {
@@ -927,8 +971,9 @@ const STREAMING_BROKER_HONESTY_MODULE = honestyNoteModule(
 const OBSERVABILITY_SINK_HONESTY_MODULE = honestyNoteModule(
   'observability-sink.honesty',
   ['metrics-store', 'centralized-logging', 'distributed-tracing', 'alerting-hook'],
-  'Currently simulates as a synchronous request queue: concurrency, queueing, and latency. Not yet modeled: asynchronous fire-and-forget ingestion, sampling, batching, or retention. Because it is synchronous here, a saturated collector can back-pressure its caller, which a real telemetry pipeline usually would not.',
-  ['async fire-and-forget ingestion', 'sampling', 'batching', 'retention']
+  'Edges into a collector are asynchronous, so the caller never waits on it. Without fire-and-forget ingest (Telemetry Ingest section) a full collector rejects events and they count as failed requests; with it they are dropped and counted instead, with an optional ingest ceiling and head sampling. Not modeled: exporter batching, tail sampling, retention, indexing, or query cost.',
+  ['exporter batching', 'tail sampling', 'retention', 'indexing and query cost'],
+  ['asynchronous export with queueing; opt-in fire-and-forget drops, ingest ceiling and sampling']
 )
 
 const NETWORK_GATEWAY_HONESTY_MODULE = honestyNoteModule(
@@ -998,6 +1043,8 @@ export const TRAIT_CAPABILITY_MODULES: readonly NodeCapabilityModule[] = [
   coldStartCapabilityModule,
   keyBasedRoutingCapabilityModule,
   consumerLagCapabilityModule,
+  // Must run before the broker: the broker's append ends the arrival chain.
+  changeStreamCapabilityModule,
   streamBrokerCapabilityModule,
   dnsRoutingPolicyCapabilityModule,
   circuitBreakerCapabilityModule,
@@ -1024,6 +1071,11 @@ export const TRAIT_CAPABILITY_MODULES: readonly NodeCapabilityModule[] = [
   windowingCapabilityModule,
   fanoutQueryCapabilityModule,
   autoscalerCapabilityModule,
+  clusterSchedulerCapabilityModule,
+  scheduledWorkloadCapabilityModule,
+  telemetrySinkCapabilityModule,
+  persistentConnFanoutHookModule,
+  persistentConnFanoutCapabilityModule,
   // Admission guards run after the latency traits above, so a request they
   // admit has already picked up its penalties.
   loadSheddingCapabilityModule,

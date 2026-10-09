@@ -49,9 +49,16 @@ const DERIVED_QUEUE_REASON =
  * the instance model gets its workers and queue capacity from the hardware, so a
  * declared `queue.workers` / `queue.capacity` would be an edit with no effect.
  */
+const IGNORED_RESOURCE_REASON =
+  'Not used by the run: workers and queue space are derived from the instance type and count (or the queue settings without an instance type).'
+
 export function derivedFieldReason(topology: TopologyJSON, path: TreePath): string | null {
   const [section, index, group, field] = path
-  if (section !== 'nodes' || typeof index !== 'number' || group !== 'queue') return null
+  if (section !== 'nodes' || typeof index !== 'number') return null
+  if (group === 'resources' && (field === 'workersPerInstance' || field === 'queueSlots')) {
+    return IGNORED_RESOURCE_REASON
+  }
+  if (group !== 'queue') return null
   if (field !== 'workers' && field !== 'capacity') return null
   const node = topology.nodes[index]
   return node && hasInstanceModel(node.resources) ? DERIVED_QUEUE_REASON : null

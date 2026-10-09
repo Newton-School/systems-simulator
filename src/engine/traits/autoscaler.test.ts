@@ -188,3 +188,34 @@ describe('scaleInstancesTo drives an engine resize end-to-end', () => {
     expect(output.reproducible).toBe(true)
   })
 })
+
+describe('GGcKNode scale-down drain', () => {
+  it('steps the ceiling down to the target as in-flight work finishes', () => {
+    const node = makeQueueNode() // c = 2
+    const a = makeRequest('a')
+    const b = makeRequest('b')
+    node.handleArrival(a, 0n)
+    node.handleArrival(b, 0n)
+    node.handleArrival(makeRequest('c'), 0n) // queued
+    node.resizeConcurrency(1, 256, 0n) // target 1, 2 in flight
+    expect(node.getMaxWorkers()).toBe(2)
+    // One finishes: the ceiling drops to 1 and the queued request must wait.
+    const first = node.handleCompletion(a, 5_000n)
+    expect(node.getMaxWorkers()).toBe(1)
+    expect(first.nextRequest).toBeNull()
+    // The other finishes: the queued request takes the one remaining worker.
+    const second = node.handleCompletion(b, 5_000n)
+    expect(second.nextRequest?.id).toBe('c')
+    expect(node.getMaxWorkers()).toBe(1)
+  })
+
+  it('a zero target leaves no workers until the next resize', () => {
+    const node = makeQueueNode()
+    node.resizeConcurrency(0, 256, 0n)
+    expect(node.getMaxWorkers()).toBe(0)
+    node.handleArrival(makeRequest('a'), 0n)
+    expect(node.getState().queueLength).toBe(1)
+    const { started } = node.resizeConcurrency(2, 256, 1_000n)
+    expect(started.map((r) => r.id)).toEqual(['a'])
+  })
+})

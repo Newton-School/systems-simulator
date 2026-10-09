@@ -1,0 +1,163 @@
+{
+  "id": "telemetry-fire-and-forget",
+  "name": "Telemetry: fire-and-forget log ingest",
+  "version": "1.0.0",
+  "global": {
+    "simulationDuration": 3000,
+    "seed": "telemetry-fire-and-forget-seed",
+    "warmupDuration": 0,
+    "timeResolution": "microsecond",
+    "defaultTimeout": 5000
+  },
+  "nodes": [
+    {
+      "id": "client",
+      "type": "api-endpoint",
+      "category": "compute",
+      "role": "source",
+      "label": "Client App",
+      "position": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "id": "svc",
+      "type": "microservice",
+      "category": "compute",
+      "label": "Order Service",
+      "position": {
+        "x": 320,
+        "y": 0
+      },
+      "queue": {
+        "workers": 64,
+        "capacity": 1000,
+        "discipline": "fifo"
+      },
+      "processing": {
+        "distribution": {
+          "type": "constant",
+          "value": 5
+        },
+        "timeout": 5000
+      }
+    },
+    {
+      "id": "db",
+      "type": "relational-db",
+      "category": "storage-and-data",
+      "label": "Orders DB",
+      "position": {
+        "x": 640,
+        "y": 0
+      },
+      "queue": {
+        "workers": 64,
+        "capacity": 1000,
+        "discipline": "fifo"
+      },
+      "processing": {
+        "distribution": {
+          "type": "constant",
+          "value": 5
+        },
+        "timeout": 5000
+      }
+    },
+    {
+      "id": "logs",
+      "type": "centralized-logging",
+      "category": "observability",
+      "label": "Log Collector",
+      "position": {
+        "x": 640,
+        "y": 0
+      },
+      "queue": {
+        "workers": 1,
+        "capacity": 4,
+        "discipline": "fifo"
+      },
+      "processing": {
+        "distribution": {
+          "type": "constant",
+          "value": 20
+        },
+        "timeout": 5000
+      },
+      "config": {
+        "telemetryAsyncIngest": true
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "client->svc",
+      "source": "client",
+      "target": "svc",
+      "mode": "synchronous",
+      "protocol": "https",
+      "latency": {
+        "distribution": {
+          "type": "constant",
+          "value": 1
+        },
+        "pathType": "same-dc"
+      },
+      "bandwidth": 10000,
+      "maxConcurrentRequests": 10000,
+      "packetLossRate": 0,
+      "errorRate": 0
+    },
+    {
+      "id": "svc->db",
+      "source": "svc",
+      "target": "db",
+      "mode": "synchronous",
+      "protocol": "tcp",
+      "latency": {
+        "distribution": {
+          "type": "constant",
+          "value": 1
+        },
+        "pathType": "same-dc"
+      },
+      "bandwidth": 10000,
+      "maxConcurrentRequests": 10000,
+      "packetLossRate": 0,
+      "errorRate": 0
+    },
+    {
+      "id": "svc->logs",
+      "source": "svc",
+      "target": "logs",
+      "mode": "asynchronous",
+      "protocol": "https",
+      "latency": {
+        "distribution": {
+          "type": "constant",
+          "value": 1
+        },
+        "pathType": "same-dc"
+      },
+      "bandwidth": 10000,
+      "maxConcurrentRequests": 10000,
+      "packetLossRate": 0,
+      "errorRate": 0
+    }
+  ],
+  "workload": {
+    "sourceNodeId": "client",
+    "pattern": "constant",
+    "baseRps": 200,
+    "requestDistribution": [
+      {
+        "type": "GET",
+        "weight": 1,
+        "sizeBytes": 256
+      }
+    ]
+  },
+  "description": "200 rps each write a log line to a collector that handles 50 events/s. With fire-and-forget ingest on, about 450 events are dropped and counted and no user request fails; turn it off and the same overload shows up as 446 failed requests. Set a sample rate of 0.2 to cut collector load instead."
+}

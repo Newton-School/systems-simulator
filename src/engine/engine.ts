@@ -55,7 +55,22 @@ import {
   type ResolvedStopCondition,
   type StopReason
 } from './core/stopCondition'
-import { ComponentNode, EdgeDefinition, EventScheduler, TopologyJSON } from './core/types'
+import {
+  ComponentNode,
+  EdgeDefinition,
+  EventScheduler,
+  getInstanceCount,
+  TopologyJSON
+} from './core/types'
+import { INSTANCE_CATALOG } from './catalog/instanceCatalog'
+import { getResourceDefaults } from './catalog/resourceDefaults'
+import { ClusterScheduler, type ClusterProjection, type PodStart } from './cluster/clusterScheduler'
+import { CHANGE_STREAM_NODE_META, ORDERING_LANE_META, orderingLaneOf } from './traits/changeStream'
+import {
+  readClusterConfig,
+  resolveScheduledCluster,
+  scheduledReadyStateKey
+} from './traits/scheduler'
 import {
   getPathTypeLatencyProfile,
   getProtocolLatencyOverheadMs,
@@ -307,6 +322,16 @@ export class SimulationEngine {
    * terminal (see resolveParkedFollowers) or times out on its own deadline.
    */
   private readonly parkedFollowersByLeader = new Map<string, ParkedFollower[]>()
+  /** Cluster bin-packing (scheduler trait): one scheduler per cluster node. */
+  private readonly clusters = new Map<string, ClusterScheduler>()
+  private readonly clusterIdByWorkload = new Map<string, string>()
+  private readonly failedMachinesByCluster = new Map<string, number[]>()
+  /** Ordered change consumption: the delivery holding each lane, and those waiting behind it. */
+  private readonly orderingLaneHolder = new Map<string, string>()
+  private readonly orderingLaneWaiting = new Map<
+    string,
+    Array<{ request: Request; nodeId: string; heldAt: bigint }>
+  >()
   private readonly terminalStatusByRequestId = new Map<string, bigint>()
   private readonly terminalTombstoneOrder: Array<{ requestId: string; terminalAtUs: bigint }> = []
   private terminalTombstoneHead = 0
@@ -406,6 +431,16 @@ export class SimulationEngine {
         workers: derived.effectiveC,
         capacity: derived.effectiveK
       })
+      if (derived.heldConnections) {
+        // Steady-state held connections: held for the whole run, the overflow
+        // refused once (persistentConnFanout).
+        this.metrics.recordNodeTraitCounters(node.id, {
+          connectionsHeld: derived.heldConnections.held,
+          ...(derived.heldConnections.refused > 0
+            ? { connectionsRefused: derived.heldConnections.refused }
+            : {})
+        })
+      }
 
       const nodeErrorRate = this.readNodeErrorRate(normalized)
       if (nodeErrorRate !== null && nodeErrorRate > 0) {
@@ -468,6 +503,7 @@ export class SimulationEngine {
     }
 
     this.scheduleInitialStreamConsumerRebalances(scheduler)
+    this.initializeClusterScheduling(scheduler)
 
     if (topology.workload) {
       this.workload = new WorkloadGenerator(topology.workload, rng, scheduler, {
@@ -1023,6 +1059,9 @@ export class SimulationEngine {
       case 'edge-batch-flush':
         this.handleEdgeBatchFlush(event)
         break
+      case 'cluster-schedule':
+        this.handleClusterSchedule(event)
+        break
       default:
         // Other event types are integrated in later tickets.
         break
@@ -1175,15 +1214,28 @@ export class SimulationEngine {
       return
     }
 
-    if (this.applySecurityPolicy(event.nodeId, request)) {
+    if (this.holdForOrderingLane(event.nodeId, request)) {
       return
     }
 
-    const arrivalTraitDecision = this.runBeforeArrivalTraits(event.nodeId, request)
+    this.continueArrival(node, event.nodeId, request)
+  }
+
+  /**
+   * Arrival processing after a request is at the node and counted: security
+   * policy, arrival traits, then the queue. Split out so a change delivery that
+   * waited for its ordering lane resumes exactly here when released.
+   */
+  private continueArrival(node: GGcKNode, nodeId: string, request: Request): void {
+    if (this.applySecurityPolicy(nodeId, request)) {
+      return
+    }
+
+    const arrivalTraitDecision = this.runBeforeArrivalTraits(nodeId, request)
     if (arrivalTraitDecision.action !== 'continue') {
       this.traceAdmission(
         request,
-        event.nodeId,
+        nodeId,
         'trait',
         arrivalTraitDecision.action === 'rejected'
           ? 'rejected'
@@ -1201,7 +1253,7 @@ export class SimulationEngine {
       this.eventQueue.insert(
         createEvent(
           'request-rejected',
-          event.nodeId,
+          nodeId,
           request.id,
           {
             request,
@@ -1215,20 +1267,100 @@ export class SimulationEngine {
     }
 
     if (arrivalTraitDecision.action === 'parked') {
-      this.parkFollower(event.nodeId, request, arrivalTraitDecision.leaderRequestId)
+      this.parkFollower(nodeId, request, arrivalTraitDecision.leaderRequestId)
       return
     }
 
     if (arrivalTraitDecision.action === 'handled') {
-      this.completeRequestViaTrait(event.nodeId, request, arrivalTraitDecision)
+      this.completeRequestViaTrait(nodeId, request, arrivalTraitDecision)
 
       if (arrivalTraitDecision.payload?.forkConsumerRequest === true) {
-        this.forkConsumerRequest(node, event.nodeId, request)
+        this.forkConsumerRequest(node, nodeId, request)
       }
       return
     }
 
-    this.admitToNodeQueue(node, event.nodeId, request)
+    this.admitToNodeQueue(node, nodeId, request)
+  }
+
+  /**
+   * Ordered change consumption (change-stream trait). A change delivery from a
+   * stream with `consumerOrdering` per-partition / per-key waits at the consumer
+   * while an earlier delivery in its lane (same partition, or same entity) is
+   * still in flight, and is released when that one finishes. Returns true when
+   * the request was held.
+   */
+  private holdForOrderingLane(nodeId: string, request: Request): boolean {
+    const streamNodeId = request.metadata[CHANGE_STREAM_NODE_META]
+    if (typeof streamNodeId !== 'string') return false
+    if (request.path[request.path.length - 2] !== streamNodeId) return false
+    const lane = orderingLaneOf(request, nodeId)
+    if (!lane) return false
+    const holder = this.orderingLaneHolder.get(lane)
+    if (holder === undefined || holder === request.id) {
+      this.orderingLaneHolder.set(lane, request.id)
+      request.metadata[ORDERING_LANE_META] = lane
+      return false
+    }
+    const waiting = this.orderingLaneWaiting.get(lane) ?? []
+    waiting.push({ request, nodeId, heldAt: this.clock })
+    this.orderingLaneWaiting.set(lane, waiting)
+    this.metrics.recordNodeTraitCounters(streamNodeId, { changeEventsWaitedForOrder: 1 })
+    this.recordRequestState(request, 'queued', {
+      nodeId,
+      timestampUs: this.clock,
+      source: 'trait',
+      detail: `Waiting for the earlier change in ordering lane ${lane} to finish.`
+    })
+    this.eventQueue.insert(
+      createEvent(
+        'request-timeout',
+        nodeId,
+        request.id,
+        {
+          request,
+          nodeArrivalTime: this.clock,
+          scope: 'ordering-lane',
+          lane,
+          timeoutSeq: request.timeoutSeq ?? 0
+        },
+        request.deadline > this.clock ? request.deadline : this.clock
+      )
+    )
+    return true
+  }
+
+  /** The lane's in-flight change finished: hand the lane to the next waiting delivery. */
+  private releaseOrderingLane(request: Request): void {
+    const lane = request.metadata[ORDERING_LANE_META]
+    if (typeof lane !== 'string' || this.orderingLaneHolder.get(lane) !== request.id) return
+    this.orderingLaneHolder.delete(lane)
+    const waiting = this.orderingLaneWaiting.get(lane)
+    while (waiting && waiting.length > 0) {
+      const next = waiting.shift()!
+      if (next.request.metadata.__terminal || this.terminalStatusByRequestId.has(next.request.id)) {
+        continue
+      }
+      const node = this.nodes.get(next.nodeId)
+      if (!node) continue
+      this.orderingLaneHolder.set(lane, next.request.id)
+      next.request.metadata[ORDERING_LANE_META] = lane
+      if (waiting.length === 0) this.orderingLaneWaiting.delete(lane)
+      this.continueArrival(node, next.nodeId, next.request)
+      return
+    }
+    this.orderingLaneWaiting.delete(lane)
+  }
+
+  /** A held delivery's deadline passed while it waited; returns false when it was already released. */
+  private dropFromOrderingLane(lane: string, requestId: string): boolean {
+    const waiting = this.orderingLaneWaiting.get(lane)
+    if (!waiting) return false
+    const index = waiting.findIndex((entry) => entry.request.id === requestId)
+    if (index < 0) return false
+    waiting.splice(index, 1)
+    if (waiting.length === 0) this.orderingLaneWaiting.delete(lane)
+    return true
   }
 
   private completeRequestViaTrait(
@@ -1269,13 +1401,17 @@ export class SimulationEngine {
     if (servedFromCache) {
       request.metadata.servedFromCache = true
     }
-    request.spans.push({
-      nodeId,
-      arrivalTime: this.clock,
-      queueWait: 0n,
-      serviceTime: decision.latencyUs,
-      departureTime: completionTime
-    })
+    // A trait that discards the request (a dropped telemetry event) ends it here
+    // without serving it, so it must not count as work this node processed.
+    if (decision.payload?.notServed !== true) {
+      request.spans.push({
+        nodeId,
+        arrivalTime: this.clock,
+        queueWait: 0n,
+        serviceTime: decision.latencyUs,
+        departureTime: completionTime
+      })
+    }
     this.markNodePhaseDeparture(request, nodeId, completionTime)
     this.eventQueue.insert(
       createEvent(
@@ -1740,6 +1876,13 @@ export class SimulationEngine {
         return
       }
       this.emitConnectionWaitTimeoutFlow(request, event)
+    }
+    if (scope === 'ordering-lane' && typeof event.data.lane === 'string') {
+      // Still waiting for its ordering lane when the deadline passed; a
+      // delivery already released has moved on, so this event is stale.
+      if (!this.dropFromOrderingLane(event.data.lane, request.id)) {
+        return
+      }
     }
     if (scope === 'collapse' && typeof event.data.collapseLeaderId === 'string') {
       // A parked follower's own deadline fired before its leader returned.
@@ -3094,6 +3237,7 @@ export class SimulationEngine {
     request.metadata.__terminal = status
     this.resolveParkedFollowers(request, status, reasonCode)
     this.markTerminalTombstone(request.id)
+    this.releaseOrderingLane(request)
     const createdAtMs = microToMs(request.createdAt)
     const terminalAtMs = microToMs(this.clock)
     const operation = describeRequestOperation(request)
@@ -3155,7 +3299,8 @@ export class SimulationEngine {
           sharedState: this.getSharedTraitStateStore(),
           nodeState: this.nodes.get(nodeId)?.getState(),
           status,
-          reasonCode
+          reasonCode,
+          getNode: (id) => this.nodeDefinitionsById.get(id)
         })
         if (!payload) {
           continue
@@ -3411,6 +3556,9 @@ export class SimulationEngine {
 
     return {
       ...outputWithConsistency,
+      ...(this.clusters.size > 0
+        ? { clusterProjection: this.buildClusterProjection(horizonUs) }
+        : {}),
       invariantViolations: evaluateInvariantViolations(
         this.topology.invariants,
         outputWithConsistency
@@ -3609,7 +3757,13 @@ export class SimulationEngine {
         // A control-loop tick may request an autoscale: resize the node's
         // effective concurrency to the requested instance count.
         if (typeof payload['scaleInstancesTo'] === 'number') {
-          this.applyNodeScale(event.nodeId, payload['scaleInstancesTo'])
+          if (this.clusterIdByWorkload.has(event.nodeId)) {
+            // Replicas on a cluster: the autoscaler only changes the desired
+            // count; capacity follows the pods the cluster can place and start.
+            this.setScheduledReplicas(event.nodeId, payload['scaleInstancesTo'])
+          } else {
+            this.applyNodeScale(event.nodeId, payload['scaleInstancesTo'])
+          }
         }
       }
     }
@@ -3660,6 +3814,277 @@ export class SimulationEngine {
         nodeSnapshot: this.createNodeSnapshot(nodeId)
       })
     }
+  }
+
+  /**
+   * Cluster bin-packing (scheduler trait). Every workload whose `scheduledOn`
+   * names a Kubernetes Cluster node becomes pods on that cluster's machines; at
+   * t=0 the replicas that fit are placed and ready (the run starts in steady
+   * state), the rest stay pending, and each workload's serving capacity is
+   * resized to its ready pods. Configured machine failures and recoveries are
+   * scheduled here.
+   */
+  private initializeClusterScheduling(scheduler: EventScheduler): void {
+    const workloadsByCluster = new Map<string, ComponentNode[]>()
+    for (const node of this.nodeDefinitionsById.values()) {
+      const cluster = resolveScheduledCluster(this.topology, node)
+      if (!cluster || cluster.id === node.id || !this.nodes.has(cluster.id)) continue
+      const list = workloadsByCluster.get(cluster.id) ?? []
+      list.push(node)
+      workloadsByCluster.set(cluster.id, list)
+    }
+
+    for (const [clusterId, workloads] of workloadsByCluster) {
+      const def = this.nodeDefinitionsById.get(clusterId)
+      if (!def) continue
+      const machineType = def.resources?.instanceType ?? getResourceDefaults(def.type).instanceType
+      const machine = INSTANCE_CATALOG[machineType]
+      const machineCount = Math.max(0, Math.round(getInstanceCount(def.resources)))
+      const config = readClusterConfig(def.config)
+      const cluster = new ClusterScheduler({
+        clusterId,
+        machineVcpu: machine.vcpu,
+        machineRamGb: machine.ramGb,
+        machineCount,
+        strategy: config.strategy,
+        podStartupUs: msToMicro(config.podStartupMs),
+        rescheduleDelayUs: msToMicro(config.rescheduleDelayMs),
+        maxMachines: Math.max(machineCount, Math.round(config.maxMachines ?? machineCount)),
+        machineProvisionUs: msToMicro(config.machineProvisionMs)
+      })
+      for (const workload of workloads) {
+        const podType =
+          workload.resources?.instanceType ?? getResourceDefaults(workload.type).instanceType
+        const pod = INSTANCE_CATALOG[podType]
+        cluster.register({
+          nodeId: workload.id,
+          podVcpu: pod.vcpu,
+          podRamGb: pod.ramGb,
+          desired: getInstanceCount(workload.resources)
+        })
+        this.clusterIdByWorkload.set(workload.id, clusterId)
+      }
+      this.clusters.set(clusterId, cluster)
+
+      const started = cluster.initialPlacement(0n)
+      this.recordPodStarts(clusterId, started)
+      for (const workload of workloads) {
+        const unplaced = cluster.pendingCount(workload.id)
+        if (unplaced > 0) {
+          this.metrics.recordNodeTraitCounters(workload.id, { podsUnplaced: unplaced })
+          this.metrics.recordNodeTraitCounters(clusterId, { clusterPodsUnplaced: unplaced })
+        }
+        this.applyClusterCapacity(workload.id)
+      }
+      this.maybeProvisionMachines(clusterId)
+
+      if (config.machineFailureAtMs !== null) {
+        scheduler.schedule(
+          createEvent(
+            'cluster-schedule',
+            clusterId,
+            '',
+            { action: 'machine-failure', count: config.machineFailureCount },
+            msToMicro(config.machineFailureAtMs)
+          )
+        )
+        if (
+          config.machineRecoveryAtMs !== null &&
+          config.machineRecoveryAtMs > config.machineFailureAtMs
+        ) {
+          scheduler.schedule(
+            createEvent(
+              'cluster-schedule',
+              clusterId,
+              '',
+              { action: 'machine-recovery' },
+              msToMicro(config.machineRecoveryAtMs)
+            )
+          )
+        }
+      }
+    }
+  }
+
+  /** Count placements and schedule each starting pod's ready event. */
+  private recordPodStarts(clusterId: string, started: readonly PodStart[]): void {
+    if (started.length === 0) return
+    this.metrics.recordNodeTraitCounters(clusterId, { clusterPodsScheduled: started.length })
+    for (const { pod, readyAtUs } of started) {
+      this.metrics.recordNodeTraitCounters(pod.workloadId, { podsScheduled: 1 })
+      if (pod.state === 'starting') {
+        this.eventQueue.insert(
+          createEvent(
+            'cluster-schedule',
+            clusterId,
+            '',
+            { action: 'pod-ready', podId: pod.id },
+            readyAtUs
+          )
+        )
+      }
+    }
+  }
+
+  /**
+   * Resize a scheduled workload to the pods that are ready right now. Each pod
+   * contributes one instance's derived c / K / cores, so a fully placed
+   * workload runs exactly as it would on dedicated instances.
+   */
+  private applyClusterCapacity(workloadId: string): void {
+    const clusterId = this.clusterIdByWorkload.get(workloadId)
+    const cluster = clusterId ? this.clusters.get(clusterId) : undefined
+    const def = this.nodeDefinitionsById.get(workloadId)
+    const node = this.nodes.get(workloadId)
+    if (!cluster || !def || !node) return
+    const ready = cluster.readyCount(workloadId)
+    this.getSharedTraitStateStore().set(scheduledReadyStateKey(workloadId), ready)
+    const perPod = deriveNodeConcurrency({
+      ...def,
+      resources: { ...(def.resources ?? {}), instanceCount: 1 }
+    })
+    const workers = perPod.effectiveC * ready
+    const capacity = Math.max(1, perPod.effectiveK * ready)
+    const { started } = node.resizeConcurrency(
+      workers,
+      capacity,
+      this.clock,
+      perPod.physicalCores * ready
+    )
+    this.nodeLimitsById.set(workloadId, { workers: Math.max(1, workers), capacity })
+    for (const resumed of started) {
+      this.markNodePhaseServiceStart(resumed, workloadId, this.clock)
+      this.recordCanonicalEvent({
+        timestampUs: this.clock,
+        type: 'processing-started',
+        priority: EventPriority.PROCESSING,
+        requestId: resumed.id,
+        nodeId: workloadId,
+        payload: { request: resumed },
+        nodeSnapshot: this.createNodeSnapshot(workloadId)
+      })
+    }
+  }
+
+  /** Place whatever pending pods now fit, then let the cluster autoscaler react. */
+  private runClusterScheduling(clusterId: string): void {
+    const cluster = this.clusters.get(clusterId)
+    if (!cluster) return
+    this.recordPodStarts(clusterId, cluster.schedulePending(this.clock))
+    this.maybeProvisionMachines(clusterId)
+  }
+
+  /** Cluster autoscaler: boot machines for pods that fit nowhere, up to the max. */
+  private maybeProvisionMachines(clusterId: string): void {
+    const cluster = this.clusters.get(clusterId)
+    if (!cluster) return
+    const needed = cluster.machinesNeededForPending()
+    if (needed <= 0) return
+    const indexes = cluster.provisionMachines(needed, this.clock)
+    this.metrics.recordNodeTraitCounters(clusterId, { clusterMachinesProvisioned: indexes.length })
+    for (const machineIndex of indexes) {
+      this.eventQueue.insert(
+        createEvent(
+          'cluster-schedule',
+          clusterId,
+          '',
+          { action: 'machine-joined', machineIndex },
+          this.clock + cluster.options.machineProvisionUs
+        )
+      )
+    }
+  }
+
+  /** The autoscaler asked a scheduled workload for `replicas` pods. */
+  private setScheduledReplicas(workloadId: string, replicas: number): void {
+    const clusterId = this.clusterIdByWorkload.get(workloadId)
+    const cluster = clusterId ? this.clusters.get(clusterId) : undefined
+    if (!clusterId || !cluster) return
+    const before = cluster.desiredCount(workloadId)
+    const { removedReady } = cluster.setDesired(workloadId, replicas, this.clock)
+    if (removedReady > 0) this.applyClusterCapacity(workloadId)
+    this.runClusterScheduling(clusterId)
+    const added = cluster.desiredCount(workloadId) - before
+    if (added > 0) {
+      const unplaced = Math.min(added, cluster.pendingCount(workloadId))
+      if (unplaced > 0) {
+        this.metrics.recordNodeTraitCounters(workloadId, { podsUnplaced: unplaced })
+        this.metrics.recordNodeTraitCounters(clusterId, { clusterPodsUnplaced: unplaced })
+      }
+    }
+  }
+
+  private handleClusterSchedule(event: SimulationEvent): void {
+    const clusterId = event.nodeId
+    const cluster = this.clusters.get(clusterId)
+    if (!cluster) return
+    const action = event.data.action
+    if (action === 'pod-ready') {
+      const workloadId =
+        typeof event.data.podId === 'string'
+          ? cluster.markReady(event.data.podId, this.clock)
+          : null
+      if (workloadId) this.applyClusterCapacity(workloadId)
+      return
+    }
+    if (action === 'machine-failure') {
+      const count = typeof event.data.count === 'number' ? event.data.count : 1
+      const failure = cluster.failMachines(count, this.clock)
+      if (failure.machineIndexes.length === 0) return
+      this.metrics.recordNodeTraitCounters(clusterId, {
+        clusterMachineFailures: failure.machineIndexes.length,
+        clusterPodsLost: failure.podsLost
+      })
+      for (const workloadId of failure.affectedWorkloads) {
+        this.applyClusterCapacity(workloadId)
+      }
+      for (const lost of failure.lostPods) {
+        this.metrics.recordNodeTraitCounters(lost.workloadId, { podsLost: lost.count })
+      }
+      for (const machineIndex of failure.machineIndexes) {
+        this.eventQueue.insert(
+          createEvent(
+            'cluster-schedule',
+            clusterId,
+            '',
+            { action: 'evict', machineIndex },
+            this.clock + cluster.options.rescheduleDelayUs
+          )
+        )
+      }
+      this.failedMachinesByCluster.set(clusterId, failure.machineIndexes)
+      return
+    }
+    if (action === 'evict') {
+      const machineIndex =
+        typeof event.data.machineIndex === 'number' ? event.data.machineIndex : -1
+      const evicted = cluster.evictLost(machineIndex, this.clock)
+      if (evicted.total > 0) {
+        this.metrics.recordNodeTraitCounters(clusterId, { clusterPodsEvicted: evicted.total })
+        for (const [workloadId, count] of evicted.byWorkload) {
+          this.metrics.recordNodeTraitCounters(workloadId, { podsEvicted: count })
+        }
+      }
+      this.runClusterScheduling(clusterId)
+      return
+    }
+    if (action === 'machine-recovery') {
+      for (const machineIndex of this.failedMachinesByCluster.get(clusterId) ?? []) {
+        this.recordPodStarts(clusterId, cluster.recoverMachine(machineIndex, this.clock))
+      }
+      this.failedMachinesByCluster.delete(clusterId)
+      this.runClusterScheduling(clusterId)
+      return
+    }
+    if (action === 'machine-joined') {
+      const machineIndex =
+        typeof event.data.machineIndex === 'number' ? event.data.machineIndex : -1
+      if (cluster.machineJoined(machineIndex, this.clock)) this.runClusterScheduling(clusterId)
+    }
+  }
+
+  private buildClusterProjection(horizonUs: bigint): ClusterProjection[] {
+    return [...this.clusters.values()].map((cluster) => cluster.projection(horizonUs))
   }
 
   private handleHealthProbe(event: SimulationEvent): void {

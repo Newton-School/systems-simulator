@@ -164,6 +164,8 @@ export interface TraitFilterRoutesContext extends TraitContext {
 export interface TraitTerminalContext extends TraitContext {
   status: 'success' | 'timeout' | 'rejected' | 'connection_reset'
   reasonCode?: string | null
+  /** Looks up another node's definition (e.g. the consumer a delivery reached). */
+  getNode?: (nodeId: string) => ComponentNode | undefined
 }
 
 /**

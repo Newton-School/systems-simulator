@@ -324,6 +324,13 @@ export interface SimulationOutput {
    */
   consistency?: ConsistencyReport
   /**
+   * Cluster bin-packing (scheduler trait): per Kubernetes Cluster node, the
+   * time-weighted machines, allocation, pending pods, per-workload ready
+   * replicas and measured failure-recovery time. Absent when no workload is
+   * scheduled onto a cluster.
+   */
+  clusterProjection?: import('../cluster/clusterScheduler').ClusterProjection[]
+  /**
    * Structural single points of failure: nodes whose loss disconnects the
    * source(s) from part of the system and which run <2 instances. Computed from
    * the topology (no run needed); surfaced in the results tray + on the canvas.

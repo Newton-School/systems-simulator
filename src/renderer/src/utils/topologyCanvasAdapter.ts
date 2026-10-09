@@ -400,6 +400,61 @@ function overlaySimulationConfig(
     }
   }
 
+  // Scheduler, telemetry sink, change stream and held-connection traits.
+  for (const field of [
+    'podStartupMs',
+    'rescheduleDelayMs',
+    'machineProvisionMs',
+    'machineFailureAtMs',
+    'machineRecoveryAtMs',
+    'telemetryIngestRps',
+    'telemetrySampleRate',
+    'memPerConnectionKb',
+    'heartbeatCostMs',
+    'pushSendMs',
+    'clusterMaxMachines',
+    'machineFailureCount',
+    'pushRecipients'
+  ] as const) {
+    if (asNumber(config[field]) !== undefined) {
+      sim[field] = asNumber(config[field])
+    }
+  }
+  for (const field of ['telemetryAsyncIngest', 'changeStreamOrdering'] as const) {
+    if (typeof config[field] === 'boolean') {
+      sim[field] = config[field]
+    }
+  }
+  for (const field of ['scheduledOn', 'changeKeyField'] as const) {
+    if (asString(config[field])) {
+      sim[field] = asString(config[field])
+    }
+  }
+  if (config['placementStrategy'] === 'spread' || config['placementStrategy'] === 'bin-pack') {
+    sim.placementStrategy = config['placementStrategy']
+  }
+  if (
+    config['consumerOrdering'] === 'parallel' ||
+    config['consumerOrdering'] === 'per-partition' ||
+    config['consumerOrdering'] === 'per-key'
+  ) {
+    sim.consumerOrdering = config['consumerOrdering']
+  }
+  const heldConnections = asNumber(config['heldConnections'])
+  if (heldConnections !== undefined && heldConnections > 0) {
+    const heartbeatIntervalMs = asNumber(config['heartbeatIntervalMs'])
+    sim.connection = {
+      ...(sim.connection ?? { maxConnectionsPerInstance: 65000, sessionProtocol: 'websocket' }),
+      offeredConnections: heldConnections,
+      ...(asNumber(config['maxConnectionsPerInstance']) !== undefined
+        ? { maxConnectionsPerInstance: asNumber(config['maxConnectionsPerInstance'])! }
+        : {}),
+      // Absent means no keepalives were declared; don't let the template's
+      // default add heartbeat load on a plain import -> export.
+      heartbeatIntervalMs: heartbeatIntervalMs ?? 0
+    }
+  }
+
   if (
     config['dnsRoutingPolicy'] === 'simple' ||
     config['dnsRoutingPolicy'] === 'weighted' ||

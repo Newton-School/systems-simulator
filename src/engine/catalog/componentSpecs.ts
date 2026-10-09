@@ -669,6 +669,75 @@ function buildRuntimeNode(
     config.fencing = data.sim.fencing
   }
 
+  // Scheduler, telemetry sink, change stream and held-connection traits.
+  for (const field of [
+    'podStartupMs',
+    'rescheduleDelayMs',
+    'machineProvisionMs',
+    'machineFailureAtMs',
+    'machineRecoveryAtMs',
+    'telemetryIngestRps',
+    'memPerConnectionKb',
+    'heartbeatCostMs',
+    'pushSendMs'
+  ] as const) {
+    const value = data.sim?.[field]
+    if (typeof value === 'number' && Number.isFinite(value) && value >= 0) config[field] = value
+  }
+  for (const field of ['clusterMaxMachines', 'machineFailureCount', 'pushRecipients'] as const) {
+    const value = data.sim?.[field]
+    if (typeof value === 'number' && Number.isFinite(value) && value >= 1) {
+      config[field] = Math.round(value)
+    }
+  }
+  if (
+    typeof data.sim?.telemetrySampleRate === 'number' &&
+    data.sim.telemetrySampleRate >= 0 &&
+    data.sim.telemetrySampleRate <= 1
+  ) {
+    config.telemetrySampleRate = data.sim.telemetrySampleRate
+  }
+  for (const field of ['telemetryAsyncIngest', 'changeStreamOrdering'] as const) {
+    if (typeof data.sim?.[field] === 'boolean') config[field] = data.sim[field]
+  }
+  for (const field of ['scheduledOn', 'changeKeyField'] as const) {
+    const value = data.sim?.[field]
+    if (typeof value === 'string' && value.trim().length > 0) config[field] = value.trim()
+  }
+  if (data.sim?.placementStrategy === 'spread' || data.sim?.placementStrategy === 'bin-pack') {
+    config.placementStrategy = data.sim.placementStrategy
+  }
+  if (
+    data.sim?.consumerOrdering === 'parallel' ||
+    data.sim?.consumerOrdering === 'per-partition' ||
+    data.sim?.consumerOrdering === 'per-key'
+  ) {
+    config.consumerOrdering = data.sim.consumerOrdering
+  }
+  // Held connections (Connection Server tier): only a declared offered count
+  // reaches the engine, so an untouched node exports nothing new.
+  const connection = data.sim?.connection
+  if (
+    connection &&
+    Number.isFinite(connection.offeredConnections) &&
+    connection.offeredConnections > 0
+  ) {
+    config.heldConnections = Math.floor(connection.offeredConnections)
+    if (
+      Number.isFinite(connection.maxConnectionsPerInstance) &&
+      connection.maxConnectionsPerInstance > 0
+    ) {
+      config.maxConnectionsPerInstance = Math.floor(connection.maxConnectionsPerInstance)
+    }
+    if (
+      typeof connection.heartbeatIntervalMs === 'number' &&
+      Number.isFinite(connection.heartbeatIntervalMs) &&
+      connection.heartbeatIntervalMs > 0
+    ) {
+      config.heartbeatIntervalMs = connection.heartbeatIntervalMs
+    }
+  }
+
   const queue = data.sim?.queue
   // Prefer authored resources (edited via the RESOURCES section); else reproduce
   // the raw queue so the node stays cost-computable and byte-identical.
@@ -1386,6 +1455,15 @@ register('agent-orchestrator', {
   profile: 'control-plane',
   defaultRenderer: 'serviceNode',
   asyncBoundary: true
+})
+
+// A Kubernetes cluster: its instances are the worker machines that scheduled
+// workloads' pods are bin-packed onto (scheduler trait). Carries no traffic.
+register('kubernetes-cluster', {
+  category: 'orchestration-and-infra',
+  structuralRole: 'processor',
+  profile: 'control-plane',
+  defaultRenderer: 'serviceNode'
 })
 
 register('feature-flag-service', {

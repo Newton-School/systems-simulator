@@ -280,8 +280,7 @@ export type WorkloadKind = 'cpu-bound' | 'io-bound'
  * Physical resource allocation for a node, in the AWS instance-family model. The
  * author picks a discrete `instanceType` (per-instance vCPU/RAM/price resolve from
  * INSTANCE_CATALOG — never free-typed) and scales by `instanceCount`. Workers and
- * queue depth get sensible defaults derived from the instance + `workloadKind`, but
- * remain editable so they can be tuned or intentionally misconfigured.
+ * queue depth are derived from the instance + `workloadKind` and are not authored.
  *
  * See ns-simulator-docs/specs/resource-allocation-and-derived-concurrency.md.
  */
@@ -294,9 +293,14 @@ export interface ResourceConfig {
   maxInstances?: number
   /** CPU-bound vs IO-bound — decides whether the vCPU ceiling caps workers. */
   workloadKind?: WorkloadKind
-  /** App concurrency per instance (parallel servers). Derived default, editable, vCPU-capped. */
+  /**
+   * Accepted for back-compat but NOT read by the simulator: workers per instance
+   * are derived (vCPU x workers-per-vCPU for the workload kind, see
+   * resourceDerivation.ts). The validator warns when it is set; the panel and
+   * the TopologyJSON viewer show it read-only.
+   */
   workersPerInstance?: number
-  /** Waiting-room depth beyond in-service workers. Derived default, editable, RAM-capped. */
+  /** Accepted for back-compat but NOT read: admission is derived from RAM. Same warning. */
   queueSlots?: number
   /** Memory footprint of one in-flight request, in MB. Divides RAM into the admission ceiling. */
   perRequestMemMb?: number
@@ -754,6 +758,8 @@ export interface NodeState {
    * hand-built states in tests stay valid; GGcKNode always sets it.
    */
   workerCapacity?: number
+  /** Current admission capacity K (queued + in service). Optional like workerCapacity. */
+  systemCapacity?: number
   /**
    * Cumulative mean service time (ms) over completed requests, or 0 before any
    * completion. Used by the `least-response-time` routing strategy.
