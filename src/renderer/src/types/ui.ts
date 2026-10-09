@@ -219,10 +219,14 @@ export interface SourceNodeOption {
   workload: NonNullable<CanvasNodeDataV2['source']>['defaultWorkload']
 }
 
-/** A node the operator can target with an injected fault. */
+/**
+ * Something the operator can target with an injected fault: a runtime
+ * component, or a Region / AZ / Subnet container (fails everything inside it).
+ */
 export interface FaultTargetOption {
   id: string
   label: string
+  group?: 'component' | 'location'
 }
 
 export interface ScenarioRunContext {

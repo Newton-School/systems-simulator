@@ -8,6 +8,7 @@ import type {
 } from '../core/event-stream'
 import { createEmptyEventCounts } from '../core/event-stream'
 import type { SpofFinding } from './singlePointOfFailure'
+import type { FaultDomainRef } from '../core/faultDomains'
 import {
   createEmptyRequestOutcomeBreakdown,
   type RequestOutcomeFamily
@@ -69,6 +70,8 @@ export interface CausalGraph {
     nodeId: string
     event: string
     time: number
+    /** Set when the root cause is a Region / AZ / Subnet outage containing the node. */
+    faultDomain?: FaultDomainRef
   }>
   propagation: Array<{
     from: string
@@ -95,6 +98,8 @@ export interface CausalGraphNode {
   severity: 'failed' | 'degraded'
   firstAffectedMs: number
   faultMode: string | null
+  /** The Region / AZ / Subnet outage that failed this node, when that was the cause. */
+  faultDomain?: FaultDomainRef
   rejected: number
   timedOut: number
   circuitOpens: number
@@ -187,6 +192,12 @@ export interface StatusWindow {
   mode: string
   startMs: number
   endMs: number
+  /**
+   * Set when the window was opened by a Region / AZ / Subnet fault rather than
+   * a fault on this component: the domain that was down. Absent otherwise, so
+   * runs without a container fault serialize exactly as before.
+   */
+  faultDomain?: FaultDomainRef
 }
 
 export type RuntimeDeliveryGuarantee = Exclude<DeliveryGuarantee, 'best-effort' | 'exactly-once'>

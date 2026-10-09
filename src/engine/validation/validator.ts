@@ -27,6 +27,8 @@ import { MATCH_OPERATORS } from '../core/requestSemantics'
 import { asDistributionConfig } from '../traits/serviceTimeOverride'
 import { INSTANCE_TYPES } from '../catalog/instanceCatalog'
 import { findCloudRegion } from '../catalog/locationCatalog'
+import { describeFaultDomain, faultDomainMemberIds } from '../core/faultDomains'
+import { CACHE_FLUSH_FAULT_TYPE } from '../traits/cache'
 import { globalFieldLabel, nodeFieldLabel } from './fieldLabels'
 import { describeZodIssue, edgeSubjectFor, locationKindPhrase, withSubjects } from './issueMessages'
 import {
@@ -1734,13 +1736,29 @@ export const validateTopology = (
     })
   })
 
-  //Check that Faults target valid nodes or edges
+  //Check that Faults target valid nodes, edges or fault domains (locations)
   topology.faults?.forEach((fault, index) => {
-    if (!nodeIds.has(fault.targetId) && !edgeIds.has(fault.targetId)) {
+    if (nodeIds.has(fault.targetId) || edgeIds.has(fault.targetId)) return
+    const domain = locationById.get(fault.targetId)
+    if (!domain) {
       errors.push({
         path: `faults[${index}].targetId`,
-        message: `Fault target '${fault.targetId}' does not match any component or connection.`
+        message: `Fault target '${fault.targetId}' does not match any component, connection or location.`
       })
+      return
+    }
+    const domainName = describeFaultDomain(domain)
+    if (fault.faultType === CACHE_FLUSH_FAULT_TYPE) {
+      errors.push({
+        path: `faults[${index}].faultType`,
+        message: `A cache flush empties one cache; it cannot target ${domainName}. Target the cache instead.`
+      })
+      return
+    }
+    if (faultDomainMemberIds(topology, domain.id).length === 0) {
+      warnings.push(
+        `The fault on ${domainName} fails nothing: no component (other than the traffic source) is placed inside it.`
+      )
     }
   })
 

@@ -1,4 +1,5 @@
 import type { CausalGraph, CausalGraphNode } from '../../../../engine/analysis/output'
+import { describeFaultDomain, type FaultDomainRef } from '../../../../engine/core/faultDomains'
 
 /** One row of the Failures tab timeline: a root cause or a propagation step. */
 export interface CascadeRow {
@@ -88,4 +89,39 @@ const EFFECT_LABELS: Record<string, string> = {
 /** Plain-language label for a root event or propagation effect. */
 export function cascadeEffectLabel(effect: string): string {
   return FAULT_MODE_LABELS[effect] ?? EFFECT_LABELS[effect] ?? effect.replace(/_/g, ' ')
+}
+
+/** "failed because availability zone AZ A (us-east-1a) was down", or null for a node-level fault. */
+export function cascadeDomainCause(row: Pick<CascadeRow, 'detail'>): string | null {
+  const domain = row.detail?.faultDomain
+  return domain ? `failed because ${describeFaultDomain(domain)} was down` : null
+}
+
+export interface DomainOutageSummary {
+  domain: FaultDomainRef
+  /** When the domain went down (earliest failed member). */
+  atMs: number
+  nodeIds: string[]
+}
+
+/** One entry per Region / AZ / Subnet outage among the root causes, in time order. */
+export function summarizeDomainOutages(graph: CausalGraph): DomainOutageSummary[] {
+  const byId = new Map<string, DomainOutageSummary>()
+  for (const root of graph.rootCauses) {
+    if (!root.faultDomain) continue
+    const entry = byId.get(root.faultDomain.id)
+    if (entry) {
+      entry.atMs = Math.min(entry.atMs, root.time)
+      entry.nodeIds.push(root.nodeId)
+    } else {
+      byId.set(root.faultDomain.id, {
+        domain: root.faultDomain,
+        atMs: root.time,
+        nodeIds: [root.nodeId]
+      })
+    }
+  }
+  return [...byId.values()].sort(
+    (a, b) => a.atMs - b.atMs || a.domain.id.localeCompare(b.domain.id)
+  )
 }

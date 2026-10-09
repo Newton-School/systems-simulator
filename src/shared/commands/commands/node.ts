@@ -1,5 +1,10 @@
 import type { ComponentNode, TopologyJSON } from '../../../engine/core/types'
 import { deriveNodeConcurrency } from '../../../engine/nodes/resourceDerivation'
+import {
+  describeFaultDomain,
+  enclosingLocationIds,
+  findFaultDomain
+} from '../../../engine/core/faultDomains'
 import { enterMode } from '../context'
 import { flattenConfig } from '../configDump'
 import {
@@ -79,11 +84,21 @@ export function nodeStatusLines(
       ]
     )
   }
-  const faults = (topology.faults ?? []).filter((fault) => fault.targetId === node.id)
+  // Faults on this node, plus Region / AZ / Subnet faults on a container it sits in.
+  const enclosing = enclosingLocationIds(topology, node)
+  const faults = (topology.faults ?? []).filter(
+    (fault) => fault.targetId === node.id || enclosing.has(fault.targetId)
+  )
   if (faults.length > 0) {
     pairs.push([
       'faults',
-      faults.map((fault) => `${fault.faultType} (${fault.timing}, ${fault.duration})`).join('; ')
+      faults
+        .map((fault) => {
+          const domain =
+            fault.targetId === node.id ? undefined : findFaultDomain(topology, fault.targetId)
+          return `${fault.faultType} (${fault.timing}, ${fault.duration})${domain ? ` via ${describeFaultDomain(domain)}` : ''}`
+        })
+        .join('; ')
     ])
   }
   const windows = results?.statusTimeline.filter((window) => window.componentId === node.id) ?? []
@@ -91,7 +106,10 @@ export function nodeStatusLines(
     pairs.push([
       'down windows',
       windows
-        .map((w) => `${w.mode} ${(w.startMs / 1000).toFixed(1)}-${(w.endMs / 1000).toFixed(1)}s`)
+        .map(
+          (w) =>
+            `${w.mode} ${(w.startMs / 1000).toFixed(1)}-${(w.endMs / 1000).toFixed(1)}s${w.faultDomain ? ` (${describeFaultDomain(w.faultDomain)} down)` : ''}`
+        )
         .join(', ')
     ])
   }

@@ -12,6 +12,7 @@ import {
 } from '../../../engine/nodes/resourceDerivation'
 import {
   buildCascadeTrees,
+  cascadeDomainCause,
   cascadeEffectLabel
 } from '../../../renderer/src/components/simulation/failureCascade'
 import {
@@ -35,6 +36,7 @@ import {
   table,
   utilization
 } from '../format'
+import { describeFaultDomain } from '../../../engine/core/faultDomains'
 import { BOTTLENECK_THRESHOLD } from './runtime'
 import { CommandError, type CommandDefinition, type CommandScope } from '../types'
 
@@ -148,8 +150,10 @@ function diagnoseNode(scope: CommandScope, token: string | undefined): string[] 
   const affected = results.causalGraph?.nodes?.find((entry) => entry.nodeId === node.id)
   if (affected) {
     findings.push(
-      `failure cascade: ${affected.severity} from ${fmtMs(affected.firstAffectedMs)}${affected.faultMode ? ` (${affected.faultMode})` : ''}`
+      `failure cascade: ${affected.severity} from ${fmtMs(affected.firstAffectedMs)}${affected.faultMode ? ` (${affected.faultMode})` : ''}${affected.faultDomain ? `, ${describeFaultDomain(affected.faultDomain)} was down` : ''}`
     )
+    if (affected.faultDomain)
+      causes.push(`it failed because ${describeFaultDomain(affected.faultDomain)} was down`)
     if (affected.severity === 'degraded' && !affected.faultMode)
       causes.push("it was hit by a cascade from a failing dependency ('show cascade')")
   }
@@ -502,7 +506,7 @@ function showCascade(scope: CommandScope, fromToken: string | undefined): string
           )
         : ''
       lines.push(
-        `${indent}${branch}${color}${row.nodeId}${c.reset} ${fmtMs(row.timeMs)} ${cascadeEffectLabel(row.effect)}${detail}`
+        `${indent}${branch}${color}${row.nodeId}${c.reset} ${fmtMs(row.timeMs)} ${cascadeEffectLabel(row.effect)}${row.depth === 0 && row.detail?.faultDomain ? ` - ${cascadeDomainCause(row)}` : ''}${detail}`
       )
     }
   }

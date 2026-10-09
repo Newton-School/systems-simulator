@@ -65,6 +65,13 @@ import {
 import { MetricsCollector } from './metrics'
 import { classifyRejectionCause } from './metrics/windowedLatencyAggregator'
 import { GeoLatencyResolver } from './network/geoLatencyResolver'
+import {
+  faultDomainMemberIds,
+  faultDomainRef,
+  findFaultDomain,
+  readFaultDomainRef,
+  type FaultDomainRef
+} from './core/faultDomains'
 import { GGcKNode } from './nodes/GGcKNode'
 import { deriveNodeConcurrency } from './nodes/resourceDerivation'
 import {
@@ -335,7 +342,14 @@ export class SimulationEngine {
     mode: string
     startUs: bigint
     endUs: bigint | null
+    faultDomain?: FaultDomainRef
   }> = []
+  /**
+   * Fault domains (Region / AZ / Subnet faults) currently holding each node
+   * down. A node stays failed until every domain holding it has recovered, and
+   * a node-level recovery does not lift a domain outage.
+   */
+  private readonly domainHoldsByNodeId = new Map<string, Set<string>>()
   private debugTarget: 'all' | string | null = null
   private forcedTraceRequestId: string | null = null
   private readonly debugEvents: DebugEvent[] = []
@@ -477,6 +491,7 @@ export class SimulationEngine {
   private scheduleConfiguredFaults(scheduler: EventScheduler): void {
     for (const fault of this.topology.faults ?? []) {
       if (!this.nodes.has(fault.targetId)) {
+        this.scheduleFaultDomainFault(scheduler, fault)
         continue
       }
       const params = (fault.params ?? {}) as Record<string, unknown>
@@ -503,6 +518,52 @@ export class SimulationEngine {
       if (fault.duration !== 'permanent' && durationMs > 0) {
         scheduler.schedule(
           createEvent('node-recovery', fault.targetId, '', {}, msToMicro(atMs + durationMs))
+        )
+      }
+    }
+  }
+
+  /**
+   * A fault whose target is a Region / AZ / Subnet location fails every node
+   * placed inside it (see core/faultDomains.ts) with the same spec and window,
+   * through the ordinary node-failure / node-recovery events. The events carry
+   * the domain so results can say which outage took each node down. A location
+   * with no members schedules nothing (the validator warns about it); a cache
+   * flush is per cache and does not apply to a location.
+   */
+  private scheduleFaultDomainFault(
+    scheduler: EventScheduler,
+    fault: NonNullable<TopologyJSON['faults']>[number]
+  ): void {
+    if (fault.faultType === CACHE_FLUSH_FAULT_TYPE) return
+    const location = findFaultDomain(this.topology, fault.targetId)
+    if (!location) return
+    const domain = faultDomainRef(location)
+    const params = (fault.params ?? {}) as Record<string, unknown>
+    const atMs = typeof params.atMs === 'number' && params.atMs >= 0 ? params.atMs : 0
+    const spec = parseFailureSpec(params) ?? DEFAULT_CHAOS_FAILURE_SPEC
+    const durationMs = typeof params.durationMs === 'number' ? params.durationMs : 0
+    const recovers = fault.duration !== 'permanent' && durationMs > 0
+    for (const nodeId of faultDomainMemberIds(this.topology, location.id)) {
+      if (!this.nodes.has(nodeId)) continue
+      scheduler.schedule(
+        createEvent(
+          'node-failure',
+          nodeId,
+          '',
+          { failureSpec: spec, faultDomain: domain },
+          msToMicro(atMs)
+        )
+      )
+      if (recovers) {
+        scheduler.schedule(
+          createEvent(
+            'node-recovery',
+            nodeId,
+            '',
+            { faultDomain: domain },
+            msToMicro(atMs + durationMs)
+          )
         )
       }
     }
@@ -1844,6 +1905,12 @@ export class SimulationEngine {
 
   private handleNodeFailure(event: SimulationEvent): void {
     const spec = this.resolveFailureSpec(event, event.nodeId)
+    const faultDomain = readFaultDomainRef(event.data.faultDomain)
+    if (faultDomain) {
+      const holds = this.domainHoldsByNodeId.get(event.nodeId) ?? new Set<string>()
+      holds.add(faultDomain.id)
+      this.domainHoldsByNodeId.set(event.nodeId, holds)
+    }
     const node = this.nodes.get(event.nodeId)
     if (node) {
       const onset = node.fail(spec, this.clock)
@@ -1859,7 +1926,8 @@ export class SimulationEngine {
         componentId: event.nodeId,
         mode: spec.mode,
         startUs: this.clock,
-        endUs: null
+        endUs: null,
+        ...(faultDomain ? { faultDomain } : {})
       })
     }
     this.recordSimulationEvent(event, this.createNodeSnapshot(event.nodeId))
@@ -1871,6 +1939,14 @@ export class SimulationEngine {
   }
 
   private handleNodeRecovery(event: SimulationEvent): void {
+    const holds = this.domainHoldsByNodeId.get(event.nodeId)
+    if (holds && holds.size > 0) {
+      const faultDomain = readFaultDomainRef(event.data.faultDomain)
+      if (faultDomain) holds.delete(faultDomain.id)
+      // Still inside a domain that is down (an overlapping region + zone
+      // outage, or a node-level recovery during a zone outage): stay failed.
+      if (holds.size > 0) return
+    }
     const node = this.nodes.get(event.nodeId)
     if (node) {
       const recovery = node.recover(this.clock)
@@ -2033,7 +2109,8 @@ export class SimulationEngine {
       componentId: w.componentId,
       mode: w.mode,
       startMs: microToMs(w.startUs),
-      endMs: microToMs(w.endUs ?? this.simulationDurationUs)
+      endMs: microToMs(w.endUs ?? this.simulationDurationUs),
+      ...(w.faultDomain ? { faultDomain: { ...w.faultDomain } } : {})
     }))
   }
 

@@ -1,7 +1,14 @@
 import { useMemo } from 'react'
 import type { SimulationOutput } from '../../../../engine/analysis/output'
 import type { CausalGraphNode } from '../../../../engine/analysis/output'
-import { buildCascadeTrees, cascadeEffectLabel, type CascadeRow } from './failureCascade'
+import {
+  buildCascadeTrees,
+  cascadeDomainCause,
+  cascadeEffectLabel,
+  summarizeDomainOutages,
+  type CascadeRow
+} from './failureCascade'
+import { describeFaultDomain } from '../../../../engine/core/faultDomains'
 import { useFocusNodeOnCanvas } from './useFocusNodeOnCanvas'
 
 const SECTION_TITLE = 'text-[11px] font-semibold text-nss-muted uppercase tracking-wider'
@@ -16,6 +23,10 @@ function fmtDuration(ms: number): string {
   if (ms === 0) return '0ms'
   if (ms < 1000) return `${ms.toFixed(ms < 10 ? 2 : 0)}ms`
   return `${(ms / 1000).toFixed(2)}s`
+}
+
+function sentenceCase(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1)
 }
 
 function plural(count: number, word: string): string {
@@ -62,6 +73,7 @@ export function FailureCascadePanel({ output }: { output: SimulationOutput }) {
   const focusNode = useFocusNodeOnCanvas()
   const graph = output.causalGraph
   const trees = useMemo(() => (graph ? buildCascadeTrees(graph) : []), [graph])
+  const outages = useMemo(() => (graph ? summarizeDomainOutages(graph) : []), [graph])
   const labelFor = (nodeId: string) => output.perNode[nodeId]?.nodeLabel ?? nodeId
   const failedRequests = output.summary.rejectedRequests + output.summary.timedOutRequests
 
@@ -125,6 +137,19 @@ export function FailureCascadePanel({ output }: { output: SimulationOutput }) {
         <h3 className={SECTION_TITLE}>
           {trees.length === 1 ? 'What broke first' : `${trees.length} independent failures`}
         </h3>
+        {outages.map((outage) => (
+          <div
+            key={outage.domain.id}
+            className="rounded-md border border-nss-danger/30 bg-nss-danger/10 px-3 py-2 text-xs text-nss-text"
+          >
+            <span className="font-semibold">
+              {sentenceCase(describeFaultDomain(outage.domain))}
+            </span>{' '}
+            went down at {fmtSimTime(outage.atMs)} and took{' '}
+            {plural(outage.nodeIds.length, 'component')} with it:{' '}
+            {outage.nodeIds.map(labelFor).join(', ')}.
+          </div>
+        ))}
         {trees.map((tree) => (
           <div key={tree.rootNodeId} className={`${SURFACE_CARD} overflow-hidden`}>
             {tree.rows.map((row) => {
@@ -167,6 +192,11 @@ export function FailureCascadePanel({ output }: { output: SimulationOutput }) {
                         </span>
                       )}
                     </div>
+                    {isRoot && cascadeDomainCause(row) && (
+                      <div className="mt-0.5 text-[11px] text-nss-danger">
+                        {cascadeDomainCause(row)}
+                      </div>
+                    )}
                     {summary && <div className="mt-0.5 text-[10px] text-nss-muted">{summary}</div>}
                   </div>
                   <SeverityBadge severity={row.severity} />
@@ -181,7 +211,8 @@ export function FailureCascadePanel({ output }: { output: SimulationOutput }) {
         <p>
           Inferred from timing and topology: a node is placed under a failing dependency it calls
           (directly or through nodes that did not fail) when its own failures started at or after
-          that dependency&apos;s. An injected fault is always a root cause.
+          that dependency&apos;s. An injected fault is always a root cause, and a Region / AZ /
+          Subnet outage is an injected fault on every component inside it.
         </p>
         {!hasPropagation && (
           <p>

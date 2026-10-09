@@ -669,11 +669,28 @@ export function SimulationControls({
                           onChange={(event) => patchFault({ targetId: event.target.value })}
                           className={CONTROL_BASE}
                         >
-                          {faultTargets.map((target) => (
-                            <option key={target.id} value={target.id}>
-                              {target.label}
-                            </option>
-                          ))}
+                          {(['component', 'location'] as const).map((group) => {
+                            const options = faultTargets.filter(
+                              (target) => (target.group ?? 'component') === group
+                            )
+                            if (options.length === 0) return null
+                            return (
+                              <optgroup
+                                key={group}
+                                label={
+                                  group === 'component'
+                                    ? 'Components'
+                                    : 'Fault domains (fail everything inside)'
+                                }
+                              >
+                                {options.map((target) => (
+                                  <option key={target.id} value={target.id}>
+                                    {target.label}
+                                  </option>
+                                ))}
+                              </optgroup>
+                            )
+                          })}
                         </select>
                       </Field>
                       <Field label="Mode">

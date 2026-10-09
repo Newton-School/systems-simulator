@@ -1,6 +1,6 @@
 /**
- * Built-in chaos experiment presets (#66): cache stampede, database failover and
- * traffic spike. Each is a function from a topology (plus optional overrides) to
+ * Built-in chaos experiment presets (#66): cache stampede, database failover,
+ * traffic spike and availability-zone outage. Each is a function from a topology (plus optional overrides) to
  * a ready-to-run {@link ChaosExperimentDefinition}. Targets are picked from the
  * topology when not given; when the topology lacks what a preset needs, it
  * throws {@link PresetUnavailableError} with a plain explanation.
@@ -9,7 +9,13 @@
  * for that experiment, so a pass or fail is never read as more than it is.
  */
 
-import type { ComponentNode, TopologyJSON } from '../core/types'
+import type { ComponentNode, TopologyJSON, TopologyLocation } from '../core/types'
+import {
+  describeFaultDomain,
+  faultDomainMemberIds,
+  faultDomainName,
+  findFaultDomain
+} from '../core/faultDomains'
 import { DATABASE_TYPES } from '../defaults/edgeDefaults'
 import { CACHE_COMPONENT_TYPES } from '../traits/cache'
 import { HEALTH_AWARE_COMPONENT_TYPES } from '../traits/healthAwareRouting'
@@ -22,7 +28,7 @@ export class PresetUnavailableError extends Error {
   }
 }
 
-export type ChaosPresetId = 'cache-stampede' | 'db-failover' | 'traffic-spike'
+export type ChaosPresetId = 'cache-stampede' | 'db-failover' | 'traffic-spike' | 'az-outage'
 
 /** Thresholds shared by all presets; defaults are typical web-service SLOs. */
 export interface SteadyStateOptions {
@@ -351,6 +357,139 @@ export function createTrafficSpikeExperiment(
   }
 }
 
+// ─── Availability-zone outage ────────────────────────────────────────────────
+
+export interface AzOutageOptions extends SteadyStateOptions {
+  /** The availability zone (location id) to take down. Default: the zone holding the most components. */
+  zoneId?: string
+  /** Error budget while the zone is down, as a fraction. Default 0.05 (5%). */
+  maxOutageErrorRate?: number
+  /** How long the zone stays down, in whole seconds. Default 10. */
+  outageSeconds?: number
+}
+
+/** Availability zones with at least one component inside, most-populated first. */
+export function azOutageCandidates(
+  topology: TopologyJSON
+): Array<{ zone: TopologyLocation; memberIds: string[] }> {
+  return (topology.locations ?? [])
+    .filter((location) => location.kind === 'availability-zone')
+    .map((zone) => ({ zone, memberIds: faultDomainMemberIds(topology, zone.id) }))
+    .filter((candidate) => candidate.memberIds.length > 0)
+    .sort((a, b) => b.memberIds.length - a.memberIds.length)
+}
+
+/**
+ * Who can take over for the failed zone: for every call from outside the zone
+ * into it, is the caller a health-aware router that also reaches a target
+ * outside the zone? Returns one plain sentence per call path that cannot.
+ */
+function uncoveredZoneEntries(topology: TopologyJSON, memberIds: Set<string>): string[] {
+  const problems: string[] = []
+  for (const edge of topology.edges) {
+    if (!memberIds.has(edge.target) || memberIds.has(edge.source)) continue
+    const caller = topology.nodes.find((node) => node.id === edge.source)
+    if (!caller) continue
+    const survivors = downstreamOf(topology, caller.id).filter((id) => !memberIds.has(id))
+    const callerName = labelOf(topology, caller.id)
+    const targetName = labelOf(topology, edge.target)
+    if (survivors.length === 0) {
+      problems.push(
+        `${callerName} sends to ${targetName} and has nothing outside the zone to send to instead.`
+      )
+    } else if (!HEALTH_AWARE.has(caller.type)) {
+      problems.push(
+        `${callerName} also reaches ${survivors.map((id) => labelOf(topology, id)).join(', ')}, but it is not a health-aware router, so it keeps sending part of its traffic to ${targetName}.`
+      )
+    }
+  }
+  return problems
+}
+
+export function createAzOutageExperiment(
+  topology: TopologyJSON,
+  options: AzOutageOptions = {}
+): ChaosExperimentDefinition {
+  let zone: TopologyLocation | undefined
+  let memberIds: string[]
+  if (options.zoneId) {
+    zone = findFaultDomain(topology, options.zoneId)
+    if (!zone) {
+      throw new PresetUnavailableError(`The zone "${options.zoneId}" is not in this topology.`)
+    }
+    memberIds = faultDomainMemberIds(topology, zone.id)
+    if (memberIds.length === 0) {
+      throw new PresetUnavailableError(
+        `${describeFaultDomain(zone)} has no components inside it, so there is nothing to fail.`
+      )
+    }
+  } else {
+    const best = azOutageCandidates(topology)[0]
+    if (!best) {
+      throw new PresetUnavailableError(
+        (topology.locations ?? []).some((location) => location.kind === 'availability-zone')
+          ? 'No availability zone has a component inside it (the traffic source does not count). Drag components into an Availability Zone container.'
+          : 'An AZ outage needs Availability Zone containers with components inside them. Add a Region with two Availability Zones and place a replica in each.'
+      )
+    }
+    zone = best.zone
+    memberIds = best.memberIds
+  }
+
+  const members = new Set(memberIds)
+  const zoneName = faultDomainName(zone)
+  const budget = options.maxOutageErrorRate ?? 0.05
+  const outageMs = Math.max(1, Math.round(options.outageSeconds ?? 10)) * 1_000
+  const problems = uncoveredZoneEntries(topology, members)
+  const entryNode = topology.workload?.sourceNodeId
+  const entryHops = entryNode ? downstreamOf(topology, entryNode) : []
+  const allEntriesInZone = entryHops.length > 0 && entryHops.every((id) => members.has(id))
+
+  const notes = [
+    `Fails every component placed inside ${describeFaultDomain(zone)} (${memberIds.map((id) => labelOf(topology, id)).join(', ')}) as silent dead servers for ${outageMs / 1000}s, then brings them back. Membership comes from where components sit in the Region / AZ / Subnet containers.`,
+    `To pass, every tier inside ${zoneName} needs a replica in another zone, behind a health-aware load balancer (load balancer, gateway, ingress or reverse proxy) that sits outside ${zoneName} and routes to both. The surviving zone then carries the whole load, so size it for that.`,
+    'Load balancers in the engine see a failed node at once; there is no detection delay unless a health-check manager is configured. Requests already inside the zone when it fails hang until their timeout.',
+    'Not modelled: a zone that is only partly degraded (slow or lossy rather than down), clients holding a cached DNS answer that still points at the failed zone (DNS failover re-routes on target health at once), and replication lag to another region. A zone outage here is all-or-nothing for the components inside it.'
+  ]
+  if (allEntriesInZone) {
+    notes.unshift(
+      `All traffic enters through ${zoneName}, so nothing can route around it - expect the during-outage check to fail.`
+    )
+  } else if (problems.length > 0) {
+    notes.unshift(...problems.map((problem) => `Expect errors: ${problem}`))
+  }
+
+  return {
+    id: 'az-outage',
+    name: 'AZ outage',
+    description: `Take down availability zone ${zoneName} and check the system stays within a ${Math.round(budget * 1000) / 10}% error budget.`,
+    warmupMs: 2_000,
+    baselineMs: 5_000,
+    steadyState: steadyState(options),
+    steps: [
+      {
+        type: 'inject',
+        fault: { targetId: zone.id, mode: 'blackhole', durationMs: outageMs },
+        label: `Fail ${zoneName}`
+      },
+      { type: 'wait', durationMs: outageMs, label: `Run without ${zoneName}` },
+      {
+        type: 'verify',
+        label: `Error rate stays within budget while ${zoneName} is down`,
+        windowMs: outageMs,
+        assertions: [
+          { metric: 'error_rate', operator: '<', value: budget },
+          { metric: 'throughput', operator: '>', value: 0, label: 'Requests are being served' }
+        ]
+      },
+      // Requests held by the failed zone are reset when it comes back; let that settle.
+      { type: 'wait', durationMs: 3_000, label: `Let ${zoneName} settle` }
+    ],
+    finalCheckMs: 5_000,
+    notes
+  }
+}
+
 // ─── Registry ────────────────────────────────────────────────────────────────
 
 export interface ChaosPresetDescriptor {
@@ -381,6 +520,14 @@ export const CHAOS_PRESETS: readonly ChaosPresetDescriptor[] = [
     summary: 'Multiply incoming traffic and check the system degrades gracefully and recovers.',
     build: (topology, options) =>
       createTrafficSpikeExperiment(topology, (options ?? {}) as TrafficSpikeOptions)
+  },
+  {
+    id: 'az-outage',
+    name: 'AZ outage',
+    summary:
+      'Take down every component in one availability zone and check the error rate stays within budget.',
+    build: (topology, options) =>
+      createAzOutageExperiment(topology, (options ?? {}) as AzOutageOptions)
   }
 ]
 

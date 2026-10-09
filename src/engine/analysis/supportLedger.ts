@@ -65,7 +65,7 @@ export const DOMAIN_SUPPORT_LEDGER: Record<QuestionDomain, SupportLedgerEntry> =
   resilience: {
     tier: 'guided',
     summary:
-      'Retries, circuit breakers, bulkheads, load shedding, health-aware routing, failure windows, deterministic replica promotion, and quorum availability are modeled, with physical consensus timing still simplified.',
+      'Retries, circuit breakers, bulkheads, load shedding, health-aware routing, failure windows, Region / AZ / Subnet outages (every component inside fails for the window), deterministic replica promotion, and quorum availability are modeled, with physical consensus timing still simplified.',
     simulates: [
       'retry backoff',
       'circuit breaker state',
@@ -73,10 +73,18 @@ export const DOMAIN_SUPPORT_LEDGER: Record<QuestionDomain, SupportLedgerEntry> =
       'load shedding',
       'health-aware routing',
       'status timelines',
+      'fault-domain outages (region / availability zone / subnet)',
       'replica failover',
       'quorum availability'
     ],
-    deferred: ['packet-level replication', 'real Raft election timing', 'Byzantine consensus']
+    deferred: [
+      'packet-level replication',
+      'real Raft election timing',
+      'Byzantine consensus',
+      'correlated partial degradation of a zone (slow or lossy rather than down)',
+      'partitions between zones that are both up',
+      'cross-region replication lag'
+    ]
   },
   correctness: {
     tier: 'guided',
