@@ -2,6 +2,8 @@ import { useEffect, useRef, useCallback } from 'react'
 import { Node, Edge, XYPosition, useReactFlow } from 'reactflow'
 import { useFlowStore } from './useFlowStore'
 import { isEditableShortcutTarget, isModalOpen } from '@renderer/config/keyboardShortcuts'
+import useStore from '@renderer/store/useStore'
+import { builderPolicyAdmissionBlock } from '@renderer/utils/builderPolicyContext'
 
 interface ClipboardNodeEntry {
   node: Node
@@ -151,6 +153,13 @@ export const useCopyPaste = ({ disabled = false }: { disabled?: boolean } = {}) 
         y: mousePosRef.current.y
       })
     )
+    // A pasted created node is a new definition: the question's builder policy
+    // (disallowed builders, max definitions, lock after first run) applies to it.
+    const policyBlock = builderPolicyAdmissionBlock(useStore.getState(), selection.nodes)
+    if (policyBlock) {
+      useStore.getState().setBuilderPolicyNotice(`Paste blocked: ${policyBlock}`)
+      return
+    }
     const nextNodes: Node[] = [
       ...currentNodes.map((node) => ({ ...node, selected: false })),
       ...selection.nodes

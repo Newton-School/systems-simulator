@@ -1,6 +1,7 @@
 import {
   lazy,
   Suspense,
+  useCallback,
   useEffect,
   useMemo,
   useState,
@@ -39,6 +40,11 @@ import type { AnyNodeData, EdgeSimulationData, NodeSimulationMetrics } from '@re
 import { useNodeMetrics } from '@renderer/hooks/useNodeMetrics'
 import type { CanvasNodeDataV2 } from '../../../../engine/catalog/nodeSpecTypes'
 import { applyDefinitionTraits } from '../../../../engine/catalog/customDefinitions'
+import {
+  DEFINITIONS_LOCKED_REASON,
+  definitionFieldLockReason
+} from '../../../../engine/analysis/builderPolicy'
+import { useBuilderPolicy } from '@renderer/hooks/useBuilderPolicy'
 import { reconcileContractWithGraph } from '../../../../engine/catalog/contractReconciliation'
 import { BROADCAST_FANOUT_COMPONENT_TYPES } from '../../../../engine/traits/broadcastFanout'
 import type { ComponentType } from '../../../../engine/core/types'
@@ -1420,6 +1426,26 @@ export const PropertiesPanel = ({ results = null }: { results?: SimulationOutput
   const selectedNode = nodes.find((node) => node.selected)
   const selectedEdge = edges.find((edge) => edge.selected)
   const selectedNodeId = selectedNode?.id
+  const builderPolicy = useBuilderPolicy()
+  // Builder policy applies to learner-created definitions; scaffold nodes are the author's.
+  const builderPolicyApplies =
+    builderPolicy.restrictive &&
+    selectedNodeId !== undefined &&
+    !scaffoldNodeIds.includes(selectedNodeId)
+  const definitionLockedReason =
+    builderPolicyApplies && builderPolicy.locked ? DEFINITIONS_LOCKED_REASON : undefined
+  const lockedFieldReason = useCallback(
+    (path: string): string | null => {
+      if (!builderPolicyApplies || !selectedNode) return null
+      return definitionFieldLockReason(
+        builderPolicy.policy,
+        (selectedNode.data ?? {}) as Record<string, unknown>,
+        path,
+        builderPolicy.locked
+      )
+    },
+    [builderPolicy, builderPolicyApplies, selectedNode]
+  )
 
   // Advisory contract ⇄ graph reconciliation for the selected custom-definition node
   // (spec §21). Feedback only — never affects grading.
@@ -1682,6 +1708,10 @@ export const PropertiesPanel = ({ results = null }: { results?: SimulationOutput
                 <CustomDefinitionSection
                   definition={data.customDefinition}
                   contractFindings={contractFindings}
+                  lockedReason={definitionLockedReason}
+                  maxOperations={
+                    builderPolicyApplies ? builderPolicy.policy.maxOperationsPerService : null
+                  }
                   onChange={(customDefinition) => {
                     // Keep the stored definition and live sim.* in sync (honesty
                     // contract §0.2 rule 4): re-project runtime traits whenever the
@@ -1703,6 +1733,7 @@ export const PropertiesPanel = ({ results = null }: { results?: SimulationOutput
                 data={data}
                 onUpdate={handleUpdate}
                 resourcesLocked={!canEditResources}
+                lockedFieldReason={lockedFieldReason}
                 executionProfileEnabled={canEditExecutionProfile}
               />
             </>

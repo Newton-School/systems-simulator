@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { BuilderPolicyIssues } from './BuilderPolicyIssues'
 import useStore from '@renderer/store/useStore'
 import { useTopologySerializer } from '@renderer/hooks/useTopologySerializer'
 import { useQuestionGrader } from '@renderer/hooks/useQuestionGrader'
@@ -776,6 +777,7 @@ export const QuestionPanel = () => {
       </header>
 
       <div className="flex-1 space-y-5 overflow-y-auto custom-scrollbar p-4">
+        <BuilderPolicyIssues />
         {authoringWarning && (
           <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-[11px] leading-relaxed text-amber-700 dark:text-amber-300">
             <p className="font-semibold">Preview — grading not configured yet</p>

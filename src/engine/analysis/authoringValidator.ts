@@ -15,6 +15,12 @@ import type { QuestionPackage } from './question'
 import type { QuestionDomain } from './gradingCriteria'
 import { inferRubricCheckKind } from './rubric'
 import {
+  allowedRuntimeTemplatesFor,
+  isBuilderPolicyRestrictive,
+  resolveBuilderPolicy
+} from './builderPolicy'
+import { RUNTIME_TEMPLATES } from '../catalog/customDefinitions'
+import {
   INVARIANT_RUBRIC_METRICS,
   NFR_METRIC_TO_RUBRIC_METRIC,
   SIMULATION_RUBRIC_METRICS
@@ -408,8 +414,79 @@ function validateEntryFormat(pkg: QuestionPackage, out: AuthoringDiagnostic[]): 
   }
 }
 
+/**
+ * Builder policy coherence (advisory): settings that silently cancel each other
+ * out, so the author sees why a builder tile will be disabled for learners.
+ */
+function validateBuilderPolicy(pkg: QuestionPackage, out: AuthoringDiagnostic[]): void {
+  if (!isBuilderPolicyRestrictive(pkg.builderPolicy)) return
+  const policy = resolveBuilderPolicy(pkg.builderPolicy)
+  const path = 'builderPolicy'
+  if (policy.allowServiceBuilder && allowedRuntimeTemplatesFor(policy, 'service').length === 0) {
+    out.push(
+      warn(
+        'builderPolicy.serviceBuilderUnusable',
+        'The Service builder is allowed, but no service runtime survives allowedRuntimeTemplates / allowedNodeClasses, so learners will see it disabled.',
+        path
+      )
+    )
+  }
+  if (
+    policy.allowCustomNodeBuilder &&
+    allowedRuntimeTemplatesFor(policy, 'custom-node').length === 0
+  ) {
+    out.push(
+      warn(
+        'builderPolicy.customNodeBuilderUnusable',
+        'The Custom Node builder is allowed, but no custom node runtime survives allowedRuntimeTemplates / allowedNodeClasses, so learners will see it disabled.',
+        path
+      )
+    )
+  }
+  if (policy.allowedRuntimeTemplates && policy.allowedNodeClasses) {
+    const unreachable = policy.allowedRuntimeTemplates.filter(
+      (id) => !policy.allowedNodeClasses!.includes(RUNTIME_TEMPLATES[id].nodeClass)
+    )
+    if (unreachable.length > 0) {
+      out.push(
+        warn(
+          'builderPolicy.runtimeClassConflict',
+          `allowedRuntimeTemplates lists ${unreachable.join(', ')}, whose node class is not in allowedNodeClasses, so they can never be chosen.`,
+          `${path}.allowedRuntimeTemplates`
+        )
+      )
+    }
+  }
+  if (
+    policy.maxDefinitions === 0 &&
+    (policy.allowServiceBuilder || policy.allowCustomNodeBuilder)
+  ) {
+    out.push(
+      warn(
+        'builderPolicy.zeroDefinitions',
+        'maxDefinitions is 0, so no builder can create anything; turn the builders off instead to make the intent explicit.',
+        `${path}.maxDefinitions`
+      )
+    )
+  }
+  if (
+    (pkg.constraints.allowedNodeTypes?.length ?? 0) > 0 &&
+    (policy.allowServiceBuilder || policy.allowCustomNodeBuilder)
+  ) {
+    out.push(
+      warn(
+        'builderPolicy.hiddenByAllowlist',
+        'constraints.allowedNodeTypes turns the palette into a curated list that hides the builder tiles, so the builder permissions in builderPolicy have no effect for learners.',
+        path
+      )
+    )
+  }
+}
+
 export function validateAuthoredQuestion(pkg: QuestionPackage): AuthoringDiagnostic[] {
   const out: AuthoringDiagnostic[] = []
+
+  validateBuilderPolicy(pkg, out)
 
   validateDomains(pkg, out)
   validateConcepts(pkg, out)

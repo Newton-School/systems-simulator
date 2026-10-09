@@ -36,6 +36,12 @@ import {
   loadDisplaySettings,
   persistDisplaySettings
 } from '@renderer/utils/displaySettingsPersistence'
+import { builderPolicyContext } from '@renderer/utils/builderPolicyContext'
+import {
+  admitDefinitions,
+  definitionEditBlockReason,
+  definitionEntriesFromCanvasNodes
+} from '../../../engine/analysis/builderPolicy'
 
 /**
  * A scaffold node's edit/removal permissions come from the intersection of the
@@ -1247,6 +1253,15 @@ type RFState = {
   setAuthoringWarning: (message: string | null) => void
   attemptState: AttemptState | null
   setAttemptState: (attempt: AttemptState | null) => void
+  /**
+   * Simulation runs started for the active question in this session. Feeds the
+   * builder policy's lockDefinitionsAfterFirstRun (with the attempt's test runs).
+   */
+  questionRunCount: number
+  recordQuestionRun: () => void
+  /** Why the last node add / edit was refused by the question's builder policy. */
+  builderPolicyNotice: string | null
+  setBuilderPolicyNotice: (message: string | null) => void
   /** Newton host save compatibility mode for the active question. */
   newtonSaveMode: NewtonSaveMode | null
   setNewtonSaveMode: (mode: NewtonSaveMode | null) => void
@@ -1377,6 +1392,8 @@ const useStore = create<RFState>((set, get) => ({
   hostLaunchErrorMessage: null,
   authoringWarning: null,
   attemptState: null,
+  questionRunCount: 0,
+  builderPolicyNotice: null,
   newtonSaveMode: null,
   justificationAnswers: {},
   questionLoadRequest: null,
@@ -1596,6 +1613,22 @@ const useStore = create<RFState>((set, get) => ({
     if (get().attemptState?.status === 'LOCKED') {
       return
     }
+    // The builder policy is enforced here too, so no UI path (builder, My
+    // Services, a future quick-add) can add a definition the question forbids.
+    const policyContext = builderPolicyContext(get())
+    if (policyContext.restrictive) {
+      const incoming = definitionEntriesFromCanvasNodes([node])
+      const admission = admitDefinitions(
+        policyContext.policy,
+        policyContext.entries,
+        incoming,
+        policyContext.locked
+      )
+      if (admission.ok === false) {
+        set({ builderPolicyNotice: admission.reason })
+        return
+      }
+    }
     const currentNodes = get().nodes
     let newId = node.id
 
@@ -1760,6 +1793,20 @@ const useStore = create<RFState>((set, get) => ({
         !hasRecordPatchChanges(existingNode.data as Record<string, unknown> | undefined, typedPatch)
       ) {
         return {}
+      }
+
+      const policyContext = builderPolicyContext(state)
+      if (policyContext.restrictive && !state.scaffoldNodeIds.includes(nodeId)) {
+        const before = (existingNode.data ?? {}) as Record<string, unknown>
+        const blocked = definitionEditBlockReason(
+          policyContext.policy,
+          before,
+          { ...before, ...typedPatch },
+          policyContext.locked
+        )
+        if (blocked) {
+          return { builderPolicyNotice: blocked }
+        }
       }
 
       const nextNode = {
@@ -2029,8 +2076,13 @@ const useStore = create<RFState>((set, get) => ({
   setUnsaved: (isUnsaved) => set({ isUnsaved }),
   setScenario: (scenario) => set({ scenario }),
   setActiveQuestion: (activeQuestion) =>
-    set({
+    set((state) => ({
       activeQuestion,
+      questionRunCount:
+        activeQuestion && activeQuestion.id === state.activeQuestion?.id
+          ? state.questionRunCount
+          : 0,
+      builderPolicyNotice: null,
       // A node's scaffold provenance is canonical: its id is in the authored
       // scaffold topology, independent of what a resumed attempt loaded.
       scaffoldNodeIds:
@@ -2041,7 +2093,10 @@ const useStore = create<RFState>((set, get) => ({
         activeQuestion && activeQuestion.scaffold.type !== 'empty'
           ? activeQuestion.scaffold.topology.edges.map((edge) => edge.id)
           : []
-    }),
+    })),
+  recordQuestionRun: () =>
+    set((state) => (state.activeQuestion ? { questionRunCount: state.questionRunCount + 1 } : {})),
+  setBuilderPolicyNotice: (builderPolicyNotice) => set({ builderPolicyNotice }),
   setActiveQuestionPromptHtml: (activeQuestionPromptHtml) => set({ activeQuestionPromptHtml }),
   setHostLaunchErrorMessage: (hostLaunchErrorMessage) => set({ hostLaunchErrorMessage }),
   setAuthoringWarning: (authoringWarning) => set({ authoringWarning }),

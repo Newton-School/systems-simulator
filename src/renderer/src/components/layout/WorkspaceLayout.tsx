@@ -87,6 +87,7 @@ import {
 import { ErrorBoundary } from '../ui/ErrorBoundary'
 import { ResizeHandle } from '../ui/ResizeHandle'
 import { RunToast } from '../ui/RunToast'
+import { builderPolicyViolations } from '@renderer/utils/builderPolicyContext'
 import { TerminalDock, type BottomDockTab } from '../terminal/TerminalDock'
 import { trackSavedTopologyBaseline } from '../terminal/terminalStore'
 import { RoutingVisualizationToast } from '../ui/RoutingVisualizationToast'
@@ -369,6 +370,8 @@ export const WorkspaceLayout = () => {
   const selectGraphElements = useStore((s) => s.selectGraphElements)
   const activeQuestion = useStore((s) => s.activeQuestion)
   const attemptState = useStore((s) => s.attemptState)
+  const builderPolicyNotice = useStore((s) => s.builderPolicyNotice)
+  const setBuilderPolicyNotice = useStore((s) => s.setBuilderPolicyNotice)
   const environmentProfile = useStore((s) => s.environmentProfile)
   const setActiveQuestion = useStore((s) => s.setActiveQuestion)
   const setActiveQuestionPromptHtml = useStore((s) => s.setActiveQuestionPromptHtml)
@@ -1059,7 +1062,13 @@ export const WorkspaceLayout = () => {
       setLastExperimentPlan(null)
     }
 
-    setRunIssues({ messages: validation.warnings ?? [], tone: 'warning' })
+    // Builder policy findings never block a run (grading reports them as a failed
+    // constraint); they surface here as warnings with the fix.
+    const policyWarnings = builderPolicyViolations(useStore.getState()).map(
+      (violation) => `Question policy: ${violation.message} Fix: ${violation.fix}`
+    )
+    setRunIssues({ messages: [...policyWarnings, ...(validation.warnings ?? [])], tone: 'warning' })
+    useStore.getState().recordQuestionRun()
     setShowResults(displaySettings.autoOpenSimulationTray)
     setLastRunContext(contextForRun)
     clearSimulationMetrics()
@@ -1645,6 +1654,15 @@ export const WorkspaceLayout = () => {
             evaluationPassed: latestVisibleQuestionGrade?.contract.allPassed ?? false,
             testRunCount: attemptState?.testRunCount ?? 0
           }}
+        />
+      )}
+
+      {builderPolicyNotice && (
+        <RunToast
+          messages={[builderPolicyNotice]}
+          tone="warning"
+          title="Question policy"
+          onClose={() => setBuilderPolicyNotice(null)}
         />
       )}
 

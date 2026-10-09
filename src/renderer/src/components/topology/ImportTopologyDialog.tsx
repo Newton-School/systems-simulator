@@ -8,6 +8,8 @@ import {
   parseJsonText,
   type TopologyImportSuccess
 } from '@renderer/utils/topologyDeserializer'
+import useStore from '@renderer/store/useStore'
+import { builderPolicyViolations } from '@renderer/utils/builderPolicyContext'
 
 interface ImportTopologyDialogProps {
   onClose: () => void
@@ -22,7 +24,18 @@ interface ImportTopologyDialogProps {
 type Outcome =
   | { kind: 'idle' }
   | { kind: 'error'; title: string; errors: ValidationError[] }
-  | { kind: 'imported'; result: TopologyImportSuccess }
+  | { kind: 'imported'; result?: TopologyImportSuccess; policyIssues: string[] }
+
+/**
+ * The active question's builder-policy findings for what was just loaded. An
+ * imported design that breaks the policy is kept as-is (nothing is deleted); the
+ * findings are listed with their fix and the grade reports them.
+ */
+function currentPolicyIssues(): string[] {
+  return builderPolicyViolations(useStore.getState()).map(
+    (violation) => `${violation.message} Fix: ${violation.fix}`
+  )
+}
 
 function isCanvasFile(value: unknown): boolean {
   return (
@@ -74,7 +87,13 @@ export function ImportTopologyDialog({ onClose, onImport }: ImportTopologyDialog
       setBusy(true)
       const loaded = await onImport(parsed.value as object, name)
       setBusy(false)
-      if (loaded) onClose()
+      if (!loaded) return
+      const policyIssues = currentPolicyIssues()
+      if (policyIssues.length === 0) {
+        onClose()
+        return
+      }
+      setOutcome({ kind: 'imported', policyIssues })
       return
     }
 
@@ -88,11 +107,17 @@ export function ImportTopologyDialog({ onClose, onImport }: ImportTopologyDialog
     const loaded = await onImport(result.canvas, name)
     setBusy(false)
     if (!loaded) return
-    if (result.problems.length === 0 && result.warnings.length === 0 && !result.autoLaidOut) {
+    const policyIssues = currentPolicyIssues()
+    if (
+      result.problems.length === 0 &&
+      result.warnings.length === 0 &&
+      !result.autoLaidOut &&
+      policyIssues.length === 0
+    ) {
       onClose()
       return
     }
-    setOutcome({ kind: 'imported', result })
+    setOutcome({ kind: 'imported', result, policyIssues })
   }
 
   const handleFile = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -152,7 +177,11 @@ export function ImportTopologyDialog({ onClose, onImport }: ImportTopologyDialog
         </header>
 
         {outcome.kind === 'imported' ? (
-          <ImportSummary result={outcome.result} onClose={onClose} />
+          <ImportSummary
+            result={outcome.result}
+            policyIssues={outcome.policyIssues}
+            onClose={onClose}
+          />
         ) : (
           <div className="custom-scrollbar flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-5">
             <div className="flex flex-wrap items-center gap-2">
@@ -226,9 +255,11 @@ export function ImportTopologyDialog({ onClose, onImport }: ImportTopologyDialog
 
 function ImportSummary({
   result,
+  policyIssues,
   onClose
 }: {
-  result: TopologyImportSuccess
+  result?: TopologyImportSuccess
+  policyIssues: string[]
   onClose: () => void
 }) {
   return (
@@ -236,19 +267,32 @@ function ImportSummary({
       <div className="flex items-start gap-2 rounded-md border border-nss-success/30 bg-nss-success/10 px-3 py-2 text-xs">
         <CheckCircle2 size={15} className="mt-0.5 shrink-0 text-nss-success" />
         <span>
-          Imported {result.nodesImported} component{result.nodesImported === 1 ? '' : 's'} and{' '}
-          {result.edgesImported} connection{result.edgesImported === 1 ? '' : 's'}
-          {result.autoLaidOut ? '. The document had no positions, so it was laid out.' : '.'}
+          {result ? (
+            <>
+              Imported {result.nodesImported} component{result.nodesImported === 1 ? '' : 's'} and{' '}
+              {result.edgesImported} connection{result.edgesImported === 1 ? '' : 's'}
+              {result.autoLaidOut ? '. The document had no positions, so it was laid out.' : '.'}
+            </>
+          ) : (
+            'Imported the design file.'
+          )}
         </span>
       </div>
-      {result.problems.length > 0 ? (
+      {policyIssues.length > 0 ? (
+        <IssueList
+          tone="error"
+          title="Breaks this question's builder policy (kept on the canvas; grading will fail it)"
+          messages={policyIssues}
+        />
+      ) : null}
+      {result && result.problems.length > 0 ? (
         <IssueList
           tone="error"
           title="Fix these before running"
           messages={result.problems.map((problem) => problem.message)}
         />
       ) : null}
-      {result.warnings.length > 0 ? (
+      {result && result.warnings.length > 0 ? (
         <IssueList tone="warning" title="Warnings" messages={result.warnings} />
       ) : null}
       <div className="flex justify-end">

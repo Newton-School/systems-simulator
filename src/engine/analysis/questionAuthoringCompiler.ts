@@ -4,6 +4,7 @@ import {
   type CompiledNewtonQuestionRows,
   type NewtonQuestionRowsSeed
 } from './newtonQuestionRows'
+import { normalizeBuilderPolicy } from './builderPolicy'
 import { compileAuthoringMetricRule } from './questionAuthoringMetricRules'
 import { compileAuthoringNfr } from './questionAuthoringNfr'
 import {
@@ -321,6 +322,9 @@ function buildQuestionPackage(project: QuestionAuthoringProject): QuestionPackag
         }
       : { type: 'empty' },
     constraints: setup.constraints,
+    ...(normalizeBuilderPolicy(setup.builderPolicy)
+      ? { builderPolicy: normalizeBuilderPolicy(setup.builderPolicy) }
+      : {}),
     ...(structuralRules.length > 0 ? { structuralRules } : {}),
     ...(semanticCriteria.length > 0 ? { semanticCriteria } : {}),
     ...(question.justify.length > 0 ? { justify: question.justify } : {}),
