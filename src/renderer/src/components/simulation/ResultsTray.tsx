@@ -1,4 +1,5 @@
 import { Fragment, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { consistencyLevel } from './consistencyHealth'
 import type { ButtonHTMLAttributes, CSSProperties, HTMLAttributes } from 'react'
 import { clsx } from 'clsx'
 import {
@@ -4054,16 +4055,6 @@ function ComponentDrilldown({
 
 type ConsistencyReport = NonNullable<SimulationOutput['consistency']>
 
-function consistencyLevel(report: ConsistencyReport): HealthLevel {
-  const lin = report.linearizability
-  return report.staleReads > 0 ||
-    report.readYourWritesViolations > 0 ||
-    report.monotonicReadViolations > 0 ||
-    lin.keysViolating > 0
-    ? 'warnings'
-    : 'healthy'
-}
-
 function ConsistencyHealthCheck({ report }: { report: ConsistencyReport }) {
   const lin = report.linearizability
   const level = consistencyLevel(report)
@@ -4084,8 +4075,10 @@ function ConsistencyHealthCheck({ report }: { report: ConsistencyReport }) {
     <CollapsibleCheck
       title={
         level === 'healthy'
-          ? 'Read consistency: no stale reads or violations'
-          : `Read consistency: ${report.staleReads.toLocaleString()} stale read${report.staleReads !== 1 ? 's' : ''}`
+          ? report.staleReads > 0
+            ? `Read consistency: ${report.staleReads.toLocaleString()} stale read${report.staleReads !== 1 ? 's' : ''}, within the configured model`
+            : 'Read consistency: no stale reads or violations'
+          : `Read consistency: the configured guarantee was broken (${report.staleReads.toLocaleString()} stale read${report.staleReads !== 1 ? 's' : ''})`
       }
       level={level}
       tooltip="Datastores with a consistency model track a version per request key. A stale read returned an older version than the leader had committed when the read arrived. Read-your-writes and monotonic-read violations need client sessions on the source. The linearizability check runs a single-key register checker over a bounded per-key history."
