@@ -284,6 +284,31 @@ export const TRAIT_SUPPORT_LEDGER = {
     summary:
       'A utilization-target control loop resizes instance count every cooldown, bounded by min and max.'
   },
+  'scheduler.cluster': {
+    tier: 'guided',
+    summary:
+      'Opt-in on a Kubernetes Cluster node whose instances are its worker machines. Workloads that name it in sim.scheduledOn run as pods requesting their instance type (vCPU and RAM); pods are bin-packed (spread or bin-pack scoring) and a pod that fits nowhere stays pending and serves nothing, so capacity follows cluster size and fragmentation. Autoscaler scale-ups become pending pods when the cluster is full; pods start after a pod-startup delay; a machine failure drops its pods at once and replacements appear only after detection + eviction (Kubernetes default 340s) and need room; optional cluster autoscaling boots machines after a delay. Time-weighted ready replicas, pending pods, allocation and measured recovery time are reported. Requests vs limits, system-reserved overhead, affinity/taints/preemption, scale-down of machines and control-plane limits are not modeled; in-flight requests on a lost pod drain rather than reset.'
+  },
+  'scheduler.workload': {
+    tier: 'guided',
+    summary:
+      'A scheduled workload serves with its ready pods only; with none ready it refuses requests (no_ready_replicas). Billed as the cluster machines, not per pod.'
+  },
+  'observability.telemetry-sink': {
+    tier: 'guided',
+    summary:
+      'Opt-in fire-and-forget ingest on log/metric/trace collectors (sim.telemetryAsyncIngest): events past an events/s ceiling or a full collector buffer are dropped and counted (telemetryDropped) instead of failing as requests, and head sampling keeps unexported events off the collector. Dropped events do not count as processed. Exporter batching, tail sampling, retention and query cost are not modeled.'
+  },
+  'stream.change-ordering': {
+    tier: 'guided',
+    summary:
+      'Opt-in on a partitioned Event Stream (sim.changeStreamOrdering): change events are numbered per entity in receive order and a consumer applying an older change after a newer one is counted (changeOrderViolations). Violations come from concurrent processing of one entity: parallel consumers, or a partition key that is not the entity key. consumerOrdering per-partition / per-key holds later deliveries until the earlier one finishes, removing violations at a measured throughput cost. CDC capture lag from the database log, producer-side reordering and version-checked writes are not modeled.'
+  },
+  'realtime.persistent-connection-fanout': {
+    tier: 'guided',
+    summary:
+      'Node side of held connections (the edge connection model already covers per-edge reuse, handshakes and WebSocket persistence; fanoutFactor covers N downstream writes). A gateway that declares offered connections holds up to maxConnectionsPerInstance x instances and as many as fit in RAM (memPerConnectionKb), refusing the rest; held connections pin RAM before request admission and keepalive heartbeats take cores before request work and count in CPU utilization. pushRecipients makes each message a write to that many sockets as on-core work that stretches under contention; recipients whose connection was refused are counted undeliverable. Connect/reconnect storms, slow-consumer send buffers and inter-gateway routing are not modeled.'
+  },
   'control.rate-limiter': {
     tier: 'first-class',
     summary:
@@ -437,7 +462,12 @@ export const CONCEPT_SUPPORT_LEDGER = {
   'message-ordering': {
     tier: 'guided',
     summary:
-      'Per-partition stream ordering is modeled for broker delivery and replay; global cross-partition ordering is not guaranteed.'
+      'Per-partition stream ordering is modeled for broker delivery and replay; global cross-partition ordering is not guaranteed. With change ordering on, out-of-order applies per entity are counted and per-partition / per-key ordered consumption is available.'
+  },
+  'cluster-scheduling': {
+    tier: 'guided',
+    summary:
+      'Bin-packing replicas onto a finite machine pool is measurable: pending pods add no capacity, scale-ups stall on a full cluster, and machine failures show detection, eviction and restart time.'
   },
   quorum: {
     tier: 'guided',

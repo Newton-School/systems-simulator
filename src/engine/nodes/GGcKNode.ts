@@ -1,7 +1,9 @@
 import { createEvent, Request, RequestSpan } from '../core/events'
 import {
   readServiceTimeDistributionOverride,
-  readServiceTimeLatencyPenaltyMs
+  readServiceTimeCpuWorkMs,
+  readServiceTimeLatencyPenaltyMs,
+  SERVICE_TIME_CPU_WORK_MS_KEY
 } from '../traits/serviceTimeOverride'
 import {
   ComponentNode,
@@ -52,6 +54,14 @@ export class GGcKNode {
   // denominator is the capacity-time integral, not a single final worker count.
   private maxWorkers: number
   private maxCapacity: number
+  /**
+   * The ceilings a resize asked for. `maxWorkers` / `maxCapacity` may sit above
+   * them while in-flight work drains (a resize never evicts running requests);
+   * each completion steps them back down until they reach the target, so a
+   * scale-down actually takes effect instead of freezing at the old size.
+   */
+  private targetWorkers: number
+  private targetCapacity: number
   /** How `maxWorkers` was derived (e.g. "effective c = 3 × 8 = 24") — for inline UI provenance. */
   readonly concurrencyProvenance: string = ''
   /** Rejection reason when the node is at K: 'oom' if RAM-bound, else 'capacity_exceeded'. */
@@ -70,6 +80,19 @@ export class GGcKNode {
    */
   private readonly cpuBoundFraction: number = 0
   private physicalCoreCapacity: number = 1
+  /**
+   * CPU share above the node's fraction carried by in-service requests that do
+   * extra on-core work (push fan-out writes). Exactly 0 when no request has
+   * any, so the CPU integrals are unchanged for every other node.
+   */
+  private extraCpuShare = 0
+  /**
+   * Cores kept busy by background work that is not a request (keepalive
+   * heartbeats on held connections). Already taken out of `physicalCores`, so
+   * it is added back to both sides of the CPU-utilization integral. 0 otherwise.
+   */
+  private readonly backgroundCores: number = 0
+  private readonly extraCpuShareById = new Map<string, number>()
   private readonly serviceDistribution: DistributionConfig
   private readonly discipline: 'fifo' | 'lifo' | 'priority' | 'wfq'
 
@@ -156,6 +179,7 @@ export class GGcKNode {
       effectiveK: capacity,
       provenance,
       admissionBoundBy,
+      heldConnections,
       physicalCores,
       cpuBoundFraction
     } = deriveNodeConcurrency(config)
@@ -181,11 +205,14 @@ export class GGcKNode {
     this.id = config.id
     this.maxWorkers = workers
     this.maxCapacity = capacity
+    this.targetWorkers = workers
+    this.targetCapacity = capacity
     this.concurrencyProvenance = provenance
     this.capacityRejectReason = admissionBoundBy === 'ram' ? 'oom' : 'capacity_exceeded'
     this.serviceMultiplier = serviceTimeMultiplier(config)
     this.cpuBoundFraction = cpuBoundFraction
     this.physicalCoreCapacity = physicalCores
+    this.backgroundCores = heldConnections?.heartbeatCores ?? 0
     this.discipline = discipline
     this.wfqWeights = config.queue.weights ?? {}
     this.serviceDistribution = config.processing?.distribution ?? { type: 'constant', value: 10 }
@@ -264,6 +291,7 @@ export class GGcKNode {
     if (this.activeWorkers > 0) {
       this.activeWorkers--
     }
+    this.drainTowardTarget()
 
     const startTime = this.startTimes.get(request.id) ?? currentTime
     const arrivalTime = this.arrivalTimes.get(request.id) ?? startTime
@@ -284,13 +312,14 @@ export class GGcKNode {
     this.arrivalTimes.delete(request.id)
     this.startTimes.delete(request.id)
     this.inServiceRequests.delete(request.id)
+    this.dropExtraCpuShare(request.id)
 
     if (this.status === 'failed') {
       return { nextRequest: null, completedSpan }
     }
 
     let nextRequest: Request | null = null
-    if (this.queue.length > 0) {
+    if (this.queue.length > 0 && this.activeWorkers < this.maxWorkers) {
       const dequeued = this.dequeue()
       if (dequeued) {
         this.startProcessing(dequeued, currentTime)
@@ -323,6 +352,7 @@ export class GGcKNode {
     if (hangIndex >= 0) {
       this.heldHang.splice(hangIndex, 1) // frees a K slot via inSystem()
       this.arrivalTimes.delete(requestId)
+      this.drainTowardTarget()
       this.updateStatus()
       return { arrivalTime, nextRequest: null }
     }
@@ -334,6 +364,8 @@ export class GGcKNode {
       this.arrivalTimes.delete(requestId)
       this.startTimes.delete(requestId)
       this.inServiceRequests.delete(requestId)
+      this.dropExtraCpuShare(requestId)
+      this.drainTowardTarget()
       this.updateStatus()
       return { arrivalTime, nextRequest: null }
     }
@@ -346,9 +378,15 @@ export class GGcKNode {
       this.arrivalTimes.delete(requestId)
       this.startTimes.delete(requestId)
       this.inServiceRequests.delete(requestId)
+      this.dropExtraCpuShare(requestId)
+      this.drainTowardTarget()
 
       let nextRequest: Request | null = null
-      if (this.status !== 'failed' && this.queue.length > 0) {
+      if (
+        this.status !== 'failed' &&
+        this.queue.length > 0 &&
+        this.activeWorkers < this.maxWorkers
+      ) {
         nextRequest = this.dequeue() ?? null
         if (nextRequest) {
           this.startProcessing(nextRequest, currentTime)
@@ -397,6 +435,7 @@ export class GGcKNode {
       this.wfqFinishTags.clear()
       this.startTimes.clear()
       this.inServiceRequests.clear()
+      this.clearExtraCpuShare()
       this.activeWorkers = 0
       for (const reset of connectionResets) {
         this.arrivalTimes.delete(reset.request.id)
@@ -423,6 +462,7 @@ export class GGcKNode {
     this.wfqFinishTags.clear()
     this.startTimes.clear()
     this.inServiceRequests.clear()
+    this.clearExtraCpuShare()
     this.activeWorkers = 0
     this.heldHang = held.map((entry) => entry.request)
 
@@ -510,6 +550,7 @@ export class GGcKNode {
       utilization: this.instantUtilization(),
       totalInSystem: this.inSystem(),
       workerCapacity: this.maxWorkers,
+      systemCapacity: this.maxCapacity,
       meanServiceTimeMs:
         this.metrics.totalCompleted > 0
           ? Number(this.metrics.totalServiceTime) / 1000 / this.metrics.totalCompleted
@@ -524,7 +565,8 @@ export class GGcKNode {
       return Math.min(1, workerUtil)
     }
     const cores = this.physicalCores()
-    const cpuUtil = Math.min(this.activeWorkers * this.cpuBoundFraction, cores) / cores
+    const cpuUtil =
+      (Math.min(this.cpuDemand(), cores) + this.backgroundCores) / (cores + this.backgroundCores)
     return Math.min(1, cpuUtil)
   }
 
@@ -548,10 +590,27 @@ export class GGcKNode {
     if (this.cpuBoundFraction > 0) {
       const cores = this.physicalCores()
       const dtN = Number(dt)
-      this.cpuBusyAreaUs += Math.min(this.activeWorkers * this.cpuBoundFraction, cores) * dtN
-      this.coreAreaUs += cores * dtN
+      this.cpuBusyAreaUs += (Math.min(this.cpuDemand(), cores) + this.backgroundCores) * dtN
+      this.coreAreaUs += (cores + this.backgroundCores) * dtN
     }
     this.lastAccrualUs = now
+  }
+
+  /** Cores the in-service requests want right now (CPU tier only). */
+  private cpuDemand(): number {
+    return this.activeWorkers * this.cpuBoundFraction + this.extraCpuShare
+  }
+
+  private dropExtraCpuShare(requestId: string): void {
+    const extra = this.extraCpuShareById.get(requestId)
+    if (extra === undefined) return
+    this.extraCpuShareById.delete(requestId)
+    this.extraCpuShare = this.extraCpuShareById.size === 0 ? 0 : this.extraCpuShare - extra
+  }
+
+  private clearExtraCpuShare(): void {
+    this.extraCpuShareById.clear()
+    this.extraCpuShare = 0
   }
 
   /** Physical cores backing the node now, independently of graceful worker drain. */
@@ -573,8 +632,8 @@ export class GGcKNode {
       const dtN = Number(dt)
       return {
         busyAreaUs:
-          this.cpuBusyAreaUs + Math.min(this.activeWorkers * this.cpuBoundFraction, cores) * dtN,
-        capacityAreaUs: this.coreAreaUs + cores * dtN
+          this.cpuBusyAreaUs + (Math.min(this.cpuDemand(), cores) + this.backgroundCores) * dtN,
+        capacityAreaUs: this.coreAreaUs + (cores + this.backgroundCores) * dtN
       }
     }
     return {
@@ -650,8 +709,12 @@ export class GGcKNode {
     if (physicalCores !== undefined && this.cpuBoundFraction > 0) {
       this.physicalCoreCapacity = Math.max(1, physicalCores)
     }
-    this.maxWorkers = Math.max(1, Math.round(effectiveC), this.activeWorkers)
-    this.maxCapacity = Math.max(1, Math.round(effectiveK), this.inSystem())
+    // A zero target is allowed (every replica gone, e.g. no pod could be
+    // scheduled): the node then holds no workers until a later resize.
+    this.targetWorkers = Math.max(0, Math.round(effectiveC))
+    this.targetCapacity = Math.max(1, Math.round(effectiveK), this.targetWorkers)
+    this.maxWorkers = Math.max(this.targetWorkers, this.activeWorkers)
+    this.maxCapacity = Math.max(this.targetCapacity, this.inSystem())
 
     const started: Request[] = []
     while (this.activeWorkers < this.maxWorkers && this.queue.length > 0) {
@@ -725,9 +788,30 @@ export class GGcKNode {
     // and when demand ≤ cores (light load, and all cpu-bound nodes where c = cores).
     if (this.cpuBoundFraction > 0) {
       const f = this.cpuBoundFraction
-      const cpuDemand = this.activeWorkers * f
+      const cpuDemand = this.cpuDemand()
       const cpuSlowdown = Math.max(1, cpuDemand / this.physicalCores())
       computeTimeMs = computeTimeMs * (1 - f + f * cpuSlowdown)
+    }
+
+    // Trait-added on-core work (push fan-out writes) contends for the same cores:
+    // stretched by core demand, where this request's CPU share is at least the
+    // node's fraction. Legacy nodes have one core per worker, so it never stretches.
+    const cpuWorkMs = readServiceTimeCpuWorkMs(request)
+    // Consumed here: the work belongs to this node only, not to later hops.
+    if (cpuWorkMs > 0) {
+      delete request.metadata[SERVICE_TIME_CPU_WORK_MS_KEY]
+      if (this.cpuBoundFraction > 0) {
+        // This request's CPU share over its whole service: the node's fraction
+        // of its base work plus all of the extra work.
+        const base = Math.max(0, rawServiceTimeMs) * this.serviceMultiplier
+        const f = this.cpuBoundFraction
+        const extra = Math.max(0, (f * base + cpuWorkMs) / (base + cpuWorkMs) - f)
+        if (extra > 0) {
+          this.extraCpuShareById.set(request.id, extra)
+          this.extraCpuShare += extra
+        }
+      }
+      computeTimeMs += cpuWorkMs * Math.max(1, this.cpuDemand() / this.physicalCores())
     }
 
     // The additive latency penalty (geo/external/crypto traits) is external wait,
@@ -812,6 +896,20 @@ export class GGcKNode {
         const _exhaustive: never = this.discipline
         throw new Error(`Unknown queue discipline: ${_exhaustive}`)
       }
+    }
+  }
+
+  /**
+   * After a scale-down the ceilings stay at the in-use level so running work is
+   * not evicted; as each request finishes, lower them toward the resize target.
+   * A node that was never resized has target == ceiling, so this is a no-op.
+   */
+  private drainTowardTarget(): void {
+    if (this.maxWorkers > this.targetWorkers) {
+      this.maxWorkers = Math.max(this.targetWorkers, this.activeWorkers)
+    }
+    if (this.maxCapacity > this.targetCapacity) {
+      this.maxCapacity = Math.max(this.targetCapacity, this.inSystem())
     }
   }
 

@@ -18,6 +18,7 @@
 import { getInstanceCount, type ComponentNode, type TopologyJSON } from '../core/types'
 import { INSTANCE_CATALOG, pricingMultiplier } from '../catalog/instanceCatalog'
 import { getResourceDefaults, type CostModel } from '../catalog/resourceDefaults'
+import { resolveScheduledCluster } from '../traits/scheduler'
 
 export interface NodeCostLineItem {
   id: string
@@ -191,6 +192,21 @@ export function topologyCost(topology: TopologyJSON, run?: CostRunContext): Topo
         priced: false,
         isEstimate: false,
         formula: 'not billable (traffic source)'
+      }
+    }
+
+    // Pods on a cluster are paid for as the cluster's machines, not again here.
+    const cluster = resolveScheduledCluster(topology, node)
+    if (cluster && cluster.id !== node.id) {
+      return {
+        id: node.id,
+        label: node.label ?? node.id,
+        kind: node.type,
+        costPerHour: 0,
+        basis,
+        priced: true,
+        isEstimate: false,
+        formula: `pods on ${cluster.label || cluster.id} (billed as its machines)`
       }
     }
 

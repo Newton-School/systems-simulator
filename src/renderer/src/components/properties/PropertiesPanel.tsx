@@ -52,7 +52,11 @@ import {
   deriveDisplayThroughputCapacity,
   formatCapacityRps
 } from '@renderer/utils/nodeThroughputCapacity'
-import { NodeMetricsDetail, SourceNodeMetricsDetail } from './NodeMetricsDetail'
+import {
+  type ClusterSchedulingView,
+  NodeMetricsDetail,
+  SourceNodeMetricsDetail
+} from './NodeMetricsDetail'
 import { MetricItem } from './MetricItem'
 import type { EdgePropertiesPanelValue } from '../ui/EdgePropertiesPanel'
 import { TooltipInfo } from '../ui/Tooltip'
@@ -1377,6 +1381,19 @@ function EdgeMetricsDetail({
   )
 }
 
+/** The cluster-scheduling result for a cluster node, or for a workload scheduled on one. */
+function findClusterScheduling(
+  results: SimulationOutput | null,
+  nodeId: string
+): ClusterSchedulingView | undefined {
+  for (const cluster of results?.clusterProjection ?? []) {
+    if (cluster.clusterId === nodeId) return { kind: 'cluster', cluster }
+    const workload = cluster.workloads.find((entry) => entry.nodeId === nodeId)
+    if (workload) return { kind: 'workload', cluster, workload }
+  }
+  return undefined
+}
+
 export const PropertiesPanel = ({ results = null }: { results?: SimulationOutput | null }) => {
   const nodes = useStore((state) => state.nodes)
   const edges = useStore((state) => state.edges)
@@ -1629,6 +1646,7 @@ export const PropertiesPanel = ({ results = null }: { results?: SimulationOutput
                 configuredCacheHitRate={data.sim?.cacheHitRate}
                 downstreamSplit={downstreamSplit}
                 isBroadcastFanout={isBroadcastFanout}
+                clusterScheduling={findClusterScheduling(results, selectedNode.id)}
               />
             )
           ) : (

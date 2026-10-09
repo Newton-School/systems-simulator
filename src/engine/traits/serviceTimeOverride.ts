@@ -10,6 +10,12 @@ import type { Request } from '../core/events'
  */
 export const SERVICE_TIME_DISTRIBUTION_OVERRIDE_KEY = 'serviceTimeDistributionOverride'
 export const SERVICE_TIME_LATENCY_PENALTY_MS_KEY = 'serviceTimeLatencyPenaltyMs'
+/**
+ * Extra on-core work a trait adds to one request (e.g. writing a pushed message
+ * to every held connection). Unlike the latency penalty (external wait), this
+ * work runs on the node's CPU, so it stretches under core contention.
+ */
+export const SERVICE_TIME_CPU_WORK_MS_KEY = 'serviceTimeCpuWorkMs'
 
 const KNOWN_DISTRIBUTION_TYPES = new Set([
   'constant',
@@ -44,5 +50,10 @@ export function readServiceTimeDistributionOverride(request: Request): Distribut
 
 export function readServiceTimeLatencyPenaltyMs(request: Request): number {
   const raw = request.metadata?.[SERVICE_TIME_LATENCY_PENALTY_MS_KEY]
+  return typeof raw === 'number' && Number.isFinite(raw) && raw > 0 ? raw : 0
+}
+
+export function readServiceTimeCpuWorkMs(request: Request): number {
+  const raw = request.metadata?.[SERVICE_TIME_CPU_WORK_MS_KEY]
   return typeof raw === 'number' && Number.isFinite(raw) && raw > 0 ? raw : 0
 }

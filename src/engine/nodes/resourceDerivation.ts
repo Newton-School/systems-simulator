@@ -20,6 +20,7 @@
 import { getInstanceCount, type ComponentNode, type WorkloadKind } from '../core/types'
 import { getResourceDefaults } from '../catalog/resourceDefaults'
 import { INSTANCE_CATALOG } from '../catalog/instanceCatalog'
+import { deriveHeldConnectionLoad, type HeldConnectionLoad } from './heldConnections'
 
 /** Truly-parallel servers per vCPU for cpu-bound work (one core, one worker). */
 export const CPU_WORKERS_PER_VCPU = 1
@@ -127,6 +128,12 @@ export interface DerivedConcurrency {
   admissionBoundBy: 'ram' | 'backlog'
   /** Human-readable derivation for inline UI provenance. */
   provenance: string
+  /**
+   * Held persistent connections (persistentConnFanout), when the node declares
+   * them: their RAM is taken before request admission and their heartbeats
+   * take cores before request concurrency. Absent otherwise.
+   */
+  heldConnections?: HeldConnectionLoad
 }
 
 /** Whether a node uses the AWS instance-family resource model (vs legacy/none). */
@@ -179,6 +186,32 @@ export function deriveNodeConcurrency(config: ComponentNode): DerivedConcurrency
   const effectiveK = Math.max(effectiveC, memCeiling)
 
   const kindNote = workloadKind === 'io-bound' ? ` × ${perVcpu} io` : ''
+
+  const held = deriveHeldConnectionLoad(config.config, {
+    instanceCount,
+    vcpuPerInstance: spec.vcpu,
+    ramGbPerInstance: spec.ramGb
+  })
+  if (held) {
+    // Connections pin RAM first and heartbeats take cores first; requests get
+    // what is left. K may fall below the request concurrency here, so c is
+    // capped by K instead of K being raised to c.
+    const requestRamMb = Math.max(0, totalRamMb - held.connectionRamMb)
+    const heldK = Math.max(1, Math.floor(requestRamMb / perRequestMemMb))
+    const heldC = Math.max(1, Math.min(heldK, Math.floor(effectiveC * held.coreShare)))
+    const heldCores = Math.max(0.05, spec.vcpu * instanceCount * held.coreShare)
+    return {
+      effectiveC: heldC,
+      effectiveK: Math.max(heldC, heldK),
+      workersPerInstance,
+      physicalCores: heldCores,
+      cpuBoundFraction,
+      admissionBoundBy: 'ram',
+      provenance: `${instanceCount} × ${instanceType} (${spec.vcpu * instanceCount} vCPU${kindNote}) · ${held.held} held connections (${Math.round(held.connectionRamMb)} MB, ${held.heartbeatCores.toFixed(2)} cores on heartbeats) → c ${heldC} · K ${Math.max(heldC, heldK)} (RAM)`,
+      heldConnections: held
+    }
+  }
+
   const provenance = `${instanceCount} × ${instanceType} (${spec.vcpu * instanceCount} vCPU${kindNote}) → c ${effectiveC} · K ${effectiveK} (RAM)`
 
   return {

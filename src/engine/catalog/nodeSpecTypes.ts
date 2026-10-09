@@ -221,6 +221,44 @@ export interface NodeSimulationConfig {
   workingSetPenaltyMs?: number
   gcPressureStartRatio?: number
   gcPauseMs?: number
+  /** Scheduler (workload): the Kubernetes Cluster node (id or label) these replicas run on as pods. */
+  scheduledOn?: string
+  /** Scheduler (cluster): pod placement scoring. */
+  placementStrategy?: 'spread' | 'bin-pack'
+  /** Scheduler (cluster): placed pod to ready (ms). */
+  podStartupMs?: number
+  /** Scheduler (cluster): failed-machine detection + pod eviction delay (ms). */
+  rescheduleDelayMs?: number
+  /** Scheduler (cluster): cluster autoscaler ceiling on machines. */
+  clusterMaxMachines?: number
+  /** Scheduler (cluster): new machine boot + join time (ms). */
+  machineProvisionMs?: number
+  /** Scheduler (cluster): deterministic machine failure time (ms). */
+  machineFailureAtMs?: number
+  /** Scheduler (cluster): how many machines fail. */
+  machineFailureCount?: number
+  /** Scheduler (cluster): failed machines come back at this time (ms). */
+  machineRecoveryAtMs?: number
+  /** Telemetry sink: fire-and-forget ingest (drops, never back-pressure or caller errors). */
+  telemetryAsyncIngest?: boolean
+  /** Telemetry sink: ingest ceiling (events/s) before events are dropped. */
+  telemetryIngestRps?: number
+  /** Telemetry sink: head-sampling fraction of events exported (0-1). */
+  telemetrySampleRate?: number
+  /** Change stream: stamp per-key change order and count out-of-order applies. */
+  changeStreamOrdering?: boolean
+  /** Change stream: request metadata field naming the changed entity (default: the request key). */
+  changeKeyField?: string
+  /** Change stream: how consumers take deliveries (parallel, one at a time per partition, or per key). */
+  consumerOrdering?: 'parallel' | 'per-partition' | 'per-key'
+  /** Held connections: memory each open connection pins (KB). */
+  memPerConnectionKb?: number
+  /** Held connections: CPU cost of one keepalive / heartbeat (ms). */
+  heartbeatCostMs?: number
+  /** Push fan-out: connected recipients each message is written to. */
+  pushRecipients?: number
+  /** Push fan-out: CPU time to write one message to one connection (ms). */
+  pushSendMs?: number
   slo?: SLOConfig
 }
 

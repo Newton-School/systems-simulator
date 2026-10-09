@@ -30,6 +30,7 @@ import { findCloudRegion } from '../catalog/locationCatalog'
 import { describeFaultDomain, faultDomainMemberIds } from '../core/faultDomains'
 import { CACHE_FLUSH_FAULT_TYPE } from '../traits/cache'
 import { globalFieldLabel, nodeFieldLabel } from './fieldLabels'
+import { isSchedulingCluster, validateTraitConfig } from './traitConfigValidation'
 import { describeZodIssue, edgeSubjectFor, locationKindPhrase, withSubjects } from './issueMessages'
 import {
   instanceCountWithinMax,
@@ -1725,6 +1726,8 @@ export const validateTopology = (
     }
   })
 
+  validateTraitConfig(topology, errors)
+
   topology.nodes.forEach((node, index) => {
     node.dependencies?.optional?.forEach((depId, depIndex) => {
       if (!nodeIds.has(depId)) {
@@ -1858,7 +1861,8 @@ export const validateTopology = (
       )
     }
 
-    if (!visited.has(node.id)) {
+    // A cluster that workloads are scheduled onto is capacity, not a traffic hop.
+    if (!visited.has(node.id) && !isSchedulingCluster(topology, node.id)) {
       warnings.push(
         `${nodeLabel}: Not reachable from any source, so it will receive no traffic. Connect it to the rest of the design or remove it.`
       )
