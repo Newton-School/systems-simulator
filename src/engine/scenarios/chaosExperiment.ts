@@ -35,6 +35,7 @@ import type { LatencyWindowPoint } from '../metrics'
 import type { SimulationOutput } from '../analysis/output'
 import { runSimulation } from '../runSimulation'
 import { CACHE_FLUSH_FAULT_TYPE } from '../traits/cache'
+import { describeFaultDomain, faultDomainMemberIds, findFaultDomain } from '../core/faultDomains'
 import type {
   AssertionResult,
   ChaosExperimentDefinition,
@@ -453,8 +454,6 @@ export function compileExperiment(
   const referenced = [
     ...definition.steadyState.map((a) => a.nodeId),
     ...definition.steps.flatMap((step) => {
-      if (step.type === 'inject') return [step.fault.targetId]
-      if (step.type === 'restore') return [step.targetId]
       if (step.type === 'verify') return step.assertions.map((a) => a.nodeId)
       return []
     })
@@ -462,6 +461,30 @@ export function compileExperiment(
   for (const id of new Set(referenced)) {
     if (!nodeIds.has(id))
       issues.push(`The experiment refers to "${id}", which is not in this topology.`)
+  }
+  // Fault targets may also be a Region / AZ / Subnet location (a fault domain).
+  const faultTargets = definition.steps.flatMap((step) => {
+    if (step.type === 'inject')
+      return [{ id: step.fault.targetId, flush: step.fault.kind === 'cache-flush' }]
+    if (step.type === 'restore') return [{ id: step.targetId, flush: false }]
+    return []
+  })
+  const reportedTargets = new Set<string>()
+  for (const target of faultTargets) {
+    if (nodeIds.has(target.id) || reportedTargets.has(target.id)) continue
+    const domain = findFaultDomain(topology, target.id)
+    if (!domain) {
+      reportedTargets.add(target.id)
+      issues.push(`The experiment refers to "${target.id}", which is not in this topology.`)
+    } else if (target.flush) {
+      reportedTargets.add(target.id)
+      issues.push(`A cache flush targets one cache, not ${describeFaultDomain(domain)}.`)
+    } else if (faultDomainMemberIds(topology, domain.id).length === 0) {
+      reportedTargets.add(target.id)
+      notes.push(
+        `${describeFaultDomain(domain)} has no components inside it, so failing it changes nothing.`
+      )
+    }
   }
 
   const warmupMs = definition.warmupMs

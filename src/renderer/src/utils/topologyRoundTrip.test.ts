@@ -158,3 +158,32 @@ describe('TopologyJSON round-trip: question-bank topologies', () => {
     expect(byId(second)).toEqual(byId(first))
   })
 })
+
+describe('TopologyJSON round-trip: fault-domain faults', () => {
+  const multiAz = Object.entries(SAMPLE_CANVASES).find(([path]) =>
+    path.endsWith('multi-az-auto-latency.json')
+  )?.[1] as NestedFileData
+
+  const zoneFault = (targetId: string) => ({
+    targetId,
+    faultType: 'chaos',
+    timing: 'deterministic' as const,
+    duration: 'fixed' as const,
+    params: { atMs: 5_000, durationMs: 10_000, mode: 'blackhole' }
+  })
+
+  it('exports a fault on an availability-zone container and keeps it through import', () => {
+    const canvas = structuredClone(multiAz)
+    canvas.scenario = { ...canvas.scenario, faults: [zoneFault('az-b'), zoneFault('gone-az')] }
+    const first = exportCanvas(canvas)
+    // The unknown container is dropped, as a fault on a missing node is.
+    expect(first.faults).toEqual([zoneFault('az-b')])
+    expect(first.locations?.some((location) => location.id === 'az-b')).toBe(true)
+    const second = exportCanvas(importTopology(first))
+    expect(byId(second)).toEqual(byId(first))
+  })
+
+  it('leaves exports without a container fault unchanged', () => {
+    expect(exportCanvas(structuredClone(multiAz)).faults).toBeUndefined()
+  })
+})

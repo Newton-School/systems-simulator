@@ -112,11 +112,12 @@ describe('traffic spike preset', () => {
 })
 
 describe('preset registry', () => {
-  it('lists the three presets and reports unavailability as a reason, not an exception', () => {
+  it('lists the four presets and reports unavailability as a reason, not an exception', () => {
     expect(CHAOS_PRESETS.map((p) => p.id)).toEqual([
       'cache-stampede',
       'db-failover',
-      'traffic-spike'
+      'traffic-spike',
+      'az-outage'
     ])
     const missing = tryBuildPreset(apiDbTopology(), 'db-failover')
     expect(missing).toEqual({ ok: false, reason: expect.stringMatching(/needs a replica/) })

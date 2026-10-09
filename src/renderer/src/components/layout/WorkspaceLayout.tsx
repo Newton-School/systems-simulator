@@ -2,6 +2,7 @@ import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } fro
 import { Panel, PanelGroup, ImperativePanelHandle } from 'react-resizable-panels'
 
 // Store
+import { buildFaultTargetOptions } from '@renderer/utils/faultTargets'
 import useStore, { type EdgeFlowState } from '@renderer/store/useStore'
 
 // Hooks
@@ -1405,19 +1406,9 @@ export const WorkspaceLayout = () => {
       }
     })
 
-  // Non-source components can be targeted with an injected fault.
-  const faultTargets: FaultTargetOption[] = nodes
-    .filter((node) => {
-      const data = node.data as CanvasNodeDataV2
-      return data.profile !== 'source' && data.structuralRole !== 'composite'
-    })
-    .map((node) => {
-      const data = node.data as CanvasNodeDataV2
-      return {
-        id: node.id,
-        label: data.label && data.label.trim().length > 0 ? `${data.label} (${node.id})` : node.id
-      }
-    })
+  // Non-source components, and Region / AZ / Subnet containers (a fault domain),
+  // can be targeted with an injected fault.
+  const faultTargets: FaultTargetOption[] = buildFaultTargetOptions(nodes)
 
   const libraryContent = (
     <LibrarySidebarContent

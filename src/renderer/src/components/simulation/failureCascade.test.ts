@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import type { CausalGraph } from '../../../../engine/analysis/output'
-import { buildCascadeTrees, cascadeEffectLabel } from './failureCascade'
+import {
+  buildCascadeTrees,
+  cascadeDomainCause,
+  cascadeEffectLabel,
+  summarizeDomainOutages
+} from './failureCascade'
 
 const graph: CausalGraph = {
   rootCauses: [
@@ -60,5 +65,46 @@ describe('cascadeEffectLabel', () => {
     expect(cascadeEffectLabel('hang')).toBe('fault: hung (accepts, never answers)')
     expect(cascadeEffectLabel('timeout_cascade')).toBe('timeouts')
     expect(cascadeEffectLabel('rate_limited')).toBe('rate limited')
+  })
+})
+
+describe('fault-domain attribution', () => {
+  const zone = {
+    id: 'az-b',
+    label: 'AZ B',
+    kind: 'availability-zone' as const,
+    providerCode: 'us-east-1a'
+  }
+  const zoneGraph: CausalGraph = {
+    rootCauses: [
+      { nodeId: 'api-b', event: 'blackhole', time: 5_000, faultDomain: zone },
+      { nodeId: 'db-b', event: 'blackhole', time: 5_000, faultDomain: zone },
+      { nodeId: 'cache', event: 'hang', time: 2_000 }
+    ],
+    propagation: [],
+    impactSummary: { totalNodesAffected: 3, cascadeDepth: 0, timeToFullCascade: 3_000 },
+    nodes: [
+      {
+        nodeId: 'api-b',
+        severity: 'failed',
+        firstAffectedMs: 5_000,
+        faultMode: 'blackhole',
+        faultDomain: zone,
+        rejected: 0,
+        timedOut: 4,
+        circuitOpens: 0,
+        dominantReason: null
+      }
+    ]
+  }
+
+  it('names the domain on its roots and groups them into one outage', () => {
+    const row = buildCascadeTrees(zoneGraph).find((tree) => tree.rootNodeId === 'api-b')!.rows[0]
+    expect(cascadeDomainCause(row)).toBe(
+      'failed because availability zone AZ B (us-east-1a) was down'
+    )
+    expect(summarizeDomainOutages(zoneGraph)).toEqual([
+      { domain: zone, atMs: 5_000, nodeIds: ['api-b', 'db-b'] }
+    ])
   })
 })

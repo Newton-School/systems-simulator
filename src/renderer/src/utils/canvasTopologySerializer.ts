@@ -612,9 +612,11 @@ export function serializeCanvasToTopology(
     .filter((edge): edge is EdgeDefinition => edge !== null)
     .map((edge) => (connectorMode ? neutralizeConnectorEdge(edge) : edge))
 
-  // Only forward faults that target a serializable node in this topology.
-  const faults = (resolvedScenario.faults ?? []).filter((fault) =>
-    serializedNodeIds.has(fault.targetId)
+  // Only forward faults that target a serializable node, or a Region / AZ /
+  // Subnet container (a fault domain: the engine fails everything inside it).
+  const locationIds = new Set(locations.map((location) => location.id))
+  const faults = (resolvedScenario.faults ?? []).filter(
+    (fault) => serializedNodeIds.has(fault.targetId) || locationIds.has(fault.targetId)
   )
 
   const meta = resolvedScenario.topologyMeta

@@ -1,5 +1,6 @@
 import type { AppendEventInput } from '../core/event-stream'
 import type { CausalGraph, CausalGraphNode } from './output'
+import { readFaultDomainRef, type FaultDomainRef } from '../core/faultDomains'
 
 /**
  * Failure-cascade inference for the results tray's Failures tab.
@@ -26,6 +27,8 @@ export interface NodeFailureObservation {
   /** First injected node / broker fault (ms). */
   faultAtMs: number | null
   faultMode: string | null
+  /** The Region / AZ / Subnet outage behind the first fault, if it came from one. */
+  faultDomain?: FaultDomainRef | null
   /** First failure signal of any kind (ms). */
   firstSignalAtMs: number | null
   counts: Record<FailureSignalKind, number>
@@ -89,7 +92,8 @@ export class CausalGraphRecorder {
             input.type === 'broker-failed'
               ? 'broker_failed'
               : (readFaultMode(input.payload) ?? 'node_failed'),
-            timestampToMs(input.timestampUs)
+            timestampToMs(input.timestampUs),
+            input.type === 'node-failed' ? readFaultDomainRef(input.payload?.['faultDomain']) : null
           )
         }
         return
@@ -123,11 +127,17 @@ export class CausalGraphRecorder {
     }
   }
 
-  recordFault(nodeId: string, mode: string, atMs: number): void {
+  recordFault(
+    nodeId: string,
+    mode: string,
+    atMs: number,
+    faultDomain: FaultDomainRef | null = null
+  ): void {
     const entry = this.ensure(nodeId)
     if (entry.faultAtMs === null || atMs < entry.faultAtMs) {
       entry.faultAtMs = atMs
       entry.faultMode = mode
+      entry.faultDomain = faultDomain
     }
   }
 
@@ -262,7 +272,12 @@ export function buildCausalGraph(
     const at = affectedAtMs(entry)
     const parent = entry.faultAtMs !== null ? null : findFailingDependency(entry.nodeId, at)
     if (parent === null) {
-      rootCauses.push({ nodeId: entry.nodeId, event: rootEventLabel(entry), time: at })
+      rootCauses.push({
+        nodeId: entry.nodeId,
+        event: rootEventLabel(entry),
+        time: at,
+        ...(entry.faultDomain ? { faultDomain: { ...entry.faultDomain } } : {})
+      })
       depthById.set(entry.nodeId, 0)
     } else {
       propagation.push({
@@ -281,6 +296,7 @@ export function buildCausalGraph(
       severity: entry.faultAtMs !== null ? 'failed' : 'degraded',
       firstAffectedMs: at,
       faultMode: entry.faultMode,
+      ...(entry.faultDomain ? { faultDomain: { ...entry.faultDomain } } : {}),
       rejected: entry.counts.rejected,
       timedOut: entry.counts.timeout,
       circuitOpens: entry.counts['circuit-open'],

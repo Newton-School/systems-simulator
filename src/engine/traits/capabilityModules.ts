@@ -388,7 +388,7 @@ const COMPOSITE_LOCATION_MODULE: NodeCapabilityModule = {
       {
         id: 'location',
         title: 'Location',
-        note: 'A placement boundary, not a queueing node. Region provider/code and containment are serialized and continue to feed renderer-side location rollups. Auto-derived edges use distance-aware latency when both endpoints are placed; an explicit edge latency always wins.',
+        note: 'A placement boundary, not a queueing node. Region provider/code and containment are serialized and continue to feed renderer-side location rollups. Auto-derived edges use distance-aware latency when both endpoints are placed; an explicit edge latency always wins. It is also a fault domain: inject a failure on it (run settings, or the AZ outage experiment) to fail everything inside.',
         noteTone: 'info',
         fields: [
           {
@@ -468,8 +468,19 @@ const COMPOSITE_LOCATION_MODULE: NodeCapabilityModule = {
   },
   defaults: [],
   honesty: {
-    simulates: ['provider region placement', 'distance-aware auto edge latency'],
-    notModeled: ['automatic fault-domain failure', 'IP/CIDR routing and validation']
+    simulates: [
+      'provider region placement',
+      'distance-aware auto edge latency',
+      'fault-domain outage: a fault on this container fails every component inside it for the window'
+    ],
+    notModeled: [
+      'outages that start on their own (a container fails only when a fault targets it)',
+      'correlated partial degradation (a zone that is slow or lossy rather than down)',
+      'network partitions between zones that are both up',
+      'clients caching a DNS answer that points at a failed region',
+      'cross-region replication lag',
+      'IP/CIDR routing and validation'
+    ]
   }
 }
 
