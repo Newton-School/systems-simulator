@@ -3,19 +3,19 @@
   "nodes": [
     {
       "id": "region-east",
-      "type": "containerNode",
+      "type": "vpcNode",
       "position": {
         "x": 60,
         "y": 80
       },
-      "width": 914,
-      "height": 480,
+      "width": 860,
+      "height": 470,
       "data": {
         "schemaVersion": 2,
         "templateId": "vpc-region",
         "structuralRole": "composite",
         "profile": "composite",
-        "rendererType": "containerNode",
+        "rendererType": "vpcNode",
         "label": "US East Region",
         "subLabel": "Isolated Network",
         "iconKey": "cloud",
@@ -28,26 +28,26 @@
       "selected": false,
       "dragging": false,
       "style": {
-        "width": 914,
-        "height": 480
+        "width": 860,
+        "height": 470
       },
       "resizing": false,
       "nodes": [
         {
           "id": "az-a",
-          "type": "containerNode",
+          "type": "vpcNode",
           "position": {
-            "x": 31,
+            "x": 40,
             "y": 80
           },
-          "width": 349,
-          "height": 368,
+          "width": 340,
+          "height": 362,
           "data": {
             "schemaVersion": 2,
             "templateId": "availability-zone",
             "structuralRole": "composite",
             "profile": "composite",
-            "rendererType": "containerNode",
+            "rendererType": "vpcNode",
             "label": "AZ A",
             "subLabel": "Fault Domain",
             "iconKey": "az",
@@ -61,26 +61,26 @@
           "selected": false,
           "dragging": false,
           "style": {
-            "width": 349,
-            "height": 368
+            "width": 340,
+            "height": 362
           },
           "resizing": false,
           "nodes": [
             {
               "id": "subnet-a",
-              "type": "containerNode",
+              "type": "vpcNode",
               "position": {
                 "x": 20,
                 "y": 64
               },
               "width": 300,
-              "height": 278,
+              "height": 268,
               "data": {
                 "schemaVersion": 2,
                 "templateId": "subnet",
                 "structuralRole": "composite",
                 "profile": "composite",
-                "rendererType": "containerNode",
+                "rendererType": "vpcNode",
                 "label": "Private Subnet A",
                 "subLabel": "Network Partition",
                 "iconKey": "subnet",
@@ -95,16 +95,16 @@
               "dragging": false,
               "style": {
                 "width": 300,
-                "height": 278
+                "height": 268
               },
               "resizing": false,
               "nodes": [
                 {
                   "id": "orders-web",
-                  "type": "standardNode",
+                  "type": "serviceNode",
                   "position": {
-                    "x": 22.617880856482543,
-                    "y": 92.37417002311071
+                    "x": 23,
+                    "y": 94
                   },
                   "data": {
                     "schemaVersion": 2,
@@ -112,7 +112,7 @@
                     "componentType": "api-endpoint",
                     "structuralRole": "source",
                     "profile": "source",
-                    "rendererType": "standardNode",
+                    "rendererType": "serviceNode",
                     "label": "Orders Web",
                     "subLabel": "Regional Frontend",
                     "iconKey": "monitor",
@@ -151,8 +151,8 @@
                   "width": 256,
                   "height": 117,
                   "positionAbsolute": {
-                    "x": 133.61788085648254,
-                    "y": 316.3741700231107
+                    "x": 143,
+                    "y": 318
                   },
                   "dragging": false,
                   "nodes": []
@@ -163,19 +163,19 @@
         },
         {
           "id": "az-b",
-          "type": "containerNode",
+          "type": "vpcNode",
           "position": {
             "x": 480,
             "y": 80
           },
-          "width": 401,
-          "height": 368,
+          "width": 363,
+          "height": 373,
           "data": {
             "schemaVersion": 2,
             "templateId": "availability-zone",
             "structuralRole": "composite",
             "profile": "composite",
-            "rendererType": "containerNode",
+            "rendererType": "vpcNode",
             "label": "AZ B",
             "subLabel": "Fault Domain",
             "iconKey": "az",
@@ -189,26 +189,26 @@
           "selected": false,
           "dragging": false,
           "style": {
-            "width": 401,
-            "height": 368
+            "width": 363,
+            "height": 373
           },
           "resizing": false,
           "nodes": [
             {
               "id": "subnet-b",
-              "type": "containerNode",
+              "type": "vpcNode",
               "position": {
                 "x": 20,
                 "y": 64
               },
-              "width": 356,
-              "height": 276,
+              "width": 318,
+              "height": 284,
               "data": {
                 "schemaVersion": 2,
                 "templateId": "subnet",
                 "structuralRole": "composite",
                 "profile": "composite",
-                "rendererType": "containerNode",
+                "rendererType": "vpcNode",
                 "label": "Private Subnet B",
                 "subLabel": "Network Partition",
                 "iconKey": "subnet",
@@ -222,17 +222,17 @@
               "selected": false,
               "dragging": false,
               "style": {
-                "width": 356,
-                "height": 276
+                "width": 318,
+                "height": 284
               },
               "resizing": false,
               "nodes": [
                 {
                   "id": "orders-api",
-                  "type": "saturationNode",
+                  "type": "computeNode",
                   "position": {
-                    "x": 42.585429722209255,
-                    "y": 93.75628916662816
+                    "x": 28,
+                    "y": 93
                   },
                   "data": {
                     "schemaVersion": 2,
@@ -240,7 +240,7 @@
                     "componentType": "microservice",
                     "structuralRole": "processor",
                     "profile": "compute-service",
-                    "rendererType": "saturationNode",
+                    "rendererType": "computeNode",
                     "label": "Orders API",
                     "subLabel": "AZ B Worker Pool",
                     "iconKey": "SERVER",
@@ -266,8 +266,8 @@
                   "width": 274,
                   "height": 116,
                   "positionAbsolute": {
-                    "x": 602.5854297222093,
-                    "y": 317.75628916662816
+                    "x": 588,
+                    "y": 317
                   },
                   "dragging": false,
                   "nodes": []

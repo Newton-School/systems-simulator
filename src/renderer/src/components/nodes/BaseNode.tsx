@@ -20,7 +20,7 @@ interface BaseNodeProps {
   healthStatus?: NodeHealthStatus
   /**
    * Fully overrides the computed container className when provided.
-   * Use this for node types with unique container styling (e.g. ComputeNode's
+   * Use this for node types with unique container styling (e.g. SaturationNode's
    * overload pulse), while still inheriting handles and context menu state.
    */
   containerClassName?: string

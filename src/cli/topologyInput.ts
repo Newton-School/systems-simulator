@@ -44,7 +44,7 @@ export function loadTopologyFile(filePath: string): TopologyLoadResult {
   return { status: 'ok', topology: validation.data, warnings: validation.warnings ?? [] }
 }
 
-/** Canvas files carry React Flow nodes (`type: 'serviceNode'`, config under `data`). */
+/** Canvas files carry React Flow nodes (`type: 'standardNode'`, config under `data`). */
 function looksLikeCanvasExport(raw: unknown): boolean {
   const nodes = (raw as { nodes?: unknown } | null)?.nodes
   if (!Array.isArray(nodes) || nodes.length === 0) return false

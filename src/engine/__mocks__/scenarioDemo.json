@@ -3,7 +3,7 @@
   "nodes": [
     {
       "id": "node_3",
-      "type": "serviceNode",
+      "type": "standardNode",
       "position": {
         "x": 221.9931640687812,
         "y": -706.1019070031791
@@ -14,7 +14,7 @@
         "componentType": "api-endpoint",
         "structuralRole": "source",
         "profile": "source",
-        "rendererType": "serviceNode",
+        "rendererType": "standardNode",
         "label": "Client App",
         "subLabel": "Browser / Mobile",
         "iconKey": "monitor",
@@ -58,7 +58,7 @@
     },
     {
       "id": "node_5",
-      "type": "serviceNode",
+      "type": "standardNode",
       "position": {
         "x": 222.81957853020583,
         "y": -504.0929911630642
@@ -69,7 +69,7 @@
         "componentType": "internal-dns",
         "structuralRole": "router",
         "profile": "router",
-        "rendererType": "serviceNode",
+        "rendererType": "standardNode",
         "label": "DNS Resolver",
         "subLabel": "Client-side Name Resolution",
         "iconKey": "dns",
@@ -100,7 +100,7 @@
     },
     {
       "id": "node_6",
-      "type": "serviceNode",
+      "type": "standardNode",
       "position": {
         "x": 222.81957853020572,
         "y": -244.30760344391297
@@ -111,7 +111,7 @@
         "componentType": "load-balancer-l7",
         "structuralRole": "router",
         "profile": "router",
-        "rendererType": "serviceNode",
+        "rendererType": "standardNode",
         "label": "Load Balancer L7",
         "subLabel": "HTTP / gRPC",
         "iconKey": "load-balancer-l7",
@@ -143,7 +143,7 @@
     },
     {
       "id": "node_7",
-      "type": "serviceNode",
+      "type": "standardNode",
       "position": {
         "x": 222.81957853020572,
         "y": 20.116809055937352
@@ -154,7 +154,7 @@
         "componentType": "api-gateway",
         "structuralRole": "router",
         "profile": "router",
-        "rendererType": "serviceNode",
+        "rendererType": "standardNode",
         "label": "API Gateway",
         "subLabel": "Request Router",
         "iconKey": "globe",
@@ -185,7 +185,7 @@
     },
     {
       "id": "node_8",
-      "type": "computeNode",
+      "type": "saturationNode",
       "position": {
         "x": 615.5903432960653,
         "y": 23.663150649503706
@@ -196,7 +196,7 @@
         "componentType": "auth-service",
         "structuralRole": "processor",
         "profile": "compute-service",
-        "rendererType": "computeNode",
+        "rendererType": "saturationNode",
         "label": "Auth Service",
         "subLabel": "Authentication / Tokens",
         "iconKey": "AUTH",
@@ -227,7 +227,7 @@
     },
     {
       "id": "node_9",
-      "type": "computeNode",
+      "type": "saturationNode",
       "position": {
         "x": 260.83909358866595,
         "y": 284.9948799622213
@@ -238,7 +238,7 @@
         "componentType": "microservice",
         "structuralRole": "processor",
         "profile": "compute-service",
-        "rendererType": "computeNode",
+        "rendererType": "saturationNode",
         "label": "API Server",
         "subLabel": "Long-running Process",
         "iconKey": "SERVER",
@@ -269,7 +269,7 @@
     },
     {
       "id": "node_10",
-      "type": "serviceNode",
+      "type": "standardNode",
       "position": {
         "x": -148.51215078251187,
         "y": 581.3168517457085
@@ -280,7 +280,7 @@
         "componentType": "queue",
         "structuralRole": "storage",
         "profile": "broker",
-        "rendererType": "serviceNode",
+        "rendererType": "standardNode",
         "label": "Message Queue",
         "subLabel": "SQS / RabbitMQ",
         "iconKey": "queue",
@@ -311,7 +311,7 @@
     },
     {
       "id": "node_11",
-      "type": "serviceNode",
+      "type": "standardNode",
       "position": {
         "x": 222.29764410026814,
         "y": 584.7217225059917
@@ -322,7 +322,7 @@
         "componentType": "in-memory-cache",
         "structuralRole": "storage",
         "profile": "datastore",
-        "rendererType": "serviceNode",
+        "rendererType": "standardNode",
         "label": "Redis Cache",
         "subLabel": "In-memory key/val",
         "iconKey": "server",
@@ -353,7 +353,7 @@
     },
     {
       "id": "node_12",
-      "type": "serviceNode",
+      "type": "standardNode",
       "position": {
         "x": 580.2976441002681,
         "y": 582.7217225059917
@@ -364,7 +364,7 @@
         "componentType": "relational-db",
         "structuralRole": "storage",
         "profile": "datastore",
-        "rendererType": "serviceNode",
+        "rendererType": "standardNode",
         "label": "Primary DB",
         "subLabel": "Relational SQL",
         "iconKey": "database",
@@ -395,7 +395,7 @@
     },
     {
       "id": "node_14",
-      "type": "serviceNode",
+      "type": "standardNode",
       "position": {
         "x": 582.2976441002681,
         "y": 876.7217225059917
@@ -406,7 +406,7 @@
         "componentType": "relational-db",
         "structuralRole": "storage",
         "profile": "datastore",
-        "rendererType": "serviceNode",
+        "rendererType": "standardNode",
         "label": "Read Replica",
         "subLabel": "SQL Read Replica",
         "iconKey": "replica",
@@ -437,7 +437,7 @@
     },
     {
       "id": "node_15",
-      "type": "computeNode",
+      "type": "saturationNode",
       "position": {
         "x": -114.07859814856374,
         "y": 893.6622591150008
@@ -448,7 +448,7 @@
         "componentType": "batch-worker",
         "structuralRole": "processor",
         "profile": "worker",
-        "rendererType": "computeNode",
+        "rendererType": "saturationNode",
         "label": "Job Worker",
         "subLabel": "Background Task",
         "iconKey": "WORKER",

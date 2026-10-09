@@ -60,7 +60,7 @@ export function ContextualAddPicker({
           isTemplateOfferedFor(request.mode, anchor, item.templateId),
         // Nesting is the point of "Add inside": offer the valid Region / Zone /
         // Subnet children even when the curated library leaves them out.
-        ignoreLibraryModeFor: (item) => request.mode === 'child' && item.type === 'vpcNode'
+        ignoreLibraryModeFor: (item) => request.mode === 'child' && item.type === 'containerNode'
       }),
     [
       activeQuestion,

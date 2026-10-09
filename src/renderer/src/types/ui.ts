@@ -11,10 +11,10 @@ import type { LatencyPercentiles, TimeToErrorSummary } from '../../../engine/met
 import type { LibraryItemInfo } from '@renderer/config/libraryInfo'
 
 export type AnyNodeData = CanvasNodeDataV2
-export type ServiceNodeData = CanvasNodeDataV2
-export type ComputeNodeData = CanvasNodeDataV2
+export type StandardNodeData = CanvasNodeDataV2
+export type SaturationNodeData = CanvasNodeDataV2
 export type SecurityNodeData = CanvasNodeDataV2
-export type VpcNodeData = CanvasNodeDataV2
+export type ContainerNodeData = CanvasNodeDataV2
 
 export type ThemeMode = 'light' | 'dark'
 export type PreRunMetricLens = 'instance' | 'concurrency' | 'queueCapacity' | 'timeout' | 'cost'

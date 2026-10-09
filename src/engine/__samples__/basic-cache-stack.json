@@ -3,7 +3,7 @@
   "nodes": [
     {
       "id": "client",
-      "type": "serviceNode",
+      "type": "standardNode",
       "position": {
         "x": 80,
         "y": 340
@@ -14,7 +14,7 @@
         "componentType": "api-endpoint",
         "structuralRole": "source",
         "profile": "source",
-        "rendererType": "serviceNode",
+        "rendererType": "standardNode",
         "label": "Client App",
         "subLabel": "Read Traffic",
         "iconKey": "monitor",
@@ -54,7 +54,7 @@
     },
     {
       "id": "api",
-      "type": "computeNode",
+      "type": "saturationNode",
       "position": {
         "x": 680,
         "y": 340
@@ -65,7 +65,7 @@
         "componentType": "microservice",
         "structuralRole": "processor",
         "profile": "compute-service",
-        "rendererType": "computeNode",
+        "rendererType": "saturationNode",
         "label": "API Server",
         "subLabel": "Cache-Aside Logic",
         "iconKey": "SERVER",
@@ -87,7 +87,7 @@
     },
     {
       "id": "redis-cache",
-      "type": "serviceNode",
+      "type": "standardNode",
       "position": {
         "x": 1280,
         "y": 120
@@ -98,7 +98,7 @@
         "componentType": "in-memory-cache",
         "structuralRole": "storage",
         "profile": "datastore",
-        "rendererType": "serviceNode",
+        "rendererType": "standardNode",
         "label": "Redis Cache",
         "subLabel": "Fast Reads",
         "iconKey": "redis",
@@ -120,7 +120,7 @@
     },
     {
       "id": "primary-db",
-      "type": "serviceNode",
+      "type": "standardNode",
       "position": {
         "x": 1280,
         "y": 560
@@ -131,7 +131,7 @@
         "componentType": "relational-db",
         "structuralRole": "storage",
         "profile": "datastore",
-        "rendererType": "serviceNode",
+        "rendererType": "standardNode",
         "label": "Primary DB",
         "subLabel": "Cache Miss Storage",
         "iconKey": "database",

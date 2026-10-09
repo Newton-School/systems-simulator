@@ -3,7 +3,7 @@
   "nodes": [
     {
       "id": "client",
-      "type": "serviceNode",
+      "type": "standardNode",
       "position": {
         "x": 520,
         "y": -420
@@ -14,7 +14,7 @@
         "componentType": "api-endpoint",
         "structuralRole": "source",
         "profile": "source",
-        "rendererType": "serviceNode",
+        "rendererType": "standardNode",
         "label": "Client",
         "subLabel": "Keyed Requests",
         "iconKey": "monitor",
@@ -77,7 +77,7 @@
     },
     {
       "id": "router",
-      "type": "serviceNode",
+      "type": "standardNode",
       "position": {
         "x": 520,
         "y": -200
@@ -88,7 +88,7 @@
         "componentType": "sharding",
         "structuralRole": "router",
         "profile": "router",
-        "rendererType": "serviceNode",
+        "rendererType": "standardNode",
         "label": "Shard Router",
         "subLabel": "Hash-Routed by Key",
         "iconKey": "sharding",
@@ -122,7 +122,7 @@
     },
     {
       "id": "shard-a",
-      "type": "serviceNode",
+      "type": "standardNode",
       "position": {
         "x": 180,
         "y": 60
@@ -133,7 +133,7 @@
         "componentType": "shard-node",
         "structuralRole": "storage",
         "profile": "datastore",
-        "rendererType": "serviceNode",
+        "rendererType": "standardNode",
         "label": "Shard A",
         "subLabel": "Partition Replica",
         "iconKey": "shard-node",
@@ -166,7 +166,7 @@
     },
     {
       "id": "shard-b",
-      "type": "serviceNode",
+      "type": "standardNode",
       "position": {
         "x": 520,
         "y": 60
@@ -177,7 +177,7 @@
         "componentType": "shard-node",
         "structuralRole": "storage",
         "profile": "datastore",
-        "rendererType": "serviceNode",
+        "rendererType": "standardNode",
         "label": "Shard B",
         "subLabel": "Partition Replica",
         "iconKey": "shard-node",
@@ -210,7 +210,7 @@
     },
     {
       "id": "shard-c",
-      "type": "serviceNode",
+      "type": "standardNode",
       "position": {
         "x": 860,
         "y": 60
@@ -221,7 +221,7 @@
         "componentType": "shard-node",
         "structuralRole": "storage",
         "profile": "datastore",
-        "rendererType": "serviceNode",
+        "rendererType": "standardNode",
         "label": "Shard C",
         "subLabel": "Partition Replica",
         "iconKey": "shard-node",

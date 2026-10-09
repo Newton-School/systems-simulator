@@ -3,7 +3,7 @@
   "nodes": [
     {
       "id": "client",
-      "type": "serviceNode",
+      "type": "standardNode",
       "position": {
         "x": 774.4462362422744,
         "y": -494.6972896812895
@@ -14,7 +14,7 @@
         "componentType": "api-endpoint",
         "structuralRole": "source",
         "profile": "source",
-        "rendererType": "serviceNode",
+        "rendererType": "standardNode",
         "label": "Client",
         "subLabel": "Browser / Mobile",
         "iconKey": "monitor",
@@ -50,7 +50,7 @@
     },
     {
       "id": "dns",
-      "type": "serviceNode",
+      "type": "standardNode",
       "position": {
         "x": 521.2437808730153,
         "y": -295.55397179041904
@@ -61,7 +61,7 @@
         "componentType": "internal-dns",
         "structuralRole": "router",
         "profile": "router",
-        "rendererType": "serviceNode",
+        "rendererType": "standardNode",
         "label": "Resolver",
         "subLabel": "Internal DNS / Authoritative",
         "iconKey": "server-cog",
@@ -96,7 +96,7 @@
     },
     {
       "id": "stable",
-      "type": "computeNode",
+      "type": "saturationNode",
       "position": {
         "x": 185.47999793426015,
         "y": 99.14331789087055
@@ -107,7 +107,7 @@
         "componentType": "microservice",
         "structuralRole": "processor",
         "profile": "compute-service",
-        "rendererType": "computeNode",
+        "rendererType": "saturationNode",
         "label": "Stable API",
         "subLabel": "Long-running Process",
         "iconKey": "SERVER",
@@ -140,7 +140,7 @@
     },
     {
       "id": "canary",
-      "type": "computeNode",
+      "type": "saturationNode",
       "position": {
         "x": 790.8124642215887,
         "y": 36.77989908226331
@@ -151,7 +151,7 @@
         "componentType": "microservice",
         "structuralRole": "processor",
         "profile": "compute-service",
-        "rendererType": "computeNode",
+        "rendererType": "saturationNode",
         "label": "Canary API",
         "subLabel": "Long-running Process",
         "iconKey": "SERVER",

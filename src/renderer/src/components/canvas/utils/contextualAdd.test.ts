@@ -15,7 +15,7 @@ function container(
 ): Node {
   return {
     id,
-    type: 'vpcNode',
+    type: 'containerNode',
     position,
     width: size.width,
     height: size.height,
@@ -27,7 +27,7 @@ function container(
 function service(id: string, position: { x: number; y: number }, parentNode?: string): Node {
   return {
     id,
-    type: 'computeNode',
+    type: 'saturationNode',
     position,
     width: 256,
     height: 120,
@@ -49,7 +49,7 @@ describe('contextual add actions', () => {
     expect(
       contextualAddModesFor({
         id: 'sink',
-        type: 'serviceNode',
+        type: 'standardNode',
         position: { x: 0, y: 0 },
         data: instantiateTemplate('output-sink')
       })
@@ -136,7 +136,7 @@ describe('planContextualAdd', () => {
     )
     const first = planContextualAdd({
       request: { mode: 'child', anchorNodeId: 'z' },
-      type: 'vpcNode',
+      type: 'containerNode',
       templateId: 'subnet',
       nodes: [zone],
       edges: []
@@ -149,7 +149,7 @@ describe('planContextualAdd', () => {
 
     const second = planContextualAdd({
       request: { mode: 'child', anchorNodeId: subnet.id },
-      type: 'computeNode',
+      type: 'saturationNode',
       templateId: 'backend-server',
       nodes: first.nodes,
       edges: first.edges
@@ -167,7 +167,7 @@ describe('planContextualAdd', () => {
     const subnet = container('s', 'subnet', { x: 0, y: 0 }, { width: 400, height: 300 })
     const result = planContextualAdd({
       request: { mode: 'child', anchorNodeId: 's' },
-      type: 'vpcNode',
+      type: 'containerNode',
       templateId: 'vpc-region',
       nodes: [subnet],
       edges: []
@@ -181,7 +181,7 @@ describe('planContextualAdd', () => {
     const edges: Edge[] = []
     const result = planContextualAdd({
       request: { mode: 'connected', anchorNodeId: 'api' },
-      type: 'serviceNode',
+      type: 'standardNode',
       templateId: 'primary-db',
       nodes: [subnet, api],
       edges
@@ -208,7 +208,7 @@ describe('planContextualAdd', () => {
     const busy = service('busy', { x: 256 + 140, y: 0 })
     const result = planContextualAdd({
       request: { mode: 'connected', anchorNodeId: 'api' },
-      type: 'serviceNode',
+      type: 'standardNode',
       templateId: 'primary-db',
       nodes: [api, busy],
       edges: []

@@ -21,7 +21,7 @@ import type { EdgeSimulationData, ScenarioState, TopologyMeta } from '@renderer/
 import { DEFAULT_SCENARIO_STATE } from '@renderer/types/ui'
 import type { NestedFileData, NestedNode } from './nodeTransformers'
 import { convertFlatToNested } from './nodeTransformers'
-import { computeNodeExtra } from './topologyCarry'
+import { deriveNodeExtra } from './topologyCarry'
 import { getPathTypeLatencyProfile } from '../../../engine/defaults/edgeDefaults'
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -634,7 +634,7 @@ function convertNode(
   if (node.role && produced && produced.role !== node.role) {
     carry.role = node.role
   }
-  const extra = computeNodeExtra(node, produced)
+  const extra = deriveNodeExtra(node, produced)
   if (extra) carry.extra = extra
   if (Object.keys(carry).length > 0) data.topologyCarry = carry
 

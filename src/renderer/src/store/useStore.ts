@@ -21,6 +21,10 @@ import type {
   DisplaySettings
 } from '@renderer/types/ui'
 import type { CanvasTextLabelData } from '../../../engine/catalog/canvasAnnotations'
+import {
+  normalizeCanvasNodeRendererType,
+  normalizeCanvasNodeRendererTypes
+} from '../../../engine/catalog/rendererNodeTypes'
 import type { CanvasAnnotation } from '@renderer/types/annotations'
 import { DEFAULT_SCENARIO_STATE } from '@renderer/types/ui'
 import type { EdgeFailureCause, EdgeFlowEvent } from '../../../engine/core/events'
@@ -1608,7 +1612,9 @@ const useStore = create<RFState>((set, get) => ({
     })
   },
 
-  addNode: (node: Node) => {
+  addNode: (incoming: Node) => {
+    // Any legacy renderer name (#219) is renamed before the node enters the graph.
+    const node = normalizeCanvasNodeRendererType(incoming)
     // A frozen attempt (host `lock`) admits no new nodes.
     if (get().attemptState?.status === 'LOCKED') {
       return
@@ -1637,7 +1643,7 @@ const useStore = create<RFState>((set, get) => ({
       newId = `${newId}_${Math.floor(Math.random() * 10000)}`
     }
 
-    const isVpcContainer = node.type === 'vpcNode'
+    const isVpcContainer = node.type === 'containerNode'
 
     let calculatedZIndex = node.zIndex
 
@@ -1674,7 +1680,8 @@ const useStore = create<RFState>((set, get) => ({
     })
   },
 
-  setNodes: (nodes: Node[], options) => {
+  setNodes: (incoming: Node[], options) => {
+    const nodes = normalizeCanvasNodeRendererTypes(incoming)
     set((state) => {
       const nextSnapshot = { nodes, edges: state.edges }
 
@@ -1727,7 +1734,11 @@ const useStore = create<RFState>((set, get) => ({
     })
   },
 
-  setGraph: (nodes: Node[], edges: Edge[], options) => {
+  setGraph: (incoming: Node[], edges: Edge[], options) => {
+    // Every load path (file open, samples, question scaffolds, host seeds, autosave
+    // restore, paste, authoring canvases) lands here: rename legacy renderer
+    // names (#219) once, at the store boundary. Same array back when nothing changed.
+    const nodes = normalizeCanvasNodeRendererTypes(incoming)
     set((state) => {
       const nextSnapshot = { nodes, edges }
 

@@ -10,7 +10,7 @@ function makeRelationalDbData(sim: CanvasNodeDataV2['sim']): CanvasNodeDataV2 {
     componentType: 'relational-db',
     structuralRole: 'storage',
     profile: 'datastore',
-    rendererType: 'serviceNode',
+    rendererType: 'standardNode',
     label: 'Primary DB',
     iconKey: 'database',
     sim
@@ -28,7 +28,7 @@ function makeNodeData(
     componentType,
     structuralRole: 'processor',
     profile: 'compute-service',
-    rendererType: 'serviceNode',
+    rendererType: 'standardNode',
     label: 'Node',
     iconKey: 'server',
     sim,
@@ -208,7 +208,7 @@ describe('component spec validation copy', () => {
       componentType: 'api-endpoint',
       structuralRole: 'source',
       profile: 'source',
-      rendererType: 'serviceNode',
+      rendererType: 'standardNode',
       label: 'Client',
       iconKey: 'globe',
       source: {

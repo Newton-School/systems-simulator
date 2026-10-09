@@ -177,16 +177,16 @@ flowchart LR
 
 ## Node Types
 
-| Node          | Type          | Description                                  |
-| ------------- | ------------- | -------------------------------------------- |
-| API Server    | `computeNode` | Long-running process, configurable CPU/queue |
-| Serverless Fn | `computeNode` | Event-driven, low baseline utilization       |
-| Job Worker    | `computeNode` | Background task processing                   |
-| Cron Job      | `computeNode` | Scheduled execution                          |
-| Primary DB    | `serviceNode` | Relational SQL datastore                     |
-| Redis Cache   | `serviceNode` | In-memory key/value store                    |
-| Load Balancer | `serviceNode` | L7 request routing                           |
-| VPC Region    | `vpcNode`     | Isolated network boundary / grouping         |
+| Node          | Type             | Description                                  |
+| ------------- | ---------------- | -------------------------------------------- |
+| API Server    | `saturationNode` | Long-running process, configurable CPU/queue |
+| Serverless Fn | `saturationNode` | Event-driven, low baseline utilization       |
+| Job Worker    | `saturationNode` | Background task processing                   |
+| Cron Job      | `saturationNode` | Scheduled execution                          |
+| Primary DB    | `standardNode`   | Relational SQL datastore                     |
+| Redis Cache   | `standardNode`   | In-memory key/value store                    |
+| Load Balancer | `standardNode`   | L7 request routing                           |
+| VPC Region    | `containerNode`  | Isolated network boundary / grouping         |
 
 ---
 
