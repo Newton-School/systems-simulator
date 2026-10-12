@@ -30,11 +30,11 @@ describe('EdgeLatencyBreakdownView', () => {
             maxLinkQueueMs: 250,
             meanMs: {
               propagationMs: 2,
-              congestionMs: 0,
               transmissionMs: 100,
               linkQueueMs: 97,
               protocolOverheadMs: 1,
               connectionWaitMs: 0,
+              slotWaitMs: 0,
               handshakeMs: 0,
               batchWaitMs: 0,
               retransmissionMs: 0

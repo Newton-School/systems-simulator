@@ -182,6 +182,7 @@ import {
   type OpenEdgeBatch,
   type ResolvedEdgeBatching
 } from './network/edgeBatching'
+import { KeyedWaitQueue } from './network/waitQueue'
 
 /** A request waiting at the source for a free connection stream. */
 interface ConnectionWaiter {
@@ -209,6 +210,37 @@ interface BatchedRecord {
   edgePhase: RequestEdgePhase
   enqueuedAtUs: bigint
 }
+
+/**
+ * A transfer waiting for one of its edge's `maxConcurrentRequests` in-flight
+ * slots: every slot is held by a transfer still in transit.
+ */
+interface EdgeSlotTransferWaiter {
+  kind: 'transfer'
+  request: Request
+  edge: EdgeDefinition
+  targetNodeId: string
+  edgePhase: RequestEdgePhase
+  /** When the request reached the edge (earlier if it first waited for a connection). */
+  startedAtUs: bigint
+  /** Connection handshake owed when the slot wait began; it runs during the wait. */
+  handshakeUs: bigint
+  slotWaitFromUs: bigint
+}
+
+/**
+ * A closed Kafka producer batch waiting for an in-flight slot. Like Kafka's
+ * record accumulator, records sent meanwhile join it until it reaches
+ * batch.size, so batches grow under in-flight back-pressure.
+ */
+interface EdgeSlotBatchWaiter {
+  kind: 'batch'
+  edge: EdgeDefinition
+  batch: OpenEdgeBatch<BatchedRecord>
+  slotWaitFromUs: bigint
+}
+
+type EdgeSlotWaiter = EdgeSlotTransferWaiter | EdgeSlotBatchWaiter
 
 /** A request parked behind an in-flight leader by request collapsing. */
 interface ParkedFollower {
@@ -312,6 +344,13 @@ export class SimulationEngine {
   private readonly edgeBatchingById = new Map<string, ResolvedEdgeBatching | null>()
   /** Records of a sent batch still to leave the edge; the batch's slot frees at zero. */
   private readonly batchRecordsInFlight = new Map<string, number>()
+  /**
+   * Edge in-flight cap (maxConcurrentRequests): transfers waiting FIFO for a
+   * slot, per edge, and the waiter each waiting request belongs to.
+   */
+  private readonly edgeSlotWaiters = new KeyedWaitQueue<EdgeSlotWaiter>()
+  private readonly edgeSlotWaiterByRequestId = new Map<string, EdgeSlotWaiter>()
+  private readonly edgeSlotWaitingCountByEdgeId = new Map<string, number>()
   private readonly workload?: WorkloadGenerator
 
   private readonly requestById = new Map<string, Request>()
@@ -1865,7 +1904,10 @@ export class SimulationEngine {
     }
 
     const scope = typeof event.data.scope === 'string' ? event.data.scope : undefined
-    const observationPoint = scope === 'in-flight' || scope === 'connection-wait' ? 'edge' : 'node'
+    const observationPoint =
+      scope === 'in-flight' || scope === 'connection-wait' || scope === 'edge-slot-wait'
+        ? 'edge'
+        : 'node'
     if (scope === 'connection-wait') {
       // The request's deadline fired while it waited for a connection stream; a
       // waiter already handed a connection has moved on, so this is stale.
@@ -1875,7 +1917,17 @@ export class SimulationEngine {
       ) {
         return
       }
-      this.emitConnectionWaitTimeoutFlow(request, event)
+      this.emitEdgeWaitTimeoutFlow(request, event)
+    }
+    if (scope === 'edge-slot-wait') {
+      // Its deadline fired while it waited for an edge in-flight slot; one
+      // already handed a slot has moved on, so this is stale.
+      if (!this.dropEdgeSlotWaiter(request.id)) {
+        return
+      }
+      const edgeId = typeof event.data.edgeId === 'string' ? event.data.edgeId : ''
+      this.metrics.recordEdgeSlotWaitTimeout(edgeId, this.clock)
+      this.emitEdgeWaitTimeoutFlow(request, event)
     }
     if (scope === 'ordering-lane' && typeof event.data.lane === 'string') {
       // Still waiting for its ordering lane when the deadline passed; a
@@ -2555,10 +2607,14 @@ export class SimulationEngine {
     )
   }
 
+  /**
+   * How many transfers share the edge does not stretch propagation: a full
+   * edge makes new transfers wait for a slot (edge slot wait) and a busy link
+   * makes them wait for bandwidth (link queue), both measured separately.
+   */
   private sampleEdgeTransit(
     edge: EdgeDefinition,
     request: Request,
-    activeTransfers: number,
     sizeBytes = request.sizeBytes
   ): { transitUs: bigint; transmissionMs: number; components: EdgeLatencyBreakdownSample } {
     const latencyDistribution = this.edgeLatencyDistribution(edge, request)
@@ -2570,24 +2626,18 @@ export class SimulationEngine {
     const protocolOverheadMs =
       edge.protocolOverheadMs ??
       getProtocolLatencyOverheadMs(edge.protocol) * (edge.mode === 'streaming' ? 0.25 : 1)
-    const utilization =
-      edge.maxConcurrentRequests > 0
-        ? Math.min(0.98, activeTransfers / edge.maxConcurrentRequests)
-        : 0
-    const delayMultiplier = Math.min(50, 1 / Math.max(0.02, 1 - utilization))
-    const congestedPropagationMs = Math.max(0, propagationMs * delayMultiplier)
-    const totalLatencyMs = congestedPropagationMs + transmissionMs + protocolOverheadMs
+    const totalLatencyMs = propagationMs + transmissionMs + protocolOverheadMs
     return {
       transitUs: msToMicro(totalLatencyMs),
       transmissionMs,
       components: {
         propagationMs,
-        congestionMs: congestedPropagationMs - propagationMs,
         transmissionMs,
         linkQueueMs: 0,
         protocolOverheadMs,
         retransmissionMs: 0,
         connectionWaitMs: 0,
+        slotWaitMs: 0,
         handshakeMs: 0,
         batchWaitMs: 0
       }
@@ -4186,10 +4236,10 @@ export class SimulationEngine {
 
     if (activeTransfers <= 1) {
       this.activeTransfersByEdgeId.delete(edgeId)
-      return
+    } else {
+      this.activeTransfersByEdgeId.set(edgeId, activeTransfers - 1)
     }
-
-    this.activeTransfersByEdgeId.set(edgeId, activeTransfers - 1)
+    this.admitEdgeSlotWaiters(edgeId)
   }
 
   private maybeTrackCircuitBreakerRequest(
@@ -4548,7 +4598,7 @@ export class SimulationEngine {
     }
   }
 
-  private emitConnectionWaitTimeoutFlow(request: Request, event: SimulationEvent): void {
+  private emitEdgeWaitTimeoutFlow(request: Request, event: SimulationEvent): void {
     const edgeId = typeof event.data.edgeId === 'string' ? event.data.edgeId : ''
     const startedAt =
       typeof event.data.edgeInTimeUs === 'bigint' ? event.data.edgeInTimeUs : this.clock
@@ -4582,9 +4632,179 @@ export class SimulationEngine {
   }
 
   /**
-   * Send one transfer over the edge. `startedAtUs` is when the request reached
-   * the edge (earlier than now if it waited for a connection); `handshakeUs` is
-   * the connection setup it pays before its bytes go on the link.
+   * Park a transfer (or a closed producer batch) until one of the edge's
+   * `maxConcurrentRequests` in-flight slots frees. Each waiting request keeps
+   * its own deadline: past it, it times out of the line (edge slot wait).
+   */
+  private enqueueEdgeSlotWaiter(waiter: EdgeSlotWaiter): void {
+    this.edgeSlotWaiters.enqueue(waiter.edge.id, waiter)
+    if (waiter.kind === 'transfer') {
+      this.trackEdgeSlotWait(waiter, waiter.request, waiter.targetNodeId, waiter.startedAtUs)
+      return
+    }
+    for (const record of waiter.batch.records) {
+      this.trackEdgeSlotWait(waiter, record.request, record.targetNodeId, record.enqueuedAtUs)
+    }
+  }
+
+  /**
+   * The line for an edge's slots holds at most as many pending transfers as the
+   * edge has slots (Envoy's default: max_pending_requests = max_requests), so a
+   * wait never exceeds about one transit; past that, transfers are refused.
+   */
+  private edgeSlotLineFull(edge: EdgeDefinition): boolean {
+    return this.edgeSlotWaiters.size(edge.id) >= edge.maxConcurrentRequests
+  }
+
+  /** Refuse a transfer at a full edge: every slot is busy and the line is full. */
+  private refuseEdgeTransfer(
+    request: Request,
+    edge: EdgeDefinition,
+    targetNodeId: string,
+    startedAtUs: bigint
+  ): void {
+    this.metrics.recordEdgeSlotRefused(edge.id, this.clock)
+    this.onEdgeFlowEvent?.({
+      sequence: ++this.edgeFlowSequence,
+      requestId: request.id,
+      edgeId: edge.id,
+      sourceNodeId: edge.source,
+      targetNodeId,
+      startedAtMs: microToMs(startedAtUs),
+      completedAtMs: microToMs(this.clock),
+      latencyMs: microToMs(this.clock - startedAtUs),
+      status: 'edge-error',
+      failureCause: 'connection_refused',
+      key: affinityKeyOf(request)
+    })
+    this.eventQueue.insert(
+      createEvent(
+        'request-rejected',
+        targetNodeId,
+        request.id,
+        {
+          request,
+          edge,
+          edgeId: edge.id,
+          sourceNodeId: edge.source,
+          targetNodeId,
+          edgeInTimeUs: startedAtUs,
+          reason: 'connection_refused',
+          observationPoint: 'edge',
+          edgeSlotHeld: false
+        },
+        this.clock
+      )
+    )
+  }
+
+  /** Count one request waiting for an edge slot and arm its deadline in the line. */
+  private trackEdgeSlotWait(
+    waiter: EdgeSlotWaiter,
+    request: Request,
+    targetNodeId: string,
+    edgeInTimeUs: bigint
+  ): void {
+    const edge = waiter.edge
+    this.edgeSlotWaiterByRequestId.set(request.id, waiter)
+    const waitingCount = (this.edgeSlotWaitingCountByEdgeId.get(edge.id) ?? 0) + 1
+    this.edgeSlotWaitingCountByEdgeId.set(edge.id, waitingCount)
+    this.metrics.recordEdgeSlotWait(edge.id, this.clock, waitingCount)
+    const timeoutAt = request.deadline > this.clock ? request.deadline : this.clock
+    this.eventQueue.insert(
+      createEvent(
+        'request-timeout',
+        targetNodeId,
+        request.id,
+        {
+          request,
+          edge,
+          edgeId: edge.id,
+          sourceNodeId: edge.source,
+          targetNodeId,
+          edgeInTimeUs,
+          reason: 'deadline_exceeded',
+          scope: 'edge-slot-wait',
+          timeoutSeq: request.timeoutSeq ?? 0
+        },
+        timeoutAt
+      )
+    )
+  }
+
+  private untrackEdgeSlotWait(edgeId: string, requestId: string): void {
+    this.edgeSlotWaiterByRequestId.delete(requestId)
+    const remaining = (this.edgeSlotWaitingCountByEdgeId.get(edgeId) ?? 0) - 1
+    if (remaining > 0) this.edgeSlotWaitingCountByEdgeId.set(edgeId, remaining)
+    else this.edgeSlotWaitingCountByEdgeId.delete(edgeId)
+  }
+
+  /**
+   * A request's deadline fired while it waited for an edge slot: take it out of
+   * the line. Returns false when it already left the line (the event is stale).
+   */
+  private dropEdgeSlotWaiter(requestId: string): boolean {
+    const waiter = this.edgeSlotWaiterByRequestId.get(requestId)
+    if (!waiter) {
+      return false
+    }
+    const edgeId = waiter.edge.id
+    this.untrackEdgeSlotWait(edgeId, requestId)
+    if (waiter.kind === 'transfer') {
+      this.edgeSlotWaiters.remove(edgeId, (candidate) => candidate === waiter)
+      return true
+    }
+    const index = waiter.batch.records.findIndex((record) => record.request.id === requestId)
+    if (index >= 0) {
+      waiter.batch.bytes -= waiter.batch.records[index].request.sizeBytes
+      waiter.batch.records.splice(index, 1)
+    }
+    if (waiter.batch.records.length === 0) {
+      this.edgeSlotWaiters.remove(edgeId, (candidate) => candidate === waiter)
+    }
+    return true
+  }
+
+  /** Hand freed in-flight slots to the transfers waiting for them, oldest first. */
+  private admitEdgeSlotWaiters(edgeId: string): void {
+    for (;;) {
+      const next = this.edgeSlotWaiters.first(edgeId)
+      if (!next) {
+        return
+      }
+      const load = this.activeTransfersByEdgeId.get(edgeId) ?? 0
+      if (load >= next.edge.maxConcurrentRequests) {
+        return
+      }
+      this.edgeSlotWaiters.take(edgeId, 1)
+      if (next.kind === 'transfer') {
+        this.untrackEdgeSlotWait(edgeId, next.request.id)
+        if (this.terminalStatusByRequestId.has(next.request.id)) {
+          continue
+        }
+        this.transmitEdgeTransfer(
+          next.request,
+          next.edge,
+          next.targetNodeId,
+          next.edgePhase,
+          next.startedAtUs,
+          next.handshakeUs,
+          next.slotWaitFromUs
+        )
+        continue
+      }
+      for (const record of next.batch.records) {
+        this.untrackEdgeSlotWait(edgeId, record.request.id)
+      }
+      this.sendEdgeBatch(next.edge, next.batch, next.slotWaitFromUs)
+    }
+  }
+
+  /**
+   * Send one transfer over the edge, or park it until one of the edge's
+   * `maxConcurrentRequests` in-flight slots frees. `startedAtUs` is when the
+   * request reached the edge (earlier than now if it waited for a connection);
+   * `handshakeUs` is the connection setup it pays before its bytes go on the link.
    */
   private dispatchEdgeTransfer(
     request: Request,
@@ -4593,6 +4813,55 @@ export class SimulationEngine {
     edgePhase: RequestEdgePhase,
     startedAtUs: bigint,
     handshakeUs: bigint
+  ): void {
+    const currentLoad = this.activeTransfersByEdgeId.get(edge.id) ?? 0
+    if (
+      protocolSupportsConnectionLimits(edge.protocol) &&
+      currentLoad >= edge.maxConcurrentRequests
+    ) {
+      if (this.edgeSlotLineFull(edge)) {
+        this.refuseEdgeTransfer(request, edge, targetNodeId, startedAtUs)
+        return
+      }
+      // Every slot is held by a transfer still in transit: wait FIFO for one,
+      // bounded by the request's own deadline (a client pool's acquire timeout).
+      this.enqueueEdgeSlotWaiter({
+        kind: 'transfer',
+        request,
+        edge,
+        targetNodeId,
+        edgePhase,
+        startedAtUs,
+        handshakeUs,
+        slotWaitFromUs: this.clock
+      })
+      return
+    }
+    this.transmitEdgeTransfer(
+      request,
+      edge,
+      targetNodeId,
+      edgePhase,
+      startedAtUs,
+      handshakeUs,
+      this.clock
+    )
+  }
+
+  /**
+   * Put a transfer on the edge now: it takes an in-flight slot (unless the edge
+   * error rate refuses it or an unreliable protocol drops it). `slotWaitFromUs`
+   * is when it started waiting for that slot (now when it never waited); the
+   * handshake ran during the slot wait, so only its remainder is paid.
+   */
+  private transmitEdgeTransfer(
+    request: Request,
+    edge: EdgeDefinition,
+    targetNodeId: string,
+    edgePhase: RequestEdgePhase,
+    startedAtUs: bigint,
+    owedHandshakeUs: bigint,
+    slotWaitFromUs: bigint
   ): void {
     const emitEdgeFlowEvent = (
       status: EdgeFlowStatus,
@@ -4615,36 +4884,12 @@ export class SimulationEngine {
       })
     }
     const waitedUs = this.clock - startedAtUs
-
+    const connectionWaitUs = slotWaitFromUs - startedAtUs
+    const slotWaitUs = this.clock - slotWaitFromUs
+    const handshakeUs = owedHandshakeUs > slotWaitUs ? owedHandshakeUs - slotWaitUs : 0n
     const currentLoad = this.activeTransfersByEdgeId.get(edge.id) ?? 0
-    if (
-      protocolSupportsConnectionLimits(edge.protocol) &&
-      currentLoad >= edge.maxConcurrentRequests
-    ) {
-      emitEdgeFlowEvent('edge-error', this.clock, waitedUs, 'connection_refused')
-      this.eventQueue.insert(
-        createEvent(
-          'request-rejected',
-          targetNodeId,
-          request.id,
-          {
-            request,
-            edge,
-            edgeId: edge.id,
-            sourceNodeId: edge.source,
-            targetNodeId,
-            edgeInTimeUs: startedAtUs,
-            reason: 'connection_refused',
-            observationPoint: 'edge',
-            edgeSlotHeld: false
-          },
-          this.clock
-        )
-      )
-      return
-    }
 
-    const transit = this.sampleEdgeTransit(edge, request, currentLoad + 1)
+    const transit = this.sampleEdgeTransit(edge, request)
     let retransmitted = false
     if (this.distributions.random() < edge.packetLossRate) {
       if (isReliableProtocol(edge.protocol)) {
@@ -4714,7 +4959,8 @@ export class SimulationEngine {
       ...transit.components,
       linkQueueMs: microToMs(linkQueueUs),
       retransmissionMs: retransmitted ? microToMs(transit.transitUs) : 0,
-      connectionWaitMs: microToMs(waitedUs),
+      connectionWaitMs: microToMs(connectionWaitUs),
+      slotWaitMs: microToMs(slotWaitUs),
       handshakeMs: microToMs(handshakeUs)
     }
 
@@ -4824,6 +5070,19 @@ export class SimulationEngine {
     edgePhase: RequestEdgePhase,
     batching: ResolvedEdgeBatching
   ): void {
+    // A closed batch still waiting for an in-flight slot keeps taking records
+    // until it reaches batch.size (Kafka appends to the last batch in the
+    // accumulator until it is drained), so back-pressure grows batches.
+    const waiting = this.edgeSlotWaiters.peekLast(edge.id)
+    if (
+      waiting?.kind === 'batch' &&
+      waiting.batch.bytes + request.sizeBytes <= batching.maxBatchBytes
+    ) {
+      waiting.batch.records.push({ request, targetNodeId, edgePhase, enqueuedAtUs: this.clock })
+      waiting.batch.bytes += request.sizeBytes
+      this.trackEdgeSlotWait(waiting, request, targetNodeId, this.clock)
+      return
+    }
     const { batch, opened, full } = this.edgeBatches.add(
       edge.id,
       { request, targetNodeId, edgePhase, enqueuedAtUs: this.clock },
@@ -4866,13 +5125,33 @@ export class SimulationEngine {
   /**
    * Send a closed batch as one produce request: one edge slot, one propagation
    * sample, one protocol overhead and the batch's total bytes on the link. Each
-   * record's edge latency adds the time it waited in the batch.
+   * record's edge latency adds the time it waited in the batch. A batch that
+   * finds every in-flight slot taken (Kafka max.in.flight.requests) waits for
+   * one; `slotWaitFromUs` is when that wait began (now when it did not wait).
    */
-  private sendEdgeBatch(edge: EdgeDefinition, batch: OpenEdgeBatch<BatchedRecord>): void {
+  private sendEdgeBatch(
+    edge: EdgeDefinition,
+    batch: OpenEdgeBatch<BatchedRecord>,
+    slotWaitFromUs: bigint = this.clock
+  ): void {
     const live = batch.records.filter(
       (record) => !this.terminalStatusByRequestId.has(record.request.id)
     )
     if (live.length === 0) {
+      return
+    }
+    // A batch is one in-flight produce request against the edge's cap
+    // (Kafka max.in.flight.requests.per.connection).
+    const currentLoad = this.activeTransfersByEdgeId.get(edge.id) ?? 0
+    if (currentLoad >= edge.maxConcurrentRequests) {
+      if (this.edgeSlotLineFull(edge)) {
+        for (const record of live) {
+          this.refuseEdgeTransfer(record.request, edge, record.targetNodeId, record.enqueuedAtUs)
+        }
+        return
+      }
+      batch.records = live
+      this.enqueueEdgeSlotWaiter({ kind: 'batch', edge, batch, slotWaitFromUs: this.clock })
       return
     }
     this.metrics.recordEdgeBatchSent(edge.id, this.clock, live.length, batch.bytes)
@@ -4898,7 +5177,7 @@ export class SimulationEngine {
         })
       }
     }
-    const rejectAll = (reason: 'connection_refused' | 'edge_error_rate'): void => {
+    const rejectAll = (reason: 'edge_error_rate'): void => {
       for (const record of live) {
         flowEmitter(record)('edge-error', this.clock, this.clock - record.enqueuedAtUs, reason)
         this.eventQueue.insert(
@@ -4923,15 +5202,8 @@ export class SimulationEngine {
       }
     }
 
-    // A batch is one in-flight produce request against the edge's cap
-    // (Kafka max.in.flight.requests.per.connection).
-    const currentLoad = this.activeTransfersByEdgeId.get(edge.id) ?? 0
-    if (currentLoad >= edge.maxConcurrentRequests) {
-      rejectAll('connection_refused')
-      return
-    }
     const lead = live[0].request
-    const transit = this.sampleEdgeTransit(edge, lead, currentLoad + 1, batch.bytes)
+    const transit = this.sampleEdgeTransit(edge, lead, batch.bytes)
     // Kafka runs over TCP, so a lost packet is retransmitted, never dropped.
     const retransmitted = this.distributions.random() < edge.packetLossRate
     if (this.distributions.random() < edge.errorRate) {
@@ -4946,7 +5218,12 @@ export class SimulationEngine {
     this.batchRecordsInFlight.set(batch.id, live.length)
     for (const record of live) {
       const emit = flowEmitter(record)
-      const batchWaitUs = this.clock - record.enqueuedAtUs
+      // A record that joined the batch while it waited for a slot spent all of
+      // its wait on the slot.
+      const slotWaitStartUs =
+        record.enqueuedAtUs > slotWaitFromUs ? record.enqueuedAtUs : slotWaitFromUs
+      const batchWaitUs = slotWaitStartUs - record.enqueuedAtUs
+      const slotWaitUs = this.clock - slotWaitStartUs
       if (record.request.deadline <= arrivalTime) {
         const timeoutAt =
           record.request.deadline > this.clock ? record.request.deadline : this.clock
@@ -4984,6 +5261,7 @@ export class SimulationEngine {
           ...transit.components,
           linkQueueMs: microToMs(linkQueueUs),
           retransmissionMs: retransmitted ? microToMs(transit.transitUs) : 0,
+          slotWaitMs: microToMs(slotWaitUs),
           batchWaitMs: microToMs(batchWaitUs)
         },
         batch.id,

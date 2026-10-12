@@ -74,11 +74,6 @@ export class LinkSerializer {
 export interface EdgeLatencyBreakdownSample {
   /** Path-type / configured latency distribution sample (or geo latency). */
   propagationMs: number
-  /**
-   * Extra delay from the concurrency-utilization model: the propagation sample
-   * is inflated by 1 / (1 - u), u = in-flight transfers / maxConcurrentRequests.
-   */
-  congestionMs: number
   /** Serialization time: request bytes / bandwidth. */
   transmissionMs: number
   /** Waiting for the link to finish earlier transfers (bandwidth contention). */
@@ -93,6 +88,12 @@ export interface EdgeLatencyBreakdownSample {
    */
   connectionWaitMs: number
   /**
+   * Waiting at the source for one of the edge's `maxConcurrentRequests`
+   * in-flight slots: every slot was held by a transfer still in transit, so the
+   * transfer waited FIFO (like a connection pool's acquire wait) until one freed.
+   */
+  slotWaitMs: number
+  /**
    * TCP / TLS / application handshake round trips to open a new connection, or
    * the rest of one still opening (connection model only).
    */
@@ -103,12 +104,12 @@ export interface EdgeLatencyBreakdownSample {
 
 export const EDGE_LATENCY_COMPONENTS = [
   'propagationMs',
-  'congestionMs',
   'transmissionMs',
   'linkQueueMs',
   'protocolOverheadMs',
   'retransmissionMs',
   'connectionWaitMs',
+  'slotWaitMs',
   'handshakeMs',
   'batchWaitMs'
 ] as const satisfies ReadonlyArray<keyof EdgeLatencyBreakdownSample>
@@ -116,11 +117,13 @@ export const EDGE_LATENCY_COMPONENTS = [
 export type EdgeLatencyComponent = (typeof EDGE_LATENCY_COMPONENTS)[number]
 
 /**
- * Components that only an opt-in edge behaviour (connection model, batching)
- * can make non-zero; views may hide them while they are zero.
+ * Components that stay zero unless an opt-in edge behaviour (connection model,
+ * batching) applies or the edge's concurrency cap is reached; views may hide
+ * them while they are zero.
  */
 export const OPT_IN_EDGE_LATENCY_COMPONENTS: ReadonlySet<EdgeLatencyComponent> = new Set([
   'connectionWaitMs',
+  'slotWaitMs',
   'handshakeMs',
   'batchWaitMs'
 ])
