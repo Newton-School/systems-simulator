@@ -247,15 +247,7 @@ function buildQuestionPackage(project: QuestionAuthoringProject): QuestionPackag
   const scaffoldTopology = project.assets.scaffoldTopology?.nodes.length
     ? project.assets.scaffoldTopology
     : undefined
-  const entryFormat = scaffoldTopology
-    ? setup.entryFormat === 'broken-scaffold' ||
-      setup.entryFormat === 'locked-lab' ||
-      setup.entryFormat === 'baseline-optimize'
-      ? setup.entryFormat
-      : 'partial-scaffold'
-    : setup.entryFormat === 'requirements-first'
-      ? setup.entryFormat
-      : 'blank-canvas'
+  const entryFormat = setup.entryFormat ?? (scaffoldTopology ? 'partial-scaffold' : 'blank-canvas')
   const scenarios = question.scenarios.map((scenario) => compileAuthoringScenario(scenario)!)
   const firstScenario = question.scenarios[0]
   const dryRunCase = question.dryRunScenarioId

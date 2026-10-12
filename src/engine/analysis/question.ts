@@ -546,18 +546,18 @@ function evaluateQuestionConstraints(
     checks.push({
       id: 'max-budget',
       description: `Keep provisioned spend within ${formatUsdPerHour(constraints.maxBudget)}`,
-      passed: cost.totalPerHour <= constraints.maxBudget,
-      ...(!Number.isFinite(cost.totalPerHour) || cost.totalPerHour > constraints.maxBudget
+      passed: cost.totalPerHour <= constraints.maxBudget && !cost.hasUnpricedNodes,
+      ...(cost.hasUnpricedNodes
         ? {
-            detail: `Current spend ${formatUsdPerHour(cost.totalPerHour)} exceeds cap ${formatUsdPerHour(
-              constraints.maxBudget
-            )}.${cost.hasUnpricedNodes ? ' Some nodes remain unpriced in the current cost model.' : ''}`
+            detail: `Cannot validate the spend cap: current priced spend is ${formatUsdPerHour(
+              cost.totalPerHour
+            )}, but some provisioned nodes are unpriced.`
           }
-        : cost.hasUnpricedNodes
+        : !Number.isFinite(cost.totalPerHour) || cost.totalPerHour > constraints.maxBudget
           ? {
-              detail: `Current spend ${formatUsdPerHour(
-                cost.totalPerHour
-              )}. Some nodes remain unpriced in the current cost model.`
+              detail: `Current spend ${formatUsdPerHour(cost.totalPerHour)} exceeds cap ${formatUsdPerHour(
+                constraints.maxBudget
+              )}.`
             }
           : {})
     })
@@ -1890,7 +1890,10 @@ function flattenBudgetRows(budget: BudgetEvaluation | undefined): AttemptCheckRo
   return [
     {
       id: budgetTestId(),
-      name: `Budget: ${budget.actual} / ${budget.cap} ${budget.unit}`,
+      name:
+        budget.unit === 'cost'
+          ? `Budget: ${formatUsdPerHour(budget.actual)} / ${formatUsdPerHour(budget.cap)}`
+          : `Budget: ${budget.actual} / ${budget.cap} ${budget.unit}`,
       scope: 'budget',
       kind: 'topology',
       status: budget.withinBudget ? 'passed' : 'failed',
@@ -2394,7 +2397,7 @@ export function gradeAttemptWithArtifacts(
   return { grade, cases }
 }
 
-/** Replace experiment cases' generic rubric results with their experiment grades. */
+/** Compose experiment verdicts with the ordinary rubric results from the same run. */
 function gradeExperimentCases(
   pkg: QuestionPackage,
   studentTopology: TopologyJSON,
@@ -2416,6 +2419,7 @@ function gradeExperimentCases(
       (result): result is Extract<EvaluationBatch['results'][number], { ok: false }> =>
         result.id === testCase.id && !result.ok
     )
+    const baseGrade = graded.cases.find((candidate) => candidate.id === testCase.id)
     const { graded: caseGrade, result } = gradeExperimentCase({
       rubric: pkg.rubric,
       caseId: testCase.id,
@@ -2423,7 +2427,8 @@ function gradeExperimentCases(
       prepared,
       ...(output ? { output } : {}),
       ...(failed ? { runError: failed.error } : {}),
-      topology: studentTopology
+      topology: studentTopology,
+      ...(baseGrade ? { baseGrade } : {})
     })
     replacements.set(testCase.id, caseGrade)
     experiments.push(result)

@@ -30,11 +30,10 @@ type ExperienceQuestion =
 type ExperienceProfile = Pick<EnvironmentProfile, 'mode' | 'graded'>
 
 /**
- * Kill-switch for the Blueprints and Labs sidebar tabs (and their panels). That
- * content is reserved for a future release, so both tabs are filtered out of
- * every experience for now. Flip to `true` to bring them back.
+ * Blueprints and Labs are product surfaces. Keep the switch local so an
+ * emergency rollback can hide both without changing envelope semantics.
  */
-const SHOW_BLUEPRINTS_AND_LABS = false
+const SHOW_BLUEPRINTS_AND_LABS = true
 const HIDDEN_TABS: readonly ExperienceSidebarTab[] = ['blueprints', 'labs']
 
 function withVisibleTabs(tabs: readonly ExperienceSidebarTab[]): readonly ExperienceSidebarTab[] {

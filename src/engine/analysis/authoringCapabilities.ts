@@ -225,6 +225,7 @@ export type RubricMetricGroup =
   | 'coordination'
   | 'resilience'
   | 'consistency'
+  | 'topology'
   | 'cache'
   | 'collapse'
   | 'changeStream'
@@ -242,6 +243,7 @@ export const RUBRIC_METRIC_GROUP_LABELS: Readonly<Record<RubricMetricGroup, stri
   coordination: 'Reservations and locks',
   resilience: 'Retries and rate limits',
   consistency: 'Read consistency',
+  topology: 'Topology size and capacity',
   cache: 'Cache hit ratio',
   collapse: 'Request collapsing',
   changeStream: 'Change-stream ordering',
@@ -255,7 +257,7 @@ export const RUBRIC_METRIC_GROUP_LABELS: Readonly<Record<RubricMetricGroup, stri
 export interface RubricMetricCapability {
   id: string
   label: string
-  kind: Exclude<RubricCheckKind, 'topology'>
+  kind: RubricCheckKind
   supportTier: SupportTier
   evidenceModes: readonly AuthoringEvidenceMode[]
   operators: readonly CheckOp[]
@@ -280,6 +282,7 @@ function metricLabel(metric: string): string {
 }
 
 function legacyGroup(id: string): RubricMetricGroup {
+  if (id.startsWith('topology.')) return 'topology'
   if (id.startsWith('summary.latency.')) return 'latency'
   if (id.startsWith('summary.')) return 'requests'
   if (id.startsWith('perNode.')) return 'perNode'
@@ -361,6 +364,12 @@ const SIMULATION_METRIC_IDS = [
   'consistency.linearizableVerified'
 ] as const
 
+const TOPOLOGY_METRIC_IDS = [
+  'topology.totalNodes',
+  'topology.totalEdges',
+  'topology.totalWorkers'
+] as const
+
 type FeatureMetricSeed = readonly [
   id: string,
   label: string,
@@ -392,6 +401,7 @@ const FEATURE_METRIC_SEEDS: Readonly<Record<RubricMetricGroup, readonly FeatureM
   resilience: [],
   consistency: [],
   invariants: [],
+  topology: [],
   cache: [
     [
       'cache.hitRatio',
@@ -733,6 +743,7 @@ const INVARIANT_METRIC_IDS = [
 ] as const
 
 export const RUBRIC_METRIC_CAPABILITIES: readonly RubricMetricCapability[] = [
+  ...TOPOLOGY_METRIC_IDS.map((id) => metric(id, 'topology', ['discrete', 'analytic'])),
   ...SIMULATION_METRIC_IDS.map((id) => metric(id, 'simulation', ['discrete', 'analytic'])),
   ...FEATURE_METRIC_CAPABILITIES,
   ...INVARIANT_METRIC_IDS.map((id) => metric(id, 'invariant', ['discrete', 'analytic']))
@@ -746,6 +757,7 @@ export const SIMULATION_RUBRIC_METRICS: ReadonlySet<string> = new Set([
   ...SIMULATION_METRIC_IDS,
   ...FEATURE_RUBRIC_METRIC_IDS
 ])
+export const TOPOLOGY_RUBRIC_METRICS: ReadonlySet<string> = new Set(TOPOLOGY_METRIC_IDS)
 export const INVARIANT_RUBRIC_METRICS: ReadonlySet<string> = new Set(INVARIANT_METRIC_IDS)
 
 export const NFR_METRIC_TO_RUBRIC_METRIC: Readonly<Record<string, string>> = {

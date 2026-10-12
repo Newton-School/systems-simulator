@@ -507,14 +507,14 @@ export const CONCEPT_SUPPORT_LEDGER = {
       'Session lifecycle, HTTP acknowledgement timing, L7 rejection, and streaming flow-control evidence are modeled; packet-level protocol behavior remains simplified.'
   },
   'requirements-first': {
-    tier: 'guided',
+    tier: 'first-class',
     summary:
-      'The authoring contract exists, but the learner-facing staged workflow is not yet fully productized.'
+      'The authoring contract, requirements brief, learner workflow tracker, blueprint library, and requirements-aware run labels are productized.'
   },
   'locked-lab': {
-    tier: 'guided',
+    tier: 'first-class',
     summary:
-      'The abstraction exists and validator support exists, but the visible product surface remains intentionally hidden.'
+      'The authoring contract, validator, locked canvas envelope, property-tuning workflow, and visible Labs library are productized.'
   }
 } as const satisfies Record<string, SupportLedgerEntry>
 

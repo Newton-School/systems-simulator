@@ -7,11 +7,10 @@ import {
 } from './questionEntryFormatPresentationModel'
 
 /**
- * Kill-switch for the entry-format workflow scaffolding (the top experience
- * strip and the brief's guide card). Synthesized for every question today, it is
- * reserved for a future redesign and force-hidden. Flip to `true` to bring back.
+ * Entry-format workflow scaffolding: the top experience strip and brief guide.
+ * Kept as an exported switch so an emergency rollback remains one-line.
  */
-export const SHOW_ENTRY_FORMAT_WORKFLOW = false
+export const SHOW_ENTRY_FORMAT_WORKFLOW = true
 
 const ENTRY_TONE: Record<QuestionEntryFormat, string> = {
   'blank-canvas': 'border-nss-border bg-nss-panel',

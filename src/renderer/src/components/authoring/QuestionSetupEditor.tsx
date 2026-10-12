@@ -135,9 +135,7 @@ export function QuestionSetupEditor({
             <option value="blank-canvas" disabled={hasScaffold}>
               Blank canvas
             </option>
-            <option value="requirements-first" disabled={hasScaffold}>
-              Requirements first
-            </option>
+            <option value="requirements-first">Requirements first</option>
             <option value="partial-scaffold" disabled={!hasScaffold}>
               Partial scaffold
             </option>

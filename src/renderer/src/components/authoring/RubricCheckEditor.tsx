@@ -49,10 +49,11 @@ export function RubricCheckEditor({
               Verdict-metric grading
             </h3>
             <p className="mt-1 max-w-2xl text-xs leading-5 text-nss-muted">
-              Assert any engine verdict metric — per-node utilization, latency percentiles,
-              invariant violations, reservation/lock/retry/rate-limit counters, cache hit ratio,
-              collapsing, change-stream ordering, telemetry, cluster, edge and fault-domain counters
-              — as <code>metric op value</code>. Needs a workload from the Scenarios stage.
+              Assert any topology or engine verdict metric — node/edge/worker totals, per-node
+              utilization, latency percentiles, invariant violations,
+              reservation/lock/retry/rate-limit counters, cache hit ratio, collapsing, change-stream
+              ordering, telemetry, cluster, edge and fault-domain counters — as{' '}
+              <code>metric op value</code>. Needs a workload from the Scenarios stage.
             </p>
           </div>
           <button

@@ -757,15 +757,6 @@ function validateCaseFaultsAndExperiments(
         )
       )
     }
-    if ((testCase.invariants ?? []).length > 0) {
-      out.push(
-        warn(
-          'experiment.invariantsNotGraded',
-          `Case "${testCase.id}" is graded by its experiment verdict only, so its invariants are not graded.`,
-          `${path}.invariants`
-        )
-      )
-    }
     if (!reference) return
     testCase.experiment.presets.forEach((preset, pi) => {
       for (const field of presetOptionFields(preset.presetId)) {
@@ -801,20 +792,6 @@ function validateCaseFaultsAndExperiments(
       )
     }
   })
-
-  const rubricRunsSomewhere = cases.some((testCase) => !testCase.experiment)
-  const caseChecks = (pkg.rubric?.checks ?? []).filter(
-    (check) => inferRubricCheckKind(check) !== 'topology'
-  )
-  if (cases.length > 0 && !rubricRunsSomewhere && caseChecks.length > 0) {
-    out.push(
-      warn(
-        'experiment.rubricUnused',
-        'Every case is a chaos experiment, so the rubric metric checks never run. Add an ordinary case, or move them to topology checks.',
-        'rubric.checks'
-      )
-    )
-  }
 }
 
 /** Convenience: true when there are no `error`-level diagnostics. */

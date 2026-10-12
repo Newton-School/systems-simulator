@@ -8,9 +8,10 @@
  * through the same injected engine run as every other case, and evaluated with
  * the experiment's own steady-state and verify checks.
  *
- * Grading rule: the case passes only when the experiment verdict is `passed`.
- * The case's rubric is the experiment, not the shared rubric metric checks:
+ * Grading rule: the experiment verdict is an additional scored gate. The same
+ * run is also graded by the question's normal simulation/invariant checks:
  *   - `experiment.verdict` - the gate, worth `points` (default 1);
+ *   - the shared case rubric checks, including authored invariants;
  *   - one informational row per experiment check (steady state, each verify,
  *     final), worth 0 points, carrying the measured values.
  * A preset that cannot apply to the learner's design (no availability zones,
@@ -251,7 +252,7 @@ function verdictRow(
   }
 }
 
-function caseRubric(rubric: Rubric, checks: CheckResult[]) {
+function caseRubric(rubric: Rubric, checks: CheckResult[], requiredGatePassed: boolean) {
   const possible = checks.reduce((sum, check) => sum + check.points, 0)
   const earned = checks.reduce((sum, check) => sum + check.awarded, 0)
   const fraction = possible > 0 ? earned / possible : 1
@@ -260,7 +261,7 @@ function caseRubric(rubric: Rubric, checks: CheckResult[]) {
     ...(rubric.id ? { rubricId: rubric.id } : {}),
     checks,
     score: { earned, possible, fraction },
-    passed: fraction >= (rubric.passThreshold ?? 1)
+    passed: requiredGatePassed && fraction >= (rubric.passThreshold ?? 1)
   }
 }
 
@@ -278,6 +279,11 @@ function executionRow(ok: boolean, detail?: string): CheckResult {
   }
 }
 
+/** Normal simulation/invariant rows from the shared rubric, without its duplicate execution row. */
+function sharedCaseChecks(baseGrade: GradedCaseResult | undefined): CheckResult[] {
+  return (baseGrade?.rubric?.checks ?? []).filter((check) => check.id !== EXECUTION_CHECK_ID)
+}
+
 /**
  * Grade one experiment case from its run. `output` is the engine output of the
  * compiled topology; `runError` is set when the run threw.
@@ -290,6 +296,8 @@ export function gradeExperimentCase(input: {
   output?: SimulationOutput
   runError?: string
   topology: TopologyJSON
+  /** The same run graded by the question's ordinary simulation/invariant rubric. */
+  baseGrade?: GradedCaseResult
 }): { graded: GradedCaseResult; result: QuestionExperimentCaseResult } {
   const { rubric, caseId, experiment, prepared } = input
   const points = experiment.points ?? 1
@@ -307,10 +315,15 @@ export function gradeExperimentCase(input: {
         ran: false,
         executionStatus: 'failed',
         error: reason,
-        rubric: caseRubric(rubric, [
-          executionRow(false, reason),
-          verdictRow(name, points, false, null, reason)
-        ])
+        rubric: caseRubric(
+          rubric,
+          [
+            executionRow(false, reason),
+            verdictRow(name, points, false, null, reason),
+            ...sharedCaseChecks(input.baseGrade)
+          ],
+          false
+        )
       },
       result: { caseId, name, verdict, passed: false, summary: reason }
     }
@@ -339,11 +352,16 @@ export function gradeExperimentCase(input: {
       id: caseId,
       ran: true,
       executionStatus: 'completed',
-      rubric: caseRubric(rubric, [
-        executionRow(true),
-        verdictRow(name, points, passed, passed ? 1 : 0, detail),
-        ...result.checks.map((check) => checkRow(name, check))
-      ])
+      rubric: caseRubric(
+        rubric,
+        [
+          executionRow(true),
+          verdictRow(name, points, passed, passed ? 1 : 0, detail),
+          ...sharedCaseChecks(input.baseGrade),
+          ...result.checks.map((check) => checkRow(name, check))
+        ],
+        passed
+      )
     },
     result: { caseId, name, verdict: result.verdict, passed, summary: result.summary, result }
   }
@@ -357,6 +375,17 @@ export function applyExperimentCaseGrades(
 ): GradedEvaluationBatch {
   if (replacements.size === 0) return graded
   const cases = graded.cases.map((entry) => replacements.get(entry.id) ?? entry)
-  const { score, passed } = aggregateBatchScore(rubric, graded.question, cases)
-  return { ...graded, cases, score, passed, summary: batchSummary(graded.question, cases) }
+  const aggregate = aggregateBatchScore(rubric, graded.question, cases)
+  const experimentGatesPassed = [...replacements.values()].every(
+    (entry) =>
+      entry.rubric?.checks.find((check) => check.id === EXPERIMENT_VERDICT_CHECK_ID)?.passed ===
+      true
+  )
+  return {
+    ...graded,
+    cases,
+    score: aggregate.score,
+    passed: aggregate.passed && experimentGatesPassed,
+    summary: batchSummary(graded.question, cases)
+  }
 }

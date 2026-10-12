@@ -9,8 +9,9 @@ import type { CheckOp, RubricCheck } from './rubric'
 
 /**
  * The general `RUBRIC_CHECK` composer: any verdict metric in the engine-owned
- * registry (latency percentiles, throughput/volume, errors, per-node worst-case,
- * capability counters, and the invariant family) asserted as `metric op value`.
+ * registry (topology totals, latency percentiles, throughput/volume, errors,
+ * per-node worst-case, capability counters, and the invariant family) asserted
+ * as `metric op value`.
  * The friendly latency/error/throughput NFR editor stays for the common case; this
  * covers the rest of catalog §3.
  */

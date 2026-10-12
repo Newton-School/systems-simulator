@@ -395,24 +395,24 @@ Fields that are not wired to runtime behavior are hidden from the default inspec
 
 ## Implementation Status
 
-| Area                                                    | Status  |
-| ------------------------------------------------------- | ------- |
-| Browser SPA target                                      | Done    |
-| React Flow canvas (nodes + edges)                       | Done    |
-| Drag-and-drop node palette                              | Done    |
-| Node types (Compute, Service, VPC)                      | Done    |
-| Atomic design system (atoms → organisms)                | Done    |
-| Zustand topology store                                  | Done    |
-| Inspector panel                                         | Done    |
-| File save / load via browser file APIs                  | Done    |
-| Scenario controls (source/workload/global runtime)      | Done    |
-| Topology serialization + validation                     | Done    |
-| Simulation engine (DES loop)                            | Done    |
-| Web Worker execution                                    | Done    |
-| Results tray (overview / bottlenecks / nodes / traffic) | Done    |
-| CLI simulation runner                                   | Done    |
-| Advanced fault authoring UI                             | Partial |
-| Advanced cost / failure analysis UI                     | Planned |
+| Area                                                    | Status |
+| ------------------------------------------------------- | ------ |
+| Browser SPA target                                      | Done   |
+| React Flow canvas (nodes + edges)                       | Done   |
+| Drag-and-drop node palette                              | Done   |
+| Node types (Compute, Service, VPC)                      | Done   |
+| Atomic design system (atoms → organisms)                | Done   |
+| Zustand topology store                                  | Done   |
+| Inspector panel                                         | Done   |
+| File save / load via browser file APIs                  | Done   |
+| Scenario controls (source/workload/global runtime)      | Done   |
+| Topology serialization + validation                     | Done   |
+| Simulation engine (DES loop)                            | Done   |
+| Web Worker execution                                    | Done   |
+| Results tray (overview / bottlenecks / nodes / traffic) | Done   |
+| CLI simulation runner                                   | Done   |
+| Advanced fault authoring UI                             | Done   |
+| Advanced cost / failure analysis UI                     | Done   |
 
 See `ns-simulator-docs/planning/TICKETS.md` for the full 46-ticket breakdown.
 

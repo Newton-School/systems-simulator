@@ -102,11 +102,15 @@ describe('chaos experiment test cases', () => {
     expect(good.experiments).toEqual([
       expect.objectContaining({ caseId: 'zone-outage', verdict: 'passed', passed: true })
     ])
-    // The shared rubric metric checks do not run on an experiment case.
-    expect(goodCase.rubric!.checks.map((check) => check.id)).not.toContain('errors')
     expect(goodCase.rubric!.checks.map((check) => check.id)).toEqual(
-      expect.arrayContaining(['experiment.verdict', 'experiment.steady-state', 'experiment.final'])
+      expect.arrayContaining([
+        'experiment.verdict',
+        'errors',
+        'experiment.steady-state',
+        'experiment.final'
+      ])
     )
+    expect(goodCase.rubric!.score).toEqual({ earned: 2, possible: 2, fraction: 1 })
     expect(good.contract.allPassed).toBe(true)
 
     const gamed = gradeAttempt(pkg, zoned({ twoZones: false }), run)
@@ -120,6 +124,26 @@ describe('chaos experiment test cases', () => {
     expect(gamed.contract.allPassed).toBe(false)
   })
 
+  it('keeps the experiment verdict mandatory below a relaxed score threshold', () => {
+    const pkg = pkgWith([AZ_CASE])
+    pkg.rubric.passThreshold = 0.5
+    pkg.rubric.checks = [
+      {
+        id: 'requests-ran',
+        description: 'The run handled requests',
+        metric: 'summary.totalRequests',
+        op: '>',
+        value: 0
+      }
+    ]
+
+    const grade = gradeAttempt(pkg, zoned({ twoZones: false }), run)
+    expect(grade.graded.score.fraction).toBe(0.5)
+    expect(grade.graded.cases[0].rubric?.passed).toBe(false)
+    expect(grade.graded.passed).toBe(false)
+    expect(grade.contract.allPassed).toBe(false)
+  })
+
   it('fails the case with the preset reason when the design cannot run it', () => {
     const pkg = pkgWith([AZ_CASE])
     const grade = gradeAttempt(pkg, zoned({ locations: false }), run)
@@ -127,7 +151,7 @@ describe('chaos experiment test cases', () => {
     expect(entry).toMatchObject({ ran: false, executionStatus: 'failed' })
     expect(entry.error).toMatch(/cannot run the AZ outage experiment: An AZ outage needs/)
     expect(grade.experiments![0]).toMatchObject({ verdict: 'unavailable', passed: false })
-    expect(grade.graded.score).toEqual({ earned: 0, possible: 1, fraction: 0 })
+    expect(grade.graded.score).toEqual({ earned: 0, possible: 2, fraction: 0 })
   })
 
   it('composes presets and applies options', () => {
@@ -145,7 +169,45 @@ describe('chaos experiment test cases', () => {
     ])
     const grade = gradeAttempt(pkg, zoned(), run)
     expect(grade.experiments![0].name).toBe('AZ outage + Traffic spike (2s in)')
-    expect(grade.graded.cases[0].rubric!.score.possible).toBe(3)
+    expect(grade.graded.cases[0].rubric!.score.possible).toBe(4)
+  })
+
+  it('composes the experiment verdict with authored invariant rubric checks', () => {
+    const base = pkgWith([
+      {
+        ...AZ_CASE,
+        invariants: [
+          {
+            id: 'impossible-errors',
+            description: 'Prove the ordinary invariant still runs',
+            condition: 'summary.errorRate < 0'
+          }
+        ]
+      }
+    ])
+    const pkg: QuestionPackage = {
+      ...base,
+      rubric: {
+        checks: [
+          {
+            id: 'no-invariant-violations',
+            kind: 'invariant',
+            description: 'All case invariants hold',
+            metric: 'invariantViolations.count',
+            op: '==',
+            value: 0
+          }
+        ]
+      }
+    }
+    const grade = gradeAttempt(pkg, zoned(), run)
+    const rows = grade.graded.cases[0].rubric!.checks
+    expect(rows.find((check) => check.id === EXPERIMENT_VERDICT_CHECK_ID)?.passed).toBe(true)
+    expect(rows.find((check) => check.id === 'no-invariant-violations')).toMatchObject({
+      passed: false,
+      actual: 1
+    })
+    expect(grade.graded.cases[0].rubric!.passed).toBe(false)
   })
 
   it('rejects unknown preset options in the schema', () => {
@@ -203,7 +265,7 @@ describe('chaos experiment test cases', () => {
       { mode: 'discrete' }
     )
     expect(report.reference.overallPassed).toBe(true)
-    // The plain rubric check is judged on the ordinary case only.
+    // The plain rubric check is judged on both ordinary and experiment runs.
     expect(report.reference.obligations).toContainEqual({
       id: 'errors',
       axis: 'rubric',
