@@ -8,6 +8,7 @@ import {
 } from './analysis/output'
 import { evaluateInvariantViolations } from './analysis/invariants'
 import { detectSinglePointsOfFailure } from './analysis/singlePointOfFailure'
+import { featureCounterSeeds } from './analysis/featureCounterFamilies'
 import { replayEventStream } from './analysis/replay'
 import { CausalGraphRecorder } from './analysis/causalGraph'
 import {
@@ -460,7 +461,12 @@ export class SimulationEngine {
     for (const node of topology.nodes) {
       const normalized = this.withNodeDefaults(node)
       this.nodeDefinitionsById.set(node.id, normalized)
-      this.traitsByNodeId.set(node.id, traitResolver(normalized))
+      const resolvedTraits = traitResolver(normalized)
+      this.traitsByNodeId.set(node.id, resolvedTraits)
+      // Gradeable opt-in features start every counter at zero, so an enabled but
+      // idle feature grades as 0 and an absent one stays unresolved.
+      const featureSeeds = featureCounterSeeds(normalized, resolvedTraits)
+      if (featureSeeds) this.metrics.recordNodeTraitCounters(node.id, featureSeeds)
       this.nodes.set(node.id, new GGcKNode(normalized, this.distributions, scheduler))
       // Report limits against the DERIVED effective c/K (what the node actually
       // ran with), not the vestigial authored queue — so utilization, saturation

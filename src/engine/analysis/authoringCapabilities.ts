@@ -216,6 +216,42 @@ export const SEMANTIC_AUTHORING_CAPABILITIES = Object.entries(SEMANTIC_CAPABILIT
   ([id, seed]) => capability('semantic', id, seed)
 )
 
+export type RubricMetricUnit = 'ms' | 'ratio' | 'req/s' | 'count' | 'replicas' | 'pods' | 'pod-s'
+
+export type RubricMetricGroup =
+  | 'latency'
+  | 'requests'
+  | 'perNode'
+  | 'coordination'
+  | 'resilience'
+  | 'consistency'
+  | 'cache'
+  | 'collapse'
+  | 'changeStream'
+  | 'telemetry'
+  | 'cluster'
+  | 'edges'
+  | 'faultDomains'
+  | 'invariants'
+
+/** Picker order and headings for the metric groups. */
+export const RUBRIC_METRIC_GROUP_LABELS: Readonly<Record<RubricMetricGroup, string>> = {
+  latency: 'Latency',
+  requests: 'Requests and errors',
+  perNode: 'Per-node worst case',
+  coordination: 'Reservations and locks',
+  resilience: 'Retries and rate limits',
+  consistency: 'Read consistency',
+  cache: 'Cache hit ratio',
+  collapse: 'Request collapsing',
+  changeStream: 'Change-stream ordering',
+  telemetry: 'Telemetry ingest',
+  cluster: 'Cluster scheduling',
+  edges: 'Edge slots, connections and batching',
+  faultDomains: 'Fault-domain outages',
+  invariants: 'Invariants'
+}
+
 export interface RubricMetricCapability {
   id: string
   label: string
@@ -223,6 +259,15 @@ export interface RubricMetricCapability {
   supportTier: SupportTier
   evidenceModes: readonly AuthoringEvidenceMode[]
   operators: readonly CheckOp[]
+  group: RubricMetricGroup
+  unit: RubricMetricUnit
+  /**
+   * What the number measures and when it is absent. Feature metrics (cache,
+   * collapsing, change streams, telemetry, cluster, edges, fault domains) do
+   * not resolve on a design that does not use the feature, so a `== 0` check
+   * never passes vacuously.
+   */
+  description?: string
 }
 
 const ALL_OPERATORS = ['<', '<=', '>', '>=', '==', '!='] as const satisfies readonly CheckOp[]
@@ -232,6 +277,25 @@ function metricLabel(metric: string): string {
     .replaceAll('.', ' ')
     .replace(/([a-z])([A-Z])/g, '$1 $2')
     .replace(/^./, (character) => character.toUpperCase())
+}
+
+function legacyGroup(id: string): RubricMetricGroup {
+  if (id.startsWith('summary.latency.')) return 'latency'
+  if (id.startsWith('summary.')) return 'requests'
+  if (id.startsWith('perNode.')) return 'perNode'
+  if (id.startsWith('reservations.') || id.startsWith('locks.')) return 'coordination'
+  if (id.startsWith('retries.') || id.startsWith('rateLimit.')) return 'resilience'
+  if (id.startsWith('consistency.')) return 'consistency'
+  return 'invariants'
+}
+
+function legacyUnit(id: string): RubricMetricUnit {
+  if (id.startsWith('summary.latency.') || id === 'perNode.maxLatencyP99') return 'ms'
+  if (id === 'consistency.catchUpWaitMs') return 'ms'
+  if (id === 'summary.throughput') return 'req/s'
+  if (id === 'summary.errorRate' || id === 'perNode.maxErrorRate') return 'ratio'
+  if (id === 'perNode.maxUtilization') return 'ratio'
+  return 'count'
 }
 
 function metric(
@@ -245,7 +309,9 @@ function metric(
     kind,
     supportTier: 'first-class',
     evidenceModes,
-    operators: ALL_OPERATORS
+    operators: ALL_OPERATORS,
+    group: legacyGroup(id),
+    unit: legacyUnit(id)
   }
 }
 
@@ -295,6 +361,370 @@ const SIMULATION_METRIC_IDS = [
   'consistency.linearizableVerified'
 ] as const
 
+type FeatureMetricSeed = readonly [
+  id: string,
+  label: string,
+  unit: RubricMetricUnit,
+  description: string
+]
+
+const CACHE_ABSENT = 'Unresolved when no cache lookup happened.'
+const COLLAPSE_ABSENT = 'Unresolved unless a cache has request collapsing on.'
+const CHANGE_ABSENT = 'Unresolved unless an Event Stream has change-stream ordering on.'
+const TELEMETRY_ABSENT = 'Unresolved unless a collector has async telemetry ingest on.'
+const CLUSTER_ABSENT = 'Unresolved unless a workload is scheduled onto a Kubernetes Cluster.'
+const SLOTS_ABSENT = 'Every edge carries an in-flight cap, so 0 means it never bound.'
+const CONN_ABSENT = 'Unresolved unless an edge with a connection model carried traffic.'
+const BATCH_ABSENT = 'Unresolved unless an edge with producer batching sent a batch.'
+const DOMAIN_ABSENT = 'Unresolved unless a Region / AZ / Subnet outage took a component down.'
+
+/**
+ * Gradeable metrics for opt-in simulator features. Each resolves against the
+ * matching optional verdict section (see verdict.ts), which is absent when the
+ * feature is not in use. Discrete evidence only: the analytic fluid tier does
+ * not model these mechanisms.
+ */
+const FEATURE_METRIC_SEEDS: Readonly<Record<RubricMetricGroup, readonly FeatureMetricSeed[]>> = {
+  latency: [],
+  requests: [],
+  perNode: [],
+  coordination: [],
+  resilience: [],
+  consistency: [],
+  invariants: [],
+  cache: [
+    [
+      'cache.hitRatio',
+      'Cache hit ratio (all caches)',
+      'ratio',
+      `Hits / lookups summed over every cache for the whole run (lookup-weighted, not a point sample). ${CACHE_ABSENT}`
+    ],
+    [
+      'cache.minHitRatio',
+      'Worst cache hit ratio',
+      'ratio',
+      `Lowest hits / lookups of any single cache that served a lookup. ${CACHE_ABSENT}`
+    ],
+    [
+      'cache.maxHitRatio',
+      'Best cache hit ratio',
+      'ratio',
+      `Highest hits / lookups of any single cache that served a lookup. ${CACHE_ABSENT}`
+    ],
+    [
+      'cache.lookups',
+      'Cache lookups',
+      'count',
+      `Hits plus misses across every cache. ${CACHE_ABSENT}`
+    ],
+    ['cache.hits', 'Cache hits', 'count', `Lookups answered from cache. ${CACHE_ABSENT}`],
+    [
+      'cache.misses',
+      'Cache misses',
+      'count',
+      `Lookups that went to the backing store (or waited behind a collapse leader). ${CACHE_ABSENT}`
+    ]
+  ],
+  collapse: [
+    [
+      'collapse.leaders',
+      'Collapse leaders (downstream fetches)',
+      'count',
+      `Misses that made the single downstream fetch for their key. ${COLLAPSE_ABSENT}`
+    ],
+    [
+      'collapse.collapsedMisses',
+      'Collapsed misses',
+      'count',
+      `Misses that waited behind an in-flight leader instead of calling downstream. ${COLLAPSE_ABSENT}`
+    ],
+    [
+      'collapse.followersServed',
+      'Collapsed followers served',
+      'count',
+      `Waiting misses completed by their leader's successful fetch. ${COLLAPSE_ABSENT}`
+    ],
+    [
+      'collapse.followersFailed',
+      'Collapsed followers failed',
+      'count',
+      `Waiting misses failed because their leader's fetch failed. ${COLLAPSE_ABSENT}`
+    ],
+    [
+      'collapse.noKey',
+      'Misses not collapsed (no key)',
+      'count',
+      `Misses that could not collapse because the request carried no key. ${COLLAPSE_ABSENT}`
+    ]
+  ],
+  changeStream: [
+    [
+      'changeStream.orderViolations',
+      'Change ordering violations',
+      'count',
+      `Times a consumer applied an older change for an entity after a newer one. ${CHANGE_ABSENT}`
+    ],
+    [
+      'changeStream.waitedForOrder',
+      'Deliveries held for ordering',
+      'count',
+      `Deliveries held by per-partition or per-key ordered consumption until the earlier one finished. ${CHANGE_ABSENT}`
+    ],
+    [
+      'changeStream.applied',
+      'Change events applied',
+      'count',
+      `Change events a consumer applied successfully. ${CHANGE_ABSENT}`
+    ],
+    [
+      'changeStream.captured',
+      'Change events captured',
+      'count',
+      `Change events the stream numbered per entity. ${CHANGE_ABSENT}`
+    ],
+    [
+      'changeStream.noKey',
+      'Change events without an entity key',
+      'count',
+      `Events that reached the stream without an entity key (not ordered). ${CHANGE_ABSENT}`
+    ],
+    [
+      'changeStream.failed',
+      'Change events failed',
+      'count',
+      `Consumer deliveries of a change event that failed. ${CHANGE_ABSENT}`
+    ]
+  ],
+  telemetry: [
+    [
+      'telemetry.dropped',
+      'Telemetry events dropped',
+      'count',
+      `Events dropped past the ingest ceiling or a full collector buffer. ${TELEMETRY_ABSENT}`
+    ],
+    [
+      'telemetry.dropRate',
+      'Telemetry drop rate',
+      'ratio',
+      `Dropped / offered (ingested + dropped); unresolved when nothing was offered. ${TELEMETRY_ABSENT}`
+    ],
+    [
+      'telemetry.ingested',
+      'Telemetry events ingested',
+      'count',
+      `Events the collector accepted. ${TELEMETRY_ABSENT}`
+    ],
+    [
+      'telemetry.sampledOut',
+      'Telemetry events sampled out',
+      'count',
+      `Events head sampling kept off the collector (never exported). ${TELEMETRY_ABSENT}`
+    ],
+    [
+      'telemetry.offered',
+      'Telemetry events offered',
+      'count',
+      `Events that reached the ingest check (ingested + dropped). ${TELEMETRY_ABSENT}`
+    ],
+    [
+      'telemetry.droppedOverIngest',
+      'Dropped: over ingest ceiling',
+      'count',
+      `Drops because the events/s ingest ceiling was reached. ${TELEMETRY_ABSENT}`
+    ],
+    [
+      'telemetry.droppedBufferFull',
+      'Dropped: collector buffer full',
+      'count',
+      `Drops because the collector buffer was full. ${TELEMETRY_ABSENT}`
+    ]
+  ],
+  cluster: [
+    [
+      'cluster.readyRatio',
+      'Ready / desired replicas (time-weighted)',
+      'ratio',
+      `Time-weighted mean ready replicas over time-weighted mean desired, all workloads. ${CLUSTER_ABSENT}`
+    ],
+    [
+      'cluster.minWorkloadReadyRatio',
+      'Worst workload ready ratio',
+      'ratio',
+      `Lowest time-weighted ready / desired of any scheduled workload. ${CLUSTER_ABSENT}`
+    ],
+    [
+      'cluster.avgReadyReplicas',
+      'Ready replicas (time-weighted mean)',
+      'replicas',
+      `Integral of ready replicas over the run / duration, summed over workloads. ${CLUSTER_ABSENT}`
+    ],
+    [
+      'cluster.avgDesiredReplicas',
+      'Desired replicas (time-weighted mean)',
+      'replicas',
+      `Integral of desired replicas over the run / duration, summed over workloads. ${CLUSTER_ABSENT}`
+    ],
+    [
+      'cluster.avgPendingPods',
+      'Pending pods (time-weighted mean)',
+      'pods',
+      `Integral of unschedulable pods over the run / duration, summed over clusters. ${CLUSTER_ABSENT}`
+    ],
+    [
+      'cluster.peakPendingPods',
+      'Peak pending pods',
+      'pods',
+      `Most pods pending at once in any cluster. ${CLUSTER_ABSENT}`
+    ],
+    [
+      'cluster.pendingPodSeconds',
+      'Pending pod-seconds',
+      'pod-s',
+      `Total time pods spent pending, summed over workloads. ${CLUSTER_ABSENT}`
+    ],
+    ['cluster.podsLost', 'Pods lost', 'count', `Pods lost to machine failures. ${CLUSTER_ABSENT}`],
+    [
+      'cluster.podsRecovered',
+      'Pods recovered',
+      'count',
+      `Lost pods whose replacement became ready. ${CLUSTER_ABSENT}`
+    ],
+    [
+      'cluster.podsUnrecovered',
+      'Pods not recovered',
+      'count',
+      `Lost pods with no ready replacement by the end of the run. ${CLUSTER_ABSENT}`
+    ],
+    [
+      'cluster.meanRecoveryMs',
+      'Mean pod recovery time',
+      'ms',
+      `Mean time from a machine failure to the replacement pod being ready; unresolved until a pod recovers. ${CLUSTER_ABSENT}`
+    ],
+    [
+      'cluster.maxRecoveryMs',
+      'Worst pod recovery time',
+      'ms',
+      `Longest time from a machine failure to the replacement pod being ready; unresolved until a pod recovers. ${CLUSTER_ABSENT}`
+    ]
+  ],
+  edges: [
+    [
+      'edges.slots.waited',
+      'Requests that waited for an edge slot',
+      'count',
+      `Post-warmup, summed over edges. ${SLOTS_ABSENT}`
+    ],
+    [
+      'edges.slots.refused',
+      'Requests refused at a full edge',
+      'count',
+      `Every slot busy and the pending line full, summed over edges (post-warmup). ${SLOTS_ABSENT}`
+    ],
+    [
+      'edges.slots.timedOutWaiting',
+      'Requests timed out waiting for an edge slot',
+      'count',
+      `Deadline passed while waiting for a slot, summed over edges (post-warmup). ${SLOTS_ABSENT}`
+    ],
+    [
+      'edges.slots.maxPeakWaiting',
+      'Most requests waiting on one edge',
+      'count',
+      `Peak queue for slots on the worst edge (a peak, not a mean). ${SLOTS_ABSENT}`
+    ],
+    [
+      'edges.connections.opened',
+      'Connections opened',
+      'count',
+      `New connections opened, summed over edges (post-warmup). ${CONN_ABSENT}`
+    ],
+    [
+      'edges.connections.reused',
+      'Requests on a reused connection',
+      'count',
+      `Requests that reused a warm connection, summed over edges (post-warmup). ${CONN_ABSENT}`
+    ],
+    [
+      'edges.connections.waited',
+      'Requests that waited for a connection',
+      'count',
+      `Requests that waited for a free pooled connection or stream, summed over edges (post-warmup). ${CONN_ABSENT}`
+    ],
+    [
+      'edges.connections.resumed',
+      'TLS sessions resumed',
+      'count',
+      `Opened connections that resumed a TLS session, summed over edges (post-warmup). ${CONN_ABSENT}`
+    ],
+    [
+      'edges.connections.closedIdle',
+      'Connections closed idle',
+      'count',
+      `Keep-alive connections closed after idling, summed over edges (post-warmup). ${CONN_ABSENT}`
+    ],
+    [
+      'edges.batching.batchesSent',
+      'Producer batches sent',
+      'count',
+      `Batches sent across every batching edge (post-warmup). ${BATCH_ABSENT}`
+    ],
+    [
+      'edges.batching.recordsSent',
+      'Records sent in batches',
+      'count',
+      `Records carried by those batches (post-warmup). ${BATCH_ABSENT}`
+    ],
+    [
+      'edges.batching.meanRecordsPerBatch',
+      'Records per batch',
+      'count',
+      `Records sent / batches sent across every batching edge (a per-batch mean). ${BATCH_ABSENT}`
+    ]
+  ],
+  faultDomains: [
+    [
+      'faultDomains.componentsFailed',
+      'Components failed by a domain outage',
+      'count',
+      `Distinct components a Region / AZ / Subnet outage took down. ${DOMAIN_ABSENT}`
+    ],
+    [
+      'faultDomains.outages',
+      'Domain outages',
+      'count',
+      `Distinct Region / AZ / Subnet locations that went down. ${DOMAIN_ABSENT}`
+    ],
+    [
+      'faultDomains.componentDowntimeMs',
+      'Component downtime from domain outages',
+      'ms',
+      `Summed length of the failure windows those outages opened. ${DOMAIN_ABSENT}`
+    ]
+  ]
+}
+
+const FEATURE_METRIC_CAPABILITIES: readonly RubricMetricCapability[] = Object.entries(
+  FEATURE_METRIC_SEEDS
+).flatMap(([group, seeds]) =>
+  seeds.map(([id, label, unit, description]) => ({
+    id,
+    label,
+    kind: 'simulation' as const,
+    supportTier: 'first-class' as const,
+    evidenceModes: ['discrete'] as const,
+    operators: ALL_OPERATORS,
+    group: group as RubricMetricGroup,
+    unit,
+    description
+  }))
+)
+
+/** Every feature metric id (cache, collapsing, change stream, telemetry, cluster, edges, fault domains). */
+export const FEATURE_RUBRIC_METRIC_IDS: readonly string[] = FEATURE_METRIC_CAPABILITIES.map(
+  (capabilityDefinition) => capabilityDefinition.id
+)
+
 const INVARIANT_METRIC_IDS = [
   'invariantViolations.count',
   'sloBreaches.count',
@@ -304,6 +734,7 @@ const INVARIANT_METRIC_IDS = [
 
 export const RUBRIC_METRIC_CAPABILITIES: readonly RubricMetricCapability[] = [
   ...SIMULATION_METRIC_IDS.map((id) => metric(id, 'simulation', ['discrete', 'analytic'])),
+  ...FEATURE_METRIC_CAPABILITIES,
   ...INVARIANT_METRIC_IDS.map((id) => metric(id, 'invariant', ['discrete', 'analytic']))
 ]
 
@@ -311,7 +742,10 @@ export function getRubricMetricCapability(id: string): RubricMetricCapability | 
   return RUBRIC_METRIC_CAPABILITIES.find((capabilityDefinition) => capabilityDefinition.id === id)
 }
 
-export const SIMULATION_RUBRIC_METRICS: ReadonlySet<string> = new Set(SIMULATION_METRIC_IDS)
+export const SIMULATION_RUBRIC_METRICS: ReadonlySet<string> = new Set([
+  ...SIMULATION_METRIC_IDS,
+  ...FEATURE_RUBRIC_METRIC_IDS
+])
 export const INVARIANT_RUBRIC_METRICS: ReadonlySet<string> = new Set(INVARIANT_METRIC_IDS)
 
 export const NFR_METRIC_TO_RUBRIC_METRIC: Readonly<Record<string, string>> = {
