@@ -2,7 +2,7 @@ import { memo } from 'react'
 import { Cloud, Lock, LucideIcon } from 'lucide-react'
 import { InlineEditableLabel } from '@renderer/components/properties/InlineEditable'
 import { ColorTheme } from '@renderer/types/ui'
-interface VpcHeaderProps {
+interface ContainerHeaderProps {
   label: string
   isSuccessState: boolean
   icon?: LucideIcon
@@ -11,7 +11,7 @@ interface VpcHeaderProps {
   children?: React.ReactNode
 }
 
-export const VpcHeader = memo(
+export const ContainerHeader = memo(
   ({
     label,
     isSuccessState,
@@ -19,7 +19,7 @@ export const VpcHeader = memo(
     theme,
     onLabelChange,
     children
-  }: VpcHeaderProps) => {
+  }: ContainerHeaderProps) => {
     const safeBg = theme?.bg || 'bg-nss-surface'
     const safeText = theme?.text || 'text-nss-primary'
 
@@ -82,4 +82,4 @@ export const VpcHeader = memo(
   }
 )
 
-VpcHeader.displayName = 'VpcHeader'
+ContainerHeader.displayName = 'ContainerHeader'

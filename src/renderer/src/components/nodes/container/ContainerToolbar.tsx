@@ -2,15 +2,15 @@ import { memo } from 'react'
 import { NodeToolbar, Position } from 'reactflow'
 import { Ungroup, CheckCircle2 } from 'lucide-react'
 
-interface VpcToolbarProps {
+interface ContainerToolbarProps {
   isVisible: boolean
   isUngrouped: boolean
   hasChildren: boolean
   onUngroup: (e: React.MouseEvent) => void
 }
 
-export const VpcToolbar = memo(
-  ({ isVisible, isUngrouped, hasChildren, onUngroup }: VpcToolbarProps) => {
+export const ContainerToolbar = memo(
+  ({ isVisible, isUngrouped, hasChildren, onUngroup }: ContainerToolbarProps) => {
     if (!hasChildren && !isUngrouped) return null
 
     return (
@@ -36,4 +36,4 @@ export const VpcToolbar = memo(
   }
 )
 
-VpcToolbar.displayName = 'VpcToolbar'
+ContainerToolbar.displayName = 'ContainerToolbar'

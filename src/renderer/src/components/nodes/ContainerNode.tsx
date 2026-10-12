@@ -1,9 +1,9 @@
 import { memo, useState, useCallback } from 'react'
 import { NodeProps, NodeResizer } from 'reactflow'
 import { Cloud, Box, LucideIcon, LayoutGrid } from 'lucide-react'
-import { useVpcLogic } from './vpc/useVpcLogic'
-import { VpcToolbar } from './vpc/VpcToolbar'
-import { VpcHeader } from './vpc/VpcHeader'
+import { useContainerLogic } from './container/useContainerLogic'
+import { ContainerToolbar } from './container/ContainerToolbar'
+import { ContainerHeader } from './container/ContainerHeader'
 import { NodeSettingsMenu } from '@renderer/components/nodes/NodeSettingsMenu'
 import { useFlowStore } from '../canvas/hooks/useFlowStore'
 import { resolveNodeConfig } from '@renderer/config/nodeRegistry'
@@ -16,7 +16,7 @@ const VPC_ICON_LOOKUP: Record<string, LucideIcon> = {
 
 const ContainerNode = ({ id, data, selected }: NodeProps) => {
   const { updateNodeData } = useFlowStore()
-  const { isUngrouped, hasChildren, minSize, handleUngroup } = useVpcLogic(id)
+  const { isUngrouped, hasChildren, minSize, handleUngroup } = useContainerLogic(id)
   const { theme } = resolveNodeConfig(data.templateId || data.iconKey)
   const ContainerIcon = VPC_ICON_LOOKUP[data.iconKey] || Cloud
   const [isMenuOpen, setIsMenuOpen] = useState(false)
@@ -48,7 +48,7 @@ const ContainerNode = ({ id, data, selected }: NodeProps) => {
       className="pointer-events-none relative w-full h-full group transition-all duration-200 ease-in-out"
       style={{ minWidth: minSize.width, minHeight: minSize.height }}
     >
-      <VpcToolbar
+      <ContainerToolbar
         isVisible={selected}
         isUngrouped={isUngrouped}
         hasChildren={hasChildren}
@@ -58,7 +58,7 @@ const ContainerNode = ({ id, data, selected }: NodeProps) => {
       <div
         className={`pointer-events-none absolute inset-0 rounded-xl border-2 border-dashed transition-all duration-300 overflow-visible ${getContainerStyle()}`}
       >
-        <VpcHeader
+        <ContainerHeader
           label={data.label}
           isSuccessState={isSuccessState}
           icon={ContainerIcon}
@@ -74,7 +74,7 @@ const ContainerNode = ({ id, data, selected }: NodeProps) => {
               setIsMenuOpen((prev) => !prev)
             }}
           />
-        </VpcHeader>
+        </ContainerHeader>
       </div>
 
       <NodeResizer

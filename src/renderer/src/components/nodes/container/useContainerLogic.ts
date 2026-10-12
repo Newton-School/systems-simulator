@@ -21,7 +21,7 @@ const getAbsolutePosition = (node: Node, allNodes: Node[]) => {
   return { x, y }
 }
 
-export const useVpcLogic = (id: string) => {
+export const useContainerLogic = (id: string) => {
   const nodes = useStore((state) => state.nodes)
   const { setNodes } = useStore.getState()
   const [isUngrouped, setIsUngrouped] = useState(false)
