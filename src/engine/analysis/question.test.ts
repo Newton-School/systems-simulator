@@ -990,6 +990,25 @@ describe('gradeAttempt — question constraints', () => {
     ).toBe(false)
     expect(grade.contract.allPassed).toBe(false)
   })
+
+  it('fails a spend cap closed when a provisioned node has no price', () => {
+    const topology = constrainedTopology()
+    const service = topology.nodes.find((node) => node.id === 'svc')!
+    service.resources = { ...service.resources, instanceType: undefined }
+    const constrainedPkg: QuestionPackage = {
+      ...pkg,
+      constraints: {
+        maxBudget: 100,
+        canModifyScaffold: true,
+        canRemoveScaffoldNodes: true
+      }
+    }
+
+    const grade = gradeAttempt(constrainedPkg, topology, () => fakeOutput(0.02))
+    const budget = grade.constraints?.checks.find((check) => check.id === 'max-budget')
+    expect(budget).toMatchObject({ passed: false })
+    expect(budget?.detail).toMatch(/cannot validate the spend cap/i)
+  })
 })
 
 describe('gradeAttempt — baseline comparison', () => {

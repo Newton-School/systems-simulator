@@ -100,6 +100,11 @@ export const THEME_CONFIG: Record<string, ColorTheme> = {
     border: 'border-indigo-600',
     text: 'text-indigo-600'
   },
+  'kubernetes-cluster': {
+    bg: 'bg-blue-500',
+    border: 'border-blue-600',
+    text: 'text-blue-600'
+  },
   'agent-orchestrator': {
     bg: 'bg-cyan-500',
     border: 'border-cyan-600',

@@ -8,6 +8,15 @@ import type {
 } from '../core/types'
 import type { SimulationOutput } from './output'
 import {
+  BuilderPolicySchema,
+  definitionEntriesFromTopology,
+  describeBuilderPolicy,
+  evaluateBuilderPolicy,
+  isBuilderPolicyRestrictive,
+  resolveBuilderPolicy,
+  type BuilderPolicy
+} from './builderPolicy'
+import {
   evaluateSuite,
   mergeTopologyWithOverrides,
   type EvaluationBatch,
@@ -49,6 +58,23 @@ import {
   type JustificationResult
 } from './justification'
 import { evaluateBudget, type BudgetEvaluation } from './budget'
+import {
+  componentTypePlainName,
+  expandComponentTypeFamilies,
+  genericComponentTypeOf
+} from '../catalog/componentFamilies'
+import {
+  EXPERIMENT_VERDICT_CHECK_ID,
+  QuestionCaseExperimentSchema,
+  QuestionExperimentCaseResultSchema,
+  applyExperimentCaseGrades,
+  describeCaseExperiment,
+  gradeExperimentCase,
+  prepareExperimentCase,
+  type PreparedExperimentCase,
+  type QuestionCaseExperiment,
+  type QuestionExperimentCaseResult
+} from './questionExperiment'
 import { SIMULATION_VERDICT_VERSION, type SimulationVerdict } from './verdict'
 import {
   BudgetSchema,
@@ -179,6 +205,12 @@ export interface QuestionSuiteCase {
    * via an `invariant`-kind rubric check against `invariantViolations.count`.
    */
   invariants?: InvariantCheck[]
+  /**
+   * Run a chaos experiment (preset, or a composed list) on the learner's design
+   * instead of a plain run. The case is graded by the experiment verdict alone
+   * (see questionExperiment.ts); omit for an ordinary case.
+   */
+  experiment?: QuestionCaseExperiment
 }
 
 export interface QuestionSuite {
@@ -207,6 +239,12 @@ export interface QuestionPackage {
   prompt: QuestionPrompt
   scaffold: QuestionScaffold
   constraints: QuestionConstraints
+  /**
+   * Per-question gating of the Service builder and Custom Node builder
+   * (custom-node-and-service-definition-spec §15). Omit for today's behaviour:
+   * both builders on, nothing restricted.
+   */
+  builderPolicy?: BuilderPolicy
   structuralRules?: StructuralRule[]
   /** Extended anti-gaming grading axes (typed contracts; graded in a later phase). */
   semanticCriteria?: SemanticCriterion[]
@@ -279,6 +317,7 @@ export type ConstraintCheckId =
   | 'max-node-count'
   | 'max-budget'
   | 'max-total-workers'
+  | 'builder-policy'
 
 export interface ConstraintCheck {
   id: ConstraintCheckId
@@ -326,6 +365,8 @@ export interface AttemptGrade {
   budget?: BudgetEvaluation
   /** Optimize-style compare against an authored baseline verdict (absent when none authored). */
   baselineComparison?: BaselineComparisonEvaluation
+  /** Chaos-experiment cases' verdicts and checks (absent when no case has an experiment). */
+  experiments?: QuestionExperimentCaseResult[]
   /** The full graded batch (rich data — stays inside the simulator). */
   graded: GradedEvaluationBatch
   /** The collapsed boolean contract sent across the iframe seam to the host. */
@@ -404,8 +445,12 @@ function formatUsdPerHour(value: number): string {
   return `$${value.toFixed(4)}/hr`
 }
 
-function hasConstraintChecks(constraints: QuestionConstraints): boolean {
+function hasConstraintChecks(
+  constraints: QuestionConstraints,
+  builderPolicy?: BuilderPolicy
+): boolean {
   return (
+    isBuilderPolicyRestrictive(builderPolicy) ||
     (constraints.allowedNodeTypes?.length ?? 0) > 0 ||
     (constraints.forbiddenNodeTypes?.length ?? 0) > 0 ||
     constraints.maxNodeCount !== undefined ||
@@ -414,21 +459,45 @@ function hasConstraintChecks(constraints: QuestionConstraints): boolean {
   )
 }
 
+/** Learner-facing name of the builder-policy constraint row. */
+export function builderPolicyCheckName(builderPolicy: BuilderPolicy | undefined): string {
+  return `Follow the question's builder policy (${describeBuilderPolicy(builderPolicy)})`
+}
+
+/** Scaffold node ids: the author's nodes, exempt from the learner builder policy. */
+export function scaffoldNodeIdsForPackage(pkg: Pick<QuestionPackage, 'scaffold'>): string[] {
+  return pkg.scaffold.topology?.nodes.map((node) => node.id) ?? []
+}
+
 function evaluateQuestionConstraints(
   constraints: QuestionConstraints,
-  topology: TopologyJSON
+  topology: TopologyJSON,
+  builderPolicy?: BuilderPolicy,
+  exemptNodeIds: readonly string[] = []
 ): ConstraintEvaluation | undefined {
-  if (!hasConstraintChecks(constraints)) {
+  if (!hasConstraintChecks(constraints, builderPolicy)) {
     return undefined
   }
 
   const checks: ConstraintCheck[] = []
 
   if ((constraints.allowedNodeTypes?.length ?? 0) > 0) {
-    const allowed = new Set(constraints.allowedNodeTypes)
+    // Family-aware: allowing a generic type (load-balancer) also allows its subtypes.
+    const allowed = expandComponentTypeFamilies(constraints.allowedNodeTypes!)
     const found = Array.from(
       new Set(topology.nodes.map((node) => node.type).filter((type) => !allowed.has(type)))
-    ).sort()
+    )
+      .sort()
+      .map((type) => {
+        // A family relative of an allowed specific type (generic LB placed, L7 allowed).
+        const family = genericComponentTypeOf(type) ?? type
+        const relative = constraints.allowedNodeTypes!.find(
+          (entry) => genericComponentTypeOf(entry) === family
+        )
+        return relative
+          ? `${type} (this question needs ${componentTypePlainName(relative)}: ${relative})`
+          : type
+      })
     checks.push({
       id: 'allowed-node-types',
       description: `Use only allowed component types (${constraints.allowedNodeTypes!.join(', ')})`,
@@ -440,10 +509,16 @@ function evaluateQuestionConstraints(
   }
 
   if ((constraints.forbiddenNodeTypes?.length ?? 0) > 0) {
-    const forbidden = new Set(constraints.forbiddenNodeTypes)
+    // Family-aware: forbidding a generic type (load-balancer) also forbids its subtypes.
+    const named = new Set<string>(constraints.forbiddenNodeTypes)
+    const forbidden = expandComponentTypeFamilies(named)
     const found = Array.from(
       new Set(topology.nodes.map((node) => node.type).filter((type) => forbidden.has(type)))
-    ).sort()
+    )
+      .sort()
+      .map((type) =>
+        named.has(type) ? type : `${type} (a ${genericComponentTypeOf(type) ?? type} subtype)`
+      )
     checks.push({
       id: 'forbidden-node-types',
       description: `Avoid forbidden component types (${constraints.forbiddenNodeTypes!.join(', ')})`,
@@ -471,18 +546,18 @@ function evaluateQuestionConstraints(
     checks.push({
       id: 'max-budget',
       description: `Keep provisioned spend within ${formatUsdPerHour(constraints.maxBudget)}`,
-      passed: cost.totalPerHour <= constraints.maxBudget,
-      ...(!Number.isFinite(cost.totalPerHour) || cost.totalPerHour > constraints.maxBudget
+      passed: cost.totalPerHour <= constraints.maxBudget && !cost.hasUnpricedNodes,
+      ...(cost.hasUnpricedNodes
         ? {
-            detail: `Current spend ${formatUsdPerHour(cost.totalPerHour)} exceeds cap ${formatUsdPerHour(
-              constraints.maxBudget
-            )}.${cost.hasUnpricedNodes ? ' Some nodes remain unpriced in the current cost model.' : ''}`
+            detail: `Cannot validate the spend cap: current priced spend is ${formatUsdPerHour(
+              cost.totalPerHour
+            )}, but some provisioned nodes are unpriced.`
           }
-        : cost.hasUnpricedNodes
+        : !Number.isFinite(cost.totalPerHour) || cost.totalPerHour > constraints.maxBudget
           ? {
-              detail: `Current spend ${formatUsdPerHour(
-                cost.totalPerHour
-              )}. Some nodes remain unpriced in the current cost model.`
+              detail: `Current spend ${formatUsdPerHour(cost.totalPerHour)} exceeds cap ${formatUsdPerHour(
+                constraints.maxBudget
+              )}.`
             }
           : {})
     })
@@ -496,6 +571,27 @@ function evaluateQuestionConstraints(
       passed: actual <= constraints.maxTotalWorkers,
       ...(actual > constraints.maxTotalWorkers
         ? { detail: `Derived total workers ${actual} exceeds cap ${constraints.maxTotalWorkers}.` }
+        : {})
+    })
+  }
+
+  if (isBuilderPolicyRestrictive(builderPolicy)) {
+    // Policy findings are about *how* a node was created (its definition), so
+    // they sit beside - never replace - the componentType-based checks above.
+    const violations = evaluateBuilderPolicy(
+      resolveBuilderPolicy(builderPolicy),
+      definitionEntriesFromTopology(topology, exemptNodeIds)
+    )
+    checks.push({
+      id: 'builder-policy',
+      description: builderPolicyCheckName(builderPolicy),
+      passed: violations.length === 0,
+      ...(violations.length > 0
+        ? {
+            detail: violations
+              .map((violation) => `${violation.message} Fix: ${violation.fix}`)
+              .join(' ')
+          }
         : {})
     })
   }
@@ -940,7 +1036,8 @@ const QuestionSuiteCaseSchema = z.object({
   global: GlobalConfigSchema.partial().optional(),
   workload: WorkloadProfileSchema.partial().optional(),
   faults: z.array(FaultSpecSchema).optional(),
-  invariants: z.array(InvariantCheckSchema).optional()
+  invariants: z.array(InvariantCheckSchema).optional(),
+  experiment: QuestionCaseExperimentSchema.optional()
 })
 
 const RubricCheckSchema: z.ZodType<RubricCheck> = z
@@ -1258,6 +1355,7 @@ export const GradedEvaluationBatchSchema: z.ZodType<GradedEvaluationBatch> = z
 
 const AttemptGradeSchema: z.ZodType<AttemptGrade> = z.object({
   structural: StructuralEvaluationSchema,
+  experiments: z.array(QuestionExperimentCaseResultSchema).optional(),
   graded: GradedEvaluationBatchSchema,
   contract: HostContractSchema
 })
@@ -1300,6 +1398,7 @@ export const QuestionPackageSchema: z.ZodType<QuestionPackage> = z
     prompt: QuestionPromptSchema,
     scaffold: QuestionScaffoldSchema,
     constraints: QuestionConstraintsSchema,
+    builderPolicy: BuilderPolicySchema.optional(),
     structuralRules: z.array(StructuralRuleSchema).optional(),
     semanticCriteria: z.array(SemanticCriterionSchema).optional(),
     justify: z.array(JustifyPromptSchema).optional(),
@@ -1791,7 +1890,10 @@ function flattenBudgetRows(budget: BudgetEvaluation | undefined): AttemptCheckRo
   return [
     {
       id: budgetTestId(),
-      name: `Budget: ${budget.actual} / ${budget.cap} ${budget.unit}`,
+      name:
+        budget.unit === 'cost'
+          ? `Budget: ${formatUsdPerHour(budget.actual)} / ${formatUsdPerHour(budget.cap)}`
+          : `Budget: ${budget.actual} / ${budget.cap} ${budget.unit}`,
       scope: 'budget',
       kind: 'topology',
       status: budget.withinBudget ? 'passed' : 'failed',
@@ -1943,6 +2045,16 @@ export function buildQuestionTestRows(
           }
         ]
       : []),
+    ...(isBuilderPolicyRestrictive(pkg.builderPolicy)
+      ? [
+          {
+            id: constraintTestId('builder-policy'),
+            name: builderPolicyCheckName(pkg.builderPolicy),
+            scope: 'constraints',
+            status: 'pending' as const
+          }
+        ]
+      : []),
     ...(pkg.semanticCriteria ?? []).map((criterion) => ({
       id: semanticTestId(criterion.id),
       name: criterion.description ?? criterion.id,
@@ -1984,14 +2096,23 @@ export function buildQuestionTestRows(
         status: 'pending' as const
       })),
     ...pkg.suite.cases.flatMap((testCase) =>
-      pkg.rubric.checks
-        .filter((check) => inferRubricCheckKind(check) !== 'topology')
-        .map((check) => ({
-          id: caseRubricTestId(testCase.id, inferRubricCheckKind(check), check.id),
-          name: check.description,
-          scope: testCase.id,
-          status: 'pending' as const
-        }))
+      testCase.experiment
+        ? [
+            {
+              id: caseRubricTestId(testCase.id, 'simulation', EXPERIMENT_VERDICT_CHECK_ID),
+              name: `Chaos experiment "${describeCaseExperiment(testCase.experiment)}" passes`,
+              scope: testCase.id,
+              status: 'pending' as const
+            }
+          ]
+        : pkg.rubric.checks
+            .filter((check) => inferRubricCheckKind(check) !== 'topology')
+            .map((check) => ({
+              id: caseRubricTestId(testCase.id, inferRubricCheckKind(check), check.id),
+              name: check.description,
+              scope: testCase.id,
+              status: 'pending' as const
+            }))
     )
   ]
 
@@ -2157,15 +2278,21 @@ export function gradeAttemptWithArtifacts(
     }
   }
 
-  const preparedCases: PreparedCase[] = pkg.suite.cases.map((testCase) => ({
-    id: testCase.id,
-    topology: mergeTopologyWithOverrides(studentTopology, {
+  // An experiment case is compiled against the learner's merged topology here;
+  // a preset that cannot apply becomes that case's error (graded below).
+  const experimentCases = new Map<string, PreparedExperimentCase>()
+  const preparedCases: PreparedCase[] = pkg.suite.cases.map((testCase) => {
+    const topology = mergeTopologyWithOverrides(studentTopology, {
       global: testCase.global,
       workload: deriveQuestionScaleWorkload(pkg, studentTopology, testCase.workload),
       faults: testCase.faults,
       invariants: testCase.invariants
     })
-  }))
+    if (!testCase.experiment) return { id: testCase.id, topology }
+    const prepared = prepareExperimentCase(testCase.id, topology, testCase.experiment)
+    experimentCases.set(testCase.id, prepared)
+    return prepared.prepared
+  })
 
   // Capture each run's raw output, keyed by the prepared topology object, so a
   // verdict + replay digest can be built per case without changing evaluateSuite
@@ -2178,8 +2305,21 @@ export function gradeAttemptWithArtifacts(
   }
 
   const batch = evaluateSuite(preparedCases, capturingRun, pkg.suite.name)
-  const graded = gradeQuestionBatch(pkg.rubric, studentTopology, batch)
-  const constraints = evaluateQuestionConstraints(pkg.constraints, studentTopology)
+  const { graded, experiments } = gradeExperimentCases(
+    pkg,
+    studentTopology,
+    gradeQuestionBatch(pkg.rubric, studentTopology, batch),
+    batch,
+    preparedCases,
+    experimentCases,
+    outputByTopology
+  )
+  const constraints = evaluateQuestionConstraints(
+    pkg.constraints,
+    studentTopology,
+    pkg.builderPolicy,
+    scaffoldNodeIdsForPackage(pkg)
+  )
   // Grade justifications first; a passed justification defends a `forbidUnjustified`
   // component via the injected SemanticContext (the anti-cargo-cult unblock).
   const justification = gradeJustificationsForPackage(pkg, studentTopology, justificationAnswers)
@@ -2210,6 +2350,7 @@ export function gradeAttemptWithArtifacts(
       : undefined
   const grade: AttemptGrade = {
     structural,
+    ...(experiments.length > 0 ? { experiments } : {}),
     ...(constraints ? { constraints } : {}),
     ...(semantic ? { semantic } : {}),
     ...(justification ? { justification } : {}),
@@ -2254,6 +2395,45 @@ export function gradeAttemptWithArtifacts(
   })
 
   return { grade, cases }
+}
+
+/** Compose experiment verdicts with the ordinary rubric results from the same run. */
+function gradeExperimentCases(
+  pkg: QuestionPackage,
+  studentTopology: TopologyJSON,
+  graded: GradedEvaluationBatch,
+  batch: EvaluationBatch,
+  preparedCases: readonly PreparedCase[],
+  experimentCases: ReadonlyMap<string, PreparedExperimentCase>,
+  outputByTopology: ReadonlyMap<TopologyJSON, SimulationOutput>
+): { graded: GradedEvaluationBatch; experiments: QuestionExperimentCaseResult[] } {
+  if (experimentCases.size === 0) return { graded, experiments: [] }
+  const replacements = new Map<string, GradedCaseResult>()
+  const experiments: QuestionExperimentCaseResult[] = []
+  for (const testCase of pkg.suite.cases) {
+    const prepared = experimentCases.get(testCase.id)
+    if (!prepared || !testCase.experiment) continue
+    const entry = preparedCases.find((candidate) => candidate.id === testCase.id)
+    const output = entry && 'topology' in entry ? outputByTopology.get(entry.topology) : undefined
+    const failed = batch.results.find(
+      (result): result is Extract<EvaluationBatch['results'][number], { ok: false }> =>
+        result.id === testCase.id && !result.ok
+    )
+    const baseGrade = graded.cases.find((candidate) => candidate.id === testCase.id)
+    const { graded: caseGrade, result } = gradeExperimentCase({
+      rubric: pkg.rubric,
+      caseId: testCase.id,
+      experiment: testCase.experiment,
+      prepared,
+      ...(output ? { output } : {}),
+      ...(failed ? { runError: failed.error } : {}),
+      topology: studentTopology,
+      ...(baseGrade ? { baseGrade } : {})
+    })
+    replacements.set(testCase.id, caseGrade)
+    experiments.push(result)
+  }
+  return { graded: applyExperimentCaseGrades(pkg.rubric, graded, replacements), experiments }
 }
 
 export function gradeAttempt(

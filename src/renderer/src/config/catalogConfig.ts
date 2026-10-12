@@ -80,6 +80,7 @@ export const CATALOG_CONFIG: CatalogCategory[] = [
     title: 'Compute',
     items: getItems([
       'backend-server',
+      'kubernetes-cluster',
       'lambda-function',
       'async-worker',
       'cron-job',

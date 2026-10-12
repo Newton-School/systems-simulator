@@ -31,7 +31,7 @@ describe('SAMPLE_SCENARIOS composite examples', () => {
     }
     const crossRegionLocationIds = collectLocationIds(crossRegionData.nodes)
 
-    expect(multiAzData.nodes[0]?.type).toBe('vpcNode')
+    expect(multiAzData.nodes[0]?.type).toBe('containerNode')
     expect(Array.isArray(multiAzData.nodes[0]?.nodes)).toBe(true)
     expect(crossRegionLocationIds.length).toBeGreaterThanOrEqual(3)
     expect(crossRegionLocationIds.some((value) => value.includes('us-east'))).toBe(true)

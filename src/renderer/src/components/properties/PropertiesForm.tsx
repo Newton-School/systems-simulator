@@ -19,9 +19,11 @@ import { Input } from '../ui/Input'
 import { Label } from '../ui/Label'
 import { Select } from '../ui/Select'
 import { FormField } from './FormField'
+import { getPathValue } from '@renderer/utils/nodeFieldEdit'
 import { RequestDistributionEditor } from './RequestDistributionEditor'
 import { TrafficOriginsEditor } from './TrafficOriginsEditor'
 import { QueueWeightsEditor } from './QueueWeightsEditor'
+import { BulkheadPartitionsEditor } from './BulkheadPartitionsEditor'
 import { RoutingRulesEditor } from './RoutingRulesEditor'
 import type { ContentRoutingRule } from '../../../../engine/traits/contentRouting'
 import type { LocationProvider } from '../../../../engine/core/types'
@@ -44,26 +46,14 @@ interface PropertiesFormProps {
   resourcesLocked?: boolean
   /** Whether the advanced CPU-bound / IO-bound control is exposed at all. */
   executionProfileEnabled?: boolean
+  /** Why a field is read-only for this node (question builder policy), or null. */
+  lockedFieldReason?: (path: string) => string | null
 }
 
 /** Config sections gated by `resourcesLocked` (the allocation lesson). Workers/K are
  * derived from the instance now, so only the RESOURCES section carries allocation. */
 const RESOURCE_SECTION_IDS = new Set(['resources'])
 const EXECUTION_PROFILE_FIELD_PATH = 'sim.resources.workloadKind'
-
-function getPathValue(target: unknown, path: string): unknown {
-  return path.split('.').reduce<unknown>((current, segment) => {
-    if (current === null || current === undefined) return undefined
-    if (Array.isArray(current)) {
-      const index = Number(segment)
-      return Number.isInteger(index) ? current[index] : undefined
-    }
-    if (typeof current === 'object') {
-      return (current as Record<string, unknown>)[segment]
-    }
-    return undefined
-  }, target)
-}
 
 const ROUTING_STRATEGIES = new Set<RoutingStrategy>([
   'passthrough',
@@ -141,7 +131,8 @@ export const PropertiesForm = ({
   data,
   onUpdate,
   resourcesLocked = false,
-  executionProfileEnabled = true
+  executionProfileEnabled = true,
+  lockedFieldReason
 }: PropertiesFormProps) => {
   const effectiveSourceWorkload = useEffectiveSourceWorkload(nodeId, data)
   const effectiveSelectedSourceNodeId = useStore((state) =>
@@ -222,6 +213,22 @@ export const PropertiesForm = ({
   }
 
   const renderField = (field: ResolvedFieldDefinition) => {
+    const reason = lockedFieldReason?.(field.path) ?? null
+    if (!reason) return renderEditableField(field)
+    return (
+      <fieldset
+        key={field.path}
+        disabled
+        title={reason}
+        className="m-0 min-w-0 border-0 p-0 opacity-60"
+      >
+        {renderEditableField(field)}
+        <p className="-mt-2 mb-3 text-[10px] leading-snug text-nss-warning">{reason}</p>
+      </fieldset>
+    )
+  }
+
+  const renderEditableField = (field: ResolvedFieldDefinition) => {
     const value = getPathValue(formData, field.path)
     const isOptionalHidden =
       field.optional && value === undefined && !expandedOptionalFields.has(field.path)
@@ -329,6 +336,18 @@ export const PropertiesForm = ({
           key={`${nodeId}:${field.path}`}
           nodeId={nodeId}
           weights={data.sim?.queue?.weights}
+          onChange={(nextValue) => onUpdate(field.path, nextValue)}
+        />
+      )
+    }
+
+    if (field.renderer === 'bulkhead-partitions') {
+      return (
+        <BulkheadPartitionsEditor
+          key={`${nodeId}:${field.path}`}
+          nodeId={nodeId}
+          partitions={data.sim?.bulkheadPartitions}
+          keyField={data.sim?.bulkheadKeyField}
           onChange={(nextValue) => onUpdate(field.path, nextValue)}
         />
       )

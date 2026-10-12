@@ -9,7 +9,7 @@ function makeNode(
 ): Node {
   return {
     id,
-    type: 'serviceNode',
+    type: 'standardNode',
     position,
     data: {},
     selected: false,
@@ -33,7 +33,7 @@ describe('useCopyPaste helpers', () => {
       .mockReturnValueOnce('00000000-0000-0000-0000-000000000002')
       .mockReturnValueOnce('00000000-0000-0000-0000-000000000003')
 
-    const parent = makeNode('parent', { x: 100, y: 100 }, { type: 'vpcNode', selected: true })
+    const parent = makeNode('parent', { x: 100, y: 100 }, { type: 'containerNode', selected: true })
     const child = makeNode('child', { x: 20, y: 30 }, { parentNode: 'parent', selected: true })
     const edge = makeEdge('edge-1', 'parent', 'child')
     edge.selected = true
@@ -65,7 +65,7 @@ describe('useCopyPaste helpers', () => {
   it('detaches a copied child from an uncopied parent and pastes it in absolute space', () => {
     vi.spyOn(crypto, 'randomUUID').mockReturnValueOnce('00000000-0000-0000-0000-000000000004')
 
-    const parent = makeNode('parent', { x: 100, y: 100 }, { type: 'vpcNode' })
+    const parent = makeNode('parent', { x: 100, y: 100 }, { type: 'containerNode' })
     const child = makeNode('child', { x: 20, y: 30 }, { parentNode: 'parent', selected: true })
 
     const clipboard = buildClipboardSelection([parent, child], [])
@@ -75,5 +75,29 @@ describe('useCopyPaste helpers', () => {
     expect(pastedChild.parentNode).toBeUndefined()
     expect(pastedChild.extent).toBeUndefined()
     expect(pastedChild.position).toEqual({ x: 500, y: 600 })
+  })
+
+  it('renames legacy renderer names (#219) on a clipboard captured before the rename', () => {
+    vi.spyOn(crypto, 'randomUUID')
+      .mockReturnValueOnce('00000000-0000-0000-0000-000000000005')
+      .mockReturnValueOnce('00000000-0000-0000-0000-000000000006')
+
+    const parent = makeNode(
+      'parent',
+      { x: 0, y: 0 },
+      { type: 'vpcNode', selected: true, data: { rendererType: 'vpcNode' } }
+    )
+    const child = makeNode(
+      'child',
+      { x: 10, y: 10 },
+      { type: 'computeNode', parentNode: 'parent', selected: true }
+    )
+
+    const clipboard = buildClipboardSelection([parent, child], [])
+    const pasted = materializeClipboardSelection(clipboard, { x: 0, y: 0 })
+
+    expect(pasted.nodes.map((node) => node.type)).toEqual(['containerNode', 'saturationNode'])
+    expect(pasted.nodes[0]?.data).toEqual({ rendererType: 'containerNode' })
+    expect(pasted.nodes[1]?.parentNode).toBe('00000000-0000-0000-0000-000000000005')
   })
 })

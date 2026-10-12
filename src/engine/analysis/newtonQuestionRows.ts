@@ -18,6 +18,7 @@ import {
   type QuestionSuite,
   type ScaleParameters
 } from './question'
+import type { BuilderPolicy } from './builderPolicy'
 import type { RubricCheck } from './rubric'
 import type { StructuralRule } from './structural'
 import { deriveQuestionIdFromTitle } from './questionAuthoringDraft'
@@ -50,6 +51,7 @@ export interface SimulatorConfigRow {
   promptSource?: 'question_text'
   scaffold?: QuestionScaffold
   constraints?: QuestionConstraints
+  builderPolicy?: BuilderPolicy
   suite?: QuestionSuite
   domains?: QuestionDomain[]
   concepts?: string[]
@@ -477,6 +479,7 @@ export function parseNewtonRowsToQuestionPackage(
       canRemoveScaffoldNodes: true,
       ...(isRecord(config.constraints) ? config.constraints : {})
     },
+    ...(isRecord(config.builderPolicy) ? { builderPolicy: config.builderPolicy } : {}),
     ...(structuralRules.length > 0 ? { structuralRules } : {}),
     ...(semanticCriteria.length > 0 ? { semanticCriteria } : {}),
     ...(Array.isArray(config.domains) ? { domains: config.domains } : {}),
@@ -545,6 +548,7 @@ function configRow(
     promptSource: 'question_text',
     scaffold: question.scaffold,
     constraints: question.constraints,
+    ...(question.builderPolicy ? { builderPolicy: question.builderPolicy } : {}),
     suite: question.suite,
     ...(question.domains ? { domains: question.domains } : {}),
     ...(question.concepts ? { concepts: question.concepts } : {}),

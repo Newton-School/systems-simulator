@@ -13,6 +13,7 @@ const RESULTS_TAB_OPTIONS = [
   { value: 'overview', label: 'Overview' },
   { value: 'bottlenecks', label: 'Bottlenecks' },
   { value: 'nodes', label: 'Node metrics' },
+  { value: 'events', label: 'Event log' },
   { value: 'traffic', label: 'Traffic' }
 ] as const
 

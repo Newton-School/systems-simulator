@@ -189,7 +189,7 @@ matter today:
 | `suite.cases[].workload.pattern`                                          | If you author a full workload, `pattern` must be explicit. The product's interactive defaults now favor **`constant`** traffic for predictability.                                                                                                                 | For deterministic graded cases, prefer `constant` unless arrival jitter is part of the lesson. Use `poisson` only intentionally.                                                                                                               |
 | Edge latency when no explicit edge latency is authored                    | The renderer/serializer now resolves a bare edge to a **path-type-derived constant median latency (no jitter)**. Log-normal latency only appears when the edge explicitly chooses the log-normal model or supplies `mu` / `sigma`.                                 | If the question depends on latency variance or burst bunching, author explicit log-normal edge latency in the topology. Do not assume omitted latency means jitter.                                                                            |
 | Node capacity when `resources.instanceType` / `instanceCount` are present | The engine now treats the **instance model** as authoritative for effective concurrency on that node (derived from vCPU × count × execution profile - **§9**). Legacy nodes with no instance-model resources still run off raw `queue.workers` / `queue.capacity`. | For saturation / scaling questions, treat `resources` as part of the real topology DSL. Once you opt into instance-model resources, raw queue numbers are no longer the whole story - size via `instanceType` + `workloadKind`, not `workers`. |
-| Cost in the live product vs cost in question grading                      | The app now has a richer instance-aware live cost model and resource displays, but **`budget.unit:"cost"` in question grading still uses the older v1 heuristic** from `budget.ts`.                                                                                | Do not assume the UI cost chip and the graded `$` axis are numerically identical. Use `budget.nodes` / `budget.edges` for hard anti-kitchen-sink caps; treat `budget.cost` as a heuristic grading axis until the grading DSL is upgraded.      |
+| Cost in the live product and question grading                             | The live cost chip, `budget.unit:"cost"`, and `constraints.maxBudget` use the same instance-aware `topologyCost` model. Provisioned nodes without a price fail spend checks closed instead of being treated as free.                                               | Author `resources.instanceType`, `instanceCount`, and any pricing model deliberately. Use `budget.nodes` / `budget.edges` when the intended limit is topology size rather than spend.                                                          |
 
 For authored question packages, the safest practice is:
 
@@ -297,7 +297,38 @@ A `rubric` check's `kind` is inferred from the metric prefix
 `locks.contentions` · `locks.acquires` · `locks.keyless` (distributed-lock) ·
 `retries.attempts` · `retries.budgetExhausted` (retry-backoff callers) ·
 `rateLimit.breaches` · `rateLimit.admitted` · `rateLimit.rejected` ·
-`rateLimit.keyless` (rate-limiter — an over-admit is `rateLimit.breaches > 0`).
+`rateLimit.keyless` (rate-limiter - an over-admit is `rateLimit.breaches > 0`) ·
+`consistency.staleReads` · `consistency.readYourWritesViolations` ·
+`consistency.monotonicReadViolations` · `consistency.catchUpWaits` ·
+`consistency.catchUpWaitMs` · `consistency.sessionlessReads` ·
+`consistency.linearizabilityViolations` · `consistency.linearizabilityOpsChecked` ·
+`consistency.linearizabilityOpsNotChecked` · `consistency.linearizableVerified`
+(replicated `relational-db` / `nosql-db` with `config.consistencyModel` set to
+`eventual` / `monotonic-reads` / `read-your-writes` / `strong` on the leader and
+every follower; needs keyed reads and writes, and `workload.sessions.count` for
+the session guarantees). The `consistency.*` section exists only when some
+datastore tracks consistency, so on an untracked design the check fails to
+resolve instead of passing vacuously. `linearizableVerified` is 1 only when every
+recorded operation was checked (bound: 100 ops per key, 200 keys); pair a
+`linearizabilityViolations == 0` check with it or with `OpsNotChecked == 0` before
+claiming linearizability.
+**Feature metrics (run-wide; discrete evidence only; absent when the feature is
+not in use, so `== 0` never passes vacuously on a design without it):**
+
+| Family                 | Keys                                                                                                                                                                                                                                                                                                                                                                   | Resolves when                                                                                                                                                                                                             | Unit / notes                                                                                                                                                                                                                        |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Cache hit ratio        | `cache.hitRatio` · `cache.minHitRatio` · `cache.maxHitRatio` · `cache.lookups` · `cache.hits` · `cache.misses`                                                                                                                                                                                                                                                         | at least one cache served a lookup                                                                                                                                                                                        | ratio 0-1 / count. `hitRatio` = sum of hits / sum of lookups over every cache for the whole run (counted, not a point sample); a CDN miss that then hits Redis counts one miss and one hit. `min`/`max` = worst / best single cache |
+| Request collapsing     | `collapse.leaders` · `collapse.collapsedMisses` · `collapse.followersServed` · `collapse.followersFailed` · `collapse.noKey`                                                                                                                                                                                                                                           | a cache has `requestCollapsing: true` (0 when enabled but idle)                                                                                                                                                           | count                                                                                                                                                                                                                               |
+| Change-stream ordering | `changeStream.orderViolations` · `changeStream.waitedForOrder` · `changeStream.applied` · `changeStream.captured` · `changeStream.failed` · `changeStream.noKey`                                                                                                                                                                                                       | an Event Stream has `changeStreamOrdering` + `streamBrokerEnabled`                                                                                                                                                        | count. Grade the ordering lesson with `changeStream.orderViolations == 0`                                                                                                                                                           |
+| Telemetry ingest       | `telemetry.dropped` · `telemetry.dropRate` · `telemetry.ingested` · `telemetry.offered` · `telemetry.sampledOut` · `telemetry.droppedOverIngest` · `telemetry.droppedBufferFull`                                                                                                                                                                                       | a collector has `telemetryAsyncIngest: true`                                                                                                                                                                              | count; `dropRate` = dropped / (ingested + dropped), unresolved when nothing was offered                                                                                                                                             |
+| Cluster scheduling     | `cluster.readyRatio` · `cluster.minWorkloadReadyRatio` · `cluster.avgReadyReplicas` · `cluster.avgDesiredReplicas` · `cluster.avgPendingPods` · `cluster.peakPendingPods` · `cluster.pendingPodSeconds` · `cluster.podsLost` · `cluster.podsRecovered` · `cluster.podsUnrecovered` · `cluster.meanRecoveryMs` · `cluster.maxRecoveryMs`                                | a workload has `scheduledOn` a Kubernetes Cluster                                                                                                                                                                         | replica / pod figures are time-weighted means (integral / duration), summed over workloads; recovery times (ms) stay unresolved until a lost pod is replaced                                                                        |
+| Edges                  | `edges.slots.waited` · `edges.slots.refused` · `edges.slots.timedOutWaiting` · `edges.slots.maxPeakWaiting` · `edges.connections.opened` · `edges.connections.reused` · `edges.connections.waited` · `edges.connections.resumed` · `edges.connections.closedIdle` · `edges.batching.batchesSent` · `edges.batching.recordsSent` · `edges.batching.meanRecordsPerBatch` | `slots.*`: any edge (every edge has `maxConcurrentRequests`, so 0 = the cap never bound). `connections.*`: an edge with `connection` carried post-warmup traffic. `batching.*`: a Kafka edge with `batching` sent a batch | post-warmup sums over edges; `maxPeakWaiting` is the worst edge's peak; `meanRecordsPerBatch` = records / batches over all batching edges                                                                                           |
+| Fault domains          | `faultDomains.componentsFailed` · `faultDomains.outages` · `faultDomains.componentDowntimeMs`                                                                                                                                                                                                                                                                          | a Region / AZ / Subnet fault took a component down during the run                                                                                                                                                         | distinct components / distinct domains / summed failure-window ms                                                                                                                                                                   |
+
+Note the grader's comparison tolerance: every operator allows a 1e-9 relative
+slack, so a strict `componentsFailed < 2` also passes at exactly 2. State integer
+bounds with `<=` / `>=` at the value you mean (e.g. `< 2` as `<= 1`).
+
 These are `kind: "simulation"` checks. Any single trait counter is also reachable
 per node as `perNode.<nodeId>.traitCounters.<counter>`, but prefer the run-wide
 aggregate so the check does not depend on a node id the student can rename.
@@ -369,6 +400,81 @@ enforcement: without a cache the store saturates and p99 fails (proven, alignmen
 payment→idempotency-store) where there is no legitimate bypass.
 
 ---
+
+### 4.4 Fault cases and chaos-experiment cases
+
+A suite case can inject failures in two ways. Both run on the **learner's**
+design at grading time, so ids that exist only in learner designs are allowed.
+
+**Authored faults (`suite.cases[].faults`).** Each `FaultSpec` targets a
+component id **or a Region / Availability Zone / Subnet location id** (a fault
+domain: every component placed inside it fails for the window). Params:
+`atMs`, `durationMs` (with `duration: "fixed"`; `"permanent"` never recovers),
+`mode` (`reject` refuses at once, `blackhole` silent dead server, `hang` fills
+then times out, `degraded` slower but serving - omit for the chaos default:
+blackhole with in-flight requests hanging), `inFlightPolicy` (`reset` / `hang`),
+`recoveryPolicy` (`reset` / `resume`, only for hanging requests), and for
+`degraded` a `degradation: { fraction, serviceTimeMultiplier }`. `faultType:
+"cache-flush"` empties a cache component (cdn / in-memory-cache / reverse-proxy)
+instead of failing it; on a location or a non-cache it does nothing. The engine
+schedules every fault at `atMs` - `timing` other than `deterministic` and
+`duration: "until"` are not modelled.
+
+**Chaos-experiment cases (`suite.cases[].experiment`).** Instead of a plain
+run, the case runs a chaos experiment preset - or several composed with offsets -
+built against the learner's merged topology at grading time:
+
+```json
+{
+  "id": "zone-outage",
+  "description": "Lose one availability zone",
+  "experiment": {
+    "presets": [
+      { "presetId": "az-outage", "options": { "outageSeconds": 10, "maxOutageErrorRate": 0.05 } },
+      { "presetId": "traffic-spike", "offsetSeconds": 5, "options": { "multiplier": 2 } }
+    ],
+    "points": 1
+  }
+}
+```
+
+- `presetId`: `az-outage`, `db-failover`, `cache-stampede`, `traffic-spike`.
+- `offsetSeconds` (composition): whole seconds after the shared steady-state
+  baseline. Default 0.
+- `options` (all optional; unknown keys are a schema error): every preset takes
+  `maxErrorRate` (fraction, default 0.01) and `maxP99Ms` (default 500) for the
+  steady state. `az-outage`: `zoneId`, `outageSeconds` (10),
+  `maxOutageErrorRate` (0.05). `db-failover`: `primaryNodeId`, `replicaNodeId`.
+  `cache-stampede`: `cacheNodeId`, `originNodeId`, `coldForMs` (5000).
+  `traffic-spike`: `multiplier` (10, must be > 1), `spikeSeconds` (10). Leave
+  the id options out unless every learner design will use that exact id - the
+  presets pick targets from the design themselves.
+- `points`: points for the verdict gate. Default 1.
+
+Grading rules:
+
+- The experiment verdict is a **mandatory gate**: a relaxed rubric score threshold
+  cannot compensate for a failed experiment. The case also runs the shared rubric
+  metric checks, including checks over the case's authored invariants. It emits
+  `experiment.verdict` (scored), the shared rows, and one 0-point row per experiment
+  check (`experiment.steady-state`, `experiment.verify-N`, `experiment.final`) with
+  measured values. When `experiment` is present it owns fault injection, so separate
+  case `faults` are set aside and the validator warns.
+- The experiment owns the run's duration and warmup; the case's `workload` and
+  `global.seed` still apply.
+- A design the preset cannot apply to (no availability zones, no cache with a
+  hit model, one database, a non-steady workload for a spike) fails the case with
+  the preset's plain reason (`verdict: "unavailable"`), never a crash.
+- An analytic-mode run cannot inject faults, so the verdict is `inconclusive` and
+  the case fails; the Studio verification reports it as a blocker. Keep the
+  case's RPS low enough to simulate.
+- The attempt grade carries `experiments[]` (verdict, summary, full result) for
+  display. Question Studio's verification treats each experiment case as an
+  obligation `experiment:<caseId>` that a gamed design can name.
+- Validator (with a reference design, e.g. in Question Studio): warns when the
+  reference design cannot run the preset, when a pinned id is not in it, and
+  when a plain fault targets an id it lacks or flushes a non-cache. These are
+  warnings only - learner designs differ.
 
 ## Section 5 - Anti-Patterns, Hard Fails & Structural Checks
 
@@ -516,15 +622,14 @@ fails the **$** axis rather than being explicitly forbidden.
 
 - **`nodes` / `edges`** - `actual` = node / edge **count**. The primary
   anti-kitchen-sink lever; exact and price-model-free.
-- **`cost`** - `actual` = a **v1 capacity-cost heuristic** (no real price sheet
-  yet): per node `1 + replicas + ceil(workers / 50)`, plus `1` per edge. This
-  penalizes over-provisioned capacity (high replicas/workers). Swap in a real cost
-  model later without changing the DSL - the heuristic is clearly labeled in the
-  failure `detail` (`"… (v1 capacity-cost heuristic)"`).
+- **`cost`** - `actual` = the same instance-aware hourly USD estimate used by the
+  live cost chip (`topologyCost`): provisioned instances, consumption/volume-priced
+  components, and modeled egress. If a provisioned node has no resolvable price,
+  the spend check fails closed rather than silently treating it as free.
 
-The row shows as **pending** before grading and passes/fails after. Note
-`constraints.maxBudget`/`maxNodeCount` are **not** enforced at grade time (see §8.3);
-`budget` is the graded axis.
+The row shows as **pending** before grading and passes/fails after. The corresponding
+`constraints.maxBudget` and `constraints.maxNodeCount` caps are also enforced at
+grade time; use `budget` when the cap should carry rubric-axis points and reporting.
 
 ### 6.3 CLI vs in-app behavior (`forbidUnjustified`)
 
@@ -639,6 +744,7 @@ Every customizable property across the DSL. **Scope** names the containing objec
 | `suite.cases[].global`                                                                                             | suite case                                 | `Partial<GlobalConfig>`                                                                                        | Optional                          | Global override (seed/duration).                                                                                                                                   | Question-owned - fixes seed to kill seed-farming.                                                                                                                                                                                       |
 | `suite.cases[].workload`                                                                                           | suite case                                 | `Partial<WorkloadProfile>`                                                                                     | Optional                          | Injected load (RPS + mix).                                                                                                                                         | The read/write mix lives here (`requestDistribution`).                                                                                                                                                                                  |
 | `suite.cases[].faults`                                                                                             | suite case                                 | `FaultSpec[]`                                                                                                  | Optional                          | Injected chaos faults.                                                                                                                                             | Question-owned HA scenario.                                                                                                                                                                                                             |
+| `suite.cases[].experiment`                                                                                         | suite case                                 | `{ presets: [{ presetId, offsetSeconds?, options? }], points? }`                                               | Optional                          | Run a chaos experiment preset (or a composition) on the learner's design; graded by its verdict (§4.4).                                                            | Owns fault injection for the case; the verdict is mandatory and shared rubric/invariant checks also run.                                                                                                                                |
 | `workload.baseRps`                                                                                                 | workload                                   | number > 0                                                                                                     | Required (in a workload)          | Tractable RPS (~2-5K).                                                                                                                                             | Not the display scale.                                                                                                                                                                                                                  |
 | `workload.pattern`                                                                                                 | workload                                   | `constant \| poisson \| bursty \| diurnal \| spike \| sawtooth \| replay`                                      | Required (in a full workload)     | Arrival pattern.                                                                                                                                                   | -                                                                                                                                                                                                                                       |
 | `workload.requestDistribution[].type`                                                                              | requestDistribution                        | string                                                                                                         | Required                          | Traffic class (`read`/`write`/`GET`…).                                                                                                                             | Used in edge `condition`.                                                                                                                                                                                                               |
@@ -731,9 +837,9 @@ Every customizable property across the DSL. **Scope** names the containing objec
 - **Correctness ≠ simulation** - never author a `simulation` check for exactly-once,
   ordering, immutability, or no-double-book.
 - **Tractable RPS** - `baseRps` ~2-5K; the real number goes in `prompt.scale`.
-- **Graded cost is still heuristic** - the live app may show richer instance-aware
-  cost numbers, but question-package `budget.unit:"cost"` still grades via
-  `estimateNodeCost` in `budget.ts`.
+- **Graded cost matches live cost** - question-package `budget.unit:"cost"` and
+  `constraints.maxBudget` use the same instance-aware hourly USD model as the app.
+  Unpriced provisioned nodes fail these checks closed.
 
 ### 8.3 Implementation status - graded vs schema-only
 
@@ -745,25 +851,26 @@ Not every schema field drives grading. Author accordingly.
 | `rubric` (`simulation`/`topology`/`invariant`)                                                                            | ✅                       | ✅ graded                                                                                                                                                                                                                                                                                                |
 | `semanticCriteria` (placement/guardedPath/fanout/storageFit/forbidUnjustified)                                            | ✅                       | ✅ graded (evaluators + hardFail)                                                                                                                                                                                                                                                                        |
 | `justify` (graph-consistent)                                                                                              | ✅                       | ✅ graded; feeds `forbidUnjustified` in-app                                                                                                                                                                                                                                                              |
-| **`budget`**                                                                                                              | ✅                       | ✅ **graded** (`budget.ts` - nodes/edges exact, cost = v1 heuristic)                                                                                                                                                                                                                                     |
+| **`budget`**                                                                                                              | ✅                       | ✅ **graded** (`budget.ts` - nodes/edges exact, cost = shared instance-aware hourly USD model)                                                                                                                                                                                                           |
 | `suite.cases[].workload` / `global` / `faults`                                                                            | ✅                       | ✅ injected at grade time                                                                                                                                                                                                                                                                                |
+| `suite.cases[].experiment` (chaos presets)                                                                                | ✅                       | ✅ graded - compiled against the learner's design, case passes only on verdict `passed` (§4.4)                                                                                                                                                                                                           |
 | `resources.*` (instance model - `instanceType`/`instanceCount`/`workloadKind`/`perRequestMemMb`)                          | ✅                       | ✅ **behavioral** - drives derived concurrency `c`/`K`, service speed, and cost on that node (§9)                                                                                                                                                                                                        |
-| `resources.pricingModel`                                                                                                  | ✅                       | ⚠️ affects the **live** cost chip / `cost.ts` only; graded `budget.unit:"cost"` still uses the v1 heuristic (§6.2)                                                                                                                                                                                       |
+| `resources.pricingModel`                                                                                                  | ✅                       | ✅ affects the live cost chip and graded `budget.unit:"cost"` / `constraints.maxBudget` through the shared cost model (§6.2)                                                                                                                                                                             |
 | `environmentProfile` (mode / visibility / `capabilities`)                                                                 | ✅ (Newton row / launch) | ⚠️ **platform-facing** - governs edit locks, `edgeModel`, visibility; not a scored axis. Overlaid by `domains` (§10.4)                                                                                                                                                                                   |
 | `edgeModel` (`network` / `connector`)                                                                                     | ✅                       | ⚠️ behavioral - `connector` edges carry no sim physics or egress cost (§10.3)                                                                                                                                                                                                                            |
 | `constraints.*` (`maxNodeCount`, `maxBudget`, `maxTotalWorkers`, `allowed/forbiddenNodeTypes`)                            | ✅                       | ✅ **graded + behavioral** - palette filtering still applies, and grade time now enforces node caps, spend caps, worker caps, and allowed/forbidden component types                                                                                                                                      |
 | `workloadCategory`                                                                                                        | ✅                       | ❌ label only (author-side axis selector; not read by grading)                                                                                                                                                                                                                                           |
 | `domains`                                                                                                                 | ✅                       | ⚠️ **advisory + platform-facing** - checked by the authoring validator and consumed by environment-profile / edit-policy logic, but not scored as a rubric axis by themselves                                                                                                                            |
 | `concepts`                                                                                                                | ✅                       | ❌ metadata only (taxonomy / indexing aid; not graded)                                                                                                                                                                                                                                                   |
-| `type` (`fix`/`build-budget`/`optimize`/`open-build`/`scaling`/`ha-chaos`/`tradeoff`)                                     | ✅                       | ❌ **all are labels** - none drives behavior. `optimize` does **not** grade against `scaffold.baselineVerdict`; `build-budget` does not auto-enforce `budget`; `ha-chaos` "works" only via `suite.faults`.                                                                                               |
+| `type` (`fix`/`build-budget`/`optimize`/`open-build`/`scaling`/`ha-chaos`/`tradeoff`)                                     | ✅                       | ⚠️ taxonomy/presentation metadata; behavior comes from explicit package fields. Baseline comparison is graded through `scaffold.baselineVerdict`, budgets through `budget`/constraints, and chaos through faults or experiments.                                                                         |
 | `entryFormat` (`blank-canvas`/`requirements-first`/`partial-scaffold`/`broken-scaffold`/`baseline-optimize`/`locked-lab`) | ✅                       | ⚠️ **platform-facing** - explicit authoring/presentation metadata. Backward-compatible inference exists for legacy questions; `locked-lab` drives the Lab wrapper, `baseline-optimize` drives the comparison shell, and the other formats now feed the live workflow tracker / question shell selection. |
 | `scaffold.baselineVerdict`                                                                                                | ✅                       | ✅ graded for baseline-comparison questions - the primary case must improve at least one comparison metric without regressing the others                                                                                                                                                                 |
-| `requestDistribution[].metadata`                                                                                          | ✅                       | ❌ not consumed                                                                                                                                                                                                                                                                                          |
+| `requestDistribution[].metadata`                                                                                          | ✅                       | ✅ stamped onto requests and consumed by routing/semantic matching where the authored metadata applies                                                                                                                                                                                                   |
 | `readWriteRatio → requestDistribution` auto-derivation                                                                    | -                        | ✅ built - when a case omits `requestDistribution`, grading derives a typed `read`/`write` mix from `prompt.scale.readWriteRatio` and the source workload's request sizes                                                                                                                                |
 
-> To enforce a node cap, use `budget:{unit:"nodes",cap:N}` or a
-> `max_node_count`/`max_component_count` structural rule - `constraints.maxNodeCount`
-> alone does nothing at grade time.
+> `budget:{unit:"nodes",cap:N}`, `constraints.maxNodeCount`, and the
+> `max_node_count`/`max_component_count` structural rules are all enforceable.
+> Choose the surface that best communicates the intended learner constraint.
 
 ---
 
@@ -908,9 +1015,8 @@ Per **component type**, a `costModel` (in `resourceDefaults.ts`) decides the bas
 
 Inter-region **egress** is also charged per edge, keyed off `edge.latency.pathType`
 (`cross-zone` `$0.01/GB`, `cross-region` `$0.02`, `internet` `$0.09`; same-rack /
-same-dc free). Note the **graded question `budget.unit:"cost"` still uses the older
-v1 heuristic** (§6.2) - the instance-aware model above powers the live cost chip and
-`cost.ts`, not yet the graded `$` axis.
+same-dc free). The same instance-aware model powers the live cost chip,
+`budget.unit:"cost"`, and `constraints.maxBudget` (§6.2).
 
 ---
 

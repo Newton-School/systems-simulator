@@ -6,6 +6,7 @@ import {
   ClipboardList,
   Keyboard,
   Library as LibraryIcon,
+  SquareTerminal,
   type LucideIcon
 } from 'lucide-react'
 import type { ExperienceEnvelope, ExperienceSidebarTab } from '@renderer/utils/experienceEnvelope'
@@ -34,6 +35,9 @@ interface LibraryActivityRailProps {
   experience: ExperienceEnvelope
   onSelect: (tab: LibrarySidebarTab) => void
   onShowShortcuts: () => void
+  /** Toggle the in-app terminal (omit to hide the button). */
+  onToggleTerminal?: () => void
+  terminalOpen?: boolean
   settingsOpenRequestVersion?: number
 }
 
@@ -117,6 +121,8 @@ export const LibraryActivityRail = memo(function LibraryActivityRail({
   experience,
   onSelect,
   onShowShortcuts,
+  onToggleTerminal,
+  terminalOpen = false,
   settingsOpenRequestVersion = 0
 }: LibraryActivityRailProps) {
   const tabs = experience.allowedTabs.map((id, index) => ({
@@ -139,6 +145,20 @@ export const LibraryActivityRail = memo(function LibraryActivityRail({
 
       {/* Utility actions — pinned to the bottom of the rail, below the tabs. */}
       <div className="mt-auto flex shrink-0 flex-col items-center gap-1">
+        {onToggleTerminal && (
+          <button
+            type="button"
+            onClick={onToggleTerminal}
+            title="Terminal (Ctrl+`)"
+            aria-label="Terminal"
+            aria-pressed={terminalOpen}
+            className={`nss-touch-target h-10 w-10 rounded-md flex items-center justify-center transition-colors hover:text-nss-text hover:bg-nss-surface ${
+              terminalOpen ? 'text-nss-primary' : 'text-nss-muted'
+            }`}
+          >
+            <SquareTerminal size={18} />
+          </button>
+        )}
         <button
           type="button"
           onClick={onShowShortcuts}

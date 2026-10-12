@@ -1,14 +1,17 @@
 import {
   getRubricMetricCapability,
   RUBRIC_METRIC_CAPABILITIES,
-  type RubricMetricCapability
+  RUBRIC_METRIC_GROUP_LABELS,
+  type RubricMetricCapability,
+  type RubricMetricGroup
 } from './authoringCapabilities'
 import type { CheckOp, RubricCheck } from './rubric'
 
 /**
  * The general `RUBRIC_CHECK` composer: any verdict metric in the engine-owned
- * registry (latency percentiles, throughput/volume, errors, per-node worst-case,
- * capability counters, and the invariant family) asserted as `metric op value`.
+ * registry (topology totals, latency percentiles, throughput/volume, errors,
+ * per-node worst-case, capability counters, and the invariant family) asserted
+ * as `metric op value`.
  * The friendly latency/error/throughput NFR editor stays for the common case; this
  * covers the rest of catalog §3.
  */
@@ -34,23 +37,21 @@ export type AuthoringRubricCheckAction =
 export const AUTHORING_RUBRIC_METRIC_CAPABILITIES: readonly RubricMetricCapability[] =
   RUBRIC_METRIC_CAPABILITIES
 
-/** Metrics grouped by their rubric kind, for an optgroup-style selector. */
+/**
+ * Metrics grouped by what they measure (latency, requests, each opt-in feature,
+ * invariants), in registry group order, for an optgroup-style selector.
+ */
 export const AUTHORING_RUBRIC_METRIC_GROUPS: ReadonlyArray<{
-  kind: RubricMetricCapability['kind']
+  id: RubricMetricGroup
   label: string
   metrics: readonly RubricMetricCapability[]
-}> = [
-  {
-    kind: 'simulation',
-    label: 'Simulation metrics',
-    metrics: RUBRIC_METRIC_CAPABILITIES.filter((capability) => capability.kind === 'simulation')
-  },
-  {
-    kind: 'invariant',
-    label: 'Invariant metrics',
-    metrics: RUBRIC_METRIC_CAPABILITIES.filter((capability) => capability.kind === 'invariant')
-  }
-]
+}> = (Object.keys(RUBRIC_METRIC_GROUP_LABELS) as RubricMetricGroup[])
+  .map((id) => ({
+    id,
+    label: RUBRIC_METRIC_GROUP_LABELS[id],
+    metrics: RUBRIC_METRIC_CAPABILITIES.filter((capability) => capability.group === id)
+  }))
+  .filter((group) => group.metrics.length > 0)
 
 export function isAuthoringRubricMetric(value: unknown): value is string {
   return typeof value === 'string' && getRubricMetricCapability(value) !== undefined

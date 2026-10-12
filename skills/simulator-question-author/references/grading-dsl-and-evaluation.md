@@ -135,9 +135,9 @@ Common metrics:
 - capability counters: reservation, lock, retry, and rate-limit aggregates
   exposed by the registry.
 
-Raw row DSL also supports `topology.*` metrics, but the current Question Studio
-advanced selector does not expose them. In a visual-Studio walkthrough, translate
-topology counts and presence checks into structural rules.
+Question Studio exposes fixed topology totals as rubric metrics:
+`topology.totalNodes`, `topology.totalEdges`, and `topology.totalWorkers`. Use
+structural rules for component-specific counts, presence, paths, and placement.
 
 Unknown metric paths resolve to no finite value and fail. Never invent a metric
 name. Use the bundled catalog or a metric visibly offered by the target Studio.

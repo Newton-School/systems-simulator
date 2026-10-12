@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { stringifyCliJson } from './json'
 import { join, resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
+import { tsxImportSpecifier } from './tsxImport'
 import { tmpdir } from 'node:os'
 import type { TopologyJSON } from '../engine/core/types'
 import {
@@ -44,7 +45,7 @@ function runScenarioVerdictIsolated(
 
     const child = spawnSync(
       process.execPath,
-      ['--import', 'tsx', CLI_ENTRY_PATH, 'run', topologyPath, '--verdict'],
+      ['--import', tsxImportSpecifier(), CLI_ENTRY_PATH, 'run', topologyPath, '--verdict'],
       {
         cwd: process.cwd(),
         encoding: 'utf-8',

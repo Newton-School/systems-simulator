@@ -1,0 +1,85 @@
+import { memo } from 'react'
+import { Cloud, Lock, LucideIcon } from 'lucide-react'
+import { InlineEditableLabel } from '@renderer/components/properties/InlineEditable'
+import { ColorTheme } from '@renderer/types/ui'
+interface ContainerHeaderProps {
+  label: string
+  isSuccessState: boolean
+  icon?: LucideIcon
+  theme?: ColorTheme
+  onLabelChange?: (newLabel: string) => void
+  children?: React.ReactNode
+}
+
+export const ContainerHeader = memo(
+  ({
+    label,
+    isSuccessState,
+    icon: Icon = Cloud,
+    theme,
+    onLabelChange,
+    children
+  }: ContainerHeaderProps) => {
+    const safeBg = theme?.bg || 'bg-nss-surface'
+    const safeText = theme?.text || 'text-nss-primary'
+
+    return (
+      <div
+        className={`
+      pointer-events-auto absolute top-0 left-0 right-0 px-4 py-2 border-b border-dashed flex items-start gap-2
+      ${isSuccessState ? 'border-[rgb(var(--nss-success))]/30' : 'border-[var(--nss-vpc-border)]'}
+        `}
+      >
+        <div
+          className={`
+          p-1 rounded border border-nss-border shrink-0 flex items-center justify-center
+          ${isSuccessState ? 'bg-[rgb(var(--nss-success))]/10' : `${safeBg} bg-opacity-30 dark:bg-opacity-30`}
+        `}
+        >
+          <Icon
+            size={14}
+            className={
+              isSuccessState ? 'text-[rgb(var(--nss-success))]' : `${safeText} dark:!text-nss-bg`
+            }
+          />
+        </div>
+
+        <div className="flex min-w-0 flex-1 items-center overflow-hidden">
+          {onLabelChange ? (
+            <InlineEditableLabel
+              value={label || 'Region'}
+              onSave={(newLabel) => onLabelChange(newLabel)}
+              wrapLines={2}
+              textClassName="min-w-0 w-full text-xs font-bold text-nss-muted uppercase tracking-wider"
+              inputClassName="text-xs font-bold text-nss-text uppercase tracking-wider w-full min-w-[100px]"
+            />
+          ) : (
+            <span
+              style={{
+                display: '-webkit-box',
+                WebkitBoxOrient: 'vertical',
+                WebkitLineClamp: 2,
+                overflow: 'hidden'
+              }}
+              className="min-w-0 break-words text-xs font-bold text-nss-muted uppercase tracking-wider leading-tight"
+            >
+              {label || 'Region'}
+            </span>
+          )}
+        </div>
+
+        <div className="ml-auto flex items-center gap-2 shrink-0">
+          {!isSuccessState && (
+            <div title="Grouped" className="flex items-center">
+              <Lock size={12} className="text-nss-muted opacity-50" />
+            </div>
+          )}
+
+          {children}
+        </div>
+      </div>
+    )
+  }
+)
+
+ContainerHeader.displayName = 'ContainerHeader'

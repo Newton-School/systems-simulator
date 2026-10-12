@@ -3,7 +3,7 @@
   "nodes": [
     {
       "id": "client",
-      "type": "serviceNode",
+      "type": "standardNode",
       "position": { "x": 80, "y": 320 },
       "data": {
         "schemaVersion": 2,
@@ -11,7 +11,7 @@
         "componentType": "api-endpoint",
         "structuralRole": "source",
         "profile": "source",
-        "rendererType": "serviceNode",
+        "rendererType": "standardNode",
         "label": "Dashboard Client",
         "subLabel": "Point Reads + Exports",
         "iconKey": "monitor",
@@ -43,7 +43,7 @@
     },
     {
       "id": "gateway",
-      "type": "serviceNode",
+      "type": "standardNode",
       "position": { "x": 620, "y": 320 },
       "data": {
         "schemaVersion": 2,
@@ -51,7 +51,7 @@
         "componentType": "api-gateway",
         "structuralRole": "router",
         "profile": "router",
-        "rendererType": "serviceNode",
+        "rendererType": "standardNode",
         "label": "Query Router",
         "subLabel": "Store Fit Split",
         "iconKey": "globe",
@@ -72,7 +72,7 @@
     },
     {
       "id": "kv-store",
-      "type": "serviceNode",
+      "type": "standardNode",
       "position": { "x": 1180, "y": 120 },
       "data": {
         "schemaVersion": 2,
@@ -80,7 +80,7 @@
         "componentType": "kv-store",
         "structuralRole": "storage",
         "profile": "datastore",
-        "rendererType": "serviceNode",
+        "rendererType": "standardNode",
         "label": "Session KV",
         "subLabel": "Point Reads",
         "iconKey": "kv-store",
@@ -92,7 +92,7 @@
     },
     {
       "id": "warehouse",
-      "type": "serviceNode",
+      "type": "standardNode",
       "position": { "x": 1180, "y": 500 },
       "data": {
         "schemaVersion": 2,
@@ -100,7 +100,7 @@
         "componentType": "data-warehouse",
         "structuralRole": "storage",
         "profile": "datastore",
-        "rendererType": "serviceNode",
+        "rendererType": "standardNode",
         "label": "Analytics Warehouse",
         "subLabel": "Heavy Scans",
         "iconKey": "data-warehouse",

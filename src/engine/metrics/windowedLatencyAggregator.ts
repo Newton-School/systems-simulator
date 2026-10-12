@@ -73,6 +73,11 @@ export function classifyRejectionCause(reason: string): ErrorCause {
     case 'connection_refused':
     case 'edge_error_rate':
       return 'network_error'
+    case 'load_shed':
+    case 'bulkhead_full':
+      // Deliberate admission refusals by a resilience policy, taken before the
+      // accept backlog (K) is full - so not queue_full, which means K overflowed.
+      return 'rejected'
     default:
       // Policy / application refusals: rate_limited, security_blocked,
       // circuit_breaker_open, max_concurrency_exceeded, read_only_node,

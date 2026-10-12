@@ -46,15 +46,21 @@ const MagneticConnectionLine = memo(
       edgeRoutingStyle
     )
 
-    const isSnapping = winner !== null
+    // 'invalid' means the hovered handle breaks a connection rule (self-loop,
+    // into a source, out of a sink, duplicate): show it as refused, not snapped.
+    const isRefused = connectionStatus === 'invalid'
+    const isSnapping = winner !== null && !isRefused
     // connectionStatus === 'valid' means React Flow will commit the connection on release.
     // Magnetic snap uses the same radius, but this fallback keeps the affordance consistent
     // if React Flow reports a valid drop before a snap winner is available.
     const canDrop = connectionStatus === 'valid'
 
-    const stroke = canDrop || isSnapping ? '#3b82f6' : '#f59e0b'
-    const guideStroke =
-      canDrop || isSnapping ? 'rgba(59, 130, 246, 0.22)' : 'rgba(245, 158, 11, 0.2)'
+    const stroke = isRefused ? '#ef4444' : canDrop || isSnapping ? '#3b82f6' : '#f59e0b'
+    const guideStroke = isRefused
+      ? 'rgba(239, 68, 68, 0.2)'
+      : canDrop || isSnapping
+        ? 'rgba(59, 130, 246, 0.22)'
+        : 'rgba(245, 158, 11, 0.2)'
     const strokeWidth = canDrop ? 3 : isSnapping ? 2.75 : 2.5
 
     // Use the winner's exact handle position when available; otherwise render the affordance

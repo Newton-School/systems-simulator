@@ -10,7 +10,6 @@ import ReactFlow, {
   Connection,
   ConnectionLineType,
   SelectionMode,
-  updateEdge,
   Node,
   type Viewport
 } from 'reactflow'
@@ -20,6 +19,7 @@ import EmptyFlowState from '../ui/EmptyFlowState'
 import { RunToast } from '../ui/RunToast'
 import { CanvasLegend } from './CanvasLegend'
 import { RequestTraceOverlay } from './RequestTraceOverlay'
+import { RequestDebugOverlay } from './RequestDebugOverlay'
 import { MetricLensSwitcher } from './MetricLensSwitcher'
 // Hooks & Config
 import useStore from '@renderer/store/useStore'
@@ -28,7 +28,7 @@ import { useCopyPaste } from './hooks/useCopyPaste'
 import { useFlowStore } from './hooks/useFlowStore'
 import { useFlowDnD } from './hooks/useFlowDnD'
 import { nodeTypes, edgeTypes, defaultEdgeOptions, GRID_COLOR } from './config/flowConfig'
-import { useMagneticSnap } from './hooks/useMagneticSnap'
+import { snapStateRef, useMagneticSnap } from './hooks/useMagneticSnap'
 import { useHandleProximity } from './hooks/useHandleProximity'
 import MagneticConnectionLine from './MagneticConnectionLine'
 import { MAGNETIC_CONNECTION_RADIUS_PX } from './magneticSnapConfig'
@@ -44,6 +44,13 @@ import {
   isModalOpen,
   isPrimaryModifier
 } from '@renderer/config/keyboardShortcuts'
+import type { CatalogItem } from '@renderer/types/ui'
+import { checkCanvasConnection, reconnectCanvasEdge } from './utils/connectionRules'
+import { contextualAddModesFor, planContextualAdd } from './utils/contextualAdd'
+import { nodeSize } from './utils/nodePlacement'
+import { getAbsoluteNodePosition } from './utils/canvasUtils'
+import { useContextualAdd } from './hooks/useContextualAdd'
+import { CONTEXTUAL_ADD_PICKER_WIDTH, ContextualAddPicker } from './ContextualAddPicker'
 
 interface FlowCanvasProps {
   showMetricLens?: boolean
@@ -112,7 +119,27 @@ const FlowCanvasInternal = ({
   const [temporarySelectActive, setTemporarySelectActive] = useState(false)
   const [temporaryPanActive, setTemporaryPanActive] = useState(false)
   const [isConnectionDragging, setIsConnectionDragging] = useState(false)
-  const [validationError, setValidationError] = useState<string | null>(null)
+  const [canvasNotice, setCanvasNotice] = useState<{
+    tone: 'error' | 'warning'
+    title: string
+    messages: string[]
+  } | null>(null)
+  const setValidationError = useCallback((message: string | null) => {
+    setCanvasNotice(message ? { tone: 'error', title: 'Not allowed', messages: [message] } : null)
+  }, [])
+  const canvasWrapperRef = useRef<HTMLDivElement>(null)
+  // The edge whose end is being dragged, so the duplicate-connection rule does
+  // not count the edge against itself.
+  const updatingEdgeIdRef = useRef<string | null>(null)
+  // Whether React Flow already handed the current end-drag to onEdgeUpdate.
+  const edgeUpdateCommittedRef = useRef(false)
+  const releasedSnapWinnerRef = useRef<(typeof snapStateRef.current)['winner']>(null)
+  // Last refusal seen while hovering a handle, reported if the drag is released there.
+  const lastRefusalRef = useRef<string | null>(null)
+  const contextualAddRequest = useContextualAdd((state) => state.request)
+  const openContextualAdd = useContextualAdd((state) => state.open)
+  const closeContextualAdd = useContextualAdd((state) => state.close)
+  const setContextualAddEnabled = useContextualAdd((state) => state.setEnabled)
   const activeTool: CanvasTool = temporaryPanActive
     ? 'pan'
     : temporarySelectActive
@@ -155,6 +182,7 @@ const FlowCanvasInternal = ({
   const clearEdgeFlow = useStore((state) => state.clearEdgeFlow)
   const setRoutingStrategyVisualization = useStore((state) => state.setRoutingStrategyVisualization)
   const viewportFitVersion = useStore((state) => state.viewportFitVersion)
+  const viewportFocusRequest = useStore((state) => state.viewportFocusRequest)
   const scaffoldNodeIds = useStore((state) => state.scaffoldNodeIds)
   const scaffoldEdgeIds = useStore((state) => state.scaffoldEdgeIds)
   const activeQuestion = useStore((state) => state.activeQuestion)
@@ -176,11 +204,26 @@ const FlowCanvasInternal = ({
   useHandleProximity()
   useCopyPaste({ disabled: interactionLocked })
 
+  // React Flow silently drops a refused connection; say why when the pointer was
+  // released over a component.
+  const reportRefusedDrop = useCallback(
+    (event: MouseEvent | TouchEvent) => {
+      const refusal = lastRefusalRef.current
+      lastRefusalRef.current = null
+      const target = event.target instanceof Element ? event.target : null
+      if (refusal && target?.closest('.react-flow__node')) {
+        setValidationError(refusal)
+      }
+    },
+    [setValidationError]
+  )
+
   const onConnectStart = useCallback<
     NonNullable<React.ComponentProps<typeof ReactFlow>['onConnectStart']>
   >(
     (event, params) => {
       setIsConnectionDragging(true)
+      lastRefusalRef.current = null
       onConnectStartBase(event, params)
     },
     [onConnectStartBase]
@@ -188,30 +231,38 @@ const FlowCanvasInternal = ({
 
   const onConnectEnd = useCallback<
     NonNullable<React.ComponentProps<typeof ReactFlow>['onConnectEnd']>
-  >(() => {
-    setIsConnectionDragging(false)
-    onConnectEndBase()
-  }, [onConnectEndBase])
+  >(
+    (event) => {
+      if (updatingEdgeIdRef.current) {
+        // React Flow ends the connection before the reroute; keep the snap target
+        // and any refusal for onEdgeUpdateEnd.
+        releasedSnapWinnerRef.current = snapStateRef.current.winner
+        onConnectEndBase()
+        return
+      }
+      setIsConnectionDragging(false)
+      onConnectEndBase()
+      reportRefusedDrop(event)
+    },
+    [onConnectEndBase, reportRefusedDrop]
+  )
 
   const onEdgeUpdateStart = useCallback<
     NonNullable<React.ComponentProps<typeof ReactFlow>['onEdgeUpdateStart']>
   >(
     (event, edge, handleType) => {
       setIsConnectionDragging(true)
+      updatingEdgeIdRef.current = edge.id
+      edgeUpdateCommittedRef.current = false
+      lastRefusalRef.current = null
       onEdgeUpdateStartBase(event, edge, handleType)
     },
     [onEdgeUpdateStartBase]
   )
 
-  const onEdgeUpdateEnd = useCallback<
-    NonNullable<React.ComponentProps<typeof ReactFlow>['onEdgeUpdateEnd']>
-  >(() => {
-    setIsConnectionDragging(false)
-    onEdgeUpdateEndBase()
-  }, [onEdgeUpdateEndBase])
-
   const onEdgeUpdate = useCallback(
     (oldEdge: Edge, newConnection: Connection) => {
+      edgeUpdateCommittedRef.current = true
       if (interactionLocked) {
         return
       }
@@ -224,7 +275,18 @@ const FlowCanvasInternal = ({
       if (edgeIsLocked) {
         return
       }
-      setEdges(updateEdge(oldEdge, newConnection, edges))
+      const result = reconnectCanvasEdge(oldEdge, newConnection, nodes, edges)
+      if (result.ok === false) {
+        setValidationError(result.error)
+        return
+      }
+      lastRefusalRef.current = null
+      setEdges(result.edges)
+      setCanvasNotice(
+        result.warnings.length > 0
+          ? { tone: 'warning', title: 'Connection rerouted', messages: result.warnings }
+          : null
+      )
     },
     [
       activeQuestion,
@@ -233,9 +295,53 @@ const FlowCanvasInternal = ({
       canEditScaffoldNodes,
       edges,
       interactionLocked,
+      nodes,
       scaffoldEdgeIds,
-      setEdges
+      setEdges,
+      setValidationError
     ]
+  )
+
+  const onEdgeUpdateEnd = useCallback<
+    NonNullable<React.ComponentProps<typeof ReactFlow>['onEdgeUpdateEnd']>
+  >(
+    (event, edge, handleType) => {
+      // Every node handle is a source and a target stacked on the same spot, and
+      // React Flow resolves such ties to the target handle, so dropping a
+      // connection's source end never commits on its own. Land it on the source
+      // handle the magnetic snap is showing; onEdgeUpdate still applies every rule.
+      // (handleType names the end that stays put: 'target' means the source end moved.)
+      const winner = releasedSnapWinnerRef.current
+      releasedSnapWinnerRef.current = null
+      if (!edgeUpdateCommittedRef.current && handleType === 'target' && winner) {
+        onEdgeUpdate(edge, {
+          source: winner.nodeId,
+          sourceHandle: winner.handleId,
+          target: edge.target,
+          targetHandle: edge.targetHandle ?? null
+        })
+      }
+      setIsConnectionDragging(false)
+      updatingEdgeIdRef.current = null
+      onEdgeUpdateEndBase()
+      reportRefusedDrop(event)
+    },
+    [onEdgeUpdate, onEdgeUpdateEndBase, reportRefusedDrop]
+  )
+
+  // Same rules for drawing a new connection and dragging an existing one's end.
+  const isValidConnection = useCallback(
+    (connection: Connection) => {
+      const check = checkCanvasConnection({
+        connection,
+        nodes,
+        edges,
+        ignoreEdgeId: updatingEdgeIdRef.current ?? undefined
+      })
+      lastRefusalRef.current = check.valid ? null : (check.error ?? null)
+      return check.valid
+    },
+    [edges, nodes]
   )
 
   const { onDragOver, onDrop, onNodeDragStop, placeNode } = useFlowDnD({
@@ -253,9 +359,14 @@ const FlowCanvasInternal = ({
       if (interactionLocked) {
         return
       }
+      const check = checkCanvasConnection({ connection, nodes, edges })
+      if (!check.valid) {
+        setValidationError(check.error ?? 'That connection is not allowed.')
+        return
+      }
       onConnect(connection)
     },
-    [interactionLocked, onConnect]
+    [edges, interactionLocked, nodes, onConnect, setValidationError]
   )
 
   const handleDrop = useCallback<NonNullable<React.ComponentProps<typeof ReactFlow>['onDrop']>>(
@@ -267,6 +378,81 @@ const FlowCanvasInternal = ({
     },
     [interactionLocked, onDrop]
   )
+
+  const contextualAddEnabled = !interactionLocked && !presentationMode && attemptStatus !== 'LOCKED'
+  useEffect(() => {
+    setContextualAddEnabled(contextualAddEnabled)
+  }, [contextualAddEnabled, setContextualAddEnabled])
+  useEffect(() => () => closeContextualAdd(), [closeContextualAdd])
+
+  const contextualAnchor = contextualAddRequest
+    ? nodes.find((node) => node.id === contextualAddRequest.anchorNodeId)
+    : undefined
+
+  // Close the picker if its anchor is deleted (or undone away).
+  useEffect(() => {
+    if (contextualAddRequest && !contextualAnchor) closeContextualAdd()
+  }, [closeContextualAdd, contextualAddRequest, contextualAnchor])
+
+  const handleContextualPick = useCallback(
+    (item: CatalogItem) => {
+      if (!contextualAddRequest) return
+      const result = planContextualAdd({
+        request: contextualAddRequest,
+        type: item.type,
+        templateId: item.templateId,
+        nodes,
+        edges
+      })
+      closeContextualAdd()
+      if (result.ok === false) {
+        setValidationError(result.error)
+        return
+      }
+      setValidationError(null)
+      setGraph(result.nodes, result.edges)
+      selectGraphElements({ nodeId: result.nodeId })
+    },
+    [
+      closeContextualAdd,
+      contextualAddRequest,
+      edges,
+      nodes,
+      selectGraphElements,
+      setGraph,
+      setValidationError
+    ]
+  )
+
+  const contextualPickerPosition = useMemo(() => {
+    if (!contextualAnchor || !contextualAddRequest || !reactFlowInstance) return null
+    const wrapper = canvasWrapperRef.current?.getBoundingClientRect()
+    if (!wrapper) return null
+    const absolute = getAbsoluteNodePosition(contextualAnchor, nodes)
+    const size = nodeSize(contextualAnchor)
+    // Containers: open over the container's top-left, under its header.
+    // Components: open beside the component, where the new node will appear.
+    const flowPoint =
+      contextualAddRequest.mode === 'child'
+        ? { x: absolute.x + 12, y: absolute.y + 44 }
+        : { x: absolute.x + size.width, y: absolute.y }
+    const screen = reactFlowInstance.flowToScreenPosition(flowPoint)
+    const offset = contextualAddRequest.mode === 'child' ? 0 : 12
+    const pickerHeight = 420
+    return {
+      left: Math.round(
+        Math.min(
+          Math.max(8, screen.x - wrapper.left + offset),
+          Math.max(8, wrapper.width - CONTEXTUAL_ADD_PICKER_WIDTH - 8)
+        )
+      ),
+      top: Math.round(
+        Math.min(Math.max(8, screen.y - wrapper.top), Math.max(8, wrapper.height - pickerHeight))
+      )
+    }
+    // canvasViewport keeps the picker pinned to its node while the canvas pans or zooms.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canvasViewport, contextualAddRequest, contextualAnchor, nodes, reactFlowInstance])
 
   const isEmpty = nodes.length === 0
   const prevNodeCount = useRef(nodes.length)
@@ -364,6 +550,23 @@ const FlowCanvasInternal = ({
     })
   }, [reactFlowInstance, viewportFitVersion])
 
+  // Results-tray row linking: pan/zoom onto the requested nodes (selection is
+  // set separately by the caller through selectGraphElements).
+  useEffect(() => {
+    if (!reactFlowInstance || !viewportFocusRequest || viewportFocusRequest.nodeIds.length === 0) {
+      return
+    }
+
+    window.requestAnimationFrame(() => {
+      void reactFlowInstance.fitView({
+        nodes: viewportFocusRequest.nodeIds.map((id) => ({ id })),
+        padding: 0.6,
+        maxZoom: 1.2,
+        duration: 400
+      })
+    })
+  }, [reactFlowInstance, viewportFocusRequest])
+
   // Edge selection lives in the shared store so the right-hand inspector
   // (PropertiesPanel) can render its properties, exactly like node config.
   const onEdgeClick = useCallback(
@@ -442,7 +645,8 @@ const FlowCanvasInternal = ({
       reactFlowInstance,
       selectGraphElements,
       setGraph,
-      setPendingNodePlacement
+      setPendingNodePlacement,
+      setValidationError
     ]
   )
 
@@ -459,7 +663,7 @@ const FlowCanvasInternal = ({
       }
 
       if (tapConnectSourceId !== node.id) {
-        onConnect({
+        handleConnect({
           source: tapConnectSourceId,
           target: node.id,
           sourceHandle: 'right-1-source',
@@ -469,7 +673,7 @@ const FlowCanvasInternal = ({
       setTapConnectSourceId(null)
       selectGraphElements({})
     },
-    [activeTool, interactionLocked, onConnect, selectGraphElements, tapConnectSourceId]
+    [activeTool, interactionLocked, handleConnect, selectGraphElements, tapConnectSourceId]
   )
 
   const deleteSelection = useCallback(() => {
@@ -696,6 +900,17 @@ const FlowCanvasInternal = ({
         return
       }
 
+      if (!isModifierPressed && !event.altKey && !event.shiftKey && key === 'a') {
+        const selectedNodes = nodes.filter((node) => node.selected)
+        const onlyNode = selectedNodes.length === 1 ? selectedNodes[0] : undefined
+        const mode = contextualAddModesFor(onlyNode)[0]
+        if (onlyNode && mode && contextualAddEnabled) {
+          event.preventDefault()
+          openContextualAdd({ mode, anchorNodeId: onlyNode.id })
+        }
+        return
+      }
+
       if (event.key === 'Escape') {
         event.preventDefault()
         selectGraphElements({})
@@ -717,6 +932,7 @@ const FlowCanvasInternal = ({
     annotationToolActive,
     canRedoGraph,
     canUndoGraph,
+    contextualAddEnabled,
     deleteSelection,
     edges,
     hasSelection,
@@ -725,6 +941,7 @@ const FlowCanvasInternal = ({
     reactFlowInstance,
     redoGraph,
     redoAnnotation,
+    openContextualAdd,
     selectGraphElements,
     setGraph,
     undoGraph,
@@ -776,6 +993,7 @@ const FlowCanvasInternal = ({
 
   return (
     <div
+      ref={canvasWrapperRef}
       style={{
         width: '100%',
         height: '100%',
@@ -834,6 +1052,7 @@ const FlowCanvasInternal = ({
         onConnectStart={onConnectStart}
         onConnectEnd={onConnectEnd}
         onEdgeUpdate={onEdgeUpdate}
+        isValidConnection={isValidConnection}
         onEdgeUpdateStart={onEdgeUpdateStart}
         onEdgeUpdateEnd={onEdgeUpdateEnd}
         onInit={setReactFlowInstance}
@@ -866,6 +1085,9 @@ const FlowCanvasInternal = ({
         }
         nodesConnectable={!isTextTool && !annotationModeActive && !interactionLocked}
         edgesUpdatable={!isTextTool && !annotationModeActive && !interactionLocked}
+        // A selected edge draws above nodes so both of its ends can be grabbed to
+        // reroute it; otherwise the node handle under each end takes the drag.
+        elevateEdgesOnSelect
         className={flowClassName}
       >
         <Background variant={BackgroundVariant.Dots} gap={30} size={1.2} color={GRID_COLOR} />
@@ -897,17 +1119,29 @@ const FlowCanvasInternal = ({
       {!isEmpty && showMetricLens && <MetricLensSwitcher />}
       {!isEmpty && showMetricLens && <CanvasLegend />}
       <RequestTraceOverlay />
+      <RequestDebugOverlay />
 
       {/* Empty State */}
       <EmptyFlowState
         isEmpty={isEmpty}
         hidden={annotationToolActive || activeTool === 'laser' || activeTool === 'text'}
       />
-      {validationError && (
+      {contextualAddRequest && contextualPickerPosition ? (
+        <ContextualAddPicker
+          key={`${contextualAddRequest.mode}:${contextualAddRequest.anchorNodeId}`}
+          request={contextualAddRequest}
+          anchor={contextualAnchor}
+          position={contextualPickerPosition}
+          onPick={handleContextualPick}
+          onClose={closeContextualAdd}
+        />
+      ) : null}
+      {canvasNotice && (
         <RunToast
-          messages={[validationError]}
-          tone="error"
-          onClose={() => setValidationError(null)}
+          messages={canvasNotice.messages}
+          tone={canvasNotice.tone}
+          title={canvasNotice.title}
+          onClose={() => setCanvasNotice(null)}
         />
       )}
     </div>

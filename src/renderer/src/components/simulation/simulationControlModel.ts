@@ -1,3 +1,4 @@
+import type { PlaybackSpeed } from '../../../../engine/worker/protocols'
 import type { FaultSpec, WorkloadProfile } from '../../../../engine/core/types'
 
 export type WorkloadPattern = WorkloadProfile['pattern']
@@ -96,3 +97,13 @@ export function generateRunSeed(): string {
 
   return `seed-${Math.random().toString(36).slice(2, 10)}`
 }
+
+/** Speeds offered in the control: simulated seconds per wall second, or max. */
+export const PLAYBACK_SPEED_OPTIONS: Array<{ value: PlaybackSpeed; label: string }> = [
+  { value: 0.5, label: '0.5x' },
+  { value: 1, label: '1x' },
+  { value: 2, label: '2x' },
+  { value: 5, label: '5x' },
+  { value: 10, label: '10x' },
+  { value: 'max', label: 'Max' }
+]

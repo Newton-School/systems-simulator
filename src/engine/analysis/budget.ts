@@ -3,16 +3,15 @@
  *
  * Grades a topology against an authored `Budget` cap. Three units:
  *   - `nodes` / `edges`: pure counts (the primary anti-kitchen-sink lever).
- *   - `cost`: a **v1 heuristic** capacity cost — there is no real pricing model
- *     yet, so cost is derived from provisioned capacity (a node's replicas +
- *     workers) so that over-provisioning genuinely costs more. Documented as a
- *     heuristic; swap in a real cost model later without changing the DSL.
+ *   - `cost`: the same USD/hour model used by the live cost readout, including
+ *     provisioned instances, consumption/volume pricing, and network egress.
  *
  * Pure and deterministic — mirrors `structural.ts` / `semanticCriteria.ts`.
  */
 import type { ComponentNode, TopologyJSON } from '../core/types'
 import { getInstanceCount } from '../core/types'
 import type { Budget } from './gradingCriteria'
+import { topologyCost } from './cost'
 
 export const BUDGET_VERSION = '1.0' as const
 
@@ -27,13 +26,9 @@ export interface BudgetEvaluation {
   detail?: string
 }
 
-/** Per-edge cost weight in the `cost` heuristic. */
-const EDGE_COST = 1
-
 /**
- * v1 capacity-cost heuristic for a single node: a base charge plus its
- * provisioned replicas and a coarse charge per pool of workers. Penalizes
- * over-provisioning (the anti-kitchen-sink intent) without a real price sheet.
+ * Legacy capacity score retained for callers that display old saved artifacts.
+ * New grading uses `topologyCost` and treats a cost cap as USD/hour.
  */
 export function estimateNodeCost(node: ComponentNode): number {
   const replicas = getInstanceCount(node.resources)
@@ -49,7 +44,7 @@ export interface BudgetLineItem {
   /** The node's component type, or 'edges' for the aggregate row. */
   kind: string
   cost: number
-  /** Human-readable derivation, e.g. "1 base + 1 replica + ⌈80/50⌉". */
+  /** Human-readable derivation of this contribution. */
   formula: string
 }
 
@@ -61,39 +56,21 @@ export interface BudgetBreakdown extends BudgetEvaluation {
 /**
  * Like `evaluateBudget`, but also returns the per-line contributions so the UI
  * can show *why* the cost is what it is (and which node drives it). For `nodes`
- * / `edges` units the items are the raw contributors; for `cost` they carry the
- * capacity-cost derivation. Pure — safe to call live on every canvas edit.
+ * / `edges` units the items are the raw contributors; for `cost` they are the
+ * exact same USD/hour line items shown by the live cost readout.
  */
 export function budgetBreakdown(topology: TopologyJSON, budget: Budget): BudgetBreakdown {
   const base = evaluateBudget(topology, budget)
 
   let items: BudgetLineItem[]
   if (budget.unit === 'cost') {
-    const nodeItems = topology.nodes.map((node) => {
-      const replicas = getInstanceCount(node.resources)
-      const workers = node.queue?.workers ?? 0
-      const workerCharge = Math.ceil(workers / 50)
-      return {
-        id: node.id,
-        label: node.label ?? node.id,
-        kind: node.type,
-        cost: estimateNodeCost(node),
-        formula: `1 base + ${replicas} replica${replicas === 1 ? '' : 's'}${
-          workers > 0 ? ` + ⌈${workers}/50⌉=${workerCharge}` : ''
-        }`
-      }
-    })
-    const edgeCost = topology.edges.length * EDGE_COST
-    items = [
-      ...nodeItems.sort((a, b) => b.cost - a.cost),
-      {
-        id: 'edges',
-        label: 'Edges',
-        kind: 'edges',
-        cost: edgeCost,
-        formula: `${topology.edges.length} × ${EDGE_COST}`
-      }
-    ]
+    items = topologyCost(topology).items.map((item) => ({
+      id: item.id,
+      label: item.label,
+      kind: item.kind,
+      cost: item.costPerHour,
+      formula: item.formula
+    }))
   } else if (budget.unit === 'nodes') {
     items = topology.nodes.map((node) => ({
       id: node.id,
@@ -116,15 +93,14 @@ export function budgetBreakdown(topology: TopologyJSON, budget: Budget): BudgetB
 }
 
 export function evaluateBudget(topology: TopologyJSON, budget: Budget): BudgetEvaluation {
-  const actual =
-    budget.unit === 'nodes'
+  const cost = budget.unit === 'cost' ? topologyCost(topology) : undefined
+  const actual = cost
+    ? cost.totalPerHour
+    : budget.unit === 'nodes'
       ? topology.nodes.length
-      : budget.unit === 'edges'
-        ? topology.edges.length
-        : topology.nodes.reduce((sum, node) => sum + estimateNodeCost(node), 0) +
-          topology.edges.length * EDGE_COST
-
-  const withinBudget = actual <= budget.cap
+      : topology.edges.length
+  // Unknown prices must not make a design pass a dollar cap vacuously.
+  const withinBudget = actual <= budget.cap && !(cost?.hasUnpricedNodes ?? false)
   return {
     version: BUDGET_VERSION,
     unit: budget.unit,
@@ -134,9 +110,12 @@ export function evaluateBudget(topology: TopologyJSON, budget: Budget): BudgetEv
     ...(withinBudget
       ? {}
       : {
-          detail: `${budget.unit} budget exceeded: ${actual} > cap ${budget.cap}${
-            budget.unit === 'cost' ? ' (v1 capacity-cost heuristic)' : ''
-          }. Trim over-provisioned components.`
+          detail:
+            budget.unit === 'cost'
+              ? cost?.hasUnpricedNodes
+                ? `Cost budget cannot pass: current priced spend is $${actual.toFixed(4)}/hr, but one or more billable nodes have no instance price.`
+                : `Cost budget exceeded: $${actual.toFixed(4)}/hr > cap $${budget.cap.toFixed(4)}/hr. Trim over-provisioned components or traffic-dependent spend.`
+              : `${budget.unit} budget exceeded: ${actual} > cap ${budget.cap}. Trim over-provisioned components.`
         })
   }
 }

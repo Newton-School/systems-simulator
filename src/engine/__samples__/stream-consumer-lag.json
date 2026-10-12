@@ -3,7 +3,7 @@
   "nodes": [
     {
       "id": "producer",
-      "type": "serviceNode",
+      "type": "standardNode",
       "position": {
         "x": 410.47060205104196,
         "y": -407.5069153936337
@@ -14,7 +14,7 @@
         "componentType": "api-endpoint",
         "structuralRole": "source",
         "profile": "source",
-        "rendererType": "serviceNode",
+        "rendererType": "standardNode",
         "label": "Producer",
         "subLabel": "Browser / Mobile",
         "iconKey": "monitor",
@@ -46,7 +46,7 @@
     },
     {
       "id": "stream",
-      "type": "serviceNode",
+      "type": "standardNode",
       "position": {
         "x": 240.73603672684635,
         "y": -14.818433287041216
@@ -57,7 +57,7 @@
         "componentType": "stream",
         "structuralRole": "storage",
         "profile": "broker",
-        "rendererType": "serviceNode",
+        "rendererType": "standardNode",
         "label": "Kafka Topic",
         "subLabel": "Ordered Event Log",
         "iconKey": "stream",

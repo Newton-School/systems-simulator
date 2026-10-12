@@ -313,7 +313,7 @@ Source node (traffic origin — one per design; `structuralRole: "source"`):
 ```jsonc
 {
   "id": "src",
-  "type": "serviceNode",
+  "type": "standardNode",
   "position": { "x": 700, "y": -360 },
   "data": {
     "schemaVersion": 2,
@@ -321,7 +321,7 @@ Source node (traffic origin — one per design; `structuralRole: "source"`):
     "componentType": "api-endpoint",
     "structuralRole": "source",
     "profile": "source",
-    "rendererType": "serviceNode",
+    "rendererType": "standardNode",
     "label": "Traffic Source",
     "subLabel": "Entry Point / Ingress",
     "iconKey": "input-source",
@@ -344,7 +344,7 @@ Service / compute node (a backend server; `structuralRole: "service"`):
 ```jsonc
 {
   "id": "srv_1",
-  "type": "serviceNode",
+  "type": "standardNode",
   "position": { "x": 100, "y": 120 },
   "data": {
     "schemaVersion": 2,
@@ -352,7 +352,7 @@ Service / compute node (a backend server; `structuralRole: "service"`):
     "componentType": "microservice",
     "structuralRole": "service",
     "profile": "service",
-    "rendererType": "serviceNode",
+    "rendererType": "standardNode",
     "label": "API Server 1",
     "subLabel": "Long-running Process",
     "iconKey": "SERVER",
@@ -385,7 +385,7 @@ never a bottleneck):
 ```jsonc
 {
   "id": "lb",
-  "type": "serviceNode",
+  "type": "standardNode",
   "position": { "x": 700, "y": -140 },
   "data": {
     "schemaVersion": 2,
@@ -393,7 +393,7 @@ never a bottleneck):
     "componentType": "load-balancer-l7",
     "structuralRole": "router",
     "profile": "router",
-    "rendererType": "serviceNode",
+    "rendererType": "standardNode",
     "label": "Load Balancer L7",
     "subLabel": "HTTP / gRPC",
     "iconKey": "load-balancer-l7",

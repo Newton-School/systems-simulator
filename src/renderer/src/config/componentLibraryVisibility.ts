@@ -4,7 +4,11 @@ const DEFAULT_VISIBLE_TEMPLATE_IDS: ReadonlySet<string> = new Set([
   'generic-service',
   'my-service',
   'custom-node-builder',
-  'connection-server'
+  'connection-server',
+  // The placeholder Output Sink is backed by `third-party-api-connector`, which is not
+  // in the curated component-type list below. List it by template id so the Templates
+  // group offers a matching pair: Traffic Source (input) and Output Sink (output).
+  'output-sink'
 ])
 
 /**

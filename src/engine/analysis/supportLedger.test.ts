@@ -19,6 +19,8 @@ describe('support ledger', () => {
     expect(getTraitSupport('QUEUE.ACK-AND-RELEASE')?.tier).toBe('guided')
     expect(getTraitSupport('stream.partitioned-broker')?.tier).toBe('first-class')
     expect(getConceptSupport('consumer-groups')?.tier).toBe('first-class')
+    expect(getTraitSupport('cache.request-collapsing')?.tier).toBe('first-class')
+    expect(getConceptSupport('request-collapsing')?.tier).toBe('first-class')
   })
 
   it('tracks presentational-only component categories', () => {

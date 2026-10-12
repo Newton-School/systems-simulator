@@ -1,4 +1,8 @@
 import type { useNodeMetrics } from '@renderer/hooks/useNodeMetrics'
+import type {
+  ClusterProjection,
+  WorkloadProjection
+} from '../../../../engine/cluster/clusterScheduler'
 import {
   ERROR_CAUSE_LABELS,
   dominantTimeToErrorCause
@@ -6,6 +10,10 @@ import {
 import { MetricItem } from './MetricItem'
 
 type NodeMetrics = ReturnType<typeof useNodeMetrics>
+
+export type ClusterSchedulingView =
+  | { kind: 'cluster'; cluster: ClusterProjection }
+  | { kind: 'workload'; cluster: ClusterProjection; workload: WorkloadProjection }
 
 interface NodeMetricsDetailProps {
   metrics: NodeMetrics
@@ -36,6 +44,8 @@ interface NodeMetricsDetailProps {
    * are never conflated with unique messages.
    */
   isBroadcastFanout?: boolean
+  /** Cluster bin-packing result for a cluster node or a workload scheduled on one. */
+  clusterScheduling?: ClusterSchedulingView
 }
 
 function latencyMetricItem(value: number | null | undefined): {
@@ -63,7 +73,100 @@ function fmtCount(value?: number | null): string | undefined {
 const TRAIT_COUNTER_LABELS: Record<string, string> = {
   memoryPressureEvents: 'Requests under memory pressure',
   workingSetPressureEvents: 'Requests with working-set spill',
-  gcPressureEvents: 'Requests with GC pressure'
+  gcPressureEvents: 'Requests with GC pressure',
+  collapseLeaders: 'Collapse leaders (downstream fetches)',
+  collapsedMisses: 'Collapsed misses (waited, no downstream call)',
+  collapsedFollowersServed: 'Collapsed misses served by leader',
+  collapsedFollowersFailed: 'Collapsed misses failed with leader',
+  collapseNoKey: 'Misses not collapsed (no request key)',
+  podsScheduled: 'Pods placed',
+  podsUnplaced: 'Pods that could not be placed (pending)',
+  podsLost: 'Pods lost to machine failure',
+  podsEvicted: 'Pods evicted and recreated',
+  noReadyReplicaRejects: 'Refused: no ready replica',
+  clusterPodsScheduled: 'Pods placed',
+  clusterPodsUnplaced: 'Pods that could not be placed (pending)',
+  clusterMachineFailures: 'Machines failed',
+  clusterPodsLost: 'Pods lost to machine failure',
+  clusterPodsEvicted: 'Pods evicted and recreated',
+  clusterMachinesProvisioned: 'Machines added by cluster autoscaling',
+  telemetryOffered: 'Events offered (after sampling)',
+  telemetryIngested: 'Events ingested',
+  telemetryDropped: 'Events dropped',
+  telemetryDroppedOverIngest: 'Dropped: over ingest ceiling',
+  telemetryDroppedBufferFull: 'Dropped: collector buffer full',
+  telemetrySampledOut: 'Not exported (sampled out)',
+  changeEventsCaptured: 'Change events numbered',
+  changeEventsApplied: 'Change events applied by consumers',
+  changeOrderViolations: 'Ordering violations (older change applied after newer)',
+  changeEventsWaitedForOrder: 'Deliveries held for ordering',
+  changeEventsFailed: 'Change deliveries that failed',
+  changeEventsNoKey: 'Change events without an entity key',
+  connectionsHeld: 'Connections held',
+  connectionsRefused: 'Connections refused (over limit or RAM)',
+  pushMessages: 'Messages pushed',
+  pushDeliveries: 'Socket writes (recipients reached)',
+  pushUndeliverable: 'Recipients not connected (undeliverable)'
+}
+
+function fmtNumber(value: number, digits = 1): string {
+  return Number.isInteger(value) ? value.toLocaleString() : value.toFixed(digits)
+}
+
+function ClusterSchedulingSection({ view }: { view: ClusterSchedulingView }) {
+  const { cluster } = view
+  const rows: Array<[string, string]> =
+    view.kind === 'workload'
+      ? [
+          ['Desired replicas (avg)', fmtNumber(view.workload.avgDesiredReplicas, 2)],
+          ['Ready replicas (avg)', fmtNumber(view.workload.avgReadyReplicas, 2)],
+          ['Ready / desired at end', `${view.workload.readyFinal} / ${view.workload.desiredFinal}`],
+          ['Pending pod-seconds', fmtNumber(view.workload.pendingPodSeconds, 1)],
+          [
+            'Pod request',
+            `${view.workload.podVcpu} vCPU · ${view.workload.podRamGb} GB on ${cluster.clusterId}`
+          ]
+        ]
+      : [
+          [
+            'Machines up (avg)',
+            `${fmtNumber(cluster.avgMachinesUp, 2)} of ${cluster.machinesConfigured}${
+              cluster.maxMachines > cluster.machinesConfigured
+                ? ` (max ${cluster.maxMachines})`
+                : ''
+            }`
+          ],
+          ['Machine', `${cluster.machineVcpu} vCPU · ${cluster.machineRamGb} GB`],
+          ['vCPU allocated', `${(cluster.cpuAllocatedRatio * 100).toFixed(1)}%`],
+          ['RAM allocated', `${(cluster.ramAllocatedRatio * 100).toFixed(1)}%`],
+          [
+            'Pending pods (avg / peak)',
+            `${fmtNumber(cluster.avgPendingPods, 2)} / ${cluster.peakPendingPods}`
+          ],
+          ['Pods lost / recovered', `${cluster.podsLost} / ${cluster.podsRecovered}`]
+        ]
+  if (cluster.meanRecoveryMs !== null) {
+    rows.push([
+      'Recovery after machine failure (mean / max)',
+      `${fmtNumber(cluster.meanRecoveryMs / 1000, 1)}s / ${fmtNumber((cluster.maxRecoveryMs ?? 0) / 1000, 1)}s`
+    ])
+  }
+  return (
+    <Section title="Cluster Scheduling">
+      <div className="space-y-1.5">
+        {rows.map(([label, value]) => (
+          <div key={label} className="flex items-center justify-between gap-3 text-xs">
+            <span className="text-nss-muted">{label}</span>
+            <span className="font-semibold text-nss-text tabular-nums">{value}</span>
+          </div>
+        ))}
+      </div>
+      <p className="mt-3 text-xs text-nss-muted">
+        Time-weighted over the run. Only ready pods serve; pending, starting and lost pods add no
+        capacity. Allocation is requested vCPU / RAM over the machines that were up.
+      </p>
+    </Section>
+  )
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -124,7 +227,8 @@ export const NodeMetricsDetail = ({
   metrics,
   configuredCacheHitRate,
   downstreamSplit,
-  isBroadcastFanout = false
+  isBroadcastFanout = false,
+  clusterScheduling
 }: NodeMetricsDetailProps) => {
   // Fan-out amplification: for a broadcast broker, one received message is
   // replicated to every subscriber, so processed = deliveries, not unique requests.
@@ -305,6 +409,8 @@ export const NodeMetricsDetail = ({
           </div>
         </Section>
       )}
+
+      {clusterScheduling && <ClusterSchedulingSection view={clusterScheduling} />}
 
       {traitCounterEntries.length > 0 && (
         <Section title="Trait Counters">

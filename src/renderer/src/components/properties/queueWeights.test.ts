@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { weightsFromRows, type WeightRow } from './queueWeights'
+import { partitionsFromRows, weightsFromRows, type WeightRow } from './queueWeights'
 
 const row = (type: string, weight: string, key = 0): WeightRow => ({ key, type, weight })
 
@@ -19,5 +19,22 @@ describe('weightsFromRows', () => {
 
   it('uses the last weight when a type repeats', () => {
     expect(weightsFromRows([row('read', '3'), row('read', '5', 1)])).toEqual({ read: 5 })
+  })
+})
+
+describe('partitionsFromRows', () => {
+  it('keeps named rows with a whole-number cap of at least 1', () => {
+    expect(
+      partitionsFromRows([
+        row(' report ', '4'),
+        row('a', '0.5', 1),
+        row('b', '0', 2),
+        row('', '3', 3)
+      ])
+    ).toEqual({ report: 4 })
+  })
+
+  it('returns undefined when no row is valid', () => {
+    expect(partitionsFromRows([row('a', '', 0)])).toBeUndefined()
   })
 })

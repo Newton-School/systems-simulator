@@ -13,7 +13,7 @@ function makeRuntimeNode(
     componentType: overrides.componentType,
     structuralRole: overrides.structuralRole ?? 'processor',
     profile: overrides.profile,
-    rendererType: overrides.rendererType ?? 'serviceNode',
+    rendererType: overrides.rendererType ?? 'standardNode',
     label: overrides.label ?? 'Node',
     iconKey: overrides.iconKey ?? 'server',
     sim: overrides.sim ?? {
@@ -38,7 +38,7 @@ function makeCompositeNode(
     templateId: overrides.templateId,
     structuralRole: 'composite',
     profile: 'composite',
-    rendererType: 'vpcNode',
+    rendererType: 'containerNode',
     label: overrides.label,
     subLabel: overrides.subLabel,
     iconKey: overrides.iconKey,

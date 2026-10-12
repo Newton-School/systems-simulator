@@ -1,0 +1,90 @@
+{
+  "id": "websocket-push-fanout",
+  "name": "Connection server: held connections and push fan-out",
+  "version": "1.0.0",
+  "global": {
+    "simulationDuration": 5000,
+    "seed": "websocket-push-fanout-seed",
+    "warmupDuration": 0,
+    "timeResolution": "microsecond",
+    "defaultTimeout": 5000
+  },
+  "nodes": [
+    {
+      "id": "client",
+      "type": "api-endpoint",
+      "category": "compute",
+      "role": "source",
+      "label": "Client App",
+      "position": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "id": "gw",
+      "type": "api-gateway",
+      "category": "network-and-edge",
+      "label": "Connection Server",
+      "position": {
+        "x": 320,
+        "y": 0
+      },
+      "queue": {
+        "workers": 64,
+        "capacity": 1000,
+        "discipline": "fifo"
+      },
+      "processing": {
+        "distribution": {
+          "type": "constant",
+          "value": 2
+        },
+        "timeout": 5000
+      },
+      "resources": {
+        "instanceType": "c5.xlarge",
+        "instanceCount": 2
+      },
+      "config": {
+        "heldConnections": 200000,
+        "maxConnectionsPerInstance": 65000,
+        "heartbeatIntervalMs": 30000,
+        "pushRecipients": 1000
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "client->gw",
+      "source": "client",
+      "target": "gw",
+      "mode": "synchronous",
+      "protocol": "https",
+      "latency": {
+        "distribution": {
+          "type": "constant",
+          "value": 1
+        },
+        "pathType": "same-dc"
+      },
+      "bandwidth": 10000,
+      "maxConcurrentRequests": 10000,
+      "packetLossRate": 0,
+      "errorRate": 0
+    }
+  ],
+  "workload": {
+    "sourceNodeId": "client",
+    "pattern": "constant",
+    "baseRps": 500,
+    "requestDistribution": [
+      {
+        "type": "GET",
+        "weight": 1,
+        "sizeBytes": 256
+      }
+    ]
+  },
+  "description": "Two connection servers asked to hold 200,000 WebSockets can hold 130,000 (65,000 each), so 70,000 are refused. Each of the 500 messages/s is written to 1,000 recipients: the writes keep about 3.5 of 8 cores busy, and 35% of recipients are undeliverable. Add a third instance to connect everyone, and watch CPU rise."
+}

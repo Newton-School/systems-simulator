@@ -3,12 +3,19 @@ import useStore from '@renderer/store/useStore'
 import { useFileHandlers } from './useFileHandlers'
 import { convertFlatToNested, convertNestedToFlat } from '@renderer/utils/nodeTransformers'
 import type { NestedFileData } from '@renderer/utils/nodeTransformers'
-import { isTopologyJsonLike, topologyToCanvasFileData } from '@renderer/utils/topologyCanvasAdapter'
+import { isTopologyJsonLike } from '@renderer/utils/topologyCanvasAdapter'
+import { deserializeTopology, isImportFailure } from '@renderer/utils/topologyDeserializer'
 import { migrateCanvasNodes } from '../../../engine/catalog/legacyCanvasMigration'
 import { normalizeScenarioState } from '@renderer/types/ui'
 import { isModalOpen, isPrimaryModifier } from '@renderer/config/keyboardShortcuts'
 
 const DEFAULT_FILE_NAME = 'scenario.json'
+
+class TopologyOpenError extends Error {
+  constructor(readonly messages: string[]) {
+    super(messages.join(' '))
+  }
+}
 
 const normalizeSuggestedFileName = (fileName: string | null): string => {
   const trimmedFileName = fileName?.trim()
@@ -84,9 +91,18 @@ export const useFlowPersistence = (
     (fileContent: string | object, fileName?: string): boolean => {
       try {
         const parsedData = typeof fileContent === 'string' ? JSON.parse(fileContent) : fileContent
-        const data = isTopologyJsonLike(parsedData)
-          ? topologyToCanvasFileData(parsedData)
-          : (parsedData as NestedFileData)
+        let data: NestedFileData
+        if (isTopologyJsonLike(parsedData)) {
+          // TopologyJSON goes through the validating deserializer (auto-layout
+          // when positions are missing, readable errors when it is malformed).
+          const imported = deserializeTopology(parsedData)
+          if (isImportFailure(imported)) {
+            throw new TopologyOpenError(imported.errors.map((issue) => issue.message))
+          }
+          data = imported.canvas
+        } else {
+          data = parsedData as NestedFileData
+        }
 
         if (!data?.nodes) throw new Error('Invalid file format')
 
@@ -123,7 +139,11 @@ export const useFlowPersistence = (
         return true
       } catch (error) {
         console.error('Failed to load flow:', error)
-        alert('Error loading file.')
+        alert(
+          error instanceof TopologyOpenError
+            ? `This topology could not be opened:\n- ${error.messages.join('\n- ')}`
+            : 'Error loading file.'
+        )
         isLoadingRef.current = false
         return false
       }

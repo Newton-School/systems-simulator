@@ -24,6 +24,11 @@ import type {
 } from './gradingCriteria'
 import type { SimulationOutput } from './output'
 import { getComponentPropertyDefinition } from './componentPropertyCatalog'
+import {
+  componentTypeSatisfies,
+  describeFamilyMismatch,
+  describeSubtypeMatch
+} from '../catalog/componentFamilies'
 
 export const SEMANTIC_CRITERIA_VERSION = '1.0' as const
 
@@ -74,12 +79,25 @@ export interface SemanticContext {
 
 // ── graph helpers (local, mirroring structural.ts) ───────────────────────────
 
+// Type matching is family-aware (componentFamilies.ts): a generic type accepts
+// its subtypes, a subtype accepts only itself.
 function nodeIdsOfType(topology: TopologyJSON, type: ComponentType): string[] {
-  return topology.nodes.filter((node) => node.type === type).map((node) => node.id)
+  return topology.nodes
+    .filter((node) => componentTypeSatisfies(node.type, type))
+    .map((node) => node.id)
 }
 
 function hasType(topology: TopologyJSON, type: ComponentType): boolean {
-  return topology.nodes.some((node) => node.type === type)
+  return topology.nodes.some((node) => componentTypeSatisfies(node.type, type))
+}
+
+function presentTypes(topology: TopologyJSON): Set<string> {
+  return new Set(topology.nodes.map((node) => node.type))
+}
+
+function mismatchNote(topology: TopologyJSON, type: ComponentType): string {
+  const note = describeFamilyMismatch(presentTypes(topology), type)
+  return note ? ` ${note}` : ''
 }
 
 function evalComponentPresence(
@@ -87,13 +105,15 @@ function evalComponentPresence(
   c: Extract<SemanticCriterion, { kind: 'componentPresence' }>
 ): RawOutcome {
   const minCount = c.minCount ?? 1
-  const count = topology.nodes.filter((node) => node.type === c.componentType).length
-  return count >= minCount
-    ? { outcome: 'passed' }
-    : {
-        outcome: 'failed',
-        detail: `Expected at least ${minCount} ${c.componentType} component${minCount === 1 ? '' : 's'}, found ${count}.`
-      }
+  const count = nodeIdsOfType(topology, c.componentType).length
+  if (count >= minCount) {
+    const note = describeSubtypeMatch(presentTypes(topology), c.componentType)
+    return note ? { outcome: 'passed', detail: `Passed: ${note}` } : { outcome: 'passed' }
+  }
+  return {
+    outcome: 'failed',
+    detail: `Expected at least ${minCount} ${c.componentType} component${minCount === 1 ? '' : 's'}, found ${count}.${mismatchNote(topology, c.componentType)}`
+  }
 }
 
 function propertyMatches(
@@ -150,7 +170,9 @@ function evalComponentProperty(
     }
   }
 
-  const candidates = topology.nodes.filter((node) => node.type === parent.componentType)
+  const candidates = topology.nodes.filter((node) =>
+    componentTypeSatisfies(node.type, parent.componentType)
+  )
   if (candidates.length === 0) {
     return {
       outcome: 'failed',
@@ -262,7 +284,7 @@ function transitionMatches(
   }
   if (matcher.nodeType) {
     const transitionNodeType = transition.nodeId ? nodeTypes.get(transition.nodeId) : undefined
-    if (transitionNodeType !== matcher.nodeType) {
+    if (!transitionNodeType || !componentTypeSatisfies(transitionNodeType, matcher.nodeType)) {
       return false
     }
   }
@@ -285,7 +307,7 @@ function outcomeMatchesFilter(
   }
   if (where.terminalNodeType) {
     const terminalNodeType = outcome.nodeId ? nodeTypes.get(outcome.nodeId) : undefined
-    if (terminalNodeType !== where.terminalNodeType) {
+    if (!terminalNodeType || !componentTypeSatisfies(terminalNodeType, where.terminalNodeType)) {
       return false
     }
   }
@@ -392,7 +414,10 @@ function evalGuardedPath(
     return { outcome: 'failed', detail: `no ${c.from} node found to originate the guarded path.` }
   }
   if (guardIds.length === 0) {
-    return { outcome: 'failed', detail: `the guard ${c.guard} is absent from the design.` }
+    return {
+      outcome: 'failed',
+      detail: `the guard ${c.guard} is absent from the design.${mismatchNote(topology, c.guard)}`
+    }
   }
 
   // No explicit destination: the guard must simply be reachable from `from`.
@@ -430,7 +455,10 @@ function evalPlacement(
 ): RawOutcome {
   const targetIds = nodeIdsOfType(topology, c.componentType)
   if (targetIds.length === 0) {
-    return { outcome: 'failed', detail: `${c.componentType} is absent; nothing to place.` }
+    return {
+      outcome: 'failed',
+      detail: `${c.componentType} is absent; nothing to place.${mismatchNote(topology, c.componentType)}`
+    }
   }
 
   // between [A, B]: the component must sit on a directed path A → component → B.

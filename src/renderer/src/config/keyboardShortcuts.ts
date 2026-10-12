@@ -112,6 +112,12 @@ export const KEYBOARD_SHORTCUT_GROUPS: KeyboardShortcutGroup[] = [
         keys: [['Mod', 'J']]
       },
       {
+        id: 'toggle-terminal',
+        label: 'Toggle terminal',
+        description: 'Open or close the command-line terminal in the bottom panel.',
+        keys: [['Ctrl', '`']]
+      },
+      {
         id: 'toggle-run-inspector',
         label: 'Toggle run inspector',
         description: 'Show or hide the right-side run inspector when run data exists.',
@@ -257,6 +263,13 @@ export const KEYBOARD_SHORTCUT_GROUPS: KeyboardShortcutGroup[] = [
         ]
       },
       {
+        id: 'contextual-add',
+        label: 'Add inside or add connected',
+        description:
+          'With one node selected: add a component inside a Region, Availability Zone, or Subnet, or add one connected downstream of a component.',
+        keys: [['A']]
+      },
+      {
         id: 'delete-selection',
         label: 'Delete selection',
         description: 'Remove selected editable nodes and edges.',
@@ -298,6 +311,13 @@ export const KEYBOARD_SHORTCUT_GROUPS: KeyboardShortcutGroup[] = [
         label: 'Create connection',
         description: 'Drag from a source handle to a compatible target handle.',
         keys: [['Drag', 'port']]
+      },
+      {
+        id: 'reroute-connection',
+        label: 'Reroute connection',
+        description:
+          'Drag either end of a connection onto another component. Its settings are kept.',
+        keys: [['Drag', 'connection end']]
       },
       {
         id: 'open-properties',

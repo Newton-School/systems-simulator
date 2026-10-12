@@ -49,8 +49,10 @@ export function RubricCheckEditor({
               Verdict-metric grading
             </h3>
             <p className="mt-1 max-w-2xl text-xs leading-5 text-nss-muted">
-              Assert any engine verdict metric — per-node utilization, latency percentiles,
-              invariant violations, reservation/lock/retry/rate-limit counters — as{' '}
+              Assert any topology or engine verdict metric — node/edge/worker totals, per-node
+              utilization, latency percentiles, invariant violations,
+              reservation/lock/retry/rate-limit counters, cache hit ratio, collapsing, change-stream
+              ordering, telemetry, cluster, edge and fault-domain counters — as{' '}
               <code>metric op value</code>. Needs a workload from the Scenarios stage.
             </p>
           </div>
@@ -131,7 +133,7 @@ export function RubricCheckEditor({
                       className="rounded-md border border-nss-primary/25 bg-nss-primary/10 px-2 py-1.5 text-xs font-semibold text-nss-primary outline-none focus:border-nss-primary focus:ring-2 focus:ring-nss-primary/15"
                     >
                       {AUTHORING_RUBRIC_METRIC_GROUPS.map((group) => (
-                        <optgroup key={group.kind} label={group.label}>
+                        <optgroup key={group.id} label={group.label}>
                           {group.metrics.map((metric) => (
                             <option key={metric.id} value={metric.id}>
                               {metric.label}
@@ -221,6 +223,16 @@ export function RubricCheckEditor({
                     </label>
                   )}
                 </div>
+
+                {capability && (
+                  <p
+                    data-testid={`${prefix}-metric-meaning`}
+                    className="mt-2 text-[11px] leading-5 text-nss-muted"
+                  >
+                    <span className="font-semibold text-nss-text">Unit: {capability.unit}</span>
+                    {capability.description ? ` - ${capability.description}` : ''}
+                  </p>
+                )}
 
                 {!compact && (
                   <>

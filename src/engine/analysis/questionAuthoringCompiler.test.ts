@@ -3,7 +3,10 @@ import type { TopologyJSON } from '../core/types'
 import { parseNewtonRowsToQuestionPackage } from './newtonQuestionRows'
 import { compileQuestionAuthoringPreview } from './questionAuthoringCompiler'
 import { importQuestionAuthoringArtifact } from './questionAuthoringImport'
-import { createQuestionAuthoringProject } from './questionAuthoringProject'
+import {
+  createQuestionAuthoringProject,
+  resolveQuestionAuthoringSetup
+} from './questionAuthoringProject'
 
 const FIXED_TIME = '2026-09-19T12:00:00.000Z'
 
@@ -247,6 +250,25 @@ describe('Question Studio generated-output compiler', () => {
     expect(parseNewtonRowsToQuestionPackage(preview.newtonSeed).questionPackage.scaffold).toEqual(
       preview.questionPackage.scaffold
     )
+  })
+
+  it('preserves an explicit requirements-first entry format with a scaffold anchor', () => {
+    const project = completeProject()
+    project.question.setup = {
+      ...resolveQuestionAuthoringSetup(project.question.setup),
+      entryFormat: 'requirements-first'
+    }
+    project.assets.scaffoldTopology = SCAFFOLD_TOPOLOGY
+
+    const preview = compileQuestionAuthoringPreview(project)
+    expect(preview.status).toBe('ready')
+    if (preview.status !== 'ready') return
+
+    expect(preview.questionPackage.entryFormat).toBe('requirements-first')
+    expect(preview.questionPackage.scaffold).toEqual({
+      type: 'partial',
+      topology: SCAFFOLD_TOPOLOGY
+    })
   })
 
   it('blocks invalid cards without emitting plausible partial JSON', () => {

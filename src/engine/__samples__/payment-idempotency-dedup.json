@@ -3,7 +3,7 @@
   "nodes": [
     {
       "id": "client",
-      "type": "serviceNode",
+      "type": "standardNode",
       "position": { "x": 80, "y": 320 },
       "data": {
         "schemaVersion": 2,
@@ -11,7 +11,7 @@
         "componentType": "api-endpoint",
         "structuralRole": "source",
         "profile": "source",
-        "rendererType": "serviceNode",
+        "rendererType": "standardNode",
         "label": "Checkout Client",
         "subLabel": "Retried Writes",
         "iconKey": "monitor",
@@ -74,7 +74,7 @@
     },
     {
       "id": "payments",
-      "type": "serviceNode",
+      "type": "standardNode",
       "position": { "x": 540, "y": 320 },
       "data": {
         "schemaVersion": 2,
@@ -82,7 +82,7 @@
         "componentType": "microservice",
         "structuralRole": "processor",
         "profile": "compute-service",
-        "rendererType": "serviceNode",
+        "rendererType": "standardNode",
         "label": "Payment Service",
         "subLabel": "Write Handler",
         "iconKey": "generic-service",
@@ -94,7 +94,7 @@
     },
     {
       "id": "idempotency",
-      "type": "serviceNode",
+      "type": "standardNode",
       "position": { "x": 1000, "y": 320 },
       "data": {
         "schemaVersion": 2,
@@ -102,7 +102,7 @@
         "componentType": "idempotency-manager",
         "structuralRole": "processor",
         "profile": "control-plane",
-        "rendererType": "serviceNode",
+        "rendererType": "standardNode",
         "label": "Idempotency Guard",
         "subLabel": "Key Store",
         "iconKey": "idempotency-manager",
@@ -117,7 +117,7 @@
     },
     {
       "id": "ledger",
-      "type": "serviceNode",
+      "type": "standardNode",
       "position": { "x": 1460, "y": 320 },
       "data": {
         "schemaVersion": 2,
@@ -125,7 +125,7 @@
         "componentType": "relational-db",
         "structuralRole": "storage",
         "profile": "datastore",
-        "rendererType": "serviceNode",
+        "rendererType": "standardNode",
         "label": "Ledger DB",
         "subLabel": "Write Sink",
         "iconKey": "database",

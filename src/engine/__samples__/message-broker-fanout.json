@@ -3,7 +3,7 @@
   "nodes": [
     {
       "id": "producer",
-      "type": "serviceNode",
+      "type": "standardNode",
       "position": { "x": 80, "y": 280 },
       "data": {
         "schemaVersion": 2,
@@ -11,14 +11,12 @@
         "componentType": "api-endpoint",
         "structuralRole": "source",
         "profile": "source",
-        "rendererType": "serviceNode",
+        "rendererType": "standardNode",
         "label": "Event Producer",
         "subLabel": "Publish Notifications",
         "iconKey": "monitor",
         "source": {
-          "requestDistribution": [
-            { "type": "publish-event", "weight": 1, "sizeBytes": 2048 }
-          ],
+          "requestDistribution": [{ "type": "publish-event", "weight": 1, "sizeBytes": 2048 }],
           "defaultWorkload": {
             "pattern": "poisson",
             "baseRps": 220,
@@ -42,7 +40,7 @@
     },
     {
       "id": "broker",
-      "type": "serviceNode",
+      "type": "standardNode",
       "position": { "x": 620, "y": 280 },
       "data": {
         "schemaVersion": 2,
@@ -50,7 +48,7 @@
         "componentType": "message-broker",
         "structuralRole": "router",
         "profile": "broker",
-        "rendererType": "serviceNode",
+        "rendererType": "standardNode",
         "label": "Event Broker",
         "subLabel": "Broadcast Delivery",
         "iconKey": "broker",
@@ -63,7 +61,7 @@
     },
     {
       "id": "email-worker",
-      "type": "computeNode",
+      "type": "saturationNode",
       "position": { "x": 1160, "y": 60 },
       "data": {
         "schemaVersion": 2,
@@ -71,7 +69,7 @@
         "componentType": "batch-worker",
         "structuralRole": "processor",
         "profile": "worker",
-        "rendererType": "computeNode",
+        "rendererType": "saturationNode",
         "label": "Email Worker",
         "subLabel": "Transactional Email",
         "iconKey": "WORKER",
@@ -83,7 +81,7 @@
     },
     {
       "id": "push-worker",
-      "type": "computeNode",
+      "type": "saturationNode",
       "position": { "x": 1160, "y": 280 },
       "data": {
         "schemaVersion": 2,
@@ -91,7 +89,7 @@
         "componentType": "batch-worker",
         "structuralRole": "processor",
         "profile": "worker",
-        "rendererType": "computeNode",
+        "rendererType": "saturationNode",
         "label": "Push Worker",
         "subLabel": "Mobile Push",
         "iconKey": "WORKER",
@@ -103,7 +101,7 @@
     },
     {
       "id": "analytics-worker",
-      "type": "computeNode",
+      "type": "saturationNode",
       "position": { "x": 1160, "y": 500 },
       "data": {
         "schemaVersion": 2,
@@ -111,7 +109,7 @@
         "componentType": "batch-worker",
         "structuralRole": "processor",
         "profile": "worker",
-        "rendererType": "computeNode",
+        "rendererType": "saturationNode",
         "label": "Analytics Worker",
         "subLabel": "Downstream Consumers",
         "iconKey": "WORKER",

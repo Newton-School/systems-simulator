@@ -95,6 +95,27 @@ describe('useStore edge flow batching', () => {
     expect(batchedSnapshot).toEqual(sequentialSnapshot)
   })
 
+  it('counts a transfer still queued for the link at run end as in flight, not success', () => {
+    vi.spyOn(Date, 'now').mockReturnValue(1_500)
+    useStore.getState().recordEdgeFlowEventBatch([
+      buildEvent({ edgeId: 'edge-a', sequence: 1, startedAtMs: 100, completedAtMs: 200 }),
+      buildEvent({
+        edgeId: 'edge-a',
+        sequence: 2,
+        startedAtMs: 119_000,
+        completedAtMs: 125_000,
+        latencyMs: 6_000
+      })
+    ])
+
+    const flow = useStore.getState().edgeFlowById['edge-a']
+    expect(flow.totalAttempted).toBe(2)
+    expect(flow.totalSuccess).toBe(1)
+    expect(flow.totalFailed).toBe(0)
+    expect(flow.totalInFlightAtCutoff).toBe(1)
+    expect(flow.totalPostWarmupFailed).toBe(0)
+  })
+
   it('preserves untouched edge state references across a batch update', () => {
     vi.spyOn(Date, 'now').mockReturnValue(2_000)
 
@@ -614,5 +635,53 @@ describe('useStore annotation history', () => {
 
     useStore.getState().undoAnnotation()
     expect(useStore.getState().annotations).toEqual([])
+  })
+})
+
+describe('edge-flow display rate follows playback speed', () => {
+  afterEach(() => {
+    useStore.getState().clearEdgeFlow()
+    vi.restoreAllMocks()
+  })
+
+  it('paced dots are scheduled at the run speed, and a speed change re-anchors at now', () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(10_000)
+    useStore.getState().setEdgeFlowPlaybackRate(1)
+    useStore
+      .getState()
+      .recordEdgeFlowEventBatch([
+        buildEvent({ edgeId: 'e', sequence: 1, startedAtMs: 1_000 }),
+        buildEvent({ edgeId: 'e', sequence: 2, startedAtMs: 1_500 })
+      ])
+    const [first, second] = useStore.getState().edgeFlowById.e.recent
+    // 1x: 500 simulated ms apart = 500 wall ms apart (plus the fixed display lead).
+    expect(second.displayAtMs - first.displayAtMs).toBe(500)
+    expect(first.displayAtMs).toBeGreaterThan(10_000)
+
+    // Switch to 4x two wall seconds later: display jumps to the latest received
+    // event and continues at 4 simulated ms per wall ms from there.
+    now.mockReturnValue(12_000)
+    useStore.getState().setEdgeFlowPlaybackRate(4)
+    useStore
+      .getState()
+      .recordEdgeFlowEventBatch([buildEvent({ edgeId: 'e', sequence: 3, startedAtMs: 3_500 })])
+    const third = useStore.getState().edgeFlowById.e.recent.at(-1)!
+    const playback = useStore.getState().edgeFlowPlayback!
+    expect(third.displayAtMs - playback.wallStartMs).toBe((3_500 - playback.simStartMs) / 4)
+    expect(playback.wallStartMs).toBeGreaterThanOrEqual(12_000)
+  })
+
+  it("'max' keeps the legacy replay mapping", () => {
+    vi.spyOn(Date, 'now').mockReturnValue(1_000)
+    useStore.getState().setEdgeFlowPlaybackRate(null)
+    useStore
+      .getState()
+      .recordEdgeFlowEventBatch([
+        buildEvent({ edgeId: 'e', sequence: 1, startedAtMs: 0 }),
+        buildEvent({ edgeId: 'e', sequence: 2, startedAtMs: 1_000 })
+      ])
+    const [first, second] = useStore.getState().edgeFlowById.e.recent
+    expect(first.displayAtMs).toBe(1_000)
+    expect(second.displayAtMs - first.displayAtMs).toBe(100)
   })
 })

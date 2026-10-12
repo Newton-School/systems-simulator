@@ -37,7 +37,7 @@ export const findTargetContainer = (
 ): Node | undefined => {
   const byId = new Map(nodes.map((node) => [node.id, node]))
   const intersectingContainers = nodes.filter((node) => {
-    if (node.type !== 'vpcNode' || node.id === excludeNodeId) return false
+    if (node.type !== 'containerNode' || node.id === excludeNodeId) return false
     if (!validatePlacement(childTemplateId, getTemplateId(node)).valid) return false
 
     const absolute = absolutePosition(node, byId)
@@ -59,7 +59,7 @@ export const findTargetContainer = (
 }
 
 export const recomputeContainment = (nodes: Node[]): Node[] => {
-  const containers = nodes.filter((node) => node.type === 'vpcNode')
+  const containers = nodes.filter((node) => node.type === 'containerNode')
   if (containers.length === 0) return nodes
 
   const byId = new Map(nodes.map((node) => [node.id, node]))
@@ -119,7 +119,7 @@ export const recomputeContainment = (nodes: Node[]): Node[] => {
         parentNode: desiredParentId,
         expandParent: false,
         extent: undefined,
-        zIndex: node.type === 'vpcNode' ? 1 : 10,
+        zIndex: node.type === 'containerNode' ? 1 : 10,
         position: { x: nodeAbs.x - parentAbs.x, y: nodeAbs.y - parentAbs.y }
       }
     }

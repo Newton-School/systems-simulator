@@ -4,6 +4,7 @@ import {
   type CompiledNewtonQuestionRows,
   type NewtonQuestionRowsSeed
 } from './newtonQuestionRows'
+import { normalizeBuilderPolicy } from './builderPolicy'
 import { compileAuthoringMetricRule } from './questionAuthoringMetricRules'
 import { compileAuthoringNfr } from './questionAuthoringNfr'
 import {
@@ -246,15 +247,7 @@ function buildQuestionPackage(project: QuestionAuthoringProject): QuestionPackag
   const scaffoldTopology = project.assets.scaffoldTopology?.nodes.length
     ? project.assets.scaffoldTopology
     : undefined
-  const entryFormat = scaffoldTopology
-    ? setup.entryFormat === 'broken-scaffold' ||
-      setup.entryFormat === 'locked-lab' ||
-      setup.entryFormat === 'baseline-optimize'
-      ? setup.entryFormat
-      : 'partial-scaffold'
-    : setup.entryFormat === 'requirements-first'
-      ? setup.entryFormat
-      : 'blank-canvas'
+  const entryFormat = setup.entryFormat ?? (scaffoldTopology ? 'partial-scaffold' : 'blank-canvas')
   const scenarios = question.scenarios.map((scenario) => compileAuthoringScenario(scenario)!)
   const firstScenario = question.scenarios[0]
   const dryRunCase = question.dryRunScenarioId
@@ -321,6 +314,9 @@ function buildQuestionPackage(project: QuestionAuthoringProject): QuestionPackag
         }
       : { type: 'empty' },
     constraints: setup.constraints,
+    ...(normalizeBuilderPolicy(setup.builderPolicy)
+      ? { builderPolicy: normalizeBuilderPolicy(setup.builderPolicy) }
+      : {}),
     ...(structuralRules.length > 0 ? { structuralRules } : {}),
     ...(semanticCriteria.length > 0 ? { semanticCriteria } : {}),
     ...(question.justify.length > 0 ? { justify: question.justify } : {}),
@@ -340,7 +336,7 @@ function buildQuestionPackage(project: QuestionAuthoringProject): QuestionPackag
     ...(setup.workloadCategory ? { workloadCategory: setup.workloadCategory } : {}),
     ...(setup.domains.length > 0 ? { domains: setup.domains } : {}),
     ...(setup.concepts.length > 0 ? { concepts: setup.concepts } : {}),
-    author: question.author?.trim() || 'DSDS Question Studio',
+    author: question.author?.trim() || 'System Design Simulator Question Studio',
     ...(question.createdAt ? { createdAt: question.createdAt } : {})
   }
 }
@@ -370,7 +366,11 @@ export function compileQuestionAuthoringPreview(
     }
   }
 
-  const diagnostics = validateAuthoredQuestion(questionPackage).map(mapAuthoringDiagnostic)
+  const diagnostics = validateAuthoredQuestion(questionPackage, {
+    ...(project.assets.referenceTopology?.nodes.length
+      ? { referenceTopology: project.assets.referenceTopology }
+      : {})
+  }).map(mapAuthoringDiagnostic)
   if (diagnostics.some((diagnostic) => diagnostic.level === 'error')) {
     return { status: 'blocked', diagnostics }
   }

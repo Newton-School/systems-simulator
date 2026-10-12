@@ -12,8 +12,21 @@
  * `error` diagnostics should block a save; `warning`s are advisory.
  */
 import type { QuestionPackage } from './question'
+import type { TopologyJSON } from '../core/types'
+import { mergeTopologyWithOverrides } from './evaluate'
+import { experimentPresetEntries, describeCaseExperiment } from './questionExperiment'
+import { buildExperimentFromPresets, presetOptionFields } from '../scenarios/presetBuild'
+import { findFaultDomain } from '../core/faultDomains'
+import { CACHE_COMPONENT_TYPES, CACHE_FLUSH_FAULT_TYPE } from '../traits/cache'
 import type { QuestionDomain } from './gradingCriteria'
 import { inferRubricCheckKind } from './rubric'
+import {
+  allowedRuntimeTemplatesFor,
+  isBuilderPolicyRestrictive,
+  resolveBuilderPolicy
+} from './builderPolicy'
+import { RUNTIME_TEMPLATES } from '../catalog/customDefinitions'
+import { acceptedComponentTypes, expandComponentTypeFamilies } from '../catalog/componentFamilies'
 import {
   INVARIANT_RUBRIC_METRICS,
   NFR_METRIC_TO_RUBRIC_METRIC,
@@ -408,8 +421,152 @@ function validateEntryFormat(pkg: QuestionPackage, out: AuthoringDiagnostic[]): 
   }
 }
 
-export function validateAuthoredQuestion(pkg: QuestionPackage): AuthoringDiagnostic[] {
+/**
+ * Builder policy coherence (advisory): settings that silently cancel each other
+ * out, so the author sees why a builder tile will be disabled for learners.
+ */
+function validateBuilderPolicy(pkg: QuestionPackage, out: AuthoringDiagnostic[]): void {
+  if (!isBuilderPolicyRestrictive(pkg.builderPolicy)) return
+  const policy = resolveBuilderPolicy(pkg.builderPolicy)
+  const path = 'builderPolicy'
+  if (policy.allowServiceBuilder && allowedRuntimeTemplatesFor(policy, 'service').length === 0) {
+    out.push(
+      warn(
+        'builderPolicy.serviceBuilderUnusable',
+        'The Service builder is allowed, but no service runtime survives allowedRuntimeTemplates / allowedNodeClasses, so learners will see it disabled.',
+        path
+      )
+    )
+  }
+  if (
+    policy.allowCustomNodeBuilder &&
+    allowedRuntimeTemplatesFor(policy, 'custom-node').length === 0
+  ) {
+    out.push(
+      warn(
+        'builderPolicy.customNodeBuilderUnusable',
+        'The Custom Node builder is allowed, but no custom node runtime survives allowedRuntimeTemplates / allowedNodeClasses, so learners will see it disabled.',
+        path
+      )
+    )
+  }
+  if (policy.allowedRuntimeTemplates && policy.allowedNodeClasses) {
+    const unreachable = policy.allowedRuntimeTemplates.filter(
+      (id) => !policy.allowedNodeClasses!.includes(RUNTIME_TEMPLATES[id].nodeClass)
+    )
+    if (unreachable.length > 0) {
+      out.push(
+        warn(
+          'builderPolicy.runtimeClassConflict',
+          `allowedRuntimeTemplates lists ${unreachable.join(', ')}, whose node class is not in allowedNodeClasses, so they can never be chosen.`,
+          `${path}.allowedRuntimeTemplates`
+        )
+      )
+    }
+  }
+  if (
+    policy.maxDefinitions === 0 &&
+    (policy.allowServiceBuilder || policy.allowCustomNodeBuilder)
+  ) {
+    out.push(
+      warn(
+        'builderPolicy.zeroDefinitions',
+        'maxDefinitions is 0, so no builder can create anything; turn the builders off instead to make the intent explicit.',
+        `${path}.maxDefinitions`
+      )
+    )
+  }
+  if (
+    (pkg.constraints.allowedNodeTypes?.length ?? 0) > 0 &&
+    (policy.allowServiceBuilder || policy.allowCustomNodeBuilder)
+  ) {
+    out.push(
+      warn(
+        'builderPolicy.hiddenByAllowlist',
+        'constraints.allowedNodeTypes turns the palette into a curated list that hides the builder tiles, so the builder permissions in builderPolicy have no effect for learners.',
+        path
+      )
+    )
+  }
+}
+
+/** Component types a package's rules require to be present, with their paths. */
+function requiredComponentTypes(pkg: QuestionPackage): { type: string; path: string }[] {
+  const required: { type: string; path: string }[] = []
+  ;(pkg.structuralRules ?? []).forEach((rule, i) => {
+    const path = `structuralRules[${i}]`
+    if (rule.kind === 'requires_component' || rule.kind === 'requires_redundancy') {
+      required.push({ type: rule.componentType, path })
+    } else if (rule.kind === 'requires_edge' || rule.kind === 'requires_path') {
+      required.push({ type: rule.fromType, path }, { type: rule.toType, path })
+    }
+  })
+  ;(pkg.semanticCriteria ?? []).forEach((criterion, i) => {
+    const path = `semanticCriteria[${i}]`
+    if (criterion.kind === 'componentPresence' || criterion.kind === 'placement') {
+      required.push({ type: criterion.componentType, path })
+    } else if (criterion.kind === 'guardedPath') {
+      required.push({ type: criterion.guard, path })
+    }
+  })
+  ;(pkg.rubric?.checks ?? []).forEach((check, i) => {
+    const prefix = 'topology.componentCounts.'
+    if (check.metric.startsWith(prefix)) {
+      required.push({ type: check.metric.slice(prefix.length), path: `rubric.checks[${i}].metric` })
+    }
+  })
+  return required
+}
+
+/**
+ * A rule that requires a component the learner can never place: none of the
+ * types the rule accepts (family-aware, so `load-balancer` accepts L4 / L7)
+ * survive constraints.allowedNodeTypes / forbiddenNodeTypes.
+ */
+function validateRequiredComponentsPlaceable(
+  pkg: QuestionPackage,
+  out: AuthoringDiagnostic[]
+): void {
+  const allowedList = pkg.constraints.allowedNodeTypes ?? []
+  const forbiddenList = pkg.constraints.forbiddenNodeTypes ?? []
+  if (allowedList.length === 0 && forbiddenList.length === 0) return
+  const allowed = allowedList.length > 0 ? expandComponentTypeFamilies(allowedList) : null
+  const forbidden = expandComponentTypeFamilies(forbiddenList)
+  const reported = new Set<string>()
+  for (const { type, path } of requiredComponentTypes(pkg)) {
+    const placeable = acceptedComponentTypes(type).some(
+      (accepted) => (allowed === null || allowed.has(accepted)) && !forbidden.has(accepted)
+    )
+    const key = `${path}:${type}`
+    if (placeable || reported.has(key)) continue
+    reported.add(key)
+    out.push(
+      warn(
+        'constraints.requiredComponentUnplaceable',
+        `${path} requires ${type}, but constraints.allowedNodeTypes / forbiddenNodeTypes leave the learner no way to place it (or a subtype of it), so the check can never pass.`,
+        path
+      )
+    )
+  }
+}
+
+export interface AuthoringValidationContext {
+  /**
+   * The design the author expects to pass (Question Studio's reference design).
+   * Fault targets and chaos experiments are checked against it; mismatches are
+   * warnings only, because learner designs differ. Not checked when omitted.
+   */
+  referenceTopology?: TopologyJSON
+}
+
+export function validateAuthoredQuestion(
+  pkg: QuestionPackage,
+  context: AuthoringValidationContext = {}
+): AuthoringDiagnostic[] {
   const out: AuthoringDiagnostic[] = []
+
+  validateBuilderPolicy(pkg, out)
+  validateRequiredComponentsPlaceable(pkg, out)
 
   validateDomains(pkg, out)
   validateConcepts(pkg, out)
@@ -546,7 +703,95 @@ export function validateAuthoredQuestion(pkg: QuestionPackage): AuthoringDiagnos
     })
   }
 
+  validateCaseFaultsAndExperiments(pkg, context.referenceTopology, out)
+
   return out
+}
+
+const CACHE_TYPES = new Set<string>(CACHE_COMPONENT_TYPES)
+
+function validateCaseFaultsAndExperiments(
+  pkg: QuestionPackage,
+  reference: TopologyJSON | undefined,
+  out: AuthoringDiagnostic[]
+): void {
+  const cases = pkg.suite?.cases ?? []
+  cases.forEach((testCase, ci) => {
+    const path = `suite.cases[${ci}]`
+    if (!testCase.experiment) {
+      if (!reference) return
+      ;(testCase.faults ?? []).forEach((fault, fi) => {
+        const node = reference.nodes.find((candidate) => candidate.id === fault.targetId)
+        const domain = node ? undefined : findFaultDomain(reference, fault.targetId)
+        if (!node && !domain) {
+          out.push(
+            warn(
+              'fault.targetNotInReference',
+              `Case "${testCase.id}": fault target "${fault.targetId}" is not in the reference design. Fine if learner designs use this id; otherwise the fault does nothing.`,
+              `${path}.faults[${fi}].targetId`
+            )
+          )
+        } else if (
+          fault.faultType === CACHE_FLUSH_FAULT_TYPE &&
+          (domain || !CACHE_TYPES.has(node!.type))
+        ) {
+          out.push(
+            warn(
+              'fault.cacheFlushTarget',
+              `Case "${testCase.id}": a cache flush on "${fault.targetId}" does nothing - it is not a cache component in the reference design.`,
+              `${path}.faults[${fi}].faultType`
+            )
+          )
+        }
+      })
+      return
+    }
+
+    const name = describeCaseExperiment(testCase.experiment)
+    if ((testCase.faults ?? []).length > 0) {
+      out.push(
+        warn(
+          'experiment.faultsSetAside',
+          `Case "${testCase.id}" runs the ${name} experiment, which replaces the case's own faults - they never run.`,
+          `${path}.faults`
+        )
+      )
+    }
+    if (!reference) return
+    testCase.experiment.presets.forEach((preset, pi) => {
+      for (const field of presetOptionFields(preset.presetId)) {
+        const value = preset.options?.[field.key]
+        if (typeof value !== 'string') continue
+        const known =
+          field.kind === 'zone'
+            ? findFaultDomain(reference, value) !== undefined
+            : reference.nodes.some((node) => node.id === value)
+        if (!known) {
+          out.push(
+            warn(
+              'experiment.pinnedTargetNotInReference',
+              `Case "${testCase.id}": ${field.label.toLowerCase()} "${value}" is not in the reference design; learner designs without that id fail this case.`,
+              `${path}.experiment.presets[${pi}].options.${field.key}`
+            )
+          )
+        }
+      }
+    })
+    const merged = mergeTopologyWithOverrides(reference, {
+      global: testCase.global,
+      workload: testCase.workload
+    })
+    const built = buildExperimentFromPresets(merged, experimentPresetEntries(testCase.experiment))
+    if (built.ok === false) {
+      out.push(
+        warn(
+          'experiment.referenceCannotRun',
+          `Case "${testCase.id}": the reference design cannot run the ${name} experiment: ${built.reason} The reference design would fail this case.`,
+          `${path}.experiment`
+        )
+      )
+    }
+  })
 }
 
 /** Convenience: true when there are no `error`-level diagnostics. */

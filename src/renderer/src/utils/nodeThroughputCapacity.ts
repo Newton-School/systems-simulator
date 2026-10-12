@@ -10,6 +10,7 @@
 import type { ComponentNode, ComponentType } from '../../../engine/core/types'
 import { distributionMean } from '../../../engine/analysis/fluidModel'
 import { deriveNodeConcurrency } from '../../../engine/nodes/resourceDerivation'
+import { isClusterType } from '../../../engine/traits/scheduler'
 
 export interface DisplayThroughputCapacity {
   /** Requests per second this node can serve at full utilization. */
@@ -31,7 +32,8 @@ export function deriveDisplayThroughputCapacity(
   componentType: ComponentType | undefined,
   sim: unknown
 ): DisplayThroughputCapacity | null {
-  if (!componentType) return null
+  // A cluster's instances are machines for pods; it serves no requests itself.
+  if (!componentType || isClusterType(componentType)) return null
   const s = (sim ?? {}) as {
     resources?: ComponentNode['resources']
     queue?: ComponentNode['queue']

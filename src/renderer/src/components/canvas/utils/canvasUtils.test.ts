@@ -12,7 +12,7 @@ function container(
 ): Node {
   return {
     id,
-    type: 'vpcNode',
+    type: 'containerNode',
     position: { x, y },
     width: size,
     height: size,
@@ -24,7 +24,7 @@ function container(
 function box(id: string, x: number, y: number, parentNode?: string): Node {
   return {
     id,
-    type: 'serviceNode',
+    type: 'standardNode',
     position: { x, y },
     width: 40,
     height: 40,

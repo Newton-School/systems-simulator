@@ -1,0 +1,130 @@
+{
+  "id": "cdc-change-ordering",
+  "name": "Change stream: per-entity ordering",
+  "version": "1.0.0",
+  "global": {
+    "simulationDuration": 5000,
+    "seed": "cdc-change-ordering-seed",
+    "warmupDuration": 0,
+    "timeResolution": "microsecond",
+    "defaultTimeout": 5000
+  },
+  "nodes": [
+    {
+      "id": "client",
+      "type": "api-endpoint",
+      "category": "compute",
+      "role": "source",
+      "label": "Client App",
+      "position": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "id": "cdc",
+      "type": "stream",
+      "category": "messaging-and-streaming",
+      "label": "Order Changes (CDC)",
+      "position": {
+        "x": 320,
+        "y": 0
+      },
+      "queue": {
+        "workers": 64,
+        "capacity": 10000,
+        "discipline": "fifo"
+      },
+      "processing": {
+        "distribution": {
+          "type": "constant",
+          "value": 0.5
+        },
+        "timeout": 5000
+      },
+      "config": {
+        "streamBrokerEnabled": true,
+        "partitionCount": 4,
+        "changeStreamOrdering": true,
+        "consumerOrdering": "parallel"
+      }
+    },
+    {
+      "id": "projector",
+      "type": "microservice",
+      "category": "compute",
+      "label": "Read-model Projector",
+      "position": {
+        "x": 640,
+        "y": 0
+      },
+      "queue": {
+        "workers": 64,
+        "capacity": 1000,
+        "discipline": "fifo"
+      },
+      "processing": {
+        "distribution": {
+          "type": "exponential",
+          "lambda": 0.1
+        },
+        "timeout": 5000
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "client->cdc",
+      "source": "client",
+      "target": "cdc",
+      "mode": "synchronous",
+      "protocol": "kafka",
+      "latency": {
+        "distribution": {
+          "type": "constant",
+          "value": 1
+        },
+        "pathType": "same-dc"
+      },
+      "bandwidth": 10000,
+      "maxConcurrentRequests": 10000,
+      "packetLossRate": 0,
+      "errorRate": 0
+    },
+    {
+      "id": "cdc->projector",
+      "source": "cdc",
+      "target": "projector",
+      "mode": "asynchronous",
+      "protocol": "kafka",
+      "latency": {
+        "distribution": {
+          "type": "constant",
+          "value": 1
+        },
+        "pathType": "same-dc"
+      },
+      "bandwidth": 10000,
+      "maxConcurrentRequests": 10000,
+      "packetLossRate": 0,
+      "errorRate": 0
+    }
+  ],
+  "workload": {
+    "sourceNodeId": "client",
+    "pattern": "constant",
+    "baseRps": 200,
+    "requestDistribution": [
+      {
+        "type": "UPDATE",
+        "weight": 1,
+        "sizeBytes": 256,
+        "keyspace": {
+          "field": "orderId",
+          "size": 50
+        }
+      }
+    ]
+  },
+  "description": "Updates to 50 orders stream through CDC to a projector that applies them concurrently, so an older update sometimes lands after a newer one (Ordering violations on the stream). Set Consumer ordering to per-key and they go to zero, at the cost of held deliveries."
+}

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { ComponentNode, TopologyJSON } from '../core/types'
-import { budgetBreakdown, estimateNodeCost, evaluateBudget } from './budget'
+import { budgetBreakdown, evaluateBudget } from './budget'
+import { topologyCost } from './cost'
 
 function node(id: string, extra: Partial<ComponentNode> = {}): ComponentNode {
   return {
@@ -44,52 +45,44 @@ describe('evaluateBudget', () => {
     expect(evaluateBudget(t, { unit: 'edges', cap: 3 }).withinBudget).toBe(false)
   })
 
-  it('cost unit: penalizes over-provisioned capacity (replicas + workers)', () => {
-    const lean = estimateNodeCost(node('a')) // 1 base + 1 replica default + 0 workers = 2
-    const heavy = estimateNodeCost(
-      node('b', {
-        resources: { replicas: 10 },
-        queue: { workers: 500, capacity: 1, discipline: 'fifo' }
-      } as Partial<ComponentNode>)
-    )
-    expect(lean).toBe(2)
-    expect(heavy).toBeGreaterThan(lean) // 1 + 10 + ceil(500/50)=10 = 21
-    // a big over-provisioned design blows the cost cap; a lean one fits
-    const heavyTopo = topo(
-      [
-        node('b', {
-          resources: { replicas: 10 },
-          queue: { workers: 500, capacity: 1, discipline: 'fifo' }
-        } as Partial<ComponentNode>)
-      ],
+  it('cost unit: uses the live USD/hour model and fails closed for unpriced nodes', () => {
+    const priced = topo(
+      [node('svc', { resources: { instanceType: 'c5.large', instanceCount: 2 } })],
       0
     )
-    expect(evaluateBudget(heavyTopo, { unit: 'cost', cap: 10 }).withinBudget).toBe(false)
-    expect(evaluateBudget(topo([node('a')], 0), { unit: 'cost', cap: 10 }).withinBudget).toBe(true)
+    const live = topologyCost(priced).totalPerHour
+    expect(evaluateBudget(priced, { unit: 'cost', cap: live })).toMatchObject({
+      actual: live,
+      withinBudget: true
+    })
+    expect(evaluateBudget(priced, { unit: 'cost', cap: live / 2 }).withinBudget).toBe(false)
+
+    const unpriced = evaluateBudget(topo([node('legacy')], 0), { unit: 'cost', cap: 10 })
+    expect(unpriced.actual).toBe(0)
+    expect(unpriced.withinBudget).toBe(false)
+    expect(unpriced.detail).toContain('have no instance price')
   })
 })
 
 describe('budgetBreakdown', () => {
-  it('cost unit: returns per-node items (biggest driver first) + an edges row', () => {
+  it('cost unit: returns the same USD/hour line items as the live cost model', () => {
     const t = topo(
       [
         node('svc', {
-          queue: { workers: 80, capacity: 1, discipline: 'fifo' }
+          resources: { instanceType: 'c5.large', instanceCount: 1 }
         } as Partial<ComponentNode>),
         node('store', {
           type: 'kv-store',
-          queue: { workers: 1000, capacity: 1, discipline: 'fifo' }
+          resources: { instanceType: 'm5.xlarge', instanceCount: 2 }
         } as Partial<ComponentNode>)
       ],
-      3
+      0
     )
-    const b = budgetBreakdown(t, { unit: 'cost', cap: 600 })
+    const b = budgetBreakdown(t, { unit: 'cost', cap: 1 })
     expect(b.actual).toBe(b.items.reduce((s, i) => s + i.cost, 0))
-    // store (1+1+⌈1000/50⌉=20 = 22) drives more than svc (1+1+⌈80/50⌉=2 = 4)
+    expect(b.actual).toBe(topologyCost(t).totalPerHour)
     expect(b.items[0].id).toBe('store')
-    expect(b.items[0].cost).toBe(22)
-    const edges = b.items.find((i) => i.id === 'edges')
-    expect(edges?.cost).toBe(3)
+    expect(b.items[0].formula).toContain('m5.xlarge')
     expect(b.withinBudget).toBe(true)
   })
 

@@ -3,10 +3,12 @@ import { X } from 'lucide-react'
 interface RunToastProps {
   messages: string[]
   tone: 'error' | 'warning'
+  /** Header text; defaults to the run wording. */
+  title?: string
   onClose: () => void
 }
 
-export function RunToast({ messages, tone, onClose }: RunToastProps) {
+export function RunToast({ messages, tone, title, onClose }: RunToastProps) {
   const isError = tone === 'error'
 
   return (
@@ -33,7 +35,7 @@ export function RunToast({ messages, tone, onClose }: RunToastProps) {
         `}
       >
         <span className="font-semibold uppercase tracking-[0.2em] text-[11px]">
-          {isError ? 'Run blocked' : 'Run warning'}
+          {title ?? (isError ? 'Run blocked' : 'Run warning')}
         </span>
         <button
           onClick={onClose}

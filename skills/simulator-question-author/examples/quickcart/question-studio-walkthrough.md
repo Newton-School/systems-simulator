@@ -153,7 +153,9 @@ This is a blank-canvas question.
    topology**.
 2. Under **Learner constraints**, select only these **Allowed component types**:
    - **Client App** (`api-endpoint`) — used as the traffic source;
-   - **Load Balancer** (`load-balancer`);
+   - **Load Balancer** (`load-balancer`) - the generic type. The picker notes that it
+     also accepts Load Balancer L4 and Load Balancer L7, and learners see the L4 and L7
+     tiles in their palette (the generic tile is retired from the palette);
    - **API Server** (`microservice`).
 
 3. Leave **Forbidden component types**, **Maximum nodes**, **Maximum total
@@ -233,6 +235,12 @@ Add these structural tests:
 |   4 | Require a direct connection        | From = **Client App** (`api-endpoint`), To = **Load Balancer** (`load-balancer`), Edge = **Any edge** |
 |   5 | Require a direct connection        | From = **Load Balancer** (`load-balancer`), To = **API Server** (`microservice`), Edge = **Any edge** |
 |   6 | Require a connected design         | No additional fields                                                                                  |
+
+Rules naming the generic **Load Balancer** (`load-balancer`) accept a learner's
+Load Balancer L4 or L7; the check detail then says, for example, "satisfied by
+load-balancer-l7 (a load-balancer subtype)." Pick **Load Balancer L7** instead only
+if the question must require an application-layer balancer specifically; a
+generic or L4 balancer then fails with a message naming the needed type.
 
 The legacy QuickCart fixture represented the first three as topology rubric
 metrics. In the current Studio they belong here as structural rules. The edge and

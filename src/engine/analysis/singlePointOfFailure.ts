@@ -49,7 +49,11 @@ function resolvedRole(node: ComponentNode): ComponentNode['role'] | undefined {
   return inferred === 'composite' ? undefined : inferred
 }
 
-function sourceNodeIds(topology: TopologyJSON): string[] {
+/**
+ * Traffic entry points: every node whose (explicit or inferred) role is
+ * `source`, plus the workload's configured source node.
+ */
+export function sourceNodeIds(topology: TopologyJSON): string[] {
   const ids = new Set<string>()
   for (const node of topology.nodes) {
     if (resolvedRole(node) === 'source') {

@@ -3,7 +3,7 @@
   "nodes": [
     {
       "id": "region-east",
-      "type": "vpcNode",
+      "type": "containerNode",
       "position": {
         "x": 60,
         "y": 80
@@ -15,7 +15,7 @@
         "templateId": "vpc-region",
         "structuralRole": "composite",
         "profile": "composite",
-        "rendererType": "vpcNode",
+        "rendererType": "containerNode",
         "label": "US East Region",
         "subLabel": "Isolated Network",
         "iconKey": "cloud",
@@ -35,7 +35,7 @@
       "nodes": [
         {
           "id": "az-a",
-          "type": "vpcNode",
+          "type": "containerNode",
           "position": {
             "x": 40,
             "y": 80
@@ -47,7 +47,7 @@
             "templateId": "availability-zone",
             "structuralRole": "composite",
             "profile": "composite",
-            "rendererType": "vpcNode",
+            "rendererType": "containerNode",
             "label": "AZ A",
             "subLabel": "Fault Domain",
             "iconKey": "az",
@@ -68,7 +68,7 @@
           "nodes": [
             {
               "id": "subnet-a",
-              "type": "vpcNode",
+              "type": "containerNode",
               "position": {
                 "x": 20,
                 "y": 64
@@ -80,7 +80,7 @@
                 "templateId": "subnet",
                 "structuralRole": "composite",
                 "profile": "composite",
-                "rendererType": "vpcNode",
+                "rendererType": "containerNode",
                 "label": "Private Subnet A",
                 "subLabel": "Network Partition",
                 "iconKey": "subnet",
@@ -101,7 +101,7 @@
               "nodes": [
                 {
                   "id": "orders-web",
-                  "type": "serviceNode",
+                  "type": "standardNode",
                   "position": {
                     "x": 23,
                     "y": 94
@@ -112,7 +112,7 @@
                     "componentType": "api-endpoint",
                     "structuralRole": "source",
                     "profile": "source",
-                    "rendererType": "serviceNode",
+                    "rendererType": "standardNode",
                     "label": "Orders Web",
                     "subLabel": "Regional Frontend",
                     "iconKey": "monitor",
@@ -163,7 +163,7 @@
         },
         {
           "id": "az-b",
-          "type": "vpcNode",
+          "type": "containerNode",
           "position": {
             "x": 480,
             "y": 80
@@ -175,7 +175,7 @@
             "templateId": "availability-zone",
             "structuralRole": "composite",
             "profile": "composite",
-            "rendererType": "vpcNode",
+            "rendererType": "containerNode",
             "label": "AZ B",
             "subLabel": "Fault Domain",
             "iconKey": "az",
@@ -196,7 +196,7 @@
           "nodes": [
             {
               "id": "subnet-b",
-              "type": "vpcNode",
+              "type": "containerNode",
               "position": {
                 "x": 20,
                 "y": 64
@@ -208,7 +208,7 @@
                 "templateId": "subnet",
                 "structuralRole": "composite",
                 "profile": "composite",
-                "rendererType": "vpcNode",
+                "rendererType": "containerNode",
                 "label": "Private Subnet B",
                 "subLabel": "Network Partition",
                 "iconKey": "subnet",
@@ -229,7 +229,7 @@
               "nodes": [
                 {
                   "id": "orders-api",
-                  "type": "computeNode",
+                  "type": "saturationNode",
                   "position": {
                     "x": 28,
                     "y": 93
@@ -240,7 +240,7 @@
                     "componentType": "microservice",
                     "structuralRole": "processor",
                     "profile": "compute-service",
-                    "rendererType": "computeNode",
+                    "rendererType": "saturationNode",
                     "label": "Orders API",
                     "subLabel": "AZ B Worker Pool",
                     "iconKey": "SERVER",

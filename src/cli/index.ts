@@ -21,7 +21,18 @@ import { runQuestionBatchIsolated, type PreparedQuestionEvaluationAttempt } from
 import { evaluateQuestionSubmission } from './questionEvaluate'
 import { runScenarioBatchIsolated } from './scenarioBatch'
 import { stringifyCliJson } from './json'
+import { CliUsageError, enumValue, parseCommandArgs, positiveIntValue } from './args'
+import { palette, shouldColor } from './ansi'
+import { commandHelp, isCliCommand, mainUsage } from './help'
+import { loadTopologyFile } from './topologyInput'
+import { runLive } from './live'
+import { buildLintReport, formatLintReport, lintExitCode } from './commands/lint'
+import { buildCostReport, formatCostReport } from './commands/cost'
+import { defaultDesignRunner, formatCompareReport, runCompare } from './commands/compare'
+import { createShellSession, execShellLines, runInteractiveShell } from './commands/shell'
+import type { TopologyJSON } from '../engine/core/types'
 import {
+  CLI_EXIT_CHECK_FAILED,
   CLI_EXIT_EVALUATION_ERROR,
   CLI_EXIT_EVALUATION_FAILED,
   CLI_EXIT_INVALID_SUBMISSION,
@@ -30,85 +41,169 @@ import {
 } from './exitCodes'
 
 // ─── ANSI ─────────────────────────────────────────────────────────────────────
-const BOLD = '\x1b[1m'
-const DIM = '\x1b[2m'
-const RED = '\x1b[31m'
-const GREEN = '\x1b[32m'
-const YELLOW = '\x1b[33m'
-const CYAN = '\x1b[36m'
-const RESET = '\x1b[0m'
+// Status/progress output goes to stderr, so colour follows stderr (off when it
+// is piped, or with NO_COLOR; FORCE_COLOR forces it on).
+const STDERR_PALETTE = palette(shouldColor(process.stderr))
+const BOLD = STDERR_PALETTE.bold
+const DIM = STDERR_PALETTE.dim
+const RED = STDERR_PALETTE.red
+const GREEN = STDERR_PALETTE.green
+const YELLOW = STDERR_PALETTE.yellow
+const CYAN = STDERR_PALETTE.cyan
+const RESET = STDERR_PALETTE.reset
 
 // ─── ENTRY ────────────────────────────────────────────────────────────────────
-function main(): void {
+async function main(): Promise<void> {
   const args = process.argv.slice(2)
+  const helpPalette = palette(shouldColor(process.stdout))
 
-  if (args.length === 0 || args.includes('--help') || args.includes('-h')) {
-    printUsage()
-    process.exit(0)
-  }
-
-  // Subcommand dispatch. `evaluate` owns the headless contracts (suite,
-  // scenarios, question, question-batch), `grade` remains as a compatibility
-  // alias for single-question evaluation, and anything else is the existing
-  // single-topology run.
-  if (args[0] === 'run') {
-    runSingle(args.slice(1))
+  if (args.length === 0 || args[0] === '--help' || args[0] === '-h') {
+    process.stdout.write(mainUsage(helpPalette, packageJson.version))
     return
   }
-  if (args[0] === 'evaluate') {
-    runEvaluate(args.slice(1))
+  if (args[0] === '--version' || args[0] === '-v') {
+    process.stdout.write(`${packageJson.version}\n`)
     return
   }
-  if (args[0] === 'grade') {
-    runGrade(args.slice(1))
+  if (args[0] === 'help') {
+    const topic = args[1]
+    if (topic === undefined) {
+      process.stdout.write(mainUsage(helpPalette, packageJson.version))
+      return
+    }
+    if (!isCliCommand(topic)) die(`Unknown command '${topic}'. Run 'sim --help' for the list.`)
+    process.stdout.write(commandHelp(topic, helpPalette))
     return
   }
 
-  runSingle(args)
+  const [command, ...rest] = args
+  if (!isCliCommand(command)) {
+    // Legacy shorthand: `sim <topology.json> [options]` is `sim run ...`.
+    if (command.toLowerCase().endsWith('.json')) {
+      await runSingle(args)
+      return
+    }
+    die(`Unknown command '${command}'. Run 'sim --help' for the list.`)
+  }
+  if (rest.includes('--help') || rest.includes('-h')) {
+    process.stdout.write(commandHelp(command, helpPalette))
+    return
+  }
+
+  try {
+    switch (command) {
+      case 'run':
+        await runSingle(rest)
+        return
+      case 'validate':
+        runValidate(rest)
+        return
+      case 'lint':
+        runLint(rest)
+        return
+      case 'cost':
+        runCost(rest)
+        return
+      case 'compare':
+        runCompareCommand(rest)
+        return
+      case 'shell':
+        await runShell(rest)
+        return
+      case 'evaluate':
+        runEvaluate(rest)
+        return
+      case 'grade':
+        runGrade(rest)
+        return
+    }
+  } catch (err) {
+    if (err instanceof CliUsageError) {
+      die(`${err.message} Run 'sim ${command} --help' for usage.`)
+    }
+    throw err
+  }
 }
 
-function runSingle(args: string[]): void {
-  const topologyPath = args[0]
-  const outputJson = args.includes('--json')
-  const outputVerdict = args.includes('--verdict')
-  const outputFlagIndex = args.indexOf('--output')
-  const outputPath = outputFlagIndex !== -1 ? args[outputFlagIndex + 1] : undefined
+/** Exactly `count` positional arguments, or a usage error naming them. */
+function requirePositionals(positionals: string[], names: string[], command: string): string[] {
+  if (positionals.length < names.length) {
+    throw new CliUsageError(
+      `Missing ${names
+        .slice(positionals.length)
+        .map((name) => `<${name}>`)
+        .join(' ')}.`
+    )
+  }
+  if (positionals.length > names.length) {
+    throw new CliUsageError(
+      `Unexpected argument '${positionals[names.length]}' for 'sim ${command}'.`
+    )
+  }
+  return positionals
+}
+
+/** Load + validate a topology for a command that cannot proceed without one (exit 1). */
+function loadTopologyOrExit(filePath: string): { topology: TopologyJSON; warnings: string[] } {
+  const loaded = loadTopologyFile(filePath)
+  if (loaded.status === 'ok') return { topology: loaded.topology, warnings: loaded.warnings }
+  if (loaded.status === 'unreadable') die(loaded.message)
+  printValidationErrors(loaded.message, loaded.errors)
+  process.exit(CLI_EXIT_USAGE_ERROR)
+}
+
+function printValidationErrors(
+  title: string,
+  errors: ReadonlyArray<{ path?: string; message: string }>
+): void {
+  console.error(`${RED}${BOLD}${title}${RESET}`)
+  for (const error of errors) {
+    const prefix = error.path ? `${DIM}${error.path}${RESET}: ` : ''
+    console.error(`  ${RED}✗${RESET} ${prefix}${error.message}`)
+  }
+}
+
+function writeJsonOutput(value: unknown): void {
+  process.stdout.write(stringifyCliJson(value) + '\n')
+}
+
+async function runSingle(args: string[]): Promise<void> {
+  const parsed = parseCommandArgs(args, {
+    booleans: ['json', 'verdict', 'live'],
+    strings: ['output', 'seed', 'duration-ms']
+  })
+  const [topologyPath] = requirePositionals(parsed.positionals, ['topology.json'], 'run')
+  const outputJson = parsed.flags.json
+  const outputVerdict = parsed.flags.verdict
+  const live = parsed.flags.live
+  const outputPath = parsed.values.output
+  const seedOverride = parsed.values.seed
+  const durationOverride = positiveIntValue(parsed.values['duration-ms'], 'duration-ms')
 
   if (outputJson && outputVerdict) {
     die('Choose either --json or --verdict, not both.')
   }
+  const quiet = outputJson || outputVerdict
 
-  // ─── LOAD ──────────────────────────────────────────────────────────────────
-  let raw: unknown
-  try {
-    const content = readFileSync(resolve(topologyPath), 'utf-8')
-    raw = JSON.parse(content)
-  } catch (err) {
-    die(`Could not read topology file: ${(err as Error).message}`)
-  }
-
-  // ─── VALIDATE ─────────────────────────────────────────────────────────────
-  const validation = validateTopology(raw)
-
-  if (!validation.valid || !validation.data) {
-    console.error(`${RED}${BOLD}Topology validation failed${RESET}`)
-    for (const error of validation.errors ?? []) {
-      const prefix = error.path ? `${DIM}${error.path}${RESET}: ` : ''
-      console.error(`  ${RED}✗${RESET} ${prefix}${error.message}`)
-    }
-    process.exit(1)
-  }
-
-  for (const warning of validation.warnings ?? []) {
+  // ─── LOAD + VALIDATE ───────────────────────────────────────────────────────
+  const loaded = loadTopologyOrExit(topologyPath)
+  for (const warning of loaded.warnings) {
     console.error(`${YELLOW}⚠  ${warning}${RESET}`)
   }
 
-  const topology = validation.data
+  const topology: TopologyJSON = {
+    ...loaded.topology,
+    global: {
+      ...loaded.topology.global,
+      ...(seedOverride !== undefined ? { seed: seedOverride } : {}),
+      ...(durationOverride !== undefined ? { simulationDuration: durationOverride } : {})
+    }
+  }
 
-  if (!outputJson && !outputVerdict) {
+  if (!quiet && !live) {
     const dur = topology.global.simulationDuration / 1000
     const warmup = topology.global.warmupDuration / 1000
-    console.error(`\n${BOLD}${CYAN}NS Simulator${RESET}`)
+    console.error(`\n${BOLD}${CYAN}System Design Simulator${RESET}`)
     console.error(`${DIM}Topology : ${topology.name} (${topology.id})`)
     console.error(
       `Duration : ${dur}s   Warmup: ${warmup}s   Seed: ${topology.global.seed}${RESET}\n`
@@ -117,27 +212,57 @@ function runSingle(args: string[]): void {
 
   // ─── RUN ──────────────────────────────────────────────────────────────────
   const engine = new SimulationEngine(topology)
-  let lastPct = -1
+  let output: SimulationOutput
+  let wallMs: number
 
-  engine.onProgress = (percent, eventsProcessed) => {
-    if (outputJson || outputVerdict) return
-    const pct = Math.floor(percent)
-    if (pct === lastPct) return
-    lastPct = pct
-    const filled = Math.floor(pct / 5)
-    const bar = '█'.repeat(filled) + '░'.repeat(20 - filled)
-    process.stderr.write(
-      `\r  ${bar} ${String(pct).padStart(3)}%  ${eventsProcessed.toLocaleString()} events`
-    )
-  }
+  if (live) {
+    const ansi = process.stderr.isTTY === true && process.env.TERM !== 'dumb'
+    if (!ansi) {
+      console.error(
+        `${DIM}--live: stderr is not a terminal, printing plain progress lines instead.${RESET}`
+      )
+    }
+    const result = await runLive(engine, topology, {
+      out: process.stderr,
+      input: process.stdin,
+      ansi,
+      palette: palette(ansi && shouldColor(process.stderr)),
+      onInterrupt: () => {
+        console.error(`${YELLOW}Interrupted.${RESET}`)
+        process.exit(130)
+      }
+    })
+    output = result.output
+    wallMs = result.wallMs
+    if (result.stoppedByUser) {
+      console.error(
+        `${YELLOW}Stopped early at t=${((result.stoppedAtMs ?? 0) / 1000).toFixed(1)}s ` +
+          `of ${(topology.global.simulationDuration / 1000).toFixed(1)}s; ` +
+          `results cover the simulated time so far.${RESET}\n`
+      )
+    }
+  } else {
+    let lastPct = -1
+    engine.onProgress = (percent, eventsProcessed) => {
+      if (quiet) return
+      const pct = Math.floor(percent)
+      if (pct === lastPct) return
+      lastPct = pct
+      const filled = Math.floor(pct / 5)
+      const bar = '█'.repeat(filled) + '░'.repeat(20 - filled)
+      process.stderr.write(
+        `\r  ${bar} ${String(pct).padStart(3)}%  ${eventsProcessed.toLocaleString()} events`
+      )
+    }
 
-  const wallStart = Date.now()
-  const output = engine.run()
-  const wallMs = Date.now() - wallStart
+    const wallStart = Date.now()
+    output = engine.run()
+    wallMs = Date.now() - wallStart
 
-  if (!outputJson && !outputVerdict) {
-    const total = output.eventsProcessed.toLocaleString()
-    process.stderr.write(`\r  ${'█'.repeat(20)} 100%  ${total} events\n\n`)
+    if (!quiet) {
+      const total = output.eventsProcessed.toLocaleString()
+      process.stderr.write(`\r  ${'█'.repeat(20)} 100%  ${total} events\n\n`)
+    }
   }
 
   // ─── OUTPUT ───────────────────────────────────────────────────────────────
@@ -146,13 +271,110 @@ function runSingle(args: string[]): void {
   if (outputPath) {
     const json = stringifyCliJson(structuredOutput)
     writeFileSync(resolve(outputPath), json, 'utf-8')
-    if (!outputJson && !outputVerdict) {
+    if (!quiet) {
       console.error(`${GREEN}✓ Results written to ${outputPath}${RESET}\n`)
     }
-  } else if (outputJson || outputVerdict) {
-    process.stdout.write(stringifyCliJson(structuredOutput) + '\n')
+  } else if (quiet) {
+    writeJsonOutput(structuredOutput)
   } else {
     printResults(output, wallMs)
+  }
+}
+
+// ─── VALIDATE / LINT / COST / COMPARE ────────────────────────────────────────
+function runValidate(args: string[]): void {
+  const parsed = parseCommandArgs(args, { booleans: ['json'] })
+  const [topologyPath] = requirePositionals(parsed.positionals, ['topology.json'], 'validate')
+  const loaded = loadTopologyFile(topologyPath)
+  if (loaded.status === 'unreadable') die(loaded.message)
+
+  const valid = loaded.status === 'ok'
+  const errors = loaded.status === 'invalid' ? loaded.errors : []
+  const warnings = loaded.warnings
+  if (parsed.flags.json) {
+    writeJsonOutput({
+      file: topologyPath,
+      valid,
+      ...(loaded.status === 'ok' ? { topologyId: loaded.topology.id } : {}),
+      errors,
+      warnings
+    })
+  } else {
+    const c = palette(shouldColor(process.stdout))
+    if (valid) {
+      console.log(`${c.green}${c.bold}Valid${c.reset} ${topologyPath}`)
+    } else {
+      console.log(`${c.red}${c.bold}Invalid${c.reset} ${topologyPath}`)
+      for (const error of errors) {
+        const prefix = error.path ? `${c.dim}${error.path}${c.reset}: ` : ''
+        console.log(`  ${c.red}✗${c.reset} ${prefix}${error.message}`)
+      }
+    }
+    for (const warning of warnings) {
+      console.log(`  ${c.yellow}⚠${c.reset} ${warning}`)
+    }
+    console.log(
+      `${errors.length} error${errors.length === 1 ? '' : 's'}, ` +
+        `${warnings.length} warning${warnings.length === 1 ? '' : 's'}`
+    )
+  }
+  if (!valid) process.exit(CLI_EXIT_CHECK_FAILED)
+}
+
+function runLint(args: string[]): void {
+  const parsed = parseCommandArgs(args, { booleans: ['json'] })
+  const [topologyPath] = requirePositionals(parsed.positionals, ['topology.json'], 'lint')
+  const { topology, warnings } = loadTopologyOrExit(topologyPath)
+  const report = buildLintReport(topology, warnings)
+  if (parsed.flags.json) {
+    writeJsonOutput(report)
+  } else {
+    console.log(formatLintReport(report, topology, palette(shouldColor(process.stdout))))
+  }
+  const exitCode = lintExitCode(report)
+  if (exitCode !== CLI_EXIT_SUCCESS) process.exit(exitCode)
+}
+
+const EVALUATION_MODES = ['auto', 'discrete', 'analytic'] as const
+
+function runCost(args: string[]): void {
+  const parsed = parseCommandArgs(args, { booleans: ['json', 'run'], strings: ['mode'] })
+  const [topologyPath] = requirePositionals(parsed.positionals, ['topology.json'], 'cost')
+  const mode = enumValue(parsed.values.mode, 'mode', EVALUATION_MODES)
+  if (mode !== undefined && !parsed.flags.run) {
+    throw new CliUsageError('--mode only applies together with --run.')
+  }
+  const { topology } = loadTopologyOrExit(topologyPath)
+  const output = parsed.flags.run ? runSimulation(topology, { mode: mode ?? 'auto' }) : undefined
+  const report = buildCostReport(topology, output)
+  if (parsed.flags.json) {
+    writeJsonOutput(report)
+  } else {
+    console.log(formatCostReport(report, palette(shouldColor(process.stdout))))
+  }
+}
+
+function runCompareCommand(args: string[]): void {
+  const parsed = parseCommandArgs(args, { booleans: ['json'], strings: ['seed', 'mode'] })
+  const [pathA, pathB] = requirePositionals(parsed.positionals, ['a.json', 'b.json'], 'compare')
+  const mode = enumValue(parsed.values.mode, 'mode', EVALUATION_MODES) ?? 'auto'
+  const a = loadTopologyOrExit(pathA)
+  const b = loadTopologyOrExit(pathB)
+  if (!parsed.flags.json) {
+    console.error(`${DIM}Running ${pathA} and ${pathB}...${RESET}`)
+  }
+  const report = runCompare(
+    { file: pathA, topology: a.topology },
+    { file: pathB, topology: b.topology },
+    {
+      ...(parsed.values.seed !== undefined ? { seed: parsed.values.seed } : {}),
+      runner: defaultDesignRunner(mode)
+    }
+  )
+  if (parsed.flags.json) {
+    writeJsonOutput(report)
+  } else {
+    console.log(formatCompareReport(report, palette(shouldColor(process.stdout))))
   }
 }
 
@@ -258,10 +480,21 @@ function printResults(output: SimulationOutput, wallMs: number): void {
         b.metric === 'latencyP99'
           ? `p99 latency: target ${fmtMs(b.target)}  actual ${fmtMs(b.actual)}`
           : `availability: target ${(b.target * 100).toFixed(2)}%  actual ${(b.actual * 100).toFixed(2)}%`
-      console.log(`  [${sev}]  ${b.nodeLabel}  —  ${metricStr}`)
+      console.log(`  [${sev}]  ${b.nodeLabel}  -  ${metricStr}`)
     }
   } else {
     console.log(`\n${GREEN}✓ No SLO breaches${RESET}`)
+  }
+
+  if (output.consistency) printConsistency(output.consistency)
+
+  if (output.invariantViolations.length > 0) {
+    console.log(`\n${BOLD}Invariant Violations${RESET}`)
+    for (const violation of output.invariantViolations) {
+      console.log(
+        `  ${RED}✕${RESET} ${violation.invariantName}  ${DIM}${violation.details}${RESET}`
+      )
+    }
   }
 
   // Little's Law
@@ -283,11 +516,52 @@ function printResults(output: SimulationOutput, wallMs: number): void {
   )
 }
 
+function printConsistency(report: NonNullable<SimulationOutput['consistency']>): void {
+  const flag = (count: number) => (count > 0 ? `${RED}${count.toLocaleString()}${RESET}` : '0')
+  console.log(`\n${BOLD}Read Consistency${RESET}`)
+  for (const node of report.nodes) {
+    console.log(
+      `  ${node.nodeLabel} ${DIM}(${node.role}, ${node.model}` +
+        `${node.role === 'follower' ? `, lag ${fmtMs(node.replicationLagMs)}` : ''})${RESET}` +
+        `  reads ${node.reads.toLocaleString()}  stale ${flag(node.staleReads)}` +
+        `  catch-up waits ${node.catchUpWaits.toLocaleString()}` +
+        (node.catchUpWaits > 0
+          ? ` ${DIM}(${fmtMs(node.catchUpWaitMs / node.catchUpWaits)} avg)${RESET}`
+          : '')
+    )
+  }
+  console.log(
+    `  Stale reads ${flag(report.staleReads)} of ${report.reads.toLocaleString()}` +
+      `  |  Read-your-writes violations ${flag(report.readYourWritesViolations)}` +
+      `  |  Monotonic-read violations ${flag(report.monotonicReadViolations)}`
+  )
+  if (report.sessionlessReads > 0) {
+    console.log(
+      `  ${YELLOW}${report.sessionlessReads.toLocaleString()} reads had no sessionId${RESET}` +
+        ` ${DIM}(session guarantees not checked for them; set workload sessions)${RESET}`
+    )
+  }
+  const lin = report.linearizability
+  const verdict =
+    lin.keysViolating > 0
+      ? `${RED}not linearizable${RESET} (${lin.keysViolating} of ${lin.keysChecked} keys)`
+      : lin.verified
+        ? `${GREEN}linearizable${RESET} (all ${lin.opsChecked.toLocaleString()} ops checked)`
+        : lin.keysChecked > 0
+          ? `${YELLOW}no violation in checked ops${RESET}`
+          : `${YELLOW}not checked${RESET}`
+  console.log(
+    `  Linearizability ${verdict}  ${DIM}(${lin.opsChecked.toLocaleString()} ops checked,` +
+      ` ${lin.opsNotChecked.toLocaleString()} not checked beyond ${lin.opsPerKeyBound} ops/key` +
+      ` x ${lin.keysBound} keys${lin.keysInconclusive > 0 ? `, ${lin.keysInconclusive} keys over search budget` : ''})${RESET}`
+  )
+}
+
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
 function fmtMs(ms: number | null): string {
   // `null` means no successful samples — show N/A, never a fabricated 0.
   if (ms === null) return 'N/A'
-  if (ms === 0) return '—'
+  if (ms === 0) return '-'
   if (ms < 1) return `${(ms * 1000).toFixed(0)}µs`
   if (ms < 1000) return `${ms.toFixed(1)}ms`
   return `${(ms / 1000).toFixed(2)}s`
@@ -390,13 +664,13 @@ function emitQuestionEvaluationResult(
     const { passedTests, totalTests, allPassed } = result.host
     console.error(
       `${DIM}Question ${result.questionId}: ${RESET}${allPassed ? GREEN : RED}${passedTests}/${totalTests} checks passed${RESET}` +
-        `${DIM} — ${allPassed ? 'PASS' : 'FAIL'}${RESET}`
+        `${DIM} - ${allPassed ? 'PASS' : 'FAIL'}${RESET}`
     )
   } else if ('error' in result) {
     const accent = result.status === 'invalid_submission' ? YELLOW : RED
     console.error(
       `${DIM}Question ${result.questionId}: ${RESET}${accent}${result.status.toUpperCase()}${RESET}` +
-        `${DIM} — ${result.error.message}${RESET}`
+        `${DIM} - ${result.error.message}${RESET}`
     )
   }
 
@@ -539,7 +813,7 @@ function runSuiteEvaluate(args: string[]): void {
     const graded = payload as ReturnType<typeof gradeBatch>
     const { total, ran, errored, passed, failed } = graded.summary
     console.error(
-      `${DIM}Graded: ${total} cases — ${RESET}${GREEN}${passed} passed${RESET}` +
+      `${DIM}Graded: ${total} cases - ${RESET}${GREEN}${passed} passed${RESET}` +
         `${DIM}, ${RESET}${failed > 0 ? RED : DIM}${failed} failed${RESET}` +
         `${DIM} (${errored} could not run)${RESET}`
     )
@@ -552,7 +826,7 @@ function runSuiteEvaluate(args: string[]): void {
 
   const { total, succeeded, failed } = batch.summary
   console.error(
-    `${DIM}Suite: ${total} cases — ${RESET}${GREEN}${succeeded} ok${RESET}` +
+    `${DIM}Suite: ${total} cases - ${RESET}${GREEN}${succeeded} ok${RESET}` +
       `${DIM}, ${RESET}${failed > 0 ? RED : DIM}${failed} failed${RESET}`
   )
 
@@ -672,7 +946,7 @@ function runScenarioEvaluate(args: string[]): void {
   }
 
   console.error(
-    `${DIM}Scenarios: ${batch.summary.total} total — ${RESET}` +
+    `${DIM}Scenarios: ${batch.summary.total} total - ${RESET}` +
       `${GREEN}${batch.summary.completed} completed${RESET}` +
       `${DIM}, ${RESET}${batch.summary.errored > 0 ? RED : DIM}${batch.summary.errored} errored${RESET}` +
       `${DIM}, ${RESET}${batch.summary.timedOut > 0 ? YELLOW : DIM}${batch.summary.timedOut} timed out${RESET}`
@@ -722,7 +996,7 @@ function prepareCase(rawCase: unknown, index: number, suiteDir: string): Prepare
     const detail = first
       ? `${first.path ? `${first.path}: ` : ''}${first.message}`
       : 'invalid topology'
-    return { id, error: `Validation failed — ${detail}` }
+    return { id, error: `Validation failed - ${detail}` }
   }
   return { id, topology: validation.data }
 }
@@ -1019,7 +1293,7 @@ function runQuestionBatchEvaluate(args: string[]): void {
   }
 
   console.error(
-    `${DIM}Question batch: ${batch.summary.total} total — ${RESET}` +
+    `${DIM}Question batch: ${batch.summary.total} total - ${RESET}` +
       `${GREEN}${batch.summary.passed} passed${RESET}` +
       `${DIM}, ${RESET}${batch.summary.failed > 0 ? RED : DIM}${batch.summary.failed} failed${RESET}` +
       `${DIM}, ${RESET}${batch.summary.invalidSubmissions > 0 ? YELLOW : DIM}${batch.summary.invalidSubmissions} invalid${RESET}` +
@@ -1032,111 +1306,24 @@ function runQuestionBatchEvaluate(args: string[]): void {
   }
 }
 
-function printUsage(): void {
-  console.log(`
-${BOLD}ns-simulator CLI${RESET}
-
-${BOLD}Usage${RESET}
-  npm run sim -- run <topology.json> [options]
-  npm run sim -- <topology.json> [options]
-  npm run sim -- evaluate <topology.json> --scenarios <scenarios.json> [--output <file>]
-  npm run sim -- evaluate <suite.json> [--rubric <rubric.json>] [--output <file>]
-  npm run sim -- evaluate question <question.json> <student-topology.json> [--output <file>]
-  npm run sim -- evaluate question-batch <batch.json> [--output <file>]
-  npm run sim -- grade <question.json> <student-topology.json> [--output <file>]
-
-${BOLD}Options${RESET}
-  --json              Print full SimulationOutput as JSON to stdout
-  --verdict           Print SimulationVerdict as JSON to stdout
-  --scenarios <file>  (evaluate) Run one base topology under multiple overrides
-  --timeout-ms <n>    (evaluate) Per-scenario wall-clock timeout in milliseconds
-  --rubric <file>     (evaluate) Grade each case's verdict against a rubric
-  --attempt-id <id>   (question) Attach a stable attempt id to the output contract
-  --submission-id <id> (question) Attach a stable submission id to the output contract
-  --evaluated-at <ts> (question/batch/scenario) Inject an explicit ISO timestamp
-  --require-pass      (question-batch) Exit non-zero when any valid result fails
-  --output <file>     Write JSON output to a file
-  -h, --help          Show this message
-
-${BOLD}Evaluate${RESET} ${DIM}(scenario mode)${RESET}
-  Runs one validated base topology under many named scenario overrides and emits
-  a ScenarioEvaluationBatch of SimulationVerdicts.
-  A scenarios file is:
-    {
-      "submissionId"?: "...",
-      "topologyId"?: "...",
-      "evaluatedAt"?: "2026-08-01T00:00:00.000Z",
-      "timeoutMs"?: 30000,
-      "scenarios": [
-        {
-          "id": "normal-load",
-          "name"?: "Normal traffic",
-          "overrides"?: {
-            "global"?: { ... },
-            "workload"?: { ... },
-            "faults"?: [ ... ]
-          }
-        }
-      ]
-    }
-  Scenario failures are isolated per row in JSON output; the command exits zero
-  unless the base topology or the scenarios file itself is invalid.
-  Scenarios run in isolated subprocesses with a per-scenario timeout guard.
-
-${BOLD}Evaluate${RESET} ${DIM}(suite mode)${RESET}
-  Runs every case in a suite and prints an EvaluationBatch of SimulationVerdicts.
-  A suite is { "name"?, "cases": [{ "id", "topology": <path|object>, "global"?, "workload"? }] }.
-  With --rubric, prints a GradedEvaluationBatch of pass/fail check rows + scores.
-  A rubric is { "id"?, "passThreshold"?, "checks": [{ "id", "description", "metric", "op", "value", "points"? }] }.
-  Exits non-zero if any case fails to run, or (with a rubric) does not pass.
-
-${BOLD}Evaluate${RESET} ${DIM}(question mode)${RESET}
-  Grades one student's topology against a QuestionPackage and prints a versioned
-  QuestionEvaluationContract for backend/host consumption. The question suite
-  carries condition overrides (global/workload/faults) applied to the student's
-  topology; the rubric scores the resulting verdicts. Invalid student input is
-  normalized into an invalid_submission contract instead of a plain CLI crash.
-
-${BOLD}Evaluate${RESET} ${DIM}(question-batch mode)${RESET}
-  Runs many question evaluations headlessly for backend jobs or CI.
-  A batch file is:
-    {
-      "evaluatedAt"?: "2026-08-01T00:00:00.000Z",
-      "timeoutMs"?: 30000,
-      "attempts": [
-        {
-          "attemptId"?: "...",
-          "submissionId"?: "...",
-          "question"?: "<path-to-question.json>" | { ...QuestionPackage },
-          "topology"?: "<path-to-topology.json>" | { ...TopologyJSON }
-        }
-      ]
-    }
-  Each attempt yields an isolated QuestionEvaluationContract row. Invalid input
-  rows become invalid_submission results instead of aborting the whole batch.
-  By default the command exits non-zero only for invalid/error rows; add
-  --require-pass to also gate on failed but valid submissions.
-
-${BOLD}Grade${RESET} ${DIM}(legacy alias)${RESET}
-  Alias for: evaluate question <question.json> <student-topology.json>
-
-${BOLD}Question Exit Codes${RESET}
-  0  passed / successful batch
-  2  valid submission failed grading checks
-  3  invalid submission contract
-  4  evaluation error contract
-
-${BOLD}Examples${RESET}
-  npm run sim -- topology.json
-  npm run sim -- run topology.json --verdict
-  npm run sim -- evaluate topology.json --scenarios scenarios.json
-  npm run sim -- evaluate suite.json
-  npm run sim -- evaluate suite.json --rubric rubric.json
-  npm run sim -- evaluate suite.json --rubric rubric.json --output graded.json
-  npm run sim -- evaluate question question.json student-topology.json --submission-id sub-42
-  npm run sim -- evaluate question-batch grading-batch.json --output results.json
-  npm run sim -- topology.json --json | jq '.summary'
-`)
+async function runShell(args: string[]): Promise<void> {
+  const parsed = parseCommandArgs(args, { strings: ['exec'] })
+  const [topologyPath] = requirePositionals(parsed.positionals, ['topology.json'], 'shell')
+  const loaded = loadTopologyOrExit(topologyPath)
+  const c = palette(shouldColor(process.stdout))
+  const session = createShellSession(loaded.topology, c)
+  const script = parsed.values.exec
+  if (script !== undefined) {
+    const { output, failed } = execShellLines(session, script, c)
+    process.stdout.write(output)
+    if (failed) process.exit(CLI_EXIT_CHECK_FAILED)
+    return
+  }
+  await runInteractiveShell(
+    session,
+    c,
+    `${c.bold}sim shell${c.reset} ${c.dim}${loaded.topology.name} - 'help' lists commands, 'quit' leaves${c.reset}\n`
+  )
 }
 
 function die(msg: string): never {
@@ -1144,4 +1331,7 @@ function die(msg: string): never {
   process.exit(CLI_EXIT_USAGE_ERROR)
 }
 
-main()
+main().catch((err: unknown) => {
+  console.error(`${RED}${BOLD}Error:${RESET} ${(err as Error)?.stack ?? String(err)}`)
+  process.exit(CLI_EXIT_USAGE_ERROR)
+})

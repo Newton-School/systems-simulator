@@ -168,7 +168,8 @@ export function createQuestionAuthoringProjectFromPackage(
       passThreshold: question.rubric.passThreshold,
       suiteVisibleToStudent: question.suite.visibleToStudent,
       budget: question.budget ? { ...question.budget } : undefined,
-      constraints: { ...question.constraints }
+      constraints: { ...question.constraints },
+      ...(question.builderPolicy ? { builderPolicy: structuredClone(question.builderPolicy) } : {})
     },
     problemStatement: question.prompt.text,
     additionalContext: question.prompt.additionalContext,

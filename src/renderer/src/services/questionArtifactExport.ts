@@ -27,7 +27,7 @@ export async function downloadQuestionAuthoringArtifacts(
   try {
     const saved = await fileService.save(compiled.content, compiled.fileName, {
       dialogTitle: 'Download Question Studio Artifact Bundle',
-      fileDescription: 'DSDS Question Export Bundles',
+      fileDescription: 'System Design Simulator Question Export Bundles',
       saveAsNewFile: true
     })
     return saved

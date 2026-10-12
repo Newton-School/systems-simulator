@@ -42,6 +42,23 @@ describe('Question Studio verdict-metric composer', () => {
     })
   })
 
+  it('exposes fixed topology totals through the same visual metric picker', () => {
+    expect(
+      compileAuthoringRubricCheck({
+        id: 'node-cap',
+        metric: 'topology.totalNodes',
+        op: '<=',
+        value: 8,
+        points: 1
+      })
+    ).toMatchObject({
+      kind: 'topology',
+      metric: 'topology.totalNodes',
+      op: '<=',
+      value: 8
+    })
+  })
+
   it('uses an authored learner-facing description when provided', () => {
     expect(
       compileAuthoringRubricCheck({

@@ -184,3 +184,20 @@ describe('deriveNodeConcurrency', () => {
     })
   })
 })
+
+describe('authored workersPerInstance / queueSlots', () => {
+  it('are ignored: concurrency and admission stay derived from the instance', () => {
+    const base = node({ resources: { instanceType: 'c5.large', instanceCount: 2 } })
+    const authored = node({
+      resources: {
+        instanceType: 'c5.large',
+        instanceCount: 2,
+        workersPerInstance: 500,
+        queueSlots: 80
+      }
+    })
+    const derived = deriveNodeConcurrency(base)
+    expect(deriveNodeConcurrency(authored)).toEqual(derived)
+    expect(derived.workersPerInstance).toBe(2 * IO_WORKERS_PER_VCPU)
+  })
+})

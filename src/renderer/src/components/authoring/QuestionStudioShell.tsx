@@ -82,6 +82,7 @@ import { MetricGradingEditor } from './MetricGradingEditor'
 import { DiscriminationLab, type ObligationOption } from './DiscriminationLab'
 import { QuestionBriefEditor } from './QuestionBriefEditor'
 import { QuestionConstraintsEditor } from './QuestionConstraintsEditor'
+import { BuilderPolicyEditor } from './BuilderPolicyEditor'
 import { QuestionSetupEditor } from './QuestionSetupEditor'
 import { QuestionMetadataEditor } from './QuestionMetadataEditor'
 import { PromptDetailsEditor } from './PromptDetailsEditor'
@@ -89,6 +90,10 @@ import { ScaffoldContractEditor } from './ScaffoldContractEditor'
 import { JustificationEditor } from './JustificationEditor'
 import { RubricCheckEditor } from './RubricCheckEditor'
 import { ScenarioSuiteEditor } from './ScenarioSuiteEditor'
+import {
+  describeCaseExperiment,
+  experimentObligationId
+} from '../../../../engine/analysis/questionExperiment'
 import { SemanticGradingEditor } from './SemanticGradingEditor'
 import { StructuralGradingEditor } from './StructuralGradingEditor'
 import {
@@ -178,8 +183,16 @@ export function QuestionStudioShell({
         axis: 'rubric'
       })
     }
+    for (const scenario of scenarios) {
+      if (!scenario.experiment) continue
+      options.push({
+        id: experimentObligationId(scenario.id),
+        label: `Chaos experiment: ${describeCaseExperiment(scenario.experiment)} (${scenario.id})`,
+        axis: 'experiment'
+      })
+    }
     return options
-  }, [metricRules, rubricChecks, semanticRules, structuralRules])
+  }, [metricRules, rubricChecks, scenarios, semanticRules, structuralRules])
   const stage = getQuestionStudioStage(activeStage)
   const nextStage = QUESTION_STUDIO_STAGES[stage.number]
   const generatedPreview = useMemo(() => compileQuestionAuthoringPreview(project), [project])
@@ -571,7 +584,7 @@ export function QuestionStudioShell({
   }, [fileService, generatedPreview])
 
   useEffect(() => {
-    if (!isDirty || typeof window.nssimulator?.onCloseRequest === 'function') return
+    if (!isDirty) return
 
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
       event.preventDefault()
@@ -579,12 +592,6 @@ export function QuestionStudioShell({
     }
     window.addEventListener('beforeunload', handleBeforeUnload)
     return () => window.removeEventListener('beforeunload', handleBeforeUnload)
-  }, [isDirty])
-
-  useEffect(() => {
-    const onCloseRequest = window.nssimulator?.onCloseRequest
-    if (typeof onCloseRequest !== 'function') return
-    return onCloseRequest(() => isDirty)
   }, [isDirty])
 
   return (
@@ -741,6 +748,9 @@ export function QuestionStudioShell({
                   <QuestionConstraintsEditor setup={setup} onChange={handleSetupChange} />
                 </div>
                 <div className="mt-4">
+                  <BuilderPolicyEditor setup={setup} onChange={handleSetupChange} />
+                </div>
+                <div className="mt-4">
                   <ScaffoldContractEditor
                     topology={scaffoldTopology}
                     contract={{
@@ -765,6 +775,8 @@ export function QuestionStudioShell({
                   dryRunScenarioId={project.question.dryRunScenarioId}
                   onAction={handleScenarioAction}
                   onDryRunChange={handleDryRunChange}
+                  referenceTopology={referenceTopology}
+                  scaffoldTopology={scaffoldTopology}
                 />
               </div>
             ) : stage.id === 'grading' ? (

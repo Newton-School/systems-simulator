@@ -2,6 +2,7 @@ import type { EventType, SimulationEvent } from './events'
 import type { RequestOutcomeFamily, RequestOutcomeStatusClass } from './requestOutcomeSemantics'
 import type { RequestSemanticsSnapshot, RequestStateTransition } from './simulationSemantics'
 import type { TrafficOriginLocation } from './types'
+import { describeFaultDomain, readFaultDomainRef } from './faultDomains'
 
 export const CANONICAL_EVENT_TYPES = [
   'request-generated',
@@ -386,10 +387,14 @@ function buildDebugMessage(record: CanonicalEventRecord): string {
       return `${subject} timed out${nodeSuffix}${reasonSuffix}`
     case 'request-rejected':
       return `${subject} rejected${nodeSuffix}${reasonSuffix}`
-    case 'node-failed':
-      return `node ${record.nodeId ?? 'unknown'} failed${reasonSuffix}`
-    case 'node-recovered':
-      return `node ${record.nodeId ?? 'unknown'} recovered`
+    case 'node-failed': {
+      const domain = readFaultDomainRef(record.payload.faultDomain)
+      return `node ${record.nodeId ?? 'unknown'} failed${reasonSuffix}${domain ? ` because ${describeFaultDomain(domain)} was down` : ''}`
+    }
+    case 'node-recovered': {
+      const domain = readFaultDomainRef(record.payload.faultDomain)
+      return `node ${record.nodeId ?? 'unknown'} recovered${domain ? ` (${describeFaultDomain(domain)} back up)` : ''}`
+    }
     case 'health-probed': {
       const probedHealthy = record.payload.probedHealthy === true
       return `health probe of ${record.nodeId ?? 'unknown'} reported ${probedHealthy ? 'healthy' : 'unhealthy'}`

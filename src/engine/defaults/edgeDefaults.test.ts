@@ -26,7 +26,7 @@ describe('edgeDefaults', () => {
       templateId: 'client-user',
       structuralRole: 'source',
       profile: 'source',
-      rendererType: 'serviceNode',
+      rendererType: 'standardNode',
       label: 'Client App',
       iconKey: 'monitor',
       componentType: 'api-endpoint'
@@ -35,7 +35,7 @@ describe('edgeDefaults', () => {
       templateId: 'load-balancer-l7',
       structuralRole: 'router',
       profile: 'router',
-      rendererType: 'serviceNode',
+      rendererType: 'standardNode',
       label: 'Load Balancer L7',
       iconKey: 'lb',
       componentType: 'load-balancer-l7'
@@ -54,7 +54,7 @@ describe('edgeDefaults', () => {
       templateId: 'backend-server',
       structuralRole: 'processor',
       profile: 'compute-service',
-      rendererType: 'computeNode',
+      rendererType: 'saturationNode',
       label: 'API Server',
       iconKey: 'server',
       componentType: 'microservice'
@@ -63,7 +63,7 @@ describe('edgeDefaults', () => {
       templateId: 'primary-db',
       structuralRole: 'storage',
       profile: 'datastore',
-      rendererType: 'serviceNode',
+      rendererType: 'standardNode',
       label: 'Primary DB',
       iconKey: 'database',
       componentType: 'relational-db'
@@ -82,7 +82,7 @@ describe('edgeDefaults', () => {
       templateId: 'primary-db',
       structuralRole: 'storage',
       profile: 'datastore',
-      rendererType: 'serviceNode',
+      rendererType: 'standardNode',
       label: 'Primary DB',
       iconKey: 'database',
       componentType: 'relational-db',
@@ -92,7 +92,7 @@ describe('edgeDefaults', () => {
       templateId: 'replica-db',
       structuralRole: 'storage',
       profile: 'datastore',
-      rendererType: 'serviceNode',
+      rendererType: 'standardNode',
       label: 'Replica DB',
       iconKey: 'database',
       componentType: 'relational-db',

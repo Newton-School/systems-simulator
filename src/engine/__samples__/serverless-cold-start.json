@@ -3,7 +3,7 @@
   "nodes": [
     {
       "id": "client",
-      "type": "serviceNode",
+      "type": "standardNode",
       "position": {
         "x": 355,
         "y": -321
@@ -14,7 +14,7 @@
         "componentType": "api-endpoint",
         "structuralRole": "source",
         "profile": "source",
-        "rendererType": "serviceNode",
+        "rendererType": "standardNode",
         "label": "Client App",
         "subLabel": "Browser / Mobile",
         "iconKey": "monitor",
@@ -51,7 +51,7 @@
     },
     {
       "id": "lambda",
-      "type": "computeNode",
+      "type": "saturationNode",
       "position": {
         "x": 260,
         "y": 0
@@ -62,7 +62,7 @@
         "componentType": "serverless-function",
         "structuralRole": "processor",
         "profile": "compute-service",
-        "rendererType": "computeNode",
+        "rendererType": "saturationNode",
         "label": "Checkout Function",
         "subLabel": "Event Driven",
         "iconKey": "LAMBDA",

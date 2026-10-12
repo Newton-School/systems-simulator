@@ -1,5 +1,6 @@
 import { Network, Plus, Trash2 } from 'lucide-react'
 import { AUTHORING_COMPONENT_CAPABILITIES } from '../../../../engine/analysis/authoringCapabilities'
+import { componentFamilyAcceptsHint } from '../../../../engine/catalog/componentFamilies'
 import {
   AUTHORING_STRUCTURAL_CATEGORIES,
   AUTHORING_STRUCTURAL_EDGE_MODES,
@@ -17,6 +18,23 @@ interface StructuralGradingEditorProps {
   rules: readonly AuthoringStructuralRuleDraft[]
   onAction: (action: AuthoringStructuralRuleAction) => void
   compact?: boolean
+}
+
+/** Option text for a component picker; a generic type notes the subtypes it accepts. */
+function familyOptionLabel(id: string, label: string): string {
+  const hint = componentFamilyAcceptsHint(id)
+  return hint ? `${label} (${hint})` : label
+}
+
+/** Under a picker: how a generic selection grades (it also accepts subtypes). */
+function FamilyHint({ value }: { value: string | undefined }): React.JSX.Element | null {
+  const hint = value ? componentFamilyAcceptsHint(value) : undefined
+  if (!hint) return null
+  return (
+    <span className="text-[10px] font-normal leading-4 text-nss-muted">
+      Generic type: {hint}. Pick a specific subtype to require exactly that one.
+    </span>
+  )
 }
 
 function ComponentSelect({
@@ -43,10 +61,11 @@ function ComponentSelect({
         <option value="">Select a component…</option>
         {AUTHORING_COMPONENT_CAPABILITIES.map((capability) => (
           <option key={capability.id} value={capability.id}>
-            {capability.label}
+            {familyOptionLabel(capability.id, capability.label)}
           </option>
         ))}
       </select>
+      <FamilyHint value={value} />
     </label>
   )
 }

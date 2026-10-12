@@ -3,7 +3,7 @@
   "nodes": [
     {
       "id": "client",
-      "type": "serviceNode",
+      "type": "standardNode",
       "position": {
         "x": 80,
         "y": 260
@@ -14,7 +14,7 @@
         "componentType": "api-endpoint",
         "structuralRole": "source",
         "profile": "source",
-        "rendererType": "serviceNode",
+        "rendererType": "standardNode",
         "label": "Client App",
         "subLabel": "Browser / Mobile",
         "iconKey": "monitor",
@@ -49,7 +49,7 @@
     },
     {
       "id": "api",
-      "type": "computeNode",
+      "type": "saturationNode",
       "position": {
         "x": 680,
         "y": 260
@@ -60,7 +60,7 @@
         "componentType": "microservice",
         "structuralRole": "processor",
         "profile": "compute-service",
-        "rendererType": "computeNode",
+        "rendererType": "saturationNode",
         "label": "API Server",
         "subLabel": "Monolith Process",
         "iconKey": "SERVER",
@@ -82,7 +82,7 @@
     },
     {
       "id": "primary-db",
-      "type": "serviceNode",
+      "type": "standardNode",
       "position": {
         "x": 1280,
         "y": 260
@@ -93,7 +93,7 @@
         "componentType": "relational-db",
         "structuralRole": "storage",
         "profile": "datastore",
-        "rendererType": "serviceNode",
+        "rendererType": "standardNode",
         "label": "Primary DB",
         "subLabel": "Disk / Query Execution",
         "iconKey": "database",

@@ -1,28 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import useStore from '../../store/useStore'
 import { CATALOG_CONFIG } from '../../config/catalogConfig'
-import { PALETTE_TEMPLATES } from '../../../../engine/catalog/paletteTemplates'
-import { CANONICAL_TEMPLATE_ID_BY_COMPONENT_TYPE } from '../../../../engine/analysis/authoringCapabilities'
-import { isComponentLibraryItemVisible } from '../../config/componentLibraryVisibility'
+import { filterCatalogCategories, type ComponentLibraryFilter } from '../../config/catalogFilter'
 import { LibraryItem } from './LibraryItem'
 import { CustomDefinitionCreator, type DefinitionBuilderMode } from './CustomDefinitionCreator'
 import type { CatalogItem } from '@renderer/types/ui'
+import { useBuilderPolicy } from '@renderer/hooks/useBuilderPolicy'
+import { builderAvailability } from '../../../../engine/analysis/builderPolicy'
 
-export type ComponentLibraryFilter = 'all' | 'common'
-
-const COMMON_IDS = new Set([
-  'client-user',
-  'api-gateway',
-  'load-balancer-l7',
-  'cdn',
-  'backend-server',
-  'auth-service',
-  'primary-db',
-  'redis-cache',
-  'message-queue'
-])
+export type { ComponentLibraryFilter }
 
 const FILTERS: readonly ComponentLibraryFilter[] = ['common', 'all']
+const BUILDER_ENTRY_LABELS: Readonly<Record<DefinitionBuilderMode, string>> = {
+  service: 'Service builder',
+  'my-service': 'My Services',
+  'custom-node': 'Custom Node builder'
+}
 const BUILDER_TEMPLATE_MODES: Readonly<Record<string, DefinitionBuilderMode>> = {
   'generic-service': 'service',
   'my-service': 'my-service',
@@ -69,89 +62,58 @@ export function ComponentLibrarySidebarPanel({
     searchInputRef.current?.focus()
     searchInputRef.current?.select()
   }, [focusSearchVersion])
-  const allowedPalette = useMemo(
-    () => (editPaletteList === null ? null : new Set(editPaletteList)),
-    [editPaletteList]
-  )
-  const questionAllowedNodeTypes = useMemo(
-    () =>
-      activeQuestion?.constraints.allowedNodeTypes
-        ? new Set(activeQuestion.constraints.allowedNodeTypes)
-        : null,
-    [activeQuestion]
-  )
-  const questionForbiddenNodeTypes = useMemo(
-    () =>
-      activeQuestion?.constraints.forbiddenNodeTypes
-        ? new Set(activeQuestion.constraints.forbiddenNodeTypes)
-        : null,
-    [activeQuestion]
-  )
-
   // A question allow-list turns the palette into a strict, curated set: only the
   // author's chosen types, one canonical item each, and no Common/All scoping.
-  const hasQuestionAllowlist = questionAllowedNodeTypes !== null
+  const hasQuestionAllowlist = Boolean(activeQuestion?.constraints.allowedNodeTypes)
 
-  const filtered = useMemo(() => {
-    const trimmed = query.trim().toLowerCase()
+  const filtered = useMemo(
+    () =>
+      filterCatalogCategories(CATALOG_CONFIG, {
+        query,
+        filter,
+        editPaletteList,
+        allowedNodeTypes: activeQuestion?.constraints.allowedNodeTypes ?? null,
+        forbiddenNodeTypes: activeQuestion?.constraints.forbiddenNodeTypes ?? null,
+        componentLibraryMode,
+        hiddenTemplateIds: hiddenComponentLibraryTemplateIds
+      }),
+    [
+      activeQuestion,
+      componentLibraryMode,
+      editPaletteList,
+      filter,
+      hiddenComponentLibraryTemplateIds,
+      query
+    ]
+  )
 
-    return CATALOG_CONFIG.map((category) => ({
-      ...category,
-      items: category.items.filter((item) => {
-        const componentType = PALETTE_TEMPLATES[item.id]?.componentType
-        // With an allow-list, ignore the Common/All tab entirely — the curated
-        // set is the whole palette. Otherwise an active search spans the whole
-        // catalog so you never have to switch tabs to find a node by name.
-        const matchesFilter =
-          hasQuestionAllowlist || filter === 'all' || trimmed.length > 0 || COMMON_IDS.has(item.id)
-        const matchesSearch =
-          !trimmed ||
-          item.label.toLowerCase().includes(trimmed) ||
-          item.subLabel.toLowerCase().includes(trimmed)
-        const matchesPalette =
-          allowedPalette === null || allowedPalette.has(item.type) || allowedPalette.has(item.id)
-        const matchesLibraryVisibility = isComponentLibraryItemVisible({
-          templateId: item.id,
-          mode: componentLibraryMode,
-          hiddenTemplateIds: hiddenComponentLibraryTemplateIds
+  const builderPolicy = useBuilderPolicy()
+  // Why each builder tile is unavailable under the question's builder policy
+  // (undefined = usable). An absent / all-default policy leaves every tile on.
+  const builderDisabledReason = (templateId: string): string | undefined => {
+    const mode = BUILDER_TEMPLATE_MODES[templateId]
+    if (!mode || !builderPolicy.restrictive) return undefined
+    return builderAvailability(builderPolicy.policy, mode, {
+      definitionCount: builderPolicy.entries.length,
+      locked: builderPolicy.locked
+    }).reason
+  }
+  const builderNotices = [
+    ...new Map(
+      filtered
+        .flatMap((category) => category.items)
+        .flatMap((item) => {
+          const mode = BUILDER_TEMPLATE_MODES[item.templateId]
+          const reason = builderDisabledReason(item.templateId)
+          return mode && reason ? [[mode, `${BUILDER_ENTRY_LABELS[mode]}: ${reason}`] as const] : []
         })
-        // Show exactly the author's picks: the one canonical template per allowed
-        // type (so allowing `microservice` shows "API Server" only, not every
-        // same-type template or placeholder/builder helper).
-        const matchesQuestionAllowlist =
-          questionAllowedNodeTypes === null ||
-          (componentType !== undefined &&
-            questionAllowedNodeTypes.has(componentType) &&
-            CANONICAL_TEMPLATE_ID_BY_COMPONENT_TYPE[componentType] === item.id)
-        const matchesQuestionDenylist =
-          questionForbiddenNodeTypes === null ||
-          componentType === undefined ||
-          !questionForbiddenNodeTypes.has(componentType)
-
-        return (
-          matchesFilter &&
-          matchesSearch &&
-          matchesPalette &&
-          matchesLibraryVisibility &&
-          matchesQuestionAllowlist &&
-          matchesQuestionDenylist
-        )
-      })
-    })).filter((category) => category.items.length > 0)
-  }, [
-    allowedPalette,
-    componentLibraryMode,
-    filter,
-    hasQuestionAllowlist,
-    hiddenComponentLibraryTemplateIds,
-    query,
-    questionAllowedNodeTypes,
-    questionForbiddenNodeTypes
-  ])
+    ).values()
+  ]
 
   const handleItemActivate = (item: CatalogItem): void => {
     const mode = BUILDER_TEMPLATE_MODES[item.templateId]
     if (mode) {
+      if (builderDisabledReason(item.templateId)) return
       setBuilderMode(mode)
       return
     }
@@ -216,6 +178,22 @@ export function ComponentLibrarySidebarPanel({
       </div>
 
       <div className="flex-1 space-y-4 overflow-y-auto p-2">
+        {builderNotices.length > 0 ? (
+          <div
+            role="note"
+            aria-label="Builder policy"
+            className="rounded-md border border-nss-warning/30 bg-nss-warning/10 px-2.5 py-2 text-[10px] leading-snug text-nss-text"
+          >
+            <p className="mb-1 font-semibold uppercase tracking-wide text-nss-warning">
+              Question policy
+            </p>
+            <ul className="space-y-0.5">
+              {builderNotices.map((notice) => (
+                <li key={notice}>{notice}</li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
         {filtered.length > 0 ? (
           filtered.map((category) => (
             <div key={category.id}>
@@ -229,6 +207,7 @@ export function ComponentLibrarySidebarPanel({
                     <LibraryItem
                       key={item.id}
                       item={item}
+                      disabledReason={builderDisabledReason(item.templateId)}
                       draggableItem={!builderModeForItem}
                       onActivate={handleItemActivate}
                       selected={pendingNodePlacement?.templateId === item.templateId}

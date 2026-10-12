@@ -3,7 +3,7 @@
   "nodes": [
     {
       "id": "client",
-      "type": "serviceNode",
+      "type": "standardNode",
       "position": { "x": 80, "y": 260 },
       "data": {
         "schemaVersion": 2,
@@ -11,7 +11,7 @@
         "componentType": "api-endpoint",
         "structuralRole": "source",
         "profile": "source",
-        "rendererType": "serviceNode",
+        "rendererType": "standardNode",
         "label": "Client App",
         "subLabel": "Even (constant) source",
         "iconKey": "monitor",
@@ -23,7 +23,7 @@
     },
     {
       "id": "api",
-      "type": "computeNode",
+      "type": "saturationNode",
       "position": { "x": 680, "y": 260 },
       "data": {
         "schemaVersion": 2,
@@ -31,7 +31,7 @@
         "componentType": "microservice",
         "structuralRole": "processor",
         "profile": "compute-service",
-        "rendererType": "computeNode",
+        "rendererType": "saturationNode",
         "label": "API Server",
         "subLabel": "1 worker, near capacity",
         "iconKey": "SERVER",

@@ -36,6 +36,8 @@ const SERVER_ERROR_HINTS: Record<string, string> = {
   capacity_exceeded: '503',
   oom: '503',
   max_concurrency_exceeded: '503',
+  bulkhead_full: '503',
+  load_shed: '503',
   no_healthy_targets: '503',
   broker_unavailable: '503',
   circuit_breaker_open: '503',

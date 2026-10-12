@@ -22,6 +22,7 @@ export type ConfigCustomRenderer =
   | 'request-distribution'
   | 'traffic-origins'
   | 'queue-weights'
+  | 'bulkhead-partitions'
 export type ConfigInputType = 'number' | 'text'
 
 export interface ConfigDisplayTransform {
@@ -143,6 +144,12 @@ export interface TraitContext {
    */
   sharedState?: TraitStateStore
   nodeState?: NodeState
+  /**
+   * Counts the requests currently held at this node (queued + in service) that
+   * match `predicate`. Supplied to `beforeArrival` only; lets an admission
+   * trait partition capacity without tracking departures itself.
+   */
+  countInSystem?: (predicate: (request: Request) => boolean) => number
 }
 
 export interface TraitFilterRoutesContext extends TraitContext {
@@ -157,6 +164,8 @@ export interface TraitFilterRoutesContext extends TraitContext {
 export interface TraitTerminalContext extends TraitContext {
   status: 'success' | 'timeout' | 'rejected' | 'connection_reset'
   reasonCode?: string | null
+  /** Looks up another node's definition (e.g. the consumer a delivery reached). */
+  getNode?: (nodeId: string) => ComponentNode | undefined
 }
 
 /**
@@ -179,6 +188,15 @@ export type BeforeArrivalDecision =
   | { action: 'continue'; payload?: Record<string, unknown> }
   | { action: 'handled'; latencyUs: bigint; payload?: Record<string, unknown> }
   | { action: 'rejected'; reason: string; payload?: Record<string, unknown> }
+  /**
+   * Park this request at the node behind an in-flight request (`leaderRequestId`)
+   * instead of admitting it to the queue (request collapsing / single-flight).
+   * A parked request holds no worker or queue slot. The engine resolves it when
+   * the leader reaches a terminal outcome: leader success completes it at that
+   * instant (its latency includes the wait); leader failure fails it with the
+   * same cause. It still times out on its own deadline if the leader is slower.
+   */
+  | { action: 'parked'; leaderRequestId: string; payload?: Record<string, unknown> }
 
 export type BeforeRoutingDecision =
   | { action: 'route'; payload?: Record<string, unknown> }
@@ -198,6 +216,12 @@ export type FilterRoutesDecision =
 export interface NodeBehaviourTrait {
   name: string
   routingStrategyHint?: TraitRoutingStrategyHint
+  /**
+   * Optional opt-in gate, checked once per node when traits are resolved. A
+   * trait that returns false is not attached to that node at all, so an
+   * unconfigured policy adds no per-request hook calls or trait-evaluated events.
+   */
+  isEnabledFor?: (node: ComponentNode) => boolean
   beforeArrival?: (context: TraitContext) => BeforeArrivalDecision
   beforeRouting?: (context: TraitContext) => BeforeRoutingDecision
   filterRoutes?: (context: TraitFilterRoutesContext) => FilterRoutesDecision

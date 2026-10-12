@@ -13,6 +13,9 @@
     /* RGB channels so the `border`/`bg-nss-border` Tailwind token supports /opacity. */
     --nss-border-rgb: 226 232 240;
     --nss-border-high: #cbd5e1;
+    /* Idle canvas connector: a step stronger than borders so edges and their
+       direction stay readable when a large diagram is zoomed to fit. */
+    --nss-edge-stroke: #94a3b8;
     --nss-text: #0f172a;
     --nss-muted: #64748b;
     --nss-placeholder: #94a3b8;
@@ -37,6 +40,7 @@
     --nss-border: #1f2937;
     --nss-border-rgb: 31 41 55;
     --nss-border-high: #374151;
+    --nss-edge-stroke: #556170;
     --nss-text: #e5e7eb;
     --nss-muted: #6b7280;
     --nss-placeholder: #4b5563;

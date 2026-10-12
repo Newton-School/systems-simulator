@@ -42,5 +42,5 @@ jobs:
       - name: Run type check
         run: npm run typecheck
 
-      - name: Run dual-target builds
-        run: npm run build:all
+      - name: Build web bundle
+        run: npm run build:web

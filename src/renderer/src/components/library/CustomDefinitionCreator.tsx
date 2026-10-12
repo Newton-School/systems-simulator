@@ -30,33 +30,51 @@ import type { CanvasNodeDataV2 } from '../../../../engine/catalog/nodeSpecTypes'
 import { getId } from '../canvas/utils/canvasUtils'
 import useStore from '../../store/useStore'
 import { EditableNumberInput } from '../ui/EditableNumberInput'
+import { useBuilderPolicy } from '@renderer/hooks/useBuilderPolicy'
+import {
+  admitDefinitions,
+  allowedRuntimeTemplatesFor,
+  checkDefinitionAgainstPolicy,
+  DEFAULT_RESOLVED_BUILDER_POLICY,
+  definitionEntriesFromCanvasNodes,
+  isTraitPackAllowed,
+  type ResolvedBuilderPolicy
+} from '../../../../engine/analysis/builderPolicy'
 
 export type DefinitionBuilderMode = 'service' | 'custom-node' | 'my-service'
 
 const SAVED_SERVICES_KEY = 'nss-saved-service-definitions-v1'
 
-const SERVICE_RUNTIME_IDS = Object.values(RUNTIME_TEMPLATES)
-  .filter((template) => template.allowedDefinitionKinds.includes('service'))
-  .map((template) => template.id)
+function nodeClassOptions(
+  runtimeIds: readonly RuntimeTemplateId[]
+): Array<{ id: CustomNodeClass; label: string }> {
+  return [
+    ...new Map(
+      runtimeIds
+        .map((id) => RUNTIME_TEMPLATES[id].nodeClass)
+        .map((nodeClass) => [
+          nodeClass,
+          {
+            id: nodeClass,
+            label: nodeClass.replace(
+              /(^|-)([a-z])/g,
+              (_, prefix, char: string) => `${prefix ? ' ' : ''}${char.toUpperCase()}`
+            )
+          }
+        ])
+    ).values()
+  ]
+}
 
-const CUSTOM_RUNTIME_IDS = Object.values(RUNTIME_TEMPLATES)
-  .filter((template) => template.allowedDefinitionKinds.includes('custom-node'))
-  .map((template) => template.id)
-
-const NODE_CLASS_OPTIONS: Array<{ id: CustomNodeClass; label: string }> = [
-  ...new Map(
-    CUSTOM_RUNTIME_IDS.map((id) => RUNTIME_TEMPLATES[id].nodeClass).map((nodeClass) => [
-      nodeClass,
-      {
-        id: nodeClass,
-        label: nodeClass.replace(
-          /(^|-)([a-z])/g,
-          (_, prefix, char: string) => `${prefix ? ' ' : ''}${char.toUpperCase()}`
-        )
-      }
-    ])
-  ).values()
-]
+/** Default traits for a runtime, with the question's disallowed trait packs switched off. */
+function policyTraits(
+  traits: CustomTraitSelection[],
+  policy: ResolvedBuilderPolicy
+): CustomTraitSelection[] {
+  return traits.map((trait) =>
+    isTraitPackAllowed(policy, trait.traitId) ? trait : { ...trait, enabled: false }
+  )
+}
 
 const FIELD_TYPE_OPTIONS: ContractField['type'][] = [
   'string',
@@ -288,12 +306,16 @@ function FieldList({
 function MyServicesModal({
   savedServices,
   canvasServices,
+  policy,
+  placeError,
   onUse,
   onDelete,
   onClose
 }: {
   savedServices: CustomNodeDefinition[]
   canvasServices: CustomNodeDefinition[]
+  policy: ResolvedBuilderPolicy
+  placeError: string | null
   onUse: (definition: CustomNodeDefinition) => void
   onDelete: (index: number) => void
   onClose: () => void
@@ -327,6 +349,14 @@ function MyServicesModal({
         </div>
 
         <div className="flex-1 overflow-y-auto p-5">
+          {placeError ? (
+            <p
+              role="alert"
+              className="mb-3 rounded-md border border-nss-danger/40 bg-nss-danger/10 px-3 py-2 text-xs text-nss-danger"
+            >
+              {placeError}
+            </p>
+          ) : null}
           {services.length === 0 ? (
             <div className="rounded-md border border-dashed border-nss-border p-8 text-center">
               <Server size={24} className="mx-auto mb-3 text-nss-muted" />
@@ -339,6 +369,11 @@ function MyServicesModal({
             <div className="grid gap-3 sm:grid-cols-2">
               {services.map((definition, index) => {
                 const template = templateForDefinition(definition)
+                const [blocked] = checkDefinitionAgainstPolicy(policy, {
+                  nodeId: definition.name ?? `saved-${index}`,
+                  label: definition.name,
+                  definition
+                })
                 return (
                   <article
                     key={index}
@@ -378,12 +413,19 @@ function MyServicesModal({
                       ) : null}
                       <button
                         type="button"
+                        disabled={Boolean(blocked)}
+                        title={blocked?.message}
                         onClick={() => onUse(definition)}
-                        className="inline-flex items-center gap-1 rounded bg-nss-primary px-3 py-1.5 text-[11px] font-semibold text-white"
+                        className="inline-flex items-center gap-1 rounded bg-nss-primary px-3 py-1.5 text-[11px] font-semibold text-white disabled:opacity-50"
                       >
                         <CopyPlus size={13} /> Place
                       </button>
                     </div>
+                    {blocked ? (
+                      <p className="mt-2 text-[10px] leading-snug text-nss-warning">
+                        {blocked.message}
+                      </p>
+                    ) : null}
                   </article>
                 )
               })}
@@ -398,20 +440,31 @@ function MyServicesModal({
 function DefinitionBuilderModal({
   mode,
   savedServices,
+  policy,
+  placeError,
   onSaveService,
   onCreate,
   onClose
 }: {
   mode: Exclude<DefinitionBuilderMode, 'my-service'>
   savedServices: CustomNodeDefinition[]
+  policy: ResolvedBuilderPolicy
+  placeError: string | null
   onSaveService: (definition: CustomNodeDefinition) => void
   onCreate: (definition: CustomNodeDefinition) => void
   onClose: () => void
 }) {
   const kind: CustomDefinitionKind = mode === 'service' ? 'service' : 'custom-node'
-  const runtimeIds = mode === 'service' ? SERVICE_RUNTIME_IDS : CUSTOM_RUNTIME_IDS
-  const initialRuntimeTemplate: RuntimeTemplateId =
+  // The question's builder policy narrows the runtimes (and so node classes) on
+  // offer; with no policy this is every runtime the builder kind supports.
+  const runtimeIds = useMemo(() => allowedRuntimeTemplatesFor(policy, kind), [policy, kind])
+  const nodeClassChoices = useMemo(() => nodeClassOptions(runtimeIds), [runtimeIds])
+  const preferredRuntime: RuntimeTemplateId =
     mode === 'service' ? 'long-running-service' : 'serverless-function'
+  const initialRuntimeTemplate: RuntimeTemplateId = runtimeIds.includes(preferredRuntime)
+    ? preferredRuntime
+    : (runtimeIds[0] ?? preferredRuntime)
+  const maxOperations = kind === 'service' ? policy.maxOperationsPerService : null
   const [name, setName] = useState(mode === 'service' ? 'New Service' : 'Custom Node')
   const [description, setDescription] = useState('')
   const [runtimeTemplate, setRuntimeTemplate] = useState<RuntimeTemplateId>(initialRuntimeTemplate)
@@ -425,7 +478,7 @@ function DefinitionBuilderModal({
     mode === 'service' ? defaultServiceOperations() : defaultCustomNodeOperations()
   )
   const [traits, setTraits] = useState<CustomTraitSelection[]>(
-    createDefaultTraits(initialRuntimeTemplate)
+    policyTraits(createDefaultTraits(initialRuntimeTemplate), policy)
   )
   const [saveToLibrary, setSaveToLibrary] = useState(mode === 'service')
 
@@ -439,12 +492,18 @@ function DefinitionBuilderModal({
     const messages: string[] = []
     if (!name.trim()) messages.push('Name is required.')
     if (operations.length === 0) messages.push('At least one operation is required.')
+    if (maxOperations !== null && operations.length > maxOperations) {
+      messages.push(`This question allows at most ${maxOperations} operations per service.`)
+    }
+    if (!runtimeIds.includes(runtimeTemplate)) {
+      messages.push('This question does not allow the selected runtime.')
+    }
     for (const operation of operations) {
       if (!operation.requestType.trim()) messages.push('Every operation needs a request type.')
       if (!operation.responseType.trim()) messages.push('Every operation needs a response type.')
     }
     return [...new Set(messages)]
-  }, [name, operations])
+  }, [maxOperations, name, operations, runtimeIds, runtimeTemplate])
 
   const setRuntime = (next: RuntimeTemplateId) => {
     const nextTemplate = RUNTIME_TEMPLATES[next]
@@ -459,14 +518,12 @@ function DefinitionBuilderModal({
       const added = nextTemplate.capabilities.filter((capability) => !kept.includes(capability))
       return [...kept, ...added]
     })
-    setTraits(hydrateTraits(next, traits))
+    setTraits(policyTraits(hydrateTraits(next, traits), policy))
   }
 
   const setCustomNodeClass = (next: CustomNodeClass): void => {
     setNodeClass(next)
-    const firstRuntimeForClass = CUSTOM_RUNTIME_IDS.find(
-      (id) => RUNTIME_TEMPLATES[id].nodeClass === next
-    )
+    const firstRuntimeForClass = runtimeIds.find((id) => RUNTIME_TEMPLATES[id].nodeClass === next)
     if (firstRuntimeForClass && RUNTIME_TEMPLATES[runtimeTemplate].nodeClass !== next) {
       setRuntime(firstRuntimeForClass)
     }
@@ -631,7 +688,7 @@ function DefinitionBuilderModal({
                         }
                         className="mt-1 w-full rounded-md border border-nss-border bg-nss-input-bg px-3 py-2 text-sm text-nss-text"
                       >
-                        {NODE_CLASS_OPTIONS.map((option) => (
+                        {nodeClassChoices.map((option) => (
                           <option key={option.id} value={option.id}>
                             {option.label}
                           </option>
@@ -998,6 +1055,12 @@ function DefinitionBuilderModal({
                   ))}
                   <button
                     type="button"
+                    disabled={maxOperations !== null && operations.length >= maxOperations}
+                    title={
+                      maxOperations !== null && operations.length >= maxOperations
+                        ? `This question allows at most ${maxOperations} operations per service.`
+                        : undefined
+                    }
                     onClick={() =>
                       setOperations((current) => [
                         ...current,
@@ -1011,7 +1074,7 @@ function DefinitionBuilderModal({
                         }
                       ])
                     }
-                    className="inline-flex items-center gap-1 rounded border border-nss-border px-3 py-1.5 text-xs font-semibold text-nss-primary hover:bg-nss-panel"
+                    className="inline-flex items-center gap-1 rounded border border-nss-border px-3 py-1.5 text-xs font-semibold text-nss-primary hover:bg-nss-panel disabled:opacity-50"
                   >
                     <Plus size={13} /> Add operation
                   </button>
@@ -1031,6 +1094,7 @@ function DefinitionBuilderModal({
                 <div className="grid gap-3 sm:grid-cols-2">
                   {traits.map((trait) => {
                     const values = trait.values ?? {}
+                    const traitAllowed = isTraitPackAllowed(policy, trait.traitId)
                     return (
                       <div
                         key={trait.traitId}
@@ -1039,9 +1103,15 @@ function DefinitionBuilderModal({
                         <label className="flex items-center justify-between gap-3">
                           <span className="text-xs font-semibold text-nss-text">
                             {TRAIT_LABELS[trait.traitId]}
+                            {traitAllowed ? null : (
+                              <span className="ml-1.5 text-[10px] font-normal text-nss-warning">
+                                Not allowed by this question
+                              </span>
+                            )}
                           </span>
                           <input
                             type="checkbox"
+                            disabled={!traitAllowed}
                             checked={trait.enabled}
                             onChange={() =>
                               setTraits((current) => toggleTrait(current, trait.traitId))
@@ -1539,6 +1609,15 @@ function DefinitionBuilderModal({
                 </p>
               ) : null}
 
+              {placeError ? (
+                <p
+                  role="alert"
+                  className="rounded-md border border-nss-danger/40 bg-nss-danger/10 p-3 text-[11px] text-nss-danger"
+                >
+                  {placeError}
+                </p>
+              ) : null}
+
               {validationMessages.length > 0 ? (
                 <div className="rounded-md border border-nss-danger/40 bg-nss-danger/10 p-3">
                   <h3 className="text-xs font-semibold text-nss-danger">Fix before create</h3>
@@ -1590,6 +1669,9 @@ export function CustomDefinitionCreator({
   const addNode = useStore((state) => state.addNode)
   const selectGraphElements = useStore((state) => state.selectGraphElements)
   const nodes = useStore((state) => state.nodes)
+  const builderPolicy = useBuilderPolicy()
+  const policy = builderPolicy.restrictive ? builderPolicy.policy : DEFAULT_RESOLVED_BUILDER_POLICY
+  const [placeError, setPlaceError] = useState<string | null>(null)
   const [savedServices, setSavedServices] = useState<CustomNodeDefinition[]>(() =>
     readSavedServices()
   )
@@ -1611,6 +1693,20 @@ export function CustomDefinitionCreator({
 
   const placeDefinition = (definition: CustomNodeDefinition): void => {
     const node = createNodeFromDefinition(definition, nodes.length)
+    if (builderPolicy.restrictive) {
+      // Same admission the store enforces; checked here so the reason shows in
+      // the open modal instead of a toast hidden behind it.
+      const admission = admitDefinitions(
+        builderPolicy.policy,
+        builderPolicy.entries,
+        definitionEntriesFromCanvasNodes([node]),
+        builderPolicy.locked
+      )
+      if (admission.ok === false) {
+        setPlaceError(admission.reason)
+        return
+      }
+    }
     addNode(node)
     selectGraphElements({ nodeId: node.id })
     onClose()
@@ -1639,6 +1735,8 @@ export function CustomDefinitionCreator({
       <MyServicesModal
         savedServices={savedServices}
         canvasServices={canvasServices}
+        policy={policy}
+        placeError={placeError}
         onUse={placeDefinition}
         onDelete={deleteSavedService}
         onClose={onClose}
@@ -1650,6 +1748,8 @@ export function CustomDefinitionCreator({
     <DefinitionBuilderModal
       mode={mode}
       savedServices={savedServices}
+      policy={policy}
+      placeError={placeError}
       onSaveService={saveService}
       onCreate={placeDefinition}
       onClose={onClose}

@@ -1,4 +1,5 @@
 import type { ComponentType, EdgeDefinition } from '../core/types'
+import { EDGE_FIELD_LABELS } from './edgeFieldLabels'
 
 const ALL_PROTOCOLS: EdgeDefinition['protocol'][] = [
   'https',
@@ -187,35 +188,39 @@ export function validateEdgeConstraintSelection(
 
   if (!constraints.allowedProtocols.includes(edge.protocol)) {
     warnings.push(
-      constraints.reasons.protocol[edge.protocol] ?? 'This protocol is unrealistic here.'
+      constraints.reasons.protocol[edge.protocol] ??
+        `This ${EDGE_FIELD_LABELS.protocol.label.toLowerCase()} is unrealistic for this connection.`
     )
   }
 
   if (!constraints.allowedModes.includes(edge.mode)) {
-    warnings.push(constraints.reasons.mode[edge.mode] ?? 'This edge mode is unrealistic here.')
+    warnings.push(
+      constraints.reasons.mode[edge.mode] ??
+        `This ${EDGE_FIELD_LABELS.mode.label.toLowerCase()} is unrealistic for this connection.`
+    )
   }
 
   if (sourceType && LOAD_BALANCER_SOURCES.has(sourceType) && edge.mode === 'asynchronous') {
     warnings.push(
-      'Load balancers normally proxy live requests; async edges here are a deliberate simplification.'
+      'Load balancers normally proxy live requests; an asynchronous edge here is a deliberate simplification.'
     )
   }
 
   if (edge.bandwidth < 10 && edge.mode !== 'asynchronous') {
     warnings.push(
-      'Bandwidth below 10 Mbps is unusually low for an actively routed application edge.'
+      `${EDGE_FIELD_LABELS.bandwidth.label} below 10 Mbps is unusually low for an actively routed application edge.`
     )
   }
 
   if (edge.maxConcurrentRequests > 10_000) {
     warnings.push(
-      'Max concurrent requests above 10,000 is unusually high and may hide connection-pool bottlenecks.'
+      `${EDGE_FIELD_LABELS.maxConcurrentRequests.label} above 10,000 is unusually high and may hide connection-pool bottlenecks.`
     )
   }
 
   if (edge.packetLossRate > 0.1) {
     warnings.push(
-      'Packet loss above 10% is extremely severe outside intentionally hostile networks.'
+      `${EDGE_FIELD_LABELS.packetLossRate.label} above 10% is extremely severe outside intentionally hostile networks.`
     )
   }
 

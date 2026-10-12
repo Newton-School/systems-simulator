@@ -10,11 +10,20 @@ import {
   inferCanvasEdgeMode
 } from '@renderer/config/edgeSemantics'
 import type { CanvasNodeDataV2 } from '../../../../engine/catalog/nodeSpecTypes'
-import { getEdgeConstraints } from '../../../../engine/defaults/edgeConstraints'
+import {
+  getEdgeConstraints,
+  validateEdgeConstraintSelection
+} from '../../../../engine/defaults/edgeConstraints'
+import { EDGE_FIELD_LABELS } from '../../../../engine/defaults/edgeFieldLabels'
 import {
   getPathTypeLatencyProfile,
   inferEdgeDefaults
 } from '../../../../engine/defaults/edgeDefaults'
+import {
+  DEFAULT_KEEP_ALIVE_IDLE_TIMEOUT_MS,
+  getProtocolConnectionProfile
+} from '../../../../engine/network/connectionPool'
+import { DEFAULT_KAFKA_BATCH_BYTES } from '../../../../engine/network/edgeBatching'
 import { EDGE_ROUTING_OPTIONS } from '@renderer/config/edgeRouting'
 import { EditableNumberInput } from './EditableNumberInput'
 
@@ -85,15 +94,219 @@ function EdgeTooltipContent({ entry }: { entry: EdgeHelpEntry }) {
   )
 }
 
-function FieldLabel({ label, help }: { label: string; help: EdgeHelpEntry }) {
+function FieldLabel({ label, help }: { label?: string; help: EdgeHelpEntry }) {
+  const text = label ?? help.title
   return (
     <div className="flex items-center gap-1.5">
-      <label className={FIELD_LABEL_CLASS}>{label}</label>
+      <label className={FIELD_LABEL_CLASS}>{text}</label>
       <TooltipInfo
-        label={`${label} help`}
+        label={`${text} help`}
         width={320}
         content={<EdgeTooltipContent entry={help} />}
       />
+    </div>
+  )
+}
+
+function optionalPositive(raw: string, integer = false): number | undefined {
+  const parsed = Number(raw)
+  if (raw.trim() === '' || !Number.isFinite(parsed) || parsed <= 0) return undefined
+  return integer ? Math.round(parsed) : parsed
+}
+
+/**
+ * Connection model (TLS handshakes, HTTP/2 streams, persistent connections) and
+ * Kafka producer batching. Both are opt-in: unset keeps today's behaviour.
+ */
+function EdgeTransportFields({
+  value,
+  protocol,
+  onChange
+}: {
+  value: EdgePropertiesPanelValue
+  protocol: NonNullable<EdgeSimulationData['protocol']>
+  onChange: (patch: Partial<EdgePropertiesPanelValue>) => void
+}) {
+  const profile = getProtocolConnectionProfile(protocol)
+  const batchingActive = protocol === 'kafka' && value.batchLingerMs !== undefined
+  const connectionApplies = profile.connectionOriented && !batchingActive
+  const reuse = value.connectionReuse
+  const defaultStreams = Number.isFinite(profile.defaultStreams)
+    ? String(profile.defaultStreams)
+    : 'unlimited'
+  const tlsDefaultLabel = profile.defaultTls === 'none' ? 'none' : `TLS ${profile.defaultTls}`
+
+  return (
+    <div
+      className="space-y-2 rounded border border-nss-border px-2 py-2"
+      data-testid="edge-transport"
+    >
+      <p className="text-[11px] font-medium text-nss-text">Connections</p>
+      {!profile.connectionOriented ? (
+        <p className="text-[10px] leading-relaxed text-nss-muted">
+          UDP is connectionless: there is no handshake and nothing to reuse.
+        </p>
+      ) : batchingActive ? (
+        <p className="text-[10px] leading-relaxed text-nss-muted">
+          This Kafka edge batches records; each batch is one in-flight request against Max
+          concurrent requests, so the connection model is not applied on top of it.
+        </p>
+      ) : null}
+      {connectionApplies ? (
+        <>
+          <div className="space-y-1">
+            <FieldLabel help={EDGE_PROPERTY_HELP.connectionReuse} />
+            <select
+              aria-label="Connection reuse"
+              value={reuse ?? 'off'}
+              onChange={(e) =>
+                onChange({
+                  connectionReuse:
+                    e.target.value === 'off'
+                      ? undefined
+                      : (e.target.value as EdgeSimulationData['connectionReuse'])
+                })
+              }
+              className={CONTROL_CLASS}
+            >
+              <option value="off">Off (connections always warm, no setup cost)</option>
+              <option value="per-request">Per request (new connection every time)</option>
+              <option value="keep-alive">Keep-alive (reuse warm connections)</option>
+              <option value="persistent">Persistent (open once, never idles out)</option>
+            </select>
+          </div>
+          {reuse ? (
+            <>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1">
+                  <FieldLabel help={EDGE_PROPERTY_HELP.tlsVersion} />
+                  <select
+                    aria-label="TLS version"
+                    value={value.tlsVersion ?? 'default'}
+                    onChange={(e) =>
+                      onChange({
+                        tlsVersion:
+                          e.target.value === 'default'
+                            ? undefined
+                            : (e.target.value as EdgeSimulationData['tlsVersion'])
+                      })
+                    }
+                    className={CONTROL_CLASS}
+                  >
+                    <option value="default">Default ({tlsDefaultLabel})</option>
+                    <option value="none">None</option>
+                    <option value="1.2">TLS 1.2 (2 round trips)</option>
+                    <option value="1.3">TLS 1.3 (1 round trip)</option>
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <FieldLabel help={EDGE_PROPERTY_HELP.tlsSessionResumption} />
+                  <label className="flex items-center gap-2 text-xs text-nss-text">
+                    <input
+                      type="checkbox"
+                      aria-label="TLS session resumption"
+                      checked={value.tlsSessionResumption === true}
+                      onChange={(e) =>
+                        onChange({ tlsSessionResumption: e.target.checked ? true : undefined })
+                      }
+                    />
+                    Resume sessions
+                  </label>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1">
+                  <FieldLabel help={EDGE_PROPERTY_HELP.maxConnections} />
+                  <EditableNumberInput
+                    aria-label="Max connections"
+                    min={1}
+                    step={1}
+                    placeholder="Unlimited"
+                    value={value.maxConnections ?? ''}
+                    onChange={(e) =>
+                      onChange({ maxConnections: optionalPositive(e.target.value, true) })
+                    }
+                    className={CONTROL_CLASS}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <FieldLabel help={EDGE_PROPERTY_HELP.maxStreamsPerConnection} />
+                  <EditableNumberInput
+                    aria-label="Streams per connection"
+                    min={1}
+                    step={1}
+                    placeholder={`Default ${defaultStreams}`}
+                    value={value.maxStreamsPerConnection ?? ''}
+                    onChange={(e) =>
+                      onChange({ maxStreamsPerConnection: optionalPositive(e.target.value, true) })
+                    }
+                    className={CONTROL_CLASS}
+                  />
+                </div>
+              </div>
+              {reuse === 'keep-alive' ? (
+                <div className="space-y-1">
+                  <FieldLabel help={EDGE_PROPERTY_HELP.connectionIdleTimeoutMs} />
+                  <EditableNumberInput
+                    aria-label="Idle timeout"
+                    min={1}
+                    step={1000}
+                    placeholder={`Default ${DEFAULT_KEEP_ALIVE_IDLE_TIMEOUT_MS.toLocaleString()}`}
+                    value={value.connectionIdleTimeoutMs ?? ''}
+                    onChange={(e) =>
+                      onChange({ connectionIdleTimeoutMs: optionalPositive(e.target.value) })
+                    }
+                    className={CONTROL_CLASS}
+                  />
+                </div>
+              ) : null}
+            </>
+          ) : null}
+        </>
+      ) : null}
+
+      {protocol === 'kafka' ? (
+        <>
+          <p className="pt-1 text-[11px] font-medium text-nss-text">Producer batching</p>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1">
+              <FieldLabel help={EDGE_PROPERTY_HELP.batchLingerMs} />
+              <EditableNumberInput
+                aria-label="Batch linger"
+                min={0}
+                step={1}
+                placeholder="Off (no batching)"
+                value={value.batchLingerMs ?? ''}
+                onChange={(e) => {
+                  const parsed = Number(e.target.value)
+                  onChange({
+                    batchLingerMs:
+                      e.target.value.trim() === '' || !Number.isFinite(parsed) || parsed < 0
+                        ? undefined
+                        : parsed
+                  })
+                }}
+                className={CONTROL_CLASS}
+              />
+            </div>
+            <div className="space-y-1">
+              <FieldLabel help={EDGE_PROPERTY_HELP.batchMaxBytes} />
+              <EditableNumberInput
+                aria-label="Batch size"
+                min={1}
+                step={1024}
+                placeholder={`Default ${DEFAULT_KAFKA_BATCH_BYTES.toLocaleString()}`}
+                disabled={value.batchLingerMs === undefined}
+                value={value.batchMaxBytes ?? ''}
+                onChange={(e) =>
+                  onChange({ batchMaxBytes: optionalPositive(e.target.value, true) })
+                }
+                className={CONTROL_CLASS}
+              />
+            </div>
+          </div>
+        </>
+      ) : null}
     </div>
   )
 }
@@ -212,6 +425,20 @@ export const EdgePropertiesPanel = ({
   const modeWarning = !constraints.allowedModes.includes(selectedMode)
     ? constraints.reasons.mode[selectedMode]
     : null
+  // Same rule table the validator uses at run time (one truth per rule). The
+  // protocol and mode findings already render inline next to their selects, so
+  // only the value-range findings (bandwidth, concurrency, loss) show here.
+  const valueWarnings = validateEdgeConstraintSelection(
+    {
+      protocol: selectedProtocol,
+      mode: selectedMode,
+      bandwidth: value.bandwidth ?? defaults.bandwidth,
+      maxConcurrentRequests: value.maxConcurrentRequests ?? defaults.maxConcurrentRequests,
+      packetLossRate: (value.packetLossRate ?? defaults.packetLossRatePercent) / 100
+    },
+    sourceNodeData?.componentType,
+    targetNodeData?.componentType
+  ).filter((warning) => warning !== protocolWarning && warning !== modeWarning)
   const latencySummary =
     selectedLatencyDistributionType === 'constant'
       ? `Constant transit: ${selectedLatencyValue.toFixed(2)}ms on every hop. Use this for a clean, no-jitter edge.`
@@ -299,7 +526,7 @@ export const EdgePropertiesPanel = ({
           </div>
           <fieldset disabled={readOnly} className="m-0 space-y-3 border-0 p-0 disabled:opacity-70">
             <div className="space-y-1">
-              <FieldLabel label="Label" help={EDGE_PROPERTY_HELP.label} />
+              <FieldLabel help={EDGE_PROPERTY_HELP.label} />
               <input
                 type="text"
                 value={value.label ?? ''}
@@ -311,7 +538,7 @@ export const EdgePropertiesPanel = ({
 
             <div className="grid grid-cols-2 gap-2">
               <div className="space-y-1">
-                <FieldLabel label="Protocol" help={EDGE_PROPERTY_HELP.connectorProtocol} />
+                <FieldLabel help={EDGE_PROPERTY_HELP.connectorProtocol} />
                 <select
                   id="connector-edge-protocol"
                   value={selectedConnectorProtocol}
@@ -331,7 +558,7 @@ export const EdgePropertiesPanel = ({
               </div>
 
               <div className="space-y-1">
-                <FieldLabel label="Interaction" help={EDGE_PROPERTY_HELP.connectorMode} />
+                <FieldLabel help={EDGE_PROPERTY_HELP.connectorMode} />
                 <select
                   id="connector-edge-mode"
                   value={selectedConnectorMode}
@@ -373,7 +600,7 @@ export const EdgePropertiesPanel = ({
           )}
           <fieldset disabled={readOnly} className="m-0 space-y-3 border-0 p-0 disabled:opacity-70">
             <div className="space-y-1">
-              <FieldLabel label="Label" help={EDGE_PROPERTY_HELP.label} />
+              <FieldLabel help={EDGE_PROPERTY_HELP.label} />
               <input
                 type="text"
                 value={value.label ?? ''}
@@ -390,7 +617,7 @@ export const EdgePropertiesPanel = ({
 
             <div className="grid grid-cols-2 gap-2">
               <div className="space-y-1">
-                <FieldLabel label="Protocol" help={EDGE_PROPERTY_HELP.protocol} />
+                <FieldLabel help={EDGE_PROPERTY_HELP.protocol} />
                 <select
                   value={selectedProtocol}
                   onChange={(e) =>
@@ -417,7 +644,7 @@ export const EdgePropertiesPanel = ({
               </div>
 
               <div className="space-y-1">
-                <FieldLabel label="Mode" help={EDGE_PROPERTY_HELP.mode} />
+                <FieldLabel help={EDGE_PROPERTY_HELP.mode} />
                 <select
                   value={selectedMode}
                   onChange={(e) => onChange({ mode: e.target.value as EdgeSimulationData['mode'] })}
@@ -444,7 +671,7 @@ export const EdgePropertiesPanel = ({
 
             <div className="grid grid-cols-2 gap-2">
               <div className="space-y-1">
-                <FieldLabel label="Path Type" help={EDGE_PROPERTY_HELP.pathType} />
+                <FieldLabel help={EDGE_PROPERTY_HELP.pathType} />
                 <select
                   value={value.pathType ?? 'auto'}
                   onChange={(e) =>
@@ -469,7 +696,7 @@ export const EdgePropertiesPanel = ({
                 <p className="text-[10px] leading-relaxed text-nss-muted">{pathTypeHelpText}</p>
               </div>
               <div className="space-y-1">
-                <FieldLabel label="Condition" help={EDGE_PROPERTY_HELP.condition} />
+                <FieldLabel help={EDGE_PROPERTY_HELP.condition} />
                 <input
                   type="text"
                   value={selectedCondition}
@@ -481,7 +708,10 @@ export const EdgePropertiesPanel = ({
             </div>
 
             <div className="space-y-1">
-              <FieldLabel label="Latency" help={EDGE_PROPERTY_HELP.latencyModel} />
+              <FieldLabel
+                label={EDGE_FIELD_LABELS.latency.label}
+                help={EDGE_PROPERTY_HELP.latencyModel}
+              />
               <select
                 value={isLatencyAuto ? 'auto' : 'manual'}
                 onChange={(e) =>
@@ -514,7 +744,7 @@ export const EdgePropertiesPanel = ({
             ) : (
               <>
                 <div className="space-y-1">
-                  <FieldLabel label="Latency Model" help={EDGE_PROPERTY_HELP.latencyModel} />
+                  <FieldLabel help={EDGE_PROPERTY_HELP.latencyModel} />
                   <select
                     value={selectedLatencyDistributionType}
                     onChange={(e) =>
@@ -541,7 +771,7 @@ export const EdgePropertiesPanel = ({
 
                 {selectedLatencyDistributionType === 'constant' ? (
                   <div className="space-y-1">
-                    <FieldLabel label="Latency (ms)" help={EDGE_PROPERTY_HELP.latencyValue} />
+                    <FieldLabel help={EDGE_PROPERTY_HELP.latencyValue} />
                     <EditableNumberInput
                       min={0}
                       step={0.01}
@@ -553,10 +783,7 @@ export const EdgePropertiesPanel = ({
                 ) : (
                   <div className="grid grid-cols-2 gap-2">
                     <div className="space-y-1">
-                      <FieldLabel
-                        label="Latency Mu (log-space)"
-                        help={EDGE_PROPERTY_HELP.latencyMu}
-                      />
+                      <FieldLabel help={EDGE_PROPERTY_HELP.latencyMu} />
                       <EditableNumberInput
                         step={0.01}
                         value={selectedLatencyMu}
@@ -565,7 +792,7 @@ export const EdgePropertiesPanel = ({
                       />
                     </div>
                     <div className="space-y-1">
-                      <FieldLabel label="Jitter Sigma" help={EDGE_PROPERTY_HELP.latencySigma} />
+                      <FieldLabel help={EDGE_PROPERTY_HELP.latencySigma} />
                       <EditableNumberInput
                         min={0.01}
                         step={0.01}
@@ -581,7 +808,7 @@ export const EdgePropertiesPanel = ({
 
             <div className="grid grid-cols-2 gap-2">
               <div className="space-y-1">
-                <FieldLabel label="Bandwidth (Mbps)" help={EDGE_PROPERTY_HELP.bandwidth} />
+                <FieldLabel help={EDGE_PROPERTY_HELP.bandwidth} />
                 <EditableNumberInput
                   min={1}
                   step={1}
@@ -591,10 +818,7 @@ export const EdgePropertiesPanel = ({
                 />
               </div>
               <div className="space-y-1">
-                <FieldLabel
-                  label="Max Concurrent"
-                  help={EDGE_PROPERTY_HELP.maxConcurrentRequests}
-                />
+                <FieldLabel help={EDGE_PROPERTY_HELP.maxConcurrentRequests} />
                 <EditableNumberInput
                   min={1}
                   step={1}
@@ -604,7 +828,7 @@ export const EdgePropertiesPanel = ({
                 />
               </div>
               <div className="space-y-1">
-                <FieldLabel label="Weight" help={EDGE_PROPERTY_HELP.weight} />
+                <FieldLabel help={EDGE_PROPERTY_HELP.weight} />
                 <EditableNumberInput
                   min={0}
                   step={1}
@@ -626,7 +850,7 @@ export const EdgePropertiesPanel = ({
 
             <div className="grid grid-cols-2 gap-2">
               <div className="space-y-1">
-                <FieldLabel label="Packet Loss (%)" help={EDGE_PROPERTY_HELP.packetLossRate} />
+                <FieldLabel help={EDGE_PROPERTY_HELP.packetLossRate} />
                 <EditableNumberInput
                   min={0}
                   max={100}
@@ -637,7 +861,7 @@ export const EdgePropertiesPanel = ({
                 />
               </div>
               <div className="space-y-1">
-                <FieldLabel label="Edge Error (%)" help={EDGE_PROPERTY_HELP.errorRate} />
+                <FieldLabel help={EDGE_PROPERTY_HELP.errorRate} />
                 <EditableNumberInput
                   min={0}
                   max={100}
@@ -649,8 +873,20 @@ export const EdgePropertiesPanel = ({
               </div>
             </div>
 
+            {valueWarnings.length > 0 ? (
+              <ul className="space-y-1" data-testid="edge-value-warnings">
+                {valueWarnings.map((warning) => (
+                  <li key={warning} className="text-[10px] leading-relaxed text-nss-warning">
+                    {warning}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+
+            <EdgeTransportFields value={value} protocol={selectedProtocol} onChange={onChange} />
+
             <div className="space-y-1">
-              <FieldLabel label="Fan-out factor" help={EDGE_PROPERTY_HELP.fanoutFactor} />
+              <FieldLabel help={EDGE_PROPERTY_HELP.fanoutFactor} />
               <EditableNumberInput
                 min={1}
                 step={1}

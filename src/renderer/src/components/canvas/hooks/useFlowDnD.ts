@@ -1,13 +1,7 @@
 import { useCallback } from 'react'
 import { ReactFlowInstance, NodeDragHandler, Node } from 'reactflow'
-import {
-  findTargetContainer,
-  getAbsoluteNodePosition,
-  getId,
-  recomputeContainment
-} from '../utils/canvasUtils'
-import { instantiateTemplate } from '../../../../../engine/catalog/paletteTemplates'
-import { validatePlacement } from '../../../config/hierarchyRules'
+import { recomputeContainment } from '../utils/canvasUtils'
+import { createPlacedNode, resolvePlacement } from '../utils/nodePlacement'
 
 interface UseFlowDnDProps {
   nodes: Node[]
@@ -20,38 +14,14 @@ interface UseFlowDnDProps {
 export const useFlowDnD = ({ nodes, addNode, setNodes, instance, onError }: UseFlowDnDProps) => {
   const placeNode = useCallback(
     (type: string, templateId: string, position: { x: number; y: number }): boolean => {
-      const targetContainer = findTargetContainer(nodes, position, undefined, templateId)
-      const parentTemplateId = targetContainer
-        ? ((targetContainer.data as { templateId?: string })?.templateId ?? null)
-        : null
-      const validation = validatePlacement(templateId, parentTemplateId)
-
-      if (!validation.valid) {
-        onError?.(validation.error ?? 'Invalid placement.')
+      const placement = resolvePlacement(nodes, templateId, position)
+      if (placement.ok === false) {
+        onError?.(placement.error)
         return false
       }
 
       onError?.(null)
-
-      const newNode: Node = {
-        id: getId(),
-        type,
-        position,
-        data: instantiateTemplate(templateId)
-      }
-
-      if (targetContainer) {
-        const containerPosition = getAbsoluteNodePosition(targetContainer, nodes)
-        newNode.parentNode = targetContainer.id
-        newNode.extent = 'parent'
-        newNode.zIndex = newNode.type === 'vpcNode' ? 1 : 10
-        newNode.position = {
-          x: position.x - containerPosition.x,
-          y: position.y - containerPosition.y
-        }
-      }
-
-      addNode(newNode)
+      addNode(createPlacedNode(nodes, type, templateId, position, placement.container))
       return true
     },
     [addNode, nodes, onError]
