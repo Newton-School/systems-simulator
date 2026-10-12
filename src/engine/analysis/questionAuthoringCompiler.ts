@@ -374,7 +374,11 @@ export function compileQuestionAuthoringPreview(
     }
   }
 
-  const diagnostics = validateAuthoredQuestion(questionPackage).map(mapAuthoringDiagnostic)
+  const diagnostics = validateAuthoredQuestion(questionPackage, {
+    ...(project.assets.referenceTopology?.nodes.length
+      ? { referenceTopology: project.assets.referenceTopology }
+      : {})
+  }).map(mapAuthoringDiagnostic)
   if (diagnostics.some((diagnostic) => diagnostic.level === 'error')) {
     return { status: 'blocked', diagnostics }
   }

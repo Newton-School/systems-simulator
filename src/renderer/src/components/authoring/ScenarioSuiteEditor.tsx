@@ -1,13 +1,21 @@
+import { useMemo } from 'react'
 import { Activity, Plus, ShieldCheck, Trash2, Zap } from 'lucide-react'
 import {
   authoringScenarioFieldErrors,
   createAuthoringFault,
   createAuthoringScenario,
   formatAuthoringScenarioSummary,
+  normalizeAuthoringScenarioWorkload,
   type AuthoringScenarioAction,
   type AuthoringScenarioDraft
 } from '../../../../engine/analysis/questionAuthoringScenario'
 import { RequiredIndicator } from './RequiredIndicator'
+import { DraftNumberInput } from './authoringInputs'
+import { AuthoringFaultEditor } from './AuthoringFaultEditor'
+import { ChaosExperimentCaseEditor } from './ChaosExperimentCaseEditor'
+import { buildFaultTargetOptionsFromTopology } from '@renderer/utils/faultTargets'
+import { mergeTopologyWithOverrides } from '../../../../engine/analysis/evaluate'
+import type { TopologyJSON } from '../../../../engine/core/types'
 
 const WORKLOAD_PATTERNS: Array<{ value: AuthoringScenarioDraft['pattern']; label: string }> = [
   { value: 'constant', label: 'Constant' },
@@ -24,6 +32,17 @@ interface ScenarioSuiteEditorProps {
   dryRunScenarioId?: string
   onAction: (action: AuthoringScenarioAction) => void
   onDryRunChange?: (scenarioId: string | undefined) => void
+  /** The design that should pass; fault targets and experiment previews come from it. */
+  referenceTopology?: TopologyJSON
+  /** Fallback target source when no reference design exists yet. */
+  scaffoldTopology?: TopologyJSON
+}
+
+function nextFaultId(scenario: AuthoringScenarioDraft): string {
+  const ids = new Set((scenario.faults ?? []).map((fault) => fault.id))
+  let index = (scenario.faults?.length ?? 0) + 1
+  while (ids.has(`fault-${index}`)) index += 1
+  return `fault-${index}`
 }
 
 type NumberField =
@@ -93,44 +112,6 @@ function ScenarioNumberInput({
   )
 }
 
-function DraftNumberInput({
-  label,
-  suffix,
-  value,
-  min = 0,
-  required = false,
-  onChange
-}: {
-  label: string
-  suffix: string
-  value: number | null | undefined
-  min?: number
-  required?: boolean
-  onChange: (value: number | null) => void
-}): React.JSX.Element {
-  return (
-    <label className="text-[11px] font-semibold text-nss-text">
-      {label} {required && <RequiredIndicator />}
-      <div className="relative mt-1.5">
-        <input
-          type="number"
-          min={min}
-          step="any"
-          value={value ?? ''}
-          required={required}
-          onChange={(event) =>
-            onChange(event.currentTarget.value === '' ? null : event.currentTarget.valueAsNumber)
-          }
-          className="block w-full rounded-md border border-nss-border bg-nss-input-bg px-2.5 py-2 pr-12 text-xs font-normal tabular-nums text-nss-text outline-none focus:border-nss-primary focus:ring-2 focus:ring-nss-primary/15"
-        />
-        <span className="pointer-events-none absolute inset-y-0 right-2.5 flex items-center text-[10px] font-normal text-nss-muted">
-          {suffix}
-        </span>
-      </div>
-    </label>
-  )
-}
-
 function formatStructuredValue(value: unknown): string {
   if (typeof value === 'string') return value
   return JSON.stringify(value)
@@ -150,8 +131,22 @@ export function ScenarioSuiteEditor({
   scenarios,
   dryRunScenarioId,
   onAction,
-  onDryRunChange = () => undefined
+  onDryRunChange = () => undefined,
+  referenceTopology,
+  scaffoldTopology
 }: ScenarioSuiteEditorProps): React.JSX.Element {
+  const design = referenceTopology?.nodes.length
+    ? referenceTopology
+    : scaffoldTopology?.nodes.length
+      ? scaffoldTopology
+      : undefined
+  const designSource = design ? (design === referenceTopology ? 'reference' : 'scaffold') : null
+  const faultTargets = useMemo(() => buildFaultTargetOptionsFromTopology(design), [design])
+  const previewTopologyFor = (scenario: AuthoringScenarioDraft): TopologyJSON | null => {
+    if (!design) return null
+    const workload = normalizeAuthoringScenarioWorkload(scenario)
+    return mergeTopologyWithOverrides(design, workload ? { workload } : {})
+  }
   const nextScenarioId = (() => {
     if (scenarios.length === 0) return 'baseline'
     let index = 2
@@ -1297,421 +1292,129 @@ export function ScenarioSuiteEditor({
                         <Zap size={13} aria-hidden="true" /> Failure injection
                       </p>
                       <p className="mt-1 text-[10px] leading-4 text-nss-muted">
-                        Configure deterministic, probabilistic, or conditional faults without
-                        editing the runtime JSON.
+                        Inject your own faults, or run a ready-made chaos experiment that is built
+                        against each learner&apos;s design when it is graded.
                       </p>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        onAction({
-                          type: 'update',
-                          id: scenario.id,
-                          changes: {
-                            faults: [
-                              ...(scenario.faults ?? []),
-                              createAuthoringFault(`fault-${(scenario.faults?.length ?? 0) + 1}`)
-                            ]
-                          }
-                        })
-                      }
-                      className="flex items-center gap-1.5 rounded-md border border-nss-border px-2.5 py-1.5 text-[10px] font-semibold text-nss-text hover:border-nss-primary/40 hover:bg-nss-primary/5"
+                    <div
+                      role="radiogroup"
+                      aria-label="Failure injection kind"
+                      className="flex shrink-0 overflow-hidden rounded-md border border-nss-border text-[10px] font-semibold"
                     >
-                      <Plus size={12} aria-hidden="true" /> Add fault
-                    </button>
-                  </div>
-                  {(scenario.faults ?? []).length === 0 ? (
-                    <p className="mt-3 rounded-md border border-dashed border-nss-border px-3 py-3 text-center text-[10px] text-nss-muted">
-                      No failure in this grading run.
-                    </p>
-                  ) : (
-                    <div className="mt-3 space-y-3">
-                      {(scenario.faults ?? []).map((fault) => (
-                        <div
-                          key={fault.id}
-                          className="grid gap-2 rounded-md border border-nss-border bg-nss-surface p-3 md:grid-cols-2 xl:grid-cols-[1.2fr_1fr_1fr_1fr_0.8fr_1fr_1fr_auto]"
-                        >
-                          <label className="text-[10px] font-semibold text-nss-text">
-                            Target node ID <RequiredIndicator />
-                            <input
-                              required
-                              type="text"
-                              value={fault.targetId}
-                              placeholder="api-1"
-                              onChange={(event) =>
-                                onAction({
-                                  type: 'update',
-                                  id: scenario.id,
-                                  changes: {
-                                    faults: scenario.faults!.map((item) =>
-                                      item.id === fault.id
-                                        ? { ...item, targetId: event.currentTarget.value }
-                                        : item
-                                    )
-                                  }
-                                })
-                              }
-                              className="mt-1 block w-full rounded border border-nss-border bg-nss-input-bg px-2 py-1.5 font-mono text-[11px] font-normal text-nss-text outline-none focus:border-nss-primary"
-                            />
-                          </label>
-                          <label className="text-[10px] font-semibold text-nss-text">
-                            Fault type <RequiredIndicator />
-                            <input
-                              required
-                              type="text"
-                              value={fault.faultType}
-                              placeholder="crash"
-                              onChange={(event) =>
-                                onAction({
-                                  type: 'update',
-                                  id: scenario.id,
-                                  changes: {
-                                    faults: scenario.faults!.map((item) =>
-                                      item.id === fault.id
-                                        ? { ...item, faultType: event.currentTarget.value }
-                                        : item
-                                    )
-                                  }
-                                })
-                              }
-                              className="mt-1 block w-full rounded border border-nss-border bg-nss-input-bg px-2 py-1.5 font-mono text-[11px] font-normal"
-                            />
-                          </label>
-                          <label className="text-[10px] font-semibold text-nss-text">
-                            Timing <RequiredIndicator />
-                            <select
-                              required
-                              value={fault.timing}
-                              onChange={(event) =>
-                                onAction({
-                                  type: 'update',
-                                  id: scenario.id,
-                                  changes: {
-                                    faults: scenario.faults!.map((item) =>
-                                      item.id === fault.id
-                                        ? {
-                                            ...item,
-                                            timing: event.currentTarget.value as typeof item.timing
-                                          }
-                                        : item
-                                    )
-                                  }
-                                })
-                              }
-                              className="mt-1 block w-full rounded border border-nss-border bg-nss-input-bg px-2 py-1.5 text-[11px] font-normal"
-                            >
-                              <option value="deterministic">Deterministic</option>
-                              <option value="probabilistic">Probabilistic</option>
-                              <option value="conditional">Conditional</option>
-                            </select>
-                          </label>
-                          <label className="text-[10px] font-semibold text-nss-text">
-                            Behavior
-                            <input
-                              value={fault.mode}
-                              placeholder="reject"
-                              onChange={(event) =>
-                                onAction({
-                                  type: 'update',
-                                  id: scenario.id,
-                                  changes: {
-                                    faults: scenario.faults!.map((item) =>
-                                      item.id === fault.id
-                                        ? {
-                                            ...item,
-                                            mode: event.currentTarget.value
-                                          }
-                                        : item
-                                    )
-                                  }
-                                })
-                              }
-                              className="mt-1 block w-full rounded border border-nss-border bg-nss-input-bg px-2 py-1.5 text-[11px] font-normal text-nss-text"
-                            />
-                          </label>
-                          <DraftNumberInput
-                            label="Starts"
-                            required={fault.timing === 'deterministic'}
-                            suffix="sec"
-                            value={fault.atSeconds}
-                            onChange={(value) =>
-                              onAction({
-                                type: 'update',
-                                id: scenario.id,
-                                changes: {
-                                  faults: scenario.faults!.map((item) =>
-                                    item.id === fault.id ? { ...item, atSeconds: value } : item
-                                  )
-                                }
-                              })
-                            }
-                          />
-                          <label className="text-[10px] font-semibold text-nss-text">
-                            Recovery <RequiredIndicator />
-                            <select
-                              required
-                              value={fault.duration}
-                              onChange={(event) =>
-                                onAction({
-                                  type: 'update',
-                                  id: scenario.id,
-                                  changes: {
-                                    faults: scenario.faults!.map((item) =>
-                                      item.id === fault.id
-                                        ? {
-                                            ...item,
-                                            duration: event.currentTarget
-                                              .value as typeof fault.duration
-                                          }
-                                        : item
-                                    )
-                                  }
-                                })
-                              }
-                              className="mt-1 block w-full rounded border border-nss-border bg-nss-input-bg px-2 py-1.5 text-[11px] font-normal text-nss-text"
-                            >
-                              <option value="fixed">Recovers</option>
-                              <option value="until">Until condition</option>
-                              <option value="permanent">Permanent</option>
-                            </select>
-                          </label>
-                          {fault.duration === 'fixed' ? (
-                            <DraftNumberInput
-                              label="Down for"
-                              required
-                              suffix="sec"
-                              min={0.001}
-                              value={fault.durationSeconds}
-                              onChange={(value) =>
-                                onAction({
-                                  type: 'update',
-                                  id: scenario.id,
-                                  changes: {
-                                    faults: scenario.faults!.map((item) =>
-                                      item.id === fault.id
-                                        ? { ...item, durationSeconds: value }
-                                        : item
-                                    )
-                                  }
-                                })
-                              }
-                            />
-                          ) : (
-                            <div />
-                          )}
+                      {(
+                        [
+                          ['faults', 'Faults'],
+                          ['experiment', 'Chaos experiment']
+                        ] as const
+                      ).map(([value, label]) => {
+                        const active = (scenario.experiment ? 'experiment' : 'faults') === value
+                        return (
                           <button
+                            key={value}
                             type="button"
-                            aria-label="Remove fault"
-                            onClick={() =>
+                            role="radio"
+                            aria-checked={active}
+                            onClick={() => {
+                              if (active) return
                               onAction({
                                 type: 'update',
                                 id: scenario.id,
                                 changes: {
-                                  faults: scenario.faults!.filter((item) => item.id !== fault.id)
+                                  experiment:
+                                    value === 'experiment'
+                                      ? { presets: [{ presetId: 'az-outage' }] }
+                                      : undefined
                                 }
                               })
-                            }
-                            className="mt-4 flex h-7 w-7 items-center justify-center rounded border border-nss-border text-nss-muted hover:border-nss-danger/40 hover:text-nss-danger"
+                            }}
+                            className={`px-2.5 py-1.5 ${active ? 'bg-nss-primary text-white' : 'text-nss-text hover:bg-nss-primary/5'}`}
                           >
-                            <Trash2 size={12} aria-hidden="true" />
+                            {label}
                           </button>
-                          <details className="rounded border border-nss-border bg-nss-panel p-2 md:col-span-2 xl:col-span-8">
-                            <summary className="cursor-pointer text-[10px] font-semibold text-nss-text">
-                              Custom fault parameters ({fault.extraParams.length})
-                            </summary>
-                            <div className="mt-2 space-y-2">
-                              {fault.extraParams.map((param) => (
-                                <div
-                                  key={param.id}
-                                  className="grid gap-2 sm:grid-cols-[1fr_0.7fr_1.5fr_auto]"
-                                >
-                                  <input
-                                    aria-label="Fault parameter name"
-                                    value={param.key}
-                                    placeholder="probability"
-                                    onChange={(event) =>
-                                      onAction({
-                                        type: 'update',
-                                        id: scenario.id,
-                                        changes: {
-                                          faults: scenario.faults!.map((item) =>
-                                            item.id === fault.id
-                                              ? {
-                                                  ...item,
-                                                  extraParams: item.extraParams.map((entry) =>
-                                                    entry.id === param.id
-                                                      ? {
-                                                          ...entry,
-                                                          key: event.currentTarget.value
-                                                        }
-                                                      : entry
-                                                  )
-                                                }
-                                              : item
-                                          )
-                                        }
-                                      })
-                                    }
-                                    className="rounded border border-nss-border bg-nss-input-bg px-2 py-1.5 font-mono text-[11px]"
-                                  />
-                                  <select
-                                    aria-label={`${param.key || 'Fault parameter'} type`}
-                                    value={param.valueType}
-                                    onChange={(event) =>
-                                      onAction({
-                                        type: 'update',
-                                        id: scenario.id,
-                                        changes: {
-                                          faults: scenario.faults!.map((item) =>
-                                            item.id === fault.id
-                                              ? {
-                                                  ...item,
-                                                  extraParams: item.extraParams.map((entry) =>
-                                                    entry.id === param.id
-                                                      ? {
-                                                          ...entry,
-                                                          valueType: event.currentTarget
-                                                            .value as typeof entry.valueType
-                                                        }
-                                                      : entry
-                                                  )
-                                                }
-                                              : item
-                                          )
-                                        }
-                                      })
-                                    }
-                                    className="rounded border border-nss-border bg-nss-input-bg px-2 py-1.5 text-[11px]"
-                                  >
-                                    <option value="string">Text</option>
-                                    <option value="number">Number</option>
-                                    <option value="boolean">Boolean</option>
-                                    <option value="json">Structured</option>
-                                  </select>
-                                  {param.valueType === 'boolean' ? (
-                                    <select
-                                      aria-label={`${param.key || 'Fault parameter'} value`}
-                                      value={param.value}
-                                      onChange={(event) =>
-                                        onAction({
-                                          type: 'update',
-                                          id: scenario.id,
-                                          changes: {
-                                            faults: scenario.faults!.map((item) =>
-                                              item.id === fault.id
-                                                ? {
-                                                    ...item,
-                                                    extraParams: item.extraParams.map((entry) =>
-                                                      entry.id === param.id
-                                                        ? {
-                                                            ...entry,
-                                                            value: event.currentTarget.value
-                                                          }
-                                                        : entry
-                                                    )
-                                                  }
-                                                : item
-                                            )
-                                          }
-                                        })
-                                      }
-                                      className="rounded border border-nss-border bg-nss-input-bg px-2 py-1.5 text-[11px]"
-                                    >
-                                      <option value="true">True</option>
-                                      <option value="false">False</option>
-                                    </select>
-                                  ) : (
-                                    <input
-                                      aria-label={`${param.key || 'Fault parameter'} value`}
-                                      value={param.value}
-                                      onChange={(event) =>
-                                        onAction({
-                                          type: 'update',
-                                          id: scenario.id,
-                                          changes: {
-                                            faults: scenario.faults!.map((item) =>
-                                              item.id === fault.id
-                                                ? {
-                                                    ...item,
-                                                    extraParams: item.extraParams.map((entry) =>
-                                                      entry.id === param.id
-                                                        ? {
-                                                            ...entry,
-                                                            value: event.currentTarget.value
-                                                          }
-                                                        : entry
-                                                    )
-                                                  }
-                                                : item
-                                            )
-                                          }
-                                        })
-                                      }
-                                      className="rounded border border-nss-border bg-nss-input-bg px-2 py-1.5 font-mono text-[11px]"
-                                    />
-                                  )}
-                                  <button
-                                    type="button"
-                                    aria-label={`Remove fault parameter ${param.key}`}
-                                    onClick={() =>
-                                      onAction({
-                                        type: 'update',
-                                        id: scenario.id,
-                                        changes: {
-                                          faults: scenario.faults!.map((item) =>
-                                            item.id === fault.id
-                                              ? {
-                                                  ...item,
-                                                  extraParams: item.extraParams.filter(
-                                                    (entry) => entry.id !== param.id
-                                                  )
-                                                }
-                                              : item
-                                          )
-                                        }
-                                      })
-                                    }
-                                    className="flex h-7 w-7 items-center justify-center rounded border border-nss-border text-nss-muted hover:text-nss-danger"
-                                  >
-                                    <Trash2 size={12} />
-                                  </button>
-                                </div>
-                              ))}
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  onAction({
-                                    type: 'update',
-                                    id: scenario.id,
-                                    changes: {
-                                      faults: scenario.faults!.map((item) =>
-                                        item.id === fault.id
-                                          ? {
-                                              ...item,
-                                              extraParams: [
-                                                ...item.extraParams,
-                                                {
-                                                  id: `param-${item.extraParams.length + 1}`,
-                                                  key: '',
-                                                  valueType: 'string',
-                                                  value: ''
-                                                }
-                                              ]
-                                            }
-                                          : item
-                                      )
-                                    }
-                                  })
-                                }
-                                className="flex items-center gap-1 rounded border border-nss-border px-2 py-1 text-[10px] font-semibold"
-                              >
-                                <Plus size={11} /> Add parameter
-                              </button>
-                            </div>
-                          </details>
-                        </div>
-                      ))}
+                        )
+                      })}
                     </div>
+                  </div>
+                  {scenario.experiment ? (
+                    <div className="mt-3">
+                      <ChaosExperimentCaseEditor
+                        experiment={scenario.experiment}
+                        previewTopology={previewTopologyFor(scenario)}
+                        previewSource={designSource}
+                        onChange={(experiment) =>
+                          onAction({ type: 'update', id: scenario.id, changes: { experiment } })
+                        }
+                      />
+                      {(scenario.faults ?? []).length > 0 && (
+                        <p className="mt-2 text-[10px] leading-4 text-nss-warning">
+                          The experiment replaces this case&apos;s {scenario.faults!.length} own
+                          fault{scenario.faults!.length === 1 ? '' : 's'}; they are kept in the
+                          draft but do not run.
+                        </p>
+                      )}
+                      {errors.experiment && (
+                        <p className="mt-2 text-[10px] text-nss-danger">{errors.experiment}</p>
+                      )}
+                    </div>
+                  ) : (
+                    <>
+                      <div className="mt-3 flex justify-end">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onAction({
+                              type: 'update',
+                              id: scenario.id,
+                              changes: {
+                                faults: [
+                                  ...(scenario.faults ?? []),
+                                  createAuthoringFault(nextFaultId(scenario))
+                                ]
+                              }
+                            })
+                          }
+                          className="flex items-center gap-1.5 rounded-md border border-nss-border px-2.5 py-1.5 text-[10px] font-semibold text-nss-text hover:border-nss-primary/40 hover:bg-nss-primary/5"
+                        >
+                          <Plus size={12} aria-hidden="true" /> Add fault
+                        </button>
+                      </div>
+                      {(scenario.faults ?? []).length === 0 ? (
+                        <p className="mt-3 rounded-md border border-dashed border-nss-border px-3 py-3 text-center text-[10px] text-nss-muted">
+                          No failure in this grading run.
+                        </p>
+                      ) : (
+                        <div className="mt-3 space-y-3">
+                          {(scenario.faults ?? []).map((fault) => (
+                            <AuthoringFaultEditor
+                              key={fault.id}
+                              fault={fault}
+                              targets={faultTargets}
+                              targetSource={designSource}
+                              onChange={(next) =>
+                                onAction({
+                                  type: 'update',
+                                  id: scenario.id,
+                                  changes: {
+                                    faults: scenario.faults!.map((item) =>
+                                      item.id === fault.id ? next : item
+                                    )
+                                  }
+                                })
+                              }
+                              onRemove={() =>
+                                onAction({
+                                  type: 'update',
+                                  id: scenario.id,
+                                  changes: {
+                                    faults: scenario.faults!.filter((item) => item.id !== fault.id)
+                                  }
+                                })
+                              }
+                            />
+                          ))}
+                        </div>
+                      )}
+                    </>
                   )}
                   {errors.pattern && (
                     <p className="mt-2 text-[10px] text-nss-danger">{errors.pattern}</p>

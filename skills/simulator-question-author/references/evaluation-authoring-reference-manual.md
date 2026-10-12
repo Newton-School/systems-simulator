@@ -401,6 +401,81 @@ payment→idempotency-store) where there is no legitimate bypass.
 
 ---
 
+### 4.4 Fault cases and chaos-experiment cases
+
+A suite case can inject failures in two ways. Both run on the **learner's**
+design at grading time, so ids that exist only in learner designs are allowed.
+
+**Authored faults (`suite.cases[].faults`).** Each `FaultSpec` targets a
+component id **or a Region / Availability Zone / Subnet location id** (a fault
+domain: every component placed inside it fails for the window). Params:
+`atMs`, `durationMs` (with `duration: "fixed"`; `"permanent"` never recovers),
+`mode` (`reject` refuses at once, `blackhole` silent dead server, `hang` fills
+then times out, `degraded` slower but serving - omit for the chaos default:
+blackhole with in-flight requests hanging), `inFlightPolicy` (`reset` / `hang`),
+`recoveryPolicy` (`reset` / `resume`, only for hanging requests), and for
+`degraded` a `degradation: { fraction, serviceTimeMultiplier }`. `faultType:
+"cache-flush"` empties a cache component (cdn / in-memory-cache / reverse-proxy)
+instead of failing it; on a location or a non-cache it does nothing. The engine
+schedules every fault at `atMs` - `timing` other than `deterministic` and
+`duration: "until"` are not modelled.
+
+**Chaos-experiment cases (`suite.cases[].experiment`).** Instead of a plain
+run, the case runs a chaos experiment preset - or several composed with offsets -
+built against the learner's merged topology at grading time:
+
+```json
+{
+  "id": "zone-outage",
+  "description": "Lose one availability zone",
+  "experiment": {
+    "presets": [
+      { "presetId": "az-outage", "options": { "outageSeconds": 10, "maxOutageErrorRate": 0.05 } },
+      { "presetId": "traffic-spike", "offsetSeconds": 5, "options": { "multiplier": 2 } }
+    ],
+    "points": 1
+  }
+}
+```
+
+- `presetId`: `az-outage`, `db-failover`, `cache-stampede`, `traffic-spike`.
+- `offsetSeconds` (composition): whole seconds after the shared steady-state
+  baseline. Default 0.
+- `options` (all optional; unknown keys are a schema error): every preset takes
+  `maxErrorRate` (fraction, default 0.01) and `maxP99Ms` (default 500) for the
+  steady state. `az-outage`: `zoneId`, `outageSeconds` (10),
+  `maxOutageErrorRate` (0.05). `db-failover`: `primaryNodeId`, `replicaNodeId`.
+  `cache-stampede`: `cacheNodeId`, `originNodeId`, `coldForMs` (5000).
+  `traffic-spike`: `multiplier` (10, must be > 1), `spikeSeconds` (10). Leave
+  the id options out unless every learner design will use that exact id - the
+  presets pick targets from the design themselves.
+- `points`: points for the verdict gate. Default 1.
+
+Grading rules:
+
+- The case passes **only when the experiment verdict is `passed`** (steady state
+  held before the fault, every verify check held, steady state returned). It
+  emits `experiment.verdict` (scored) plus one 0-point row per experiment check
+  (`experiment.steady-state`, `experiment.verify-N`, `experiment.final`) with
+  the measured values. The shared rubric metric checks do **not** run on an
+  experiment case, and its `faults` / `invariants` are set aside (the validator
+  warns).
+- The experiment owns the run's duration and warmup; the case's `workload` and
+  `global.seed` still apply.
+- A design the preset cannot apply to (no availability zones, no cache with a
+  hit model, one database, a non-steady workload for a spike) fails the case with
+  the preset's plain reason (`verdict: "unavailable"`), never a crash.
+- An analytic-mode run cannot inject faults, so the verdict is `inconclusive` and
+  the case fails; the Studio verification reports it as a blocker. Keep the
+  case's RPS low enough to simulate.
+- The attempt grade carries `experiments[]` (verdict, summary, full result) for
+  display. Question Studio's verification treats each experiment case as an
+  obligation `experiment:<caseId>` that a gamed design can name.
+- Validator (with a reference design, e.g. in Question Studio): warns when the
+  reference design cannot run the preset, when a pinned id is not in it, and
+  when a plain fault targets an id it lacks or flushes a non-cache. These are
+  warnings only - learner designs differ.
+
 ## Section 5 - Anti-Patterns, Hard Fails & Structural Checks
 
 ### 5.1 Hard-fail semantic checks
@@ -670,6 +745,7 @@ Every customizable property across the DSL. **Scope** names the containing objec
 | `suite.cases[].global`                                                                                             | suite case                                 | `Partial<GlobalConfig>`                                                                                        | Optional                          | Global override (seed/duration).                                                                                                                                   | Question-owned - fixes seed to kill seed-farming.                                                                                                                                                                                       |
 | `suite.cases[].workload`                                                                                           | suite case                                 | `Partial<WorkloadProfile>`                                                                                     | Optional                          | Injected load (RPS + mix).                                                                                                                                         | The read/write mix lives here (`requestDistribution`).                                                                                                                                                                                  |
 | `suite.cases[].faults`                                                                                             | suite case                                 | `FaultSpec[]`                                                                                                  | Optional                          | Injected chaos faults.                                                                                                                                             | Question-owned HA scenario.                                                                                                                                                                                                             |
+| `suite.cases[].experiment`                                                                                         | suite case                                 | `{ presets: [{ presetId, offsetSeconds?, options? }], points? }`                                               | Optional                          | Run a chaos experiment preset (or a composition) on the learner's design; graded by its verdict (§4.4).                                                            | Replaces the case's faults and the shared rubric checks for that case.                                                                                                                                                                  |
 | `workload.baseRps`                                                                                                 | workload                                   | number > 0                                                                                                     | Required (in a workload)          | Tractable RPS (~2-5K).                                                                                                                                             | Not the display scale.                                                                                                                                                                                                                  |
 | `workload.pattern`                                                                                                 | workload                                   | `constant \| poisson \| bursty \| diurnal \| spike \| sawtooth \| replay`                                      | Required (in a full workload)     | Arrival pattern.                                                                                                                                                   | -                                                                                                                                                                                                                                       |
 | `workload.requestDistribution[].type`                                                                              | requestDistribution                        | string                                                                                                         | Required                          | Traffic class (`read`/`write`/`GET`…).                                                                                                                             | Used in edge `condition`.                                                                                                                                                                                                               |
@@ -778,6 +854,7 @@ Not every schema field drives grading. Author accordingly.
 | `justify` (graph-consistent)                                                                                              | ✅                       | ✅ graded; feeds `forbidUnjustified` in-app                                                                                                                                                                                                                                                              |
 | **`budget`**                                                                                                              | ✅                       | ✅ **graded** (`budget.ts` - nodes/edges exact, cost = v1 heuristic)                                                                                                                                                                                                                                     |
 | `suite.cases[].workload` / `global` / `faults`                                                                            | ✅                       | ✅ injected at grade time                                                                                                                                                                                                                                                                                |
+| `suite.cases[].experiment` (chaos presets)                                                                                | ✅                       | ✅ graded - compiled against the learner's design, case passes only on verdict `passed` (§4.4)                                                                                                                                                                                                           |
 | `resources.*` (instance model - `instanceType`/`instanceCount`/`workloadKind`/`perRequestMemMb`)                          | ✅                       | ✅ **behavioral** - drives derived concurrency `c`/`K`, service speed, and cost on that node (§9)                                                                                                                                                                                                        |
 | `resources.pricingModel`                                                                                                  | ✅                       | ⚠️ affects the **live** cost chip / `cost.ts` only; graded `budget.unit:"cost"` still uses the v1 heuristic (§6.2)                                                                                                                                                                                       |
 | `environmentProfile` (mode / visibility / `capabilities`)                                                                 | ✅ (Newton row / launch) | ⚠️ **platform-facing** - governs edit locks, `edgeModel`, visibility; not a scored axis. Overlaid by `domains` (§10.4)                                                                                                                                                                                   |

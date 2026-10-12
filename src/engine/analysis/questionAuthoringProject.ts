@@ -47,6 +47,7 @@ import {
   type AuthoringStructuralRuleDraft
 } from './questionAuthoringStructuralRules'
 import { BuilderPolicySchema, type BuilderPolicy } from './builderPolicy'
+import { QuestionCaseExperimentShapeSchema } from './questionExperiment'
 
 export const QUESTION_AUTHORING_PROJECT_ARTIFACT = 'dsds-question-project' as const
 export const QUESTION_AUTHORING_PROJECT_VERSION = '1.0' as const
@@ -276,6 +277,10 @@ const AuthoringScenarioDraftSchema: z.ZodType<AuthoringScenarioDraft> = z
             atSeconds: DraftFiniteNumberSchema,
             duration: z.enum(['fixed', 'until', 'permanent']),
             durationSeconds: DraftFiniteNumberSchema,
+            inFlightPolicy: z.enum(['reset', 'hang']).optional(),
+            recoveryPolicy: z.enum(['resume', 'reset']).optional(),
+            degradedPercent: DraftFiniteNumberSchema.optional(),
+            degradedMultiplier: DraftFiniteNumberSchema.optional(),
             extraParams: z
               .array(
                 z
@@ -292,7 +297,8 @@ const AuthoringScenarioDraftSchema: z.ZodType<AuthoringScenarioDraft> = z
           .strict()
       )
       .optional(),
-    invariants: z.array(InvariantCheckSchema).optional()
+    invariants: z.array(InvariantCheckSchema).optional(),
+    experiment: QuestionCaseExperimentShapeSchema.optional()
   })
   .strict()
 

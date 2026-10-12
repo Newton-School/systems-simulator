@@ -7,6 +7,22 @@ import type {
 } from '../core/types'
 import { FaultSpecSchema, GlobalConfigSchema, WorkloadProfileSchema } from '../validation/validator'
 import type { QuestionSuiteCase } from './question'
+import { CACHE_FLUSH_FAULT_TYPE } from '../traits/cache'
+import { validatePresetOptions } from '../scenarios/presetBuild'
+import type { QuestionCaseExperiment } from './questionExperiment'
+
+/** The fault type that empties a cache instead of failing it. */
+export const AUTHORING_CACHE_FLUSH_FAULT_TYPE = CACHE_FLUSH_FAULT_TYPE
+
+/** Params the fault editor owns as typed fields (everything else is a custom parameter). */
+const TYPED_FAULT_PARAMS = [
+  'mode',
+  'atMs',
+  'durationMs',
+  'inFlightPolicy',
+  'recoveryPolicy',
+  'degradation'
+]
 
 export type AuthoringWorkloadPattern = WorkloadProfile['pattern']
 
@@ -19,6 +35,14 @@ export interface AuthoringFaultDraft {
   atSeconds: number | null
   duration: FaultSpec['duration']
   durationSeconds: number | null
+  /** Node failures with a mode: what happens to requests already inside. Omit for the engine default. */
+  inFlightPolicy?: 'reset' | 'hang'
+  /** Hanging in-flight requests at recovery: fail (reset) or carry on (resume). */
+  recoveryPolicy?: 'resume' | 'reset'
+  /** Degraded mode: share of requests slowed, in percent. */
+  degradedPercent?: number | null
+  /** Degraded mode: service-time multiplier for the slowed requests. */
+  degradedMultiplier?: number | null
   extraParams: AuthoringValueDraft[]
 }
 
@@ -60,6 +84,8 @@ export interface AuthoringScenarioDraft {
   keyspaceSkew?: number | null
   faults?: AuthoringFaultDraft[]
   invariants?: InvariantCheck[]
+  /** Run this case as a chaos experiment against the learner's design (see questionExperiment.ts). */
+  experiment?: QuestionCaseExperiment
 }
 
 type AuthoringScenarioTextField = 'description' | 'seed'
@@ -78,8 +104,67 @@ export type AuthoringScenarioAction =
   | { type: 'remove'; id: string }
 
 export type AuthoringScenarioFieldErrors = Partial<
-  Record<AuthoringScenarioTextField | AuthoringScenarioNumberField | 'pattern' | 'keyspace', string>
+  Record<
+    | AuthoringScenarioTextField
+    | AuthoringScenarioNumberField
+    | 'pattern'
+    | 'keyspace'
+    | 'experiment',
+    string
+  >
 >
+
+/** Minimal shape of a picker entry (renderer FaultTargetOption). */
+export interface AuthoringFaultTargetOption {
+  id: string
+  label: string
+  group?: 'component' | 'location'
+  isCache?: boolean
+}
+
+export interface AuthoringFaultTargetStatus {
+  kind: 'empty' | 'component' | 'cache' | 'location' | 'unknown'
+  /** Advisory only: learner designs can differ from the reference design. */
+  warning?: string
+}
+
+/**
+ * Where a fault's target sits in the reference design, with a plain warning when
+ * it would do nothing there. Never an error: learner designs may use other ids.
+ */
+export function authoringFaultTargetStatus(
+  fault: Pick<AuthoringFaultDraft, 'targetId' | 'faultType'>,
+  targets: readonly AuthoringFaultTargetOption[]
+): AuthoringFaultTargetStatus {
+  const id = fault.targetId.trim()
+  if (!id) return { kind: 'empty' }
+  const flush = fault.faultType === AUTHORING_CACHE_FLUSH_FAULT_TYPE
+  const target = targets.find((option) => option.id === id)
+  if (!target) {
+    return targets.length === 0
+      ? { kind: 'unknown' }
+      : {
+          kind: 'unknown',
+          warning: `"${id}" is not in the reference design. That is fine if learner designs use this id; on a design without it, this fault does nothing.`
+        }
+  }
+  if (target.group === 'location') {
+    return flush
+      ? {
+          kind: 'location',
+          warning:
+            'A cache flush empties one cache, so on a Region / AZ / Subnet it does nothing. Pick a cache component, or make this a failure.'
+        }
+      : { kind: 'location' }
+  }
+  if (target.isCache) return { kind: 'cache' }
+  return flush
+    ? {
+        kind: 'component',
+        warning: `${target.label} is not a cache in the reference design, so a flush does nothing on it.`
+      }
+    : { kind: 'component' }
+}
 
 export function createAuthoringFault(id = `fault-${Date.now()}`): AuthoringFaultDraft {
   return {
@@ -199,11 +284,39 @@ export function decompileAuthoringScenario(
       duration: fault.duration,
       durationSeconds:
         typeof fault.params.durationMs === 'number' ? fault.params.durationMs / 1000 : null,
+      ...decompileFaultPolicies(fault.params),
       extraParams: Object.entries(fault.params)
-        .filter(([key]) => !['mode', 'atMs', 'durationMs'].includes(key))
+        .filter(([key]) => !TYPED_FAULT_PARAMS.includes(key))
         .map(([key, value], paramIndex) => valueToDraft(key, value, paramIndex))
     })),
-    invariants: testCase.invariants?.map((invariant) => ({ ...invariant })) ?? []
+    invariants: testCase.invariants?.map((invariant) => ({ ...invariant })) ?? [],
+    ...(testCase.experiment ? { experiment: structuredClone(testCase.experiment) } : {})
+  }
+}
+
+function decompileFaultPolicies(
+  params: Record<string, unknown>
+): Pick<
+  AuthoringFaultDraft,
+  'inFlightPolicy' | 'recoveryPolicy' | 'degradedPercent' | 'degradedMultiplier'
+> {
+  const degradation =
+    typeof params.degradation === 'object' && params.degradation !== null
+      ? (params.degradation as Record<string, unknown>)
+      : undefined
+  return {
+    ...(params.inFlightPolicy === 'reset' || params.inFlightPolicy === 'hang'
+      ? { inFlightPolicy: params.inFlightPolicy }
+      : {}),
+    ...(params.recoveryPolicy === 'reset' || params.recoveryPolicy === 'resume'
+      ? { recoveryPolicy: params.recoveryPolicy }
+      : {}),
+    ...(typeof degradation?.fraction === 'number'
+      ? { degradedPercent: Number((degradation.fraction * 100).toFixed(6)) }
+      : {}),
+    ...(typeof degradation?.serviceTimeMultiplier === 'number'
+      ? { degradedMultiplier: degradation.serviceTimeMultiplier }
+      : {})
   }
 }
 
@@ -336,6 +449,32 @@ export function authoringScenarioFieldErrors(
   ) {
     errors.pattern = 'Complete every fault target, start time, and duration.'
   }
+  if (
+    (scenario.faults ?? []).some(
+      (fault) =>
+        fault.faultType !== AUTHORING_CACHE_FLUSH_FAULT_TYPE &&
+        fault.mode === 'degraded' &&
+        (fault.degradedPercent === null ||
+          fault.degradedPercent === undefined ||
+          fault.degradedPercent < 0 ||
+          fault.degradedPercent > 100 ||
+          fault.degradedMultiplier === null ||
+          fault.degradedMultiplier === undefined ||
+          fault.degradedMultiplier <= 0)
+    )
+  ) {
+    errors.pattern =
+      'A slowed-down fault needs the share of requests slowed (0-100%) and how much longer they take.'
+  }
+  if (scenario.experiment) {
+    const issues =
+      scenario.experiment.presets.length === 0
+        ? ['Pick an experiment preset.']
+        : scenario.experiment.presets.flatMap((preset) =>
+            validatePresetOptions(preset.presetId, preset.options)
+          )
+    if (issues.length > 0) errors.experiment = issues.join(' ')
+  }
   if (scenario.requestDistribution) {
     const weight = scenario.requestDistribution.reduce((sum, request) => sum + request.weight, 0)
     if (
@@ -453,6 +592,31 @@ export function normalizeAuthoringScenarioWorkload(
   return parsed.success ? parsed.data : null
 }
 
+function compileFaultBehaviour(fault: AuthoringFaultDraft): Record<string, unknown> {
+  if (fault.faultType.trim() === AUTHORING_CACHE_FLUSH_FAULT_TYPE) return {}
+  const mode = fault.mode.trim()
+  if (!mode) return {}
+  return {
+    mode,
+    ...(mode !== 'degraded' && fault.inFlightPolicy
+      ? { inFlightPolicy: fault.inFlightPolicy }
+      : {}),
+    ...(mode !== 'degraded' && fault.inFlightPolicy === 'hang' && fault.recoveryPolicy
+      ? { recoveryPolicy: fault.recoveryPolicy }
+      : {}),
+    ...(mode === 'degraded' &&
+    typeof fault.degradedPercent === 'number' &&
+    typeof fault.degradedMultiplier === 'number'
+      ? {
+          degradation: {
+            fraction: Number((fault.degradedPercent / 100).toFixed(8)),
+            serviceTimeMultiplier: fault.degradedMultiplier
+          }
+        }
+      : {})
+  }
+}
+
 function compileFaults(scenario: AuthoringScenarioDraft): FaultSpec[] | null {
   let faults: FaultSpec[]
   try {
@@ -466,7 +630,7 @@ function compileFaults(scenario: AuthoringScenarioDraft): FaultSpec[] | null {
           fault.extraParams.map((param) => [param.key.trim(), draftValue(param)])
         ),
         ...(fault.atSeconds !== null ? { atMs: fault.atSeconds * 1000 } : {}),
-        ...(fault.mode.trim() ? { mode: fault.mode.trim() } : {}),
+        ...compileFaultBehaviour(fault),
         ...(fault.duration === 'fixed' ? { durationMs: fault.durationSeconds! * 1000 } : {})
       }
     }))
@@ -510,7 +674,8 @@ export function compileAuthoringScenario(
     ...(faults.length > 0 ? { faults } : {}),
     ...((scenario.invariants?.length ?? 0) > 0
       ? { invariants: scenario.invariants!.map((invariant) => ({ ...invariant })) }
-      : {})
+      : {}),
+    ...(scenario.experiment ? { experiment: structuredClone(scenario.experiment) } : {})
   }
 }
 
@@ -525,7 +690,10 @@ export function formatAuthoringScenarioSummary(scenario: AuthoringScenarioDraft)
     (scenario.faults?.length ?? 0) > 0
       ? ` · ${scenario.faults!.length} fault${scenario.faults!.length === 1 ? '' : 's'}`
       : ''
-  return `${new Intl.NumberFormat('en-US').format(scenario.baseRps!)} req/s ${scenario.pattern} traffic · ${requestSummary} · ${scenario.durationSeconds}s run · ${scenario.warmupSeconds}s warmup · seed ${scenario.seed.trim()}${faultSummary}`
+  const experimentSummary = scenario.experiment
+    ? ` · chaos experiment: ${scenario.experiment.presets.map((preset) => preset.presetId).join(' + ')}`
+    : ''
+  return `${new Intl.NumberFormat('en-US').format(scenario.baseRps!)} req/s ${scenario.pattern} traffic · ${requestSummary} · ${scenario.durationSeconds}s run · ${scenario.warmupSeconds}s warmup · seed ${scenario.seed.trim()}${faultSummary}${experimentSummary}`
 }
 
 export function authoringScenarioReducer(

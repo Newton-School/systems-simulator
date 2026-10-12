@@ -63,6 +63,18 @@ import {
   expandComponentTypeFamilies,
   genericComponentTypeOf
 } from '../catalog/componentFamilies'
+import {
+  EXPERIMENT_VERDICT_CHECK_ID,
+  QuestionCaseExperimentSchema,
+  QuestionExperimentCaseResultSchema,
+  applyExperimentCaseGrades,
+  describeCaseExperiment,
+  gradeExperimentCase,
+  prepareExperimentCase,
+  type PreparedExperimentCase,
+  type QuestionCaseExperiment,
+  type QuestionExperimentCaseResult
+} from './questionExperiment'
 import { SIMULATION_VERDICT_VERSION, type SimulationVerdict } from './verdict'
 import {
   BudgetSchema,
@@ -193,6 +205,12 @@ export interface QuestionSuiteCase {
    * via an `invariant`-kind rubric check against `invariantViolations.count`.
    */
   invariants?: InvariantCheck[]
+  /**
+   * Run a chaos experiment (preset, or a composed list) on the learner's design
+   * instead of a plain run. The case is graded by the experiment verdict alone
+   * (see questionExperiment.ts); omit for an ordinary case.
+   */
+  experiment?: QuestionCaseExperiment
 }
 
 export interface QuestionSuite {
@@ -347,6 +365,8 @@ export interface AttemptGrade {
   budget?: BudgetEvaluation
   /** Optimize-style compare against an authored baseline verdict (absent when none authored). */
   baselineComparison?: BaselineComparisonEvaluation
+  /** Chaos-experiment cases' verdicts and checks (absent when no case has an experiment). */
+  experiments?: QuestionExperimentCaseResult[]
   /** The full graded batch (rich data — stays inside the simulator). */
   graded: GradedEvaluationBatch
   /** The collapsed boolean contract sent across the iframe seam to the host. */
@@ -1016,7 +1036,8 @@ const QuestionSuiteCaseSchema = z.object({
   global: GlobalConfigSchema.partial().optional(),
   workload: WorkloadProfileSchema.partial().optional(),
   faults: z.array(FaultSpecSchema).optional(),
-  invariants: z.array(InvariantCheckSchema).optional()
+  invariants: z.array(InvariantCheckSchema).optional(),
+  experiment: QuestionCaseExperimentSchema.optional()
 })
 
 const RubricCheckSchema: z.ZodType<RubricCheck> = z
@@ -1334,6 +1355,7 @@ export const GradedEvaluationBatchSchema: z.ZodType<GradedEvaluationBatch> = z
 
 const AttemptGradeSchema: z.ZodType<AttemptGrade> = z.object({
   structural: StructuralEvaluationSchema,
+  experiments: z.array(QuestionExperimentCaseResultSchema).optional(),
   graded: GradedEvaluationBatchSchema,
   contract: HostContractSchema
 })
@@ -2071,14 +2093,23 @@ export function buildQuestionTestRows(
         status: 'pending' as const
       })),
     ...pkg.suite.cases.flatMap((testCase) =>
-      pkg.rubric.checks
-        .filter((check) => inferRubricCheckKind(check) !== 'topology')
-        .map((check) => ({
-          id: caseRubricTestId(testCase.id, inferRubricCheckKind(check), check.id),
-          name: check.description,
-          scope: testCase.id,
-          status: 'pending' as const
-        }))
+      testCase.experiment
+        ? [
+            {
+              id: caseRubricTestId(testCase.id, 'simulation', EXPERIMENT_VERDICT_CHECK_ID),
+              name: `Chaos experiment "${describeCaseExperiment(testCase.experiment)}" passes`,
+              scope: testCase.id,
+              status: 'pending' as const
+            }
+          ]
+        : pkg.rubric.checks
+            .filter((check) => inferRubricCheckKind(check) !== 'topology')
+            .map((check) => ({
+              id: caseRubricTestId(testCase.id, inferRubricCheckKind(check), check.id),
+              name: check.description,
+              scope: testCase.id,
+              status: 'pending' as const
+            }))
     )
   ]
 
@@ -2244,15 +2275,21 @@ export function gradeAttemptWithArtifacts(
     }
   }
 
-  const preparedCases: PreparedCase[] = pkg.suite.cases.map((testCase) => ({
-    id: testCase.id,
-    topology: mergeTopologyWithOverrides(studentTopology, {
+  // An experiment case is compiled against the learner's merged topology here;
+  // a preset that cannot apply becomes that case's error (graded below).
+  const experimentCases = new Map<string, PreparedExperimentCase>()
+  const preparedCases: PreparedCase[] = pkg.suite.cases.map((testCase) => {
+    const topology = mergeTopologyWithOverrides(studentTopology, {
       global: testCase.global,
       workload: deriveQuestionScaleWorkload(pkg, studentTopology, testCase.workload),
       faults: testCase.faults,
       invariants: testCase.invariants
     })
-  }))
+    if (!testCase.experiment) return { id: testCase.id, topology }
+    const prepared = prepareExperimentCase(testCase.id, topology, testCase.experiment)
+    experimentCases.set(testCase.id, prepared)
+    return prepared.prepared
+  })
 
   // Capture each run's raw output, keyed by the prepared topology object, so a
   // verdict + replay digest can be built per case without changing evaluateSuite
@@ -2265,7 +2302,15 @@ export function gradeAttemptWithArtifacts(
   }
 
   const batch = evaluateSuite(preparedCases, capturingRun, pkg.suite.name)
-  const graded = gradeQuestionBatch(pkg.rubric, studentTopology, batch)
+  const { graded, experiments } = gradeExperimentCases(
+    pkg,
+    studentTopology,
+    gradeQuestionBatch(pkg.rubric, studentTopology, batch),
+    batch,
+    preparedCases,
+    experimentCases,
+    outputByTopology
+  )
   const constraints = evaluateQuestionConstraints(
     pkg.constraints,
     studentTopology,
@@ -2302,6 +2347,7 @@ export function gradeAttemptWithArtifacts(
       : undefined
   const grade: AttemptGrade = {
     structural,
+    ...(experiments.length > 0 ? { experiments } : {}),
     ...(constraints ? { constraints } : {}),
     ...(semantic ? { semantic } : {}),
     ...(justification ? { justification } : {}),
@@ -2346,6 +2392,43 @@ export function gradeAttemptWithArtifacts(
   })
 
   return { grade, cases }
+}
+
+/** Replace experiment cases' generic rubric results with their experiment grades. */
+function gradeExperimentCases(
+  pkg: QuestionPackage,
+  studentTopology: TopologyJSON,
+  graded: GradedEvaluationBatch,
+  batch: EvaluationBatch,
+  preparedCases: readonly PreparedCase[],
+  experimentCases: ReadonlyMap<string, PreparedExperimentCase>,
+  outputByTopology: ReadonlyMap<TopologyJSON, SimulationOutput>
+): { graded: GradedEvaluationBatch; experiments: QuestionExperimentCaseResult[] } {
+  if (experimentCases.size === 0) return { graded, experiments: [] }
+  const replacements = new Map<string, GradedCaseResult>()
+  const experiments: QuestionExperimentCaseResult[] = []
+  for (const testCase of pkg.suite.cases) {
+    const prepared = experimentCases.get(testCase.id)
+    if (!prepared || !testCase.experiment) continue
+    const entry = preparedCases.find((candidate) => candidate.id === testCase.id)
+    const output = entry && 'topology' in entry ? outputByTopology.get(entry.topology) : undefined
+    const failed = batch.results.find(
+      (result): result is Extract<EvaluationBatch['results'][number], { ok: false }> =>
+        result.id === testCase.id && !result.ok
+    )
+    const { graded: caseGrade, result } = gradeExperimentCase({
+      rubric: pkg.rubric,
+      caseId: testCase.id,
+      experiment: testCase.experiment,
+      prepared,
+      ...(output ? { output } : {}),
+      ...(failed ? { runError: failed.error } : {}),
+      topology: studentTopology
+    })
+    replacements.set(testCase.id, caseGrade)
+    experiments.push(result)
+  }
+  return { graded: applyExperimentCaseGrades(pkg.rubric, graded, replacements), experiments }
 }
 
 export function gradeAttempt(

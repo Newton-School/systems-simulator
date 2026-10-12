@@ -448,7 +448,7 @@ function incompleteCaseRubric(
   return buildRubricResult(rubric, checks)
 }
 
-function aggregateBatchScore(
+export function aggregateBatchScore(
   rubric: Rubric,
   question: RubricResult | undefined,
   cases: readonly GradedCaseResult[]
@@ -471,7 +471,10 @@ function aggregateBatchScore(
   }
 }
 
-function batchSummary(question: RubricResult | undefined, cases: readonly GradedCaseResult[]) {
+export function batchSummary(
+  question: RubricResult | undefined,
+  cases: readonly GradedCaseResult[]
+) {
   const ran = cases.filter((entry) => entry.ran).length
   const passed = cases.filter((entry) => entry.rubric?.passed).length
   const allChecks = [
