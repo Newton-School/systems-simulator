@@ -15,7 +15,7 @@ import { AuthoringTopologyCanvas } from './AuthoringTopologyCanvas'
 export interface ObligationOption {
   id: string
   label: string
-  axis: 'structural' | 'semantic' | 'rubric'
+  axis: 'structural' | 'semantic' | 'rubric' | 'experiment'
 }
 
 interface DiscriminationLabProps {

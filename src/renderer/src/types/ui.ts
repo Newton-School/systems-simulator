@@ -227,6 +227,8 @@ export interface FaultTargetOption {
   id: string
   label: string
   group?: 'component' | 'location'
+  /** A cache component (cdn / in-memory cache / reverse proxy): can take a cache flush. */
+  isCache?: boolean
 }
 
 export interface ScenarioRunContext {

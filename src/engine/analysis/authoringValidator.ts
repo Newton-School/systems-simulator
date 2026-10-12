@@ -12,6 +12,12 @@
  * `error` diagnostics should block a save; `warning`s are advisory.
  */
 import type { QuestionPackage } from './question'
+import type { TopologyJSON } from '../core/types'
+import { mergeTopologyWithOverrides } from './evaluate'
+import { experimentPresetEntries, describeCaseExperiment } from './questionExperiment'
+import { buildExperimentFromPresets, presetOptionFields } from '../scenarios/presetBuild'
+import { findFaultDomain } from '../core/faultDomains'
+import { CACHE_COMPONENT_TYPES, CACHE_FLUSH_FAULT_TYPE } from '../traits/cache'
 import type { QuestionDomain } from './gradingCriteria'
 import { inferRubricCheckKind } from './rubric'
 import {
@@ -483,7 +489,19 @@ function validateBuilderPolicy(pkg: QuestionPackage, out: AuthoringDiagnostic[])
   }
 }
 
-export function validateAuthoredQuestion(pkg: QuestionPackage): AuthoringDiagnostic[] {
+export interface AuthoringValidationContext {
+  /**
+   * The design the author expects to pass (Question Studio's reference design).
+   * Fault targets and chaos experiments are checked against it; mismatches are
+   * warnings only, because learner designs differ. Not checked when omitted.
+   */
+  referenceTopology?: TopologyJSON
+}
+
+export function validateAuthoredQuestion(
+  pkg: QuestionPackage,
+  context: AuthoringValidationContext = {}
+): AuthoringDiagnostic[] {
   const out: AuthoringDiagnostic[] = []
 
   validateBuilderPolicy(pkg, out)
@@ -623,7 +641,118 @@ export function validateAuthoredQuestion(pkg: QuestionPackage): AuthoringDiagnos
     })
   }
 
+  validateCaseFaultsAndExperiments(pkg, context.referenceTopology, out)
+
   return out
+}
+
+const CACHE_TYPES = new Set<string>(CACHE_COMPONENT_TYPES)
+
+function validateCaseFaultsAndExperiments(
+  pkg: QuestionPackage,
+  reference: TopologyJSON | undefined,
+  out: AuthoringDiagnostic[]
+): void {
+  const cases = pkg.suite?.cases ?? []
+  cases.forEach((testCase, ci) => {
+    const path = `suite.cases[${ci}]`
+    if (!testCase.experiment) {
+      if (!reference) return
+      ;(testCase.faults ?? []).forEach((fault, fi) => {
+        const node = reference.nodes.find((candidate) => candidate.id === fault.targetId)
+        const domain = node ? undefined : findFaultDomain(reference, fault.targetId)
+        if (!node && !domain) {
+          out.push(
+            warn(
+              'fault.targetNotInReference',
+              `Case "${testCase.id}": fault target "${fault.targetId}" is not in the reference design. Fine if learner designs use this id; otherwise the fault does nothing.`,
+              `${path}.faults[${fi}].targetId`
+            )
+          )
+        } else if (
+          fault.faultType === CACHE_FLUSH_FAULT_TYPE &&
+          (domain || !CACHE_TYPES.has(node!.type))
+        ) {
+          out.push(
+            warn(
+              'fault.cacheFlushTarget',
+              `Case "${testCase.id}": a cache flush on "${fault.targetId}" does nothing - it is not a cache component in the reference design.`,
+              `${path}.faults[${fi}].faultType`
+            )
+          )
+        }
+      })
+      return
+    }
+
+    const name = describeCaseExperiment(testCase.experiment)
+    if ((testCase.faults ?? []).length > 0) {
+      out.push(
+        warn(
+          'experiment.faultsSetAside',
+          `Case "${testCase.id}" runs the ${name} experiment, which replaces the case's own faults - they never run.`,
+          `${path}.faults`
+        )
+      )
+    }
+    if ((testCase.invariants ?? []).length > 0) {
+      out.push(
+        warn(
+          'experiment.invariantsNotGraded',
+          `Case "${testCase.id}" is graded by its experiment verdict only, so its invariants are not graded.`,
+          `${path}.invariants`
+        )
+      )
+    }
+    if (!reference) return
+    testCase.experiment.presets.forEach((preset, pi) => {
+      for (const field of presetOptionFields(preset.presetId)) {
+        const value = preset.options?.[field.key]
+        if (typeof value !== 'string') continue
+        const known =
+          field.kind === 'zone'
+            ? findFaultDomain(reference, value) !== undefined
+            : reference.nodes.some((node) => node.id === value)
+        if (!known) {
+          out.push(
+            warn(
+              'experiment.pinnedTargetNotInReference',
+              `Case "${testCase.id}": ${field.label.toLowerCase()} "${value}" is not in the reference design; learner designs without that id fail this case.`,
+              `${path}.experiment.presets[${pi}].options.${field.key}`
+            )
+          )
+        }
+      }
+    })
+    const merged = mergeTopologyWithOverrides(reference, {
+      global: testCase.global,
+      workload: testCase.workload
+    })
+    const built = buildExperimentFromPresets(merged, experimentPresetEntries(testCase.experiment))
+    if (built.ok === false) {
+      out.push(
+        warn(
+          'experiment.referenceCannotRun',
+          `Case "${testCase.id}": the reference design cannot run the ${name} experiment: ${built.reason} The reference design would fail this case.`,
+          `${path}.experiment`
+        )
+      )
+    }
+  })
+
+  const rubricRunsSomewhere = cases.some((testCase) => !testCase.experiment)
+  const caseChecks = (pkg.rubric?.checks ?? []).filter(
+    (check) => inferRubricCheckKind(check) !== 'topology'
+  )
+  if (cases.length > 0 && !rubricRunsSomewhere && caseChecks.length > 0) {
+    out.push(
+      warn(
+        'experiment.rubricUnused',
+        'Every case is a chaos experiment, so the rubric metric checks never run. Add an ordinary case, or move them to topology checks.',
+        'rubric.checks'
+      )
+    )
+  }
 }
 
 /** Convenience: true when there are no `error`-level diagnostics. */

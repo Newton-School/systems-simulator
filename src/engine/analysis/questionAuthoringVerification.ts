@@ -16,10 +16,11 @@ import { resolveEvaluationMode, runSimulation } from '../runSimulation'
 import type { EvaluationMode, RunSimulationOptions } from '../runSimulation'
 import type { TopologyJSON } from '../core/types'
 import { computeVerificationSignature } from './questionAuthoringVerificationSignature'
+import { experimentObligationId } from './questionExperiment'
 
 export { computeVerificationSignature } from './questionAuthoringVerificationSignature'
 
-export type VerificationObligationAxis = 'structural' | 'semantic' | 'rubric'
+export type VerificationObligationAxis = 'structural' | 'semantic' | 'rubric' | 'experiment'
 
 export interface VerificationObligationOutcome {
   id: string
@@ -94,7 +95,13 @@ function obligationMap(
     outcomes.push({ id: result.id, axis: 'semantic', passed: result.outcome === 'passed' })
   }
 
-  const ranCases = grade.graded.cases.filter((entry) => entry.ran)
+  // Experiment cases are graded by their verdict, not by the shared rubric checks.
+  const experimentCaseIds = new Set(
+    pkg.suite.cases.filter((testCase) => testCase.experiment).map((testCase) => testCase.id)
+  )
+  const ranCases = grade.graded.cases.filter(
+    (entry) => entry.ran && !experimentCaseIds.has(entry.id)
+  )
   for (const check of pkg.rubric.checks) {
     const passed =
       ranCases.length > 0 &&
@@ -102,6 +109,14 @@ function obligationMap(
         (entry.rubric?.checks ?? []).some((result) => result.id === check.id && result.passed)
       )
     outcomes.push({ id: check.id, axis: 'rubric', passed })
+  }
+
+  for (const result of grade.experiments ?? []) {
+    outcomes.push({
+      id: experimentObligationId(result.caseId),
+      axis: 'experiment',
+      passed: result.passed
+    })
   }
 
   return outcomes
@@ -147,7 +162,14 @@ function verifyDesign(
   const grade = gradeAttempt(pkg, design.topology, run)
   const obligations = obligationMap(pkg, grade)
   const resolvedModes = [...modes]
-  const evidenceBlockers = computeEvidenceBlockers(pkg, resolvedModes)
+  const evidenceBlockers = [
+    ...computeEvidenceBlockers(pkg, resolvedModes),
+    ...(grade.experiments ?? [])
+      .filter((result) => result.result?.verdict === 'inconclusive')
+      .map(
+        (result) => `Experiment case "${result.caseId}" was inconclusive: ${result.result!.summary}`
+      )
+  ]
   const overallPassed = grade.contract.allPassed
 
   let expectedDiscriminator: ExpectedDiscriminator = 'not-specified'

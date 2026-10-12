@@ -164,12 +164,19 @@ export function ExperimentSetupSection({
   )
 }
 
-function ExperimentPlanPreview({ preview }: { preview: Extract<ExperimentPreview, { ok: true }> }) {
+/** The compiled timeline and steady-state assertions, shown before anything runs. */
+export function ExperimentPlanPreview({
+  preview,
+  durationNote = 'overrides the duration and warmup above'
+}: {
+  preview: Extract<ExperimentPreview, { ok: true }>
+  durationNote?: string
+}) {
   const { plan } = preview.compiled
   return (
     <div className={`${SURFACE_CARD} p-2 space-y-2`}>
       <p className="text-[10px] text-nss-muted">
-        Runs for {fmtExperimentTime(plan.durationMs)} (overrides the duration and warmup above).
+        Runs for {fmtExperimentTime(plan.durationMs)} ({durationNote}).
       </p>
       <ol className="space-y-0.5 text-[11px] text-nss-text">
         {plan.timeline

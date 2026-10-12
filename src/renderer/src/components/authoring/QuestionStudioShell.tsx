@@ -90,6 +90,10 @@ import { ScaffoldContractEditor } from './ScaffoldContractEditor'
 import { JustificationEditor } from './JustificationEditor'
 import { RubricCheckEditor } from './RubricCheckEditor'
 import { ScenarioSuiteEditor } from './ScenarioSuiteEditor'
+import {
+  describeCaseExperiment,
+  experimentObligationId
+} from '../../../../engine/analysis/questionExperiment'
 import { SemanticGradingEditor } from './SemanticGradingEditor'
 import { StructuralGradingEditor } from './StructuralGradingEditor'
 import {
@@ -179,8 +183,16 @@ export function QuestionStudioShell({
         axis: 'rubric'
       })
     }
+    for (const scenario of scenarios) {
+      if (!scenario.experiment) continue
+      options.push({
+        id: experimentObligationId(scenario.id),
+        label: `Chaos experiment: ${describeCaseExperiment(scenario.experiment)} (${scenario.id})`,
+        axis: 'experiment'
+      })
+    }
     return options
-  }, [metricRules, rubricChecks, semanticRules, structuralRules])
+  }, [metricRules, rubricChecks, scenarios, semanticRules, structuralRules])
   const stage = getQuestionStudioStage(activeStage)
   const nextStage = QUESTION_STUDIO_STAGES[stage.number]
   const generatedPreview = useMemo(() => compileQuestionAuthoringPreview(project), [project])
@@ -763,6 +775,8 @@ export function QuestionStudioShell({
                   dryRunScenarioId={project.question.dryRunScenarioId}
                   onAction={handleScenarioAction}
                   onDryRunChange={handleDryRunChange}
+                  referenceTopology={referenceTopology}
+                  scaffoldTopology={scaffoldTopology}
                 />
               </div>
             ) : stage.id === 'grading' ? (
