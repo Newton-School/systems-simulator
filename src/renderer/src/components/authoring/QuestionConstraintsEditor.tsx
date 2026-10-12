@@ -2,6 +2,7 @@ import { Search, ShieldCheck } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { AUTHORING_COMPONENT_CAPABILITIES } from '../../../../engine/analysis/authoringCapabilities'
 import type { QuestionAuthoringSetupDraft } from '../../../../engine/analysis/questionAuthoringProject'
+import { componentFamilyAcceptsHint } from '../../../../engine/catalog/componentFamilies'
 import { TooltipInfo } from '../ui/Tooltip'
 
 interface QuestionConstraintsEditorProps {
@@ -97,6 +98,11 @@ function ComponentTypeChecklist({
                       ? `${component.id} · aka ${component.aliases.join(', ')}`
                       : component.id}
                   </span>
+                  {componentFamilyAcceptsHint(component.id) && (
+                    <span className="block text-[10px] text-nss-muted">
+                      Generic type: {componentFamilyAcceptsHint(component.id)}
+                    </span>
+                  )}
                 </span>
               </label>
             )
@@ -171,7 +177,7 @@ export function QuestionConstraintsEditor({
           query={allowedQuery}
           onQueryChange={setAllowedQuery}
           onToggle={toggleAllowed}
-          help="Leave empty to allow the full palette. Selecting a type here removes it from Forbidden."
+          help="Leave empty to allow the full palette. Selecting a type here removes it from Forbidden. A generic type (Load Balancer) also allows its subtypes (L4, L7)."
         />
 
         <ComponentTypeChecklist
@@ -180,7 +186,7 @@ export function QuestionConstraintsEditor({
           query={forbiddenQuery}
           onQueryChange={setForbiddenQuery}
           onToggle={toggleForbidden}
-          help="Selected types are hidden from learners and fail validation if imported."
+          help="Selected types are hidden from learners and fail validation if imported. A generic type (Load Balancer) also forbids its subtypes (L4, L7)."
         />
       </div>
 

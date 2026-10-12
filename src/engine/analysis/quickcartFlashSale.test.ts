@@ -40,7 +40,10 @@ function edge(source: string, target: string): EdgeDefinition {
 }
 
 /** A student submission: Users → LB → `serverCount` servers. */
-function submission(serverCount: number): TopologyJSON {
+function submission(
+  serverCount: number,
+  lbType: ComponentNode['type'] = 'load-balancer'
+): TopologyJSON {
   const servers = Array.from({ length: serverCount }, (_, i) => server(`srv-${i}`))
   return {
     id: 'student',
@@ -64,7 +67,7 @@ function submission(serverCount: number): TopologyJSON {
       },
       {
         id: 'lb',
-        type: 'load-balancer',
+        type: lbType,
         category: 'network',
         role: 'router',
         label: 'Load Balancer',
@@ -110,6 +113,25 @@ describe('QuickCart flash-sale question', () => {
     expect(checks.find((c) => c.id === 'no-dropped-requests')?.passed).toBe(false)
     expect(checks.find((c) => c.id === 'within-headroom')?.passed).toBe(false)
   })
+
+  // The palette offers only Load Balancer L4 / L7 (the generic tile is retired), so
+  // the generic `load-balancer` rules must accept either subtype.
+  for (const lbType of ['load-balancer-l4', 'load-balancer-l7'] as const) {
+    it(`passes every load-balancer check with a ${lbType} learner design`, () => {
+      const grade = gradeAttempt(question, submission(13, lbType), runSimulation)
+      expect(grade.structural.checks.find((c) => c.id === 'requires-load-balancer')).toMatchObject({
+        passed: true,
+        detail: `satisfied by ${lbType} (a load-balancer subtype).`
+      })
+      expect(grade.constraints?.checks.find((c) => c.id === 'allowed-node-types')?.passed).toBe(
+        true
+      )
+      // Topology rubric checks grade once per question, not per case.
+      const checks = grade.graded.question?.checks ?? []
+      expect(checks.find((c) => c.id === 'has-load-balancer')?.passed).toBe(true)
+      expect(grade.contract.allPassed).toBe(true)
+    })
+  }
 
   it('grades the 1M-rps run analytically (fast, no event blow-up)', () => {
     const start = Date.now()

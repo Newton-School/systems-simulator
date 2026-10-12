@@ -58,6 +58,11 @@ import {
   type JustificationResult
 } from './justification'
 import { evaluateBudget, type BudgetEvaluation } from './budget'
+import {
+  componentTypePlainName,
+  expandComponentTypeFamilies,
+  genericComponentTypeOf
+} from '../catalog/componentFamilies'
 import { SIMULATION_VERDICT_VERSION, type SimulationVerdict } from './verdict'
 import {
   BudgetSchema,
@@ -457,10 +462,22 @@ function evaluateQuestionConstraints(
   const checks: ConstraintCheck[] = []
 
   if ((constraints.allowedNodeTypes?.length ?? 0) > 0) {
-    const allowed = new Set(constraints.allowedNodeTypes)
+    // Family-aware: allowing a generic type (load-balancer) also allows its subtypes.
+    const allowed = expandComponentTypeFamilies(constraints.allowedNodeTypes!)
     const found = Array.from(
       new Set(topology.nodes.map((node) => node.type).filter((type) => !allowed.has(type)))
-    ).sort()
+    )
+      .sort()
+      .map((type) => {
+        // A family relative of an allowed specific type (generic LB placed, L7 allowed).
+        const family = genericComponentTypeOf(type) ?? type
+        const relative = constraints.allowedNodeTypes!.find(
+          (entry) => genericComponentTypeOf(entry) === family
+        )
+        return relative
+          ? `${type} (this question needs ${componentTypePlainName(relative)}: ${relative})`
+          : type
+      })
     checks.push({
       id: 'allowed-node-types',
       description: `Use only allowed component types (${constraints.allowedNodeTypes!.join(', ')})`,
@@ -472,10 +489,16 @@ function evaluateQuestionConstraints(
   }
 
   if ((constraints.forbiddenNodeTypes?.length ?? 0) > 0) {
-    const forbidden = new Set(constraints.forbiddenNodeTypes)
+    // Family-aware: forbidding a generic type (load-balancer) also forbids its subtypes.
+    const named = new Set<string>(constraints.forbiddenNodeTypes)
+    const forbidden = expandComponentTypeFamilies(named)
     const found = Array.from(
       new Set(topology.nodes.map((node) => node.type).filter((type) => forbidden.has(type)))
-    ).sort()
+    )
+      .sort()
+      .map((type) =>
+        named.has(type) ? type : `${type} (a ${genericComponentTypeOf(type) ?? type} subtype)`
+      )
     checks.push({
       id: 'forbidden-node-types',
       description: `Avoid forbidden component types (${constraints.forbiddenNodeTypes!.join(', ')})`,
