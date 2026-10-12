@@ -1,4 +1,9 @@
 import { inferStructuralRole } from '../catalog/componentSpecs'
+import {
+  componentTypeSatisfies,
+  describeFamilyMismatch,
+  describeSubtypeMatch
+} from '../catalog/componentFamilies'
 import { getInstanceCount } from '../core/types'
 import type {
   ComponentCategory,
@@ -88,8 +93,47 @@ function resolvedRole(node: ComponentNode): ComponentNode['role'] | undefined {
   return inferred === 'composite' ? undefined : inferred
 }
 
+/** Nodes a rule naming `componentType` matches (family-aware: generic accepts subtypes). */
+function nodesOfType(topology: TopologyJSON, componentType: ComponentType): ComponentNode[] {
+  return topology.nodes.filter((node) => componentTypeSatisfies(node.type, componentType))
+}
+
 function countNodesOfType(topology: TopologyJSON, componentType: ComponentType): number {
-  return topology.nodes.filter((node) => node.type === componentType).length
+  return nodesOfType(topology, componentType).length
+}
+
+function presentTypes(topology: TopologyJSON): Set<string> {
+  return new Set(topology.nodes.map((node) => node.type))
+}
+
+/** Pass note when only subtypes satisfied a generic rule. */
+function subtypeNote(topology: TopologyJSON, componentType: ComponentType): string | undefined {
+  return describeSubtypeMatch(presentTypes(topology), componentType)
+}
+
+/** Fail note when a sibling / generic stands in for a specific rule's type. */
+function mismatchNote(topology: TopologyJSON, componentType: ComponentType): string {
+  const note = describeFamilyMismatch(presentTypes(topology), componentType)
+  return note ? ` ${note}` : ''
+}
+
+/** " (counting its subtypes load-balancer-l7)" when subtypes were counted toward a generic cap. */
+function countedSubtypesNote(topology: TopologyJSON, componentType: ComponentType): string {
+  const subtypes = [
+    ...new Set(
+      nodesOfType(topology, componentType)
+        .map((node) => node.type)
+        .filter((type) => type !== componentType)
+    )
+  ].sort()
+  return subtypes.length > 0
+    ? ` (counting its subtype${subtypes.length === 1 ? '' : 's'} ${subtypes.join(', ')})`
+    : ''
+}
+
+function withPassNote(...notes: (string | undefined)[]): { detail?: string } {
+  const present = notes.filter((note): note is string => note !== undefined)
+  return present.length > 0 ? { detail: present.join(' ') } : {}
 }
 
 function countNodesInCategory(topology: TopologyJSON, category: ComponentCategory): number {
@@ -175,11 +219,11 @@ function evaluateRule(topology: TopologyJSON, rule: StructuralRule): StructuralC
         description: rule.description,
         passed: count >= minCount,
         ...(count >= minCount
-          ? {}
+          ? withPassNote(subtypeNote(topology, rule.componentType))
           : {
               detail: `expected at least ${minCount} ${rule.componentType} component${
                 minCount === 1 ? '' : 's'
-              }, found ${count}.`
+              }, found ${count}.${mismatchNote(topology, rule.componentType)}`
             })
       }
     }
@@ -206,8 +250,10 @@ function evaluateRule(topology: TopologyJSON, rule: StructuralRule): StructuralC
         const sourceNode = topology.nodes.find((node) => node.id === edge.source)
         const targetNode = topology.nodes.find((node) => node.id === edge.target)
         return (
-          sourceNode?.type === rule.fromType &&
-          targetNode?.type === rule.toType &&
+          sourceNode !== undefined &&
+          targetNode !== undefined &&
+          componentTypeSatisfies(sourceNode.type, rule.fromType) &&
+          componentTypeSatisfies(targetNode.type, rule.toType) &&
           (rule.mode ? edge.mode === rule.mode : true)
         )
       })
@@ -217,11 +263,14 @@ function evaluateRule(topology: TopologyJSON, rule: StructuralRule): StructuralC
         description: rule.description,
         passed: matched,
         ...(matched
-          ? {}
+          ? withPassNote(subtypeNote(topology, rule.fromType), subtypeNote(topology, rule.toType))
           : {
               detail: `expected ${
                 rule.mode ? `${rule.mode} ` : ''
-              }edge from ${rule.fromType} to ${rule.toType}.`
+              }edge from ${rule.fromType} to ${rule.toType}.${mismatchNote(
+                topology,
+                rule.fromType
+              )}${mismatchNote(topology, rule.toType)}`
             })
       }
     }
@@ -237,25 +286,29 @@ function evaluateRule(topology: TopologyJSON, rule: StructuralRule): StructuralC
           : {
               detail: `expected at most ${rule.maxCount} ${rule.componentType} component${
                 rule.maxCount === 1 ? '' : 's'
-              }, found ${count}.`
+              }, found ${count}${countedSubtypesNote(topology, rule.componentType)}.`
             })
       }
     }
 
     case 'requires_redundancy': {
-      const replicas = topology.nodes
-        .filter((node) => node.type === rule.componentType)
-        .reduce((sum, node) => sum + getInstanceCount(node.resources), 0)
+      const replicas = nodesOfType(topology, rule.componentType).reduce(
+        (sum, node) => sum + getInstanceCount(node.resources),
+        0
+      )
       return {
         id: rule.id,
         description: rule.description,
         passed: replicas >= rule.minReplicas,
         ...(replicas >= rule.minReplicas
-          ? {}
+          ? withPassNote(subtypeNote(topology, rule.componentType))
           : {
               detail: `expected at least ${rule.minReplicas} total replica${
                 rule.minReplicas === 1 ? '' : 's'
-              } across ${rule.componentType}, found ${replicas}.`
+              } across ${rule.componentType}, found ${replicas}.${mismatchNote(
+                topology,
+                rule.componentType
+              )}`
             })
       }
     }
@@ -271,7 +324,7 @@ function evaluateRule(topology: TopologyJSON, rule: StructuralRule): StructuralC
           : {
               detail: `forbidden component ${rule.componentType} is present ${count} time${
                 count === 1 ? '' : 's'
-              }.`
+              }${countedSubtypesNote(topology, rule.componentType)}.`
             })
       }
     }
@@ -343,20 +396,20 @@ function evaluateRule(topology: TopologyJSON, rule: StructuralRule): StructuralC
     }
 
     case 'requires_path': {
-      const fromNodeIds = topology.nodes
-        .filter((node) => node.type === rule.fromType)
+      const fromNodeIds = nodesOfType(topology, rule.fromType)
         .map((node) => node.id)
         .sort()
-      const toNodeIds = new Set(
-        topology.nodes.filter((node) => node.type === rule.toType).map((node) => node.id)
-      )
+      const toNodeIds = new Set(nodesOfType(topology, rule.toType).map((node) => node.id))
 
       if (fromNodeIds.length === 0) {
         return {
           id: rule.id,
           description: rule.description,
           passed: false,
-          detail: `no source nodes of type ${rule.fromType} found for path check.`
+          detail: `no source nodes of type ${rule.fromType} found for path check.${mismatchNote(
+            topology,
+            rule.fromType
+          )}`
         }
       }
 
@@ -365,7 +418,10 @@ function evaluateRule(topology: TopologyJSON, rule: StructuralRule): StructuralC
           id: rule.id,
           description: rule.description,
           passed: false,
-          detail: `no target nodes of type ${rule.toType} found for path check.`
+          detail: `no target nodes of type ${rule.toType} found for path check.${mismatchNote(
+            topology,
+            rule.toType
+          )}`
         }
       }
 
@@ -378,7 +434,7 @@ function evaluateRule(topology: TopologyJSON, rule: StructuralRule): StructuralC
         description: rule.description,
         passed: hasPath,
         ...(hasPath
-          ? {}
+          ? withPassNote(subtypeNote(topology, rule.fromType), subtypeNote(topology, rule.toType))
           : { detail: `no directed path found from ${rule.fromType} to ${rule.toType}.` })
       }
     }

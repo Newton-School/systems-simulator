@@ -1,5 +1,6 @@
 import type { TopologyJSON } from '../core/types'
 import { deriveNodeConcurrency } from '../nodes/resourceDerivation'
+import { componentTypeSatisfies } from '../catalog/componentFamilies'
 import type { EvaluationBatch } from './evaluate'
 import type { SimulationVerdict } from './verdict'
 
@@ -202,7 +203,8 @@ export function resolveTopologyMetric(topology: TopologyJSON, metric: string): n
 
   if (metric.startsWith('topology.componentCounts.')) {
     const componentType = metric.slice('topology.componentCounts.'.length)
-    return topology.nodes.filter((node) => node.type === componentType).length
+    // Family-aware: a generic type's count includes its subtypes (L4 / L7 count as load-balancer).
+    return topology.nodes.filter((node) => componentTypeSatisfies(node.type, componentType)).length
   }
 
   if (metric.startsWith('topology.categoryCounts.')) {

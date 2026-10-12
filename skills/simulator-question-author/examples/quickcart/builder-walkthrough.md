@@ -44,7 +44,9 @@ Users (Traffic Source)  →  Load Balancer  →  13 × Server   (each ≤ 80% of
 Drag onto the canvas from the library:
 
 - **Traffic Source** (Templates) — this is _Users_.
-- **Load Balancer** (Network) — a plain L4 balancer is fine here; even split is all we need.
+- **Load Balancer L4** or **Load Balancer L7** (Network) - either is fine here; even split is all we
+  need. The palette no longer offers a generic Load Balancer tile, and the question's
+  `load-balancer` checks accept both subtypes (a generic type accepts its L4 / L7 subtypes).
 - **Server** ×13 (Compute → **microservice**, or the Service Builder "Long-running service").
   Start with a few and add more once you see the utilization.
 
@@ -221,6 +223,9 @@ The authored question (`quickcart-flash-sale.question-package.json`) checks:
 | Has a server pool   | topology   | `topology.componentCounts.microservice ≥ 1`  |
 | Serves peak load    | simulation | `summary.errorRate < 1%` (nothing dropped)   |
 | Within 80% headroom | invariant  | `perNode.maxUtilization ≤ 0.8`               |
+
+`topology.componentCounts.load-balancer` counts the generic Load Balancer plus its
+L4 and L7 subtypes, so a design built with Load Balancer L7 passes this check.
 
 The headroom rule is injected as an **invariant** on the grading case
 (`perNode.maxUtilization <= 0.8`), so a submission with 12 servers trips it and 13

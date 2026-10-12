@@ -19,6 +19,7 @@
  */
 import type { ComponentType, TopologyJSON } from '../core/types'
 import type { JustifyPrompt } from './gradingCriteria'
+import { componentTypeSatisfies } from '../catalog/componentFamilies'
 
 export interface JustificationAnswer {
   promptId: string
@@ -54,7 +55,8 @@ export function buildJustificationContext(
         return topology.nodes.find((node) => node.id === boundTo.nodeId)?.type
       }
       if (boundTo?.componentType) {
-        return topology.nodes.some((node) => node.type === boundTo.componentType)
+        const bound = boundTo.componentType
+        return topology.nodes.some((node) => componentTypeSatisfies(node.type, bound))
           ? boundTo.componentType
           : undefined
       }
@@ -63,7 +65,11 @@ export function buildJustificationContext(
     aliasesOf: (type) => {
       const aliases = new Set<string>([type, type.replace(/-/g, ' '), ...type.split('-')])
       for (const node of topology.nodes) {
-        if (node.type === type && typeof node.label === 'string' && node.label.length > 0) {
+        if (
+          componentTypeSatisfies(node.type, type) &&
+          typeof node.label === 'string' &&
+          node.label.length > 0
+        ) {
           aliases.add(node.label.toLowerCase())
         }
       }

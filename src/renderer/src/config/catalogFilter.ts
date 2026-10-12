@@ -2,6 +2,7 @@ import type { CatalogCategory, CatalogItem, ComponentLibraryMode } from '@render
 import { PALETTE_TEMPLATES } from '../../../engine/catalog/paletteTemplates'
 import { CANONICAL_TEMPLATE_ID_BY_COMPONENT_TYPE } from '../../../engine/analysis/authoringCapabilities'
 import { isComponentLibraryItemVisible } from './componentLibraryVisibility'
+import { expandComponentTypeFamilies } from '../../../engine/catalog/componentFamilies'
 
 export type ComponentLibraryFilter = 'all' | 'common'
 
@@ -65,8 +66,14 @@ export function filterCatalogCategories(
 ): CatalogCategory[] {
   const trimmed = options.query.trim()
   const allowedPalette = options.editPaletteList === null ? null : new Set(options.editPaletteList)
-  const allowed = options.allowedNodeTypes ? new Set(options.allowedNodeTypes) : null
-  const forbidden = options.forbiddenNodeTypes ? new Set(options.forbiddenNodeTypes) : null
+  // Family-aware, matching grading: an allowed generic type (load-balancer) also
+  // offers its subtypes' tiles (L4 / L7), and a forbidden generic hides them too.
+  const allowed = options.allowedNodeTypes
+    ? expandComponentTypeFamilies(options.allowedNodeTypes)
+    : null
+  const forbidden = options.forbiddenNodeTypes
+    ? expandComponentTypeFamilies(options.forbiddenNodeTypes)
+    : null
   // A question allow-list turns the palette into a strict, curated set: only the
   // author's chosen types, one canonical item each, and no Common/All scoping.
   const hasQuestionAllowlist = allowed !== null

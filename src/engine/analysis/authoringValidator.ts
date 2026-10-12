@@ -20,6 +20,7 @@ import {
   resolveBuilderPolicy
 } from './builderPolicy'
 import { RUNTIME_TEMPLATES } from '../catalog/customDefinitions'
+import { acceptedComponentTypes, expandComponentTypeFamilies } from '../catalog/componentFamilies'
 import {
   INVARIANT_RUBRIC_METRICS,
   NFR_METRIC_TO_RUBRIC_METRIC,
@@ -483,10 +484,71 @@ function validateBuilderPolicy(pkg: QuestionPackage, out: AuthoringDiagnostic[])
   }
 }
 
+/** Component types a package's rules require to be present, with their paths. */
+function requiredComponentTypes(pkg: QuestionPackage): { type: string; path: string }[] {
+  const required: { type: string; path: string }[] = []
+  ;(pkg.structuralRules ?? []).forEach((rule, i) => {
+    const path = `structuralRules[${i}]`
+    if (rule.kind === 'requires_component' || rule.kind === 'requires_redundancy') {
+      required.push({ type: rule.componentType, path })
+    } else if (rule.kind === 'requires_edge' || rule.kind === 'requires_path') {
+      required.push({ type: rule.fromType, path }, { type: rule.toType, path })
+    }
+  })
+  ;(pkg.semanticCriteria ?? []).forEach((criterion, i) => {
+    const path = `semanticCriteria[${i}]`
+    if (criterion.kind === 'componentPresence' || criterion.kind === 'placement') {
+      required.push({ type: criterion.componentType, path })
+    } else if (criterion.kind === 'guardedPath') {
+      required.push({ type: criterion.guard, path })
+    }
+  })
+  ;(pkg.rubric?.checks ?? []).forEach((check, i) => {
+    const prefix = 'topology.componentCounts.'
+    if (check.metric.startsWith(prefix)) {
+      required.push({ type: check.metric.slice(prefix.length), path: `rubric.checks[${i}].metric` })
+    }
+  })
+  return required
+}
+
+/**
+ * A rule that requires a component the learner can never place: none of the
+ * types the rule accepts (family-aware, so `load-balancer` accepts L4 / L7)
+ * survive constraints.allowedNodeTypes / forbiddenNodeTypes.
+ */
+function validateRequiredComponentsPlaceable(
+  pkg: QuestionPackage,
+  out: AuthoringDiagnostic[]
+): void {
+  const allowedList = pkg.constraints.allowedNodeTypes ?? []
+  const forbiddenList = pkg.constraints.forbiddenNodeTypes ?? []
+  if (allowedList.length === 0 && forbiddenList.length === 0) return
+  const allowed = allowedList.length > 0 ? expandComponentTypeFamilies(allowedList) : null
+  const forbidden = expandComponentTypeFamilies(forbiddenList)
+  const reported = new Set<string>()
+  for (const { type, path } of requiredComponentTypes(pkg)) {
+    const placeable = acceptedComponentTypes(type).some(
+      (accepted) => (allowed === null || allowed.has(accepted)) && !forbidden.has(accepted)
+    )
+    const key = `${path}:${type}`
+    if (placeable || reported.has(key)) continue
+    reported.add(key)
+    out.push(
+      warn(
+        'constraints.requiredComponentUnplaceable',
+        `${path} requires ${type}, but constraints.allowedNodeTypes / forbiddenNodeTypes leave the learner no way to place it (or a subtype of it), so the check can never pass.`,
+        path
+      )
+    )
+  }
+}
+
 export function validateAuthoredQuestion(pkg: QuestionPackage): AuthoringDiagnostic[] {
   const out: AuthoringDiagnostic[] = []
 
   validateBuilderPolicy(pkg, out)
+  validateRequiredComponentsPlaceable(pkg, out)
 
   validateDomains(pkg, out)
   validateConcepts(pkg, out)
