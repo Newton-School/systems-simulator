@@ -149,7 +149,7 @@ export const EDGE_PROPERTY_HELP = {
     summary:
       'How many transfers the edge can carry at once before it behaves like a saturated connection pool.',
     simulationEffect:
-      'Near the cap, latency inflates; at or above the cap, reliable protocols reject new transfers with connection_refused.'
+      'At the cap, new transfers wait (oldest first, up to their deadline) for a transfer in transit to free its slot, measured as edge slot wait; once as many are waiting as the cap allows, further transfers are refused with connection_refused. Throughput plateaus near cap / transit time. Below the cap, it adds no latency.'
   },
   weight: {
     title: edgeFieldTitle('weight'),

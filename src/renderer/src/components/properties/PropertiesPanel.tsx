@@ -1365,6 +1365,7 @@ function EdgeMetricsDetail({
             linkUtilization={edgeResult.linkUtilization}
             connections={edgeResult.connections}
             batching={edgeResult.batching}
+            slots={edgeResult.slots}
           />
         </EdgeResultsSection>
       ) : null}

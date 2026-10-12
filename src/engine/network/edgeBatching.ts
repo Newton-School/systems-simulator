@@ -11,14 +11,20 @@
  * overhead, serializes its total bytes on the link once and takes one slot of
  * the edge's `maxConcurrentRequests` (Kafka's in-flight requests). That is
  * where the throughput gain comes from, and it is measured: under the same
- * in-flight cap an unbatched edge refuses records a batched one carries. The
- * cost is also measured: every record waits in the accumulator until its batch
- * is sent (reported as batch wait in the edge latency breakdown).
+ * in-flight cap an unbatched edge tops out at cap / transit time and refuses
+ * the rest, while a batched one carries them. The cost is also measured: every
+ * record waits in the accumulator until its batch is sent (reported as batch
+ * wait in the edge latency breakdown).
+ *
+ * A closed batch that finds every in-flight slot taken waits for one (edge
+ * slot wait) and, like Kafka's accumulator, keeps taking new records until it
+ * reaches batch.size, so in-flight back-pressure grows batches.
  *
  * Not modeled: compression, producer acks levels (acks=0/1/all need replica
- * acknowledgement timing on the write), buffer.memory back-pressure (a batch
- * that finds the in-flight cap full is refused, like any other transfer), and
- * per-partition batches (one accumulator per edge).
+ * acknowledgement timing on the write), buffer.memory / max.block.ms (the line
+ * of batches waiting for a slot is as long as the in-flight cap; past that,
+ * records are refused like any other transfer), and per-partition batches (one
+ * accumulator per edge).
  */
 
 import type { EdgeBatchingConfig, EdgeDefinition } from '../core/types'

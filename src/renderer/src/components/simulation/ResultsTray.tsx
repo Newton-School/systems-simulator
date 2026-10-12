@@ -3984,6 +3984,7 @@ function ComponentDrilldown({
                   linkUtilization={metric.linkUtilization}
                   connections={metric.connections}
                   batching={metric.batching}
+                  slots={metric.slots}
                 />
               </div>
             </div>

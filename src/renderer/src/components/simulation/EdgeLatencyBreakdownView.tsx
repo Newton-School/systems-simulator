@@ -1,7 +1,8 @@
 import type {
   EdgeBatchingSummary,
   EdgeConnectionCounts,
-  EdgeLatencyBreakdown
+  EdgeLatencyBreakdown,
+  EdgeSlotCounts
 } from '../../../../engine/metrics'
 import {
   EDGE_LATENCY_COMPONENTS,
@@ -17,11 +18,6 @@ const COMPONENT_META: Record<EdgeLatencyComponent, { label: string; color: strin
       label: 'Propagation',
       color: '#60a5fa',
       why: 'Sampled from the path-type or configured latency distribution (jitter lives here).'
-    },
-    congestionMs: {
-      label: 'Congestion',
-      color: '#f59e0b',
-      why: 'Propagation inflated by 1 / (1 - in-flight / max concurrent) as the edge fills up.'
     },
     transmissionMs: {
       label: 'Transmission',
@@ -48,6 +44,11 @@ const COMPONENT_META: Record<EdgeLatencyComponent, { label: string; color: strin
       color: '#e879f9',
       why: 'Waiting at the source for a free connection: every pooled connection was busy and the pool was at its cap (HTTP/1.1 head-of-line blocking).'
     },
+    slotWaitMs: {
+      label: 'Edge slot wait',
+      color: '#f59e0b',
+      why: "Waiting for one of the edge's max concurrent in-flight slots: every slot was held by a transfer still in transit, so the transfer queued (oldest first) until one freed."
+    },
     handshakeMs: {
       label: 'Handshake',
       color: '#2dd4bf',
@@ -71,7 +72,8 @@ export function EdgeLatencyBreakdownView({
   breakdown,
   linkUtilization,
   connections,
-  batching
+  batching,
+  slots
 }: {
   breakdown: EdgeLatencyBreakdown
   linkUtilization?: number
@@ -79,6 +81,8 @@ export function EdgeLatencyBreakdownView({
   connections?: EdgeConnectionCounts
   /** Producer batching summary, when the edge batches. */
   batching?: EdgeBatchingSummary
+  /** In-flight cap counts, when the edge's max concurrent cap bound. */
+  slots?: EdgeSlotCounts
 }) {
   const total = breakdown.meanTotalMs
   // Opt-in components (connection model, batching) stay hidden until they apply;
@@ -154,6 +158,36 @@ export function EdgeLatencyBreakdownView({
           </span>
         ) : null}
       </div>
+      {slots ? (
+        <div
+          className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-nss-muted"
+          data-testid="edge-slot-counts"
+          title="Post-warmup counts from the edge's max concurrent cap: transfers that waited for an in-flight slot, those refused because the line of pending transfers (as long as the cap) was full too, and those whose deadline passed while waiting."
+        >
+          <span>
+            Waited for a slot{' '}
+            <span className="tabular-nums text-nss-text">{slots.waited.toLocaleString()}</span>
+          </span>
+          <span>
+            Peak waiting{' '}
+            <span className="tabular-nums text-nss-text">{slots.peakWaiting.toLocaleString()}</span>
+          </span>
+          {slots.refused > 0 ? (
+            <span>
+              Refused (line full){' '}
+              <span className="tabular-nums text-nss-text">{slots.refused.toLocaleString()}</span>
+            </span>
+          ) : null}
+          {slots.timedOutWaiting > 0 ? (
+            <span>
+              Timed out waiting{' '}
+              <span className="tabular-nums text-nss-text">
+                {slots.timedOutWaiting.toLocaleString()}
+              </span>
+            </span>
+          ) : null}
+        </div>
+      ) : null}
       {connections ? (
         <div
           className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-nss-muted"

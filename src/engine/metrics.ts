@@ -268,6 +268,13 @@ export interface PerEdgeMetrics {
    * had to wait for a free stream, and keep-alive connections closed idle.
    */
   connections?: EdgeConnectionCounts
+  /**
+   * Edge in-flight cap (maxConcurrentRequests), post-warmup: requests that had
+   * to wait for a slot, those whose deadline passed while waiting, those refused
+   * because the line was full too, and the most requests waiting at once.
+   * Absent when the cap never bound.
+   */
+  slots?: EdgeSlotCounts
   /** Kafka producer batching (edge.batching), post-warmup. */
   batching?: EdgeBatchingSummary
 }
@@ -278,6 +285,15 @@ export interface EdgeConnectionCounts {
   reused: number
   waited: number
   closedIdle: number
+}
+
+export interface EdgeSlotCounts {
+  waited: number
+  timedOutWaiting: number
+  /** Refused at once: every slot busy and the line of pending transfers full. */
+  refused: number
+  /** Peak number of requests waiting for a slot at once (a peak, not a mean). */
+  peakWaiting: number
 }
 
 export interface EdgeBatchingSummary {
@@ -443,6 +459,7 @@ export class MetricsCollector {
   private readonly edgeBreakdownById = new Map<string, EdgeBreakdownAccumulator>()
   private readonly edgeLinkBusyUsById = new Map<string, number>()
   private readonly edgeConnectionCountsById = new Map<string, EdgeConnectionCounts>()
+  private readonly edgeSlotCountsById = new Map<string, EdgeSlotCounts>()
   private readonly edgeBatchTotalsById = new Map<
     string,
     { batches: number; records: number; bytes: number }
@@ -818,6 +835,41 @@ export class MetricsCollector {
     counts[kind] += count
   }
 
+  private edgeSlotCounts(edgeId: string): EdgeSlotCounts {
+    let counts = this.edgeSlotCountsById.get(edgeId)
+    if (!counts) {
+      counts = { waited: 0, timedOutWaiting: 0, refused: 0, peakWaiting: 0 }
+      this.edgeSlotCountsById.set(edgeId, counts)
+    }
+    return counts
+  }
+
+  /** A request started waiting for an edge in-flight slot; `waiting` now wait (post-warmup only). */
+  recordEdgeSlotWait(edgeId: string, atUs: bigint, waiting: number): void {
+    if (!this.isPostWarmup(atUs)) {
+      return
+    }
+    const counts = this.edgeSlotCounts(edgeId)
+    counts.waited += 1
+    counts.peakWaiting = Math.max(counts.peakWaiting, waiting)
+  }
+
+  /** A transfer refused at a full edge (slots and line full; post-warmup only). */
+  recordEdgeSlotRefused(edgeId: string, atUs: bigint): void {
+    if (!this.isPostWarmup(atUs)) {
+      return
+    }
+    this.edgeSlotCounts(edgeId).refused += 1
+  }
+
+  /** A request's deadline passed while it waited for an edge slot (post-warmup only). */
+  recordEdgeSlotWaitTimeout(edgeId: string, atUs: bigint): void {
+    if (!this.isPostWarmup(atUs)) {
+      return
+    }
+    this.edgeSlotCounts(edgeId).timedOutWaiting += 1
+  }
+
   /** Count a producer batch sent on an edge (post-warmup only). */
   recordEdgeBatchSent(edgeId: string, atUs: bigint, records: number, bytes: number): void {
     if (!this.isPostWarmup(atUs)) {
@@ -1134,6 +1186,9 @@ export class MetricsCollector {
                 ...(this.edgeConnectionCountsById.get(edgeId) as EdgeConnectionCounts)
               }
             }
+          : {}),
+        ...(this.edgeSlotCountsById.has(edgeId)
+          ? { slots: { ...(this.edgeSlotCountsById.get(edgeId) as EdgeSlotCounts) } }
           : {}),
         ...(() => {
           const totals = this.edgeBatchTotalsById.get(edgeId)

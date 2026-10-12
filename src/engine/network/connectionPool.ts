@@ -39,6 +39,7 @@ import type {
   EdgeDefinition,
   EdgeTlsVersion
 } from '../core/types'
+import { KeyedWaitQueue } from './waitQueue'
 
 export type EdgeProtocol = EdgeDefinition['protocol']
 export type ConnectionReuse = EdgeConnectionReuse
@@ -187,11 +188,10 @@ interface PooledConnection {
   idleSinceUs: number
 }
 
-interface ConnectionPoolState<W> {
+interface ConnectionPoolState {
   connections: PooledConnection[]
   /** A TLS session ticket from an earlier full handshake becomes usable at this time. */
   sessionTicketAtUs: number
-  waiters: W[]
 }
 
 export interface ConnectionLease {
@@ -216,13 +216,15 @@ export type ConnectionGrant =
 
 /** All connection pools of one run, keyed by pool id (edge id, plus client key). */
 export class EdgeConnectionPools<W> {
-  private readonly pools = new Map<string, ConnectionPoolState<W>>()
+  private readonly pools = new Map<string, ConnectionPoolState>()
+  /** Requests waiting for a free stream, per pool (shared FIFO wait behaviour). */
+  private readonly waiters = new KeyedWaitQueue<W>()
   private nextConnectionId = 1
 
-  private pool(poolId: string): ConnectionPoolState<W> {
+  private pool(poolId: string): ConnectionPoolState {
     let pool = this.pools.get(poolId)
     if (!pool) {
-      pool = { connections: [], sessionTicketAtUs: Number.POSITIVE_INFINITY, waiters: [] }
+      pool = { connections: [], sessionTicketAtUs: Number.POSITIVE_INFINITY }
       this.pools.set(poolId, pool)
     }
     return pool
@@ -317,19 +319,13 @@ export class EdgeConnectionPools<W> {
   }
 
   enqueueWaiter(poolId: string, waiter: W, front = false): void {
-    const waiters = this.pool(poolId).waiters
-    if (front) waiters.unshift(waiter)
-    else waiters.push(waiter)
+    this.pool(poolId)
+    this.waiters.enqueue(poolId, waiter, front)
   }
 
   /** Remove a parked waiter (its deadline fired). Returns whether it was still waiting. */
   removeWaiter(poolId: string, predicate: (waiter: W) => boolean): boolean {
-    const pool = this.pools.get(poolId)
-    if (!pool) return false
-    const index = pool.waiters.findIndex(predicate)
-    if (index < 0) return false
-    pool.waiters.splice(index, 1)
-    return true
+    return this.waiters.remove(poolId, predicate)
   }
 
   /**
@@ -353,7 +349,8 @@ export class EdgeConnectionPools<W> {
         if (config.reuse === 'per-request') pool.connections.splice(index, 1)
       }
     }
-    if (pool.waiters.length === 0) {
+    const waiting = this.waiters.size(lease.poolId)
+    if (waiting === 0) {
       // An ephemeral pool (an anonymous client) is never reused; forget it.
       if (pool.connections.length === 0 && ephemeral) this.pools.delete(lease.poolId)
       return []
@@ -366,7 +363,6 @@ export class EdgeConnectionPools<W> {
             (sum, connection) => sum + Math.max(0, config.maxStreams - connection.activeStreams),
             0
           ) + (unopened > 0 ? unopened * config.maxStreams : 0)
-    const count = Math.min(pool.waiters.length, freeStreams)
-    return pool.waiters.splice(0, count)
+    return this.waiters.take(lease.poolId, Math.min(waiting, freeStreams))
   }
 }

@@ -333,6 +333,12 @@ export function interfaceLines(
           `  ${fmtCount(k.opened)} connections opened (${fmtCount(k.resumed)} TLS resumed), ${fmtCount(k.reused)} reused, ${fmtCount(k.waited)} waited for a connection`
         )
       }
+      if (measured.slots) {
+        const k = measured.slots
+        lines.push(
+          `  ${fmtCount(k.waited)} waited for an edge slot (peak ${fmtCount(k.peakWaiting)} waiting), ${fmtCount(k.refused)} refused with the line full, ${fmtCount(k.timedOutWaiting)} timed out waiting`
+        )
+      }
       if (measured.batching) {
         lines.push(
           `  ${fmtCount(measured.batching.batchesSent)} batches, ${measured.batching.meanRecordsPerBatch.toFixed(1)} records per batch`

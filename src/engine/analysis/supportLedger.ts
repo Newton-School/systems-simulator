@@ -35,7 +35,7 @@ export const DOMAIN_SUPPORT_LEDGER: Record<QuestionDomain, SupportLedgerEntry> =
   network: {
     tier: 'guided',
     summary:
-      'Edge latency, packet loss, protocol overhead, request-direction bandwidth (transmission delay plus FIFO link queueing), per-edge concurrency caps, an opt-in connection model (TCP/TLS/upgrade handshakes on new connections, keep-alive and persistent reuse, TLS session resumption, per-protocol streams per connection so HTTP/1.1 head-of-line waits at a full pool while HTTP/2 multiplexes), opt-in Kafka producer batching (linger.ms / batch.size), HTTP acknowledgements, session lifecycle markers, and L4-versus-L7 rejection/flow-control behavior are modeled, while response payloads remain simplified.',
+      'Edge latency, packet loss, protocol overhead, request-direction bandwidth (transmission delay plus FIFO link queueing), per-edge concurrency caps (a saturated edge plateaus at cap / transit time: excess transfers wait FIFO for a slot up to their deadline, then are refused once the line is as long as the cap), an opt-in connection model (TCP/TLS/upgrade handshakes on new connections, keep-alive and persistent reuse, TLS session resumption, per-protocol streams per connection so HTTP/1.1 head-of-line waits at a full pool while HTTP/2 multiplexes), opt-in Kafka producer batching (linger.ms / batch.size), HTTP acknowledgements, session lifecycle markers, and L4-versus-L7 rejection/flow-control behavior are modeled, while response payloads remain simplified.',
     simulates: [
       'edge latency',
       'edge packet loss',
@@ -49,15 +49,17 @@ export const DOMAIN_SUPPORT_LEDGER: Record<QuestionDomain, SupportLedgerEntry> =
       'connection reuse: per-request, keep-alive with idle timeout, persistent; per-client pools on edges leaving the traffic source',
       'TLS session resumption (1.2 abbreviated handshake, 1.3 0-RTT)',
       'client connection-pool limits (maxConnections) with FIFO connection wait and deadline timeouts',
+      'edge in-flight cap (maxConcurrentRequests): a transfer holds a slot while in transit; at the cap, transfers wait FIFO for a slot (measured edge slot wait, deadline timeouts in the line), and once as many wait as the cap allows (Envoy-style max_pending = max_requests) further transfers are refused with connection_refused, so throughput plateaus near cap / transit time; per-edge waited / refused / timed-out-waiting / peak-waiting counts',
       'HTTP/2 multiplexing: streams per connection (gRPC 100, HTTPS/TCP 1); synchronous requests hold a stream until their response, WebSocket/AMQP/Kafka messages until delivery',
-      'Kafka producer batching: a batch is one transfer (one edge slot, one protocol overhead, one propagation sample, its total bytes on the link); records pay the measured batch wait'
+      'Kafka producer batching: a batch is one transfer (one edge slot, one protocol overhead, one propagation sample, its total bytes on the link); records pay the measured batch wait; a batch waiting for an in-flight slot keeps taking records up to batch.size'
     ],
     deferred: [
       'response payload bandwidth (responses do not cross edges)',
       'bandwidth, connection model and batching in the heavy-load fluid tier',
       'TLS handshake CPU cost, certificate chain size, and session-ticket expiry',
       'per-replica connection pools (a service edge has one pool shared by its instances)',
-      'Kafka compression, producer acks levels (acks=0/1/all), buffer.memory back-pressure, and per-partition batches',
+      'Kafka compression, producer acks levels (acks=0/1/all), buffer.memory / max.block.ms (the slot line is as long as the in-flight cap), and per-partition batches',
+      'a configurable pending-line length for the edge in-flight cap (it is fixed at the cap)',
       'database-specific connection startup (authentication exchanges, backend process spawn)',
       'full transport-stack physics (slow start, windowing, segmentation)'
     ]

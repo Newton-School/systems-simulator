@@ -342,20 +342,25 @@ describe('Kafka producer batching on edges (#181 task 7)', () => {
       p50: metric.transitLatency.p50,
       p99: metric.transitLatency.p99,
       batchWait: metric.latencyBreakdown?.meanMs.batchWaitMs ?? 0,
+      slotWait: metric.latencyBreakdown?.meanMs.slotWaitMs ?? 0,
       recordsPerBatch: metric.batching?.meanRecordsPerBatch ?? 1
     }
   }
 
-  it('batching carries records the unbatched in-flight cap refuses, at a measured latency cost', () => {
+  it('unbatched, the in-flight cap holds throughput at cap / hold time; batching carries the rest', () => {
     const unbatched = summarize(run(kafka()))
     const linger10 = summarize(run(kafka({ lingerMs: 10 })))
     const linger40 = summarize(run(kafka({ lingerMs: 40 })))
 
-    // Unbatched: every record is its own produce request, so the 5-slot
-    // in-flight cap saturates (and the edge congestion model inflates transit
-    // as it fills); almost everything is refused.
-    expect(unbatched.refused).toBeGreaterThan(15_000)
-    expect(unbatched.delivered / 9).toBeLessThan(100)
+    // Unbatched: every record is its own produce request, so the 5-slot cap
+    // plateaus at 5 / 7 ms ~ 714 records/s (Little's Law). Excess records wait
+    // for a slot in a line as long as the cap and are refused past it.
+    expect(unbatched.delivered / 9).toBeGreaterThan(700)
+    expect(unbatched.delivered / 9).toBeLessThanOrEqual(715)
+    expect(unbatched.refused).toBeGreaterThan(10_000)
+    // A wait is at most about one hold time: 7 ms transit + up to 7 ms slot wait.
+    expect(unbatched.slotWait).toBeGreaterThan(5)
+    expect(unbatched.slotWait).toBeLessThanOrEqual(7.1)
 
     // Batched: one produce request per batch, so the cap no longer binds and
     // the full 2000 records/s get through.
@@ -374,10 +379,40 @@ describe('Kafka producer batching on edges (#181 task 7)', () => {
     expect(linger40.p99).toBeGreaterThan(linger10.p99 + 25)
   }, 20_000)
 
-  it('too short a linger leaves batches too small to stay under the cap', () => {
-    const linger2 = summarize(run(kafka({ lingerMs: 2 })))
-    expect(linger2.recordsPerBatch).toBeCloseTo(4, 0)
-    expect(linger2.refused).toBeGreaterThan(10_000)
+  it('record latency rises monotonically with linger once batching lifts the cap', () => {
+    const lingers = [2, 5, 10, 40].map((lingerMs) => summarize(run(kafka({ lingerMs }))))
+    for (const point of lingers) {
+      expect(point.refused).toBe(0)
+      expect(point.delivered / 9).toBeGreaterThan(1985)
+    }
+    for (let index = 1; index < lingers.length; index += 1) {
+      expect(lingers[index].p50).toBeGreaterThan(lingers[index - 1].p50)
+      expect(lingers[index].batchWait).toBeGreaterThan(lingers[index - 1].batchWait)
+    }
+  }, 20_000)
+
+  it('a batch waiting for an in-flight slot keeps taking records, so batches grow', () => {
+    // linger 0 sends every record at once, but with one in-flight slot held
+    // 7 ms the waiting batch absorbs the records that arrive meanwhile, like
+    // Kafka's accumulator: ~14 records per batch carry the full 2000 records/s.
+    const out = run(
+      topology({
+        edge: {
+          protocol: 'kafka',
+          mode: 'asynchronous',
+          latency: { distribution: { type: 'constant', value: 5 }, pathType: 'same-dc' },
+          maxConcurrentRequests: 1,
+          batching: { lingerMs: 0 }
+        },
+        rps: 2_000
+      })
+    )
+    const metric = underTest(out)
+    expect(out.summary.rejectedRequests).toBe(0)
+    expect(metric.totalSuccessfulTransits / 9).toBeGreaterThan(1990)
+    expect(metric.batching?.meanRecordsPerBatch).toBeCloseTo(14, 0)
+    expect(metric.latencyBreakdown?.meanMs.slotWaitMs).toBeGreaterThan(2)
+    expect(metric.slots?.waited).toBeGreaterThan(15_000)
   })
 
   it('a batch is sent early once it reaches batch.size', () => {
@@ -424,22 +459,122 @@ describe('edge latency breakdown with the new components', () => {
   })
 })
 
-describe('edge concurrency cap accounting', () => {
-  it('a refused transfer does not free another transfer slot', () => {
-    // Cap 5, 100 ms transit: at most 5 transfers per 100 ms can be in flight,
-    // so no more than 50 per second may get through however many are offered.
-    const out = run(
+describe('saturated edge in-flight cap (maxConcurrentRequests)', () => {
+  // Cap 5, 100 ms transit (+0.2 ms gRPC overhead): a slot is held ~100 ms, so
+  // by Little's Law the edge carries at most 5 / 0.1 s = 50 transfers/s.
+  const capped = (rps: number, extra: { timeoutMs?: number } = {}) =>
+    run(
       topology({
         edge: {
           protocol: 'grpc',
           latency: { distribution: { type: 'constant', value: 100 }, pathType: 'same-dc' },
           maxConcurrentRequests: 5
         },
-        rps: 1_000
+        rps,
+        timeoutMs: extra.timeoutMs
       })
     )
+
+  it('a refused transfer does not free another transfer slot', () => {
+    const out = capped(1_000)
     const metric = underTest(out)
     expect(metric.totalSuccessfulTransits / 9).toBeLessThanOrEqual(50)
     expect(out.summary.rejectedRequests).toBeGreaterThan(8_000)
+  })
+
+  it('throughput rises with offered load, then plateaus near cap / hold time', () => {
+    const offered = [10, 25, 40, 60, 100, 200, 1_000]
+    const points = offered.map((rps) => {
+      const metric = underTest(capped(rps))
+      return { rps, throughput: metric.totalSuccessfulTransits / 9, metric }
+    })
+    for (let index = 1; index < points.length; index += 1) {
+      expect(points[index].throughput).toBeGreaterThanOrEqual(points[index - 1].throughput - 0.5)
+    }
+    // Below the cap every offered transfer gets through with no slot wait.
+    for (const point of points.filter((p) => p.rps <= 40)) {
+      expect(point.throughput).toBeCloseTo(point.rps, 0)
+      expect(point.metric.latencyBreakdown?.meanMs.slotWaitMs).toBe(0)
+      expect(point.metric.slots).toBeUndefined()
+    }
+    // Above it the edge carries ~50/s however much is offered: no collapse.
+    for (const point of points.filter((p) => p.rps >= 60)) {
+      expect(point.throughput).toBeGreaterThan(49)
+      expect(point.throughput).toBeLessThanOrEqual(50.1)
+      // A slot wait is bounded by one hold time: the line is as long as the cap.
+      expect(point.metric.latencyBreakdown?.meanMs.slotWaitMs).toBeGreaterThan(80)
+      expect(point.metric.latencyBreakdown?.meanMs.slotWaitMs).toBeLessThanOrEqual(100.5)
+      expect(point.metric.slots?.peakWaiting).toBeLessThanOrEqual(5)
+      expect(point.metric.slots?.refused).toBeGreaterThan(0)
+    }
+  }, 30_000)
+
+  it('the latency breakdown still sums to the mean transit with slot wait included', () => {
+    const metric = underTest(capped(200))
+    const breakdown = metric.latencyBreakdown!
+    const sum = EDGE_LATENCY_COMPONENTS.reduce((acc, key) => acc + breakdown.meanMs[key], 0)
+    expect(sum).toBeCloseTo(breakdown.meanTotalMs, 1)
+    expect(breakdown.meanMs.propagationMs).toBeCloseTo(100, 1)
+  })
+
+  it('an edge that never reaches its cap is unaffected by it', () => {
+    const edgeWith = (maxConcurrentRequests: number) =>
+      underTest(
+        run(
+          topology({
+            edge: {
+              latency: {
+                distribution: { type: 'log-normal', mu: 1, sigma: 0.5 },
+                pathType: 'same-dc'
+              },
+              maxConcurrentRequests
+            },
+            rps: 300,
+            workload: { pattern: 'poisson' }
+          })
+        )
+      )
+    const uncapped = edgeWith(1_000_000)
+    const roomyCap = edgeWith(20)
+    expect(roomyCap.slots).toBeUndefined()
+    expect(roomyCap.transitLatency).toEqual(uncapped.transitLatency)
+    expect(roomyCap.latencyBreakdown).toEqual(uncapped.latencyBreakdown)
+  })
+
+  it('a request whose deadline passes while it waits for a slot times out of the line', () => {
+    // A variable upstream means requests reach the capped edge out of deadline
+    // order, so some wait in line past their own deadline.
+    const t = topology({
+      edge: {
+        protocol: 'grpc',
+        latency: { distribution: { type: 'constant', value: 100 }, pathType: 'same-dc' },
+        maxConcurrentRequests: 4
+      },
+      rps: 60,
+      timeoutMs: 250
+    })
+    t.nodes = t.nodes.map((node) =>
+      node.id === 'gateway'
+        ? {
+            ...node,
+            processing: {
+              distribution: { type: 'exponential', lambda: 1 / 60 },
+              timeout: 60_000
+            }
+          }
+        : node
+    )
+    const out = run(t)
+    const slots = underTest(out).slots!
+    expect(slots.timedOutWaiting).toBeGreaterThan(0)
+    expect(slots.peakWaiting).toBeLessThanOrEqual(4)
+    expect(out.summary.timedOutRequests).toBeGreaterThanOrEqual(slots.timedOutWaiting)
+    const edgeTimeouts = out.eventStream.filter(
+      (event) =>
+        event.type === 'request-timed-out' &&
+        event.edgeId === 'gateway-to-api' &&
+        event.reasonCode === 'deadline_exceeded'
+    )
+    expect(edgeTimeouts.length).toBeGreaterThanOrEqual(slots.timedOutWaiting)
   })
 })
