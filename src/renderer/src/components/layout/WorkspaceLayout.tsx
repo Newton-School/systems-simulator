@@ -1668,7 +1668,7 @@ export const WorkspaceLayout = () => {
         canSave={canUseTopologyFiles}
       />
 
-      {activeQuestion && SHOW_ENTRY_FORMAT_WORKFLOW && (
+      {activeQuestion && SHOW_ENTRY_FORMAT_WORKFLOW && !isLabQuestion(activeQuestion) && (
         <QuestionExperienceStrip
           question={activeQuestion}
           experience={experienceEnvelope}
