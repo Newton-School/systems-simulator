@@ -18,9 +18,8 @@ describe('resolveExperienceEnvelope', () => {
 
     expect(envelope.kind).toBe('SANDBOX')
     expect(envelope.allowedTabs).toContain('scenarios')
-    expect(envelope.allowedTabs).toEqual(
-      expect.arrayContaining(['question', 'blueprints', 'labs', 'library', 'scenarios'])
-    )
+    expect(envelope.allowedTabs).toContain('labs')
+    expect(envelope.allowedTabs).not.toContain('blueprints')
     expect(envelope.canvasLocked).toBe(false)
   })
 
@@ -58,6 +57,7 @@ describe('resolveExperienceEnvelope', () => {
     expect(envelope.kind).toBe('LAB')
     expect(envelope.allowedTabs).toEqual(['question', 'labs'])
     expect(envelope.canvasLocked).toBe(true)
+    expect(envelope.testActionLabel).toBe('Check Configuration')
   })
 
   it('treats explicit locked-lab entryFormat as authoritative', () => {

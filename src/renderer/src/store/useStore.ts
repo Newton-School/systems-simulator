@@ -63,6 +63,13 @@ function isAuthoredLockedScaffoldNode(
   return activeQuestion?.scaffold.lockedNodeIds?.includes(nodeId) ?? false
 }
 
+function isLockedLabQuestion(activeQuestion: QuestionPackage | null): boolean {
+  return (
+    activeQuestion?.entryFormat === 'locked-lab' ||
+    activeQuestion?.tags?.some((tag) => tag.toLowerCase() === 'lab') === true
+  )
+}
+
 function isNodeEditLocked(
   nodeId: string,
   scaffoldNodeIds: readonly string[],
@@ -100,6 +107,33 @@ function isNodeRemovalLocked(
     !profile.capabilities.canEditScaffoldNodes ||
     activeQuestion?.constraints?.canRemoveScaffoldNodes === false ||
     isAuthoredLockedScaffoldNode(nodeId, activeQuestion)
+  )
+}
+
+function isNodeDataEditLocked(
+  nodeId: string,
+  scaffoldNodeIds: readonly string[],
+  activeQuestion: QuestionPackage | null,
+  profile: EnvironmentProfile,
+  attemptStatus: AttemptState['status'] | undefined
+): boolean {
+  if (attemptStatus === 'LOCKED') {
+    return true
+  }
+  if (!isScaffoldNode(nodeId, scaffoldNodeIds)) {
+    return false
+  }
+  if (isAuthoredLockedScaffoldNode(nodeId, activeQuestion)) {
+    return true
+  }
+  // A lab locks architecture, not configuration. Its entire teaching loop
+  // depends on changing node parameters without moving or replacing the node.
+  if (isLockedLabQuestion(activeQuestion)) {
+    return false
+  }
+  return (
+    !profile.capabilities.canEditScaffoldNodes ||
+    activeQuestion?.constraints?.canModifyScaffold === false
   )
 }
 
@@ -151,6 +185,30 @@ function isEdgeRemovalLocked(
     !profile.capabilities.canEditScaffoldNodes ||
     activeQuestion?.constraints?.canRemoveScaffoldNodes === false ||
     isAuthoredLockedScaffoldEdge(edgeId, activeQuestion)
+  )
+}
+
+function isEdgeDataEditLocked(
+  edgeId: string,
+  scaffoldEdgeIds: readonly string[],
+  activeQuestion: QuestionPackage | null,
+  profile: EnvironmentProfile,
+  attemptStatus: AttemptState['status'] | undefined
+): boolean {
+  if (attemptStatus === 'LOCKED') {
+    return true
+  }
+  if (!isScaffoldEdge(edgeId, scaffoldEdgeIds)) {
+    return false
+  }
+  if (isAuthoredLockedScaffoldEdge(edgeId, activeQuestion)) {
+    return true
+  }
+  if (isLockedLabQuestion(activeQuestion)) {
+    return false
+  }
+  return (
+    !profile.capabilities.canEditEdges || activeQuestion?.constraints?.canModifyScaffold === false
   )
 }
 import type { RoutingStrategy } from '../../../engine/catalog/nodeSpecTypes'
@@ -1415,7 +1473,10 @@ const useStore = create<RFState>((set, get) => ({
         if (!('id' in change)) {
           return true
         }
-        if (change.type === 'select') {
+        // React Flow cannot reveal a node until its initial dimensions update is
+        // accepted. This is renderer bookkeeping, not a topology edit, and must
+        // remain allowed even for locked labs and read-only attempts.
+        if (change.type === 'select' || change.type === 'dimensions') {
           return true
         }
         if (change.type === 'remove') {
@@ -1783,7 +1844,7 @@ const useStore = create<RFState>((set, get) => ({
   updateNodeData: (nodeId: string, patch: CanvasNodeDataPatch) => {
     const { activeQuestion, scaffoldNodeIds, environmentProfile, attemptState } = get()
     if (
-      isNodeEditLocked(
+      isNodeDataEditLocked(
         nodeId,
         scaffoldNodeIds,
         activeQuestion,
@@ -1844,7 +1905,7 @@ const useStore = create<RFState>((set, get) => ({
   updateEdgeData: (edgeId, patch) => {
     const { activeQuestion, scaffoldEdgeIds, environmentProfile, attemptState } = get()
     if (
-      isEdgeEditLocked(
+      isEdgeDataEditLocked(
         edgeId,
         scaffoldEdgeIds,
         activeQuestion,
