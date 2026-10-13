@@ -465,6 +465,57 @@ describe('useStore scaffold-node lock', () => {
     expect(studentNode?.position).toEqual({ x: 80, y: 40 })
   })
 
+  it('accepts React Flow measurements for locked nodes so they can become visible', () => {
+    useStore.getState().setEnvironmentProfile(resolveEnvironmentProfile('ASSIGNMENT'))
+
+    useStore
+      .getState()
+      .onNodesChange([
+        { type: 'dimensions', id: 'scaffold-1', dimensions: { width: 220, height: 120 } } as any
+      ])
+
+    const scaffoldNode = useStore.getState().nodes.find((node) => node.id === 'scaffold-1')
+    expect(scaffoldNode?.width).toBe(220)
+    expect(scaffoldNode?.height).toBe(120)
+  })
+
+  it('lets a locked lab tune properties while keeping its graph structure fixed', () => {
+    useStore.getState().setActiveQuestion({
+      id: 'lab-1',
+      entryFormat: 'locked-lab',
+      tags: ['lab'],
+      scaffold: {
+        type: 'complete',
+        topology: {
+          nodes: [{ id: 'scaffold-1' }, { id: 'scaffold-2' }],
+          edges: [{ id: 'scaffold-edge', source: 'scaffold-1', target: 'scaffold-2' }]
+        }
+      },
+      constraints: {
+        allowedNodeTypes: [],
+        canModifyScaffold: false,
+        canRemoveScaffoldNodes: false
+      }
+    } as any)
+    useStore.getState().setEnvironmentProfile(resolveEnvironmentProfile('PRACTICE'))
+
+    useStore.getState().updateNodeData('scaffold-1', { label: 'Tuned node' } as any)
+    useStore.getState().updateEdgeData('scaffold-edge', { data: { latencyValue: 12 } } as any)
+    useStore
+      .getState()
+      .onNodesChange([
+        { type: 'position', id: 'scaffold-1', position: { x: 50, y: 25 }, dragging: false } as any
+      ])
+    useStore.getState().onNodesChange([{ type: 'remove', id: 'scaffold-1' }])
+
+    const scaffoldNode = useStore.getState().nodes.find((node) => node.id === 'scaffold-1')
+    const scaffoldEdge = useStore.getState().edges.find((edge) => edge.id === 'scaffold-edge')
+    expect((scaffoldNode?.data as { label: string }).label).toBe('Tuned node')
+    expect(scaffoldNode?.position).toEqual({ x: 0, y: 0 })
+    expect((scaffoldEdge?.data as { latencyValue: number }).latencyValue).toBe(12)
+    expect(useStore.getState().nodes.map((node) => node.id)).toContain('scaffold-1')
+  })
+
   it('blocks deleting scaffold edges in locked profiles but still lets student edges go away', () => {
     useStore.getState().setEnvironmentProfile(resolveEnvironmentProfile('ASSIGNMENT'))
 

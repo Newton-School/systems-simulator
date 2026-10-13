@@ -29,18 +29,13 @@ type ExperienceQuestion =
   | undefined
 type ExperienceProfile = Pick<EnvironmentProfile, 'mode' | 'graded'>
 
-/**
- * Blueprints and Labs are product surfaces. Keep the switch local so an
- * emergency rollback can hide both without changing envelope semantics.
- */
-const SHOW_BLUEPRINTS_AND_LABS = true
-const HIDDEN_TABS: readonly ExperienceSidebarTab[] = ['blueprints', 'labs']
+/** Blueprints are still being prepared; Labs are ready for the guided workflow. */
+const VISIBLE_OPTIONAL_TABS: readonly ExperienceSidebarTab[] = ['labs']
 
 function withVisibleTabs(tabs: readonly ExperienceSidebarTab[]): readonly ExperienceSidebarTab[] {
-  if (SHOW_BLUEPRINTS_AND_LABS) {
-    return tabs
-  }
-  const visible = tabs.filter((tab) => !HIDDEN_TABS.includes(tab))
+  const visible = tabs.filter(
+    (tab) => tab !== 'blueprints' && (tab !== 'labs' || VISIBLE_OPTIONAL_TABS.includes(tab))
+  )
   // Never leave a profile with no tabs at all.
   return visible.length > 0 ? visible : ['question']
 }
@@ -108,7 +103,7 @@ export function resolveExperienceEnvelope(
       allowedTabs: LAB_TABS,
       canvasLocked: true,
       resultsButtonLabel: 'Open Timeline & Results',
-      testActionLabel: 'Run Lab'
+      testActionLabel: 'Check Configuration'
     }
   }
 

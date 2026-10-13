@@ -480,6 +480,25 @@ const FlowCanvasInternal = ({
   }, [nodes.length, reactFlowInstance])
 
   useEffect(() => {
+    if (
+      !interactionLocked ||
+      !reactFlowInstance ||
+      nodes.length === 0 ||
+      nodes.some((node) => node.width === undefined || node.height === undefined)
+    ) {
+      return
+    }
+
+    // Locked graphs are commonly loaded before React Flow has measured their
+    // custom cards. Fit again once those measurements exist so a lab opens on
+    // the whole authored topology rather than an apparently empty viewport.
+    const frame = window.requestAnimationFrame(() => {
+      void reactFlowInstance.fitView({ padding: 0.2, maxZoom: 1.2, duration: 400 })
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [interactionLocked, nodes, reactFlowInstance])
+
+  useEffect(() => {
     const annotationTool =
       selectedTool === 'text' ||
       selectedTool === 'pen' ||

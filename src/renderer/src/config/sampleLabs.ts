@@ -103,7 +103,7 @@ export const SAMPLE_LABS: SampleLab[] = [
     summary: 'Explore how one published event fans out to multiple downstream consumers.',
     focus: 'Delivery semantics, async decoupling, and per-consumer saturation.',
     guide:
-      '1. Run the lab once and inspect the worker metrics for each downstream consumer.\n2. Change broker and worker settings in the properties panel.\n3. Re-run and compare how delivery throughput and queue pressure shift across the branches.',
+      'Run a baseline, select a broker or worker, change one property in the Inspector, then run again and compare delivery throughput and queue pressure.',
     question: makeLockedLabQuestion({
       id: 'lab-fanout-delivery',
       title: 'Fanout Delivery Lab',
@@ -131,7 +131,7 @@ export const SAMPLE_LABS: SampleLab[] = [
     summary: 'Contrast hot point reads with heavy export scans on a fixed topology.',
     focus: 'State semantics, request-class routing, and storage-profile tradeoffs.',
     guide:
-      '1. Observe the baseline latency gap between the hot path and the export path.\n2. Tune storage-related properties without changing the topology.\n3. Re-run and use the bottom tray to see which path improved and which tradeoff got worse.',
+      'Run a baseline, select a storage node, change one property in the Inspector, then run again and compare the hot path with the export path.',
     question: makeLockedLabQuestion({
       id: 'lab-store-fit-routing',
       title: 'Store-Fit Routing Lab',
@@ -159,7 +159,7 @@ export const SAMPLE_LABS: SampleLab[] = [
     summary: 'Study how retried writes are absorbed before they reach the ledger path.',
     focus: 'Correctness-first write paths, duplicate suppression, and guarded side effects.',
     guide:
-      '1. Run the baseline and inspect the guarded write path.\n2. Tune the idempotency layer and downstream store behavior.\n3. Re-run and verify that retries stay suppressed before they hit the ledger path.',
+      'Run a baseline, select the idempotency guard or ledger, change one property in the Inspector, then run again and inspect the guarded write path.',
     question: makeLockedLabQuestion({
       id: 'lab-idempotency-guard',
       title: 'Idempotency Guard Lab',

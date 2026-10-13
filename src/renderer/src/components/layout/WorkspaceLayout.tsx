@@ -61,7 +61,7 @@ import {
   hasWorkloadSourceConfig,
   isSourceComponentData
 } from '../../../../engine/catalog/sourceNodeSemantics'
-import { resolveExperienceEnvelope } from '@renderer/utils/experienceEnvelope'
+import { isLabQuestion, resolveExperienceEnvelope } from '@renderer/utils/experienceEnvelope'
 import {
   isEditableShortcutTarget,
   isModalOpen,
@@ -318,6 +318,7 @@ export const WorkspaceLayout = () => {
   const [showShortcuts, setShowShortcuts] = useState(false)
   const [componentLibrarySearchFocusVersion, setComponentLibrarySearchFocusVersion] = useState(0)
   const [settingsOpenRequestVersion, setSettingsOpenRequestVersion] = useState(0)
+  const loadingQuestionRequestRef = useRef<QuestionPackage | null>(null)
   const [runIssues, setRunIssues] = useState<{ messages: string[]; tone: RunIssueTone }>({
     messages: [],
     tone: 'warning'
@@ -526,6 +527,17 @@ export const WorkspaceLayout = () => {
     }
   }, [isCompactWorkspace, selectedEdgeId])
 
+  // Labs are configuration exercises. A single node selection should reveal
+  // the editable settings immediately instead of requiring an undiscoverable
+  // double-click while the graph itself is locked.
+  useEffect(() => {
+    if (selectedNodeId && experienceEnvelope.kind === 'LAB') {
+      setRightPanelView('inspector')
+      setIsRightOpen(true)
+      if (isCompactWorkspace) setIsLeftOpen(false)
+    }
+  }, [experienceEnvelope.kind, isCompactWorkspace, selectedNodeId])
+
   useEffect(() => {
     if (isCompactWorkspace && showResults) {
       setIsLeftOpen(false)
@@ -658,6 +670,12 @@ export const WorkspaceLayout = () => {
           : null)
       setAttemptState(options.readOnly && baseAttempt ? lockAttempt(baseAttempt) : baseAttempt)
       clearJustificationAnswers()
+      // Loading a lab changes both side-panel widths and the canvas contents.
+      // Fit after React commits those changes so the authored graph never opens
+      // off-screen or appears blank.
+      if (isLabQuestion(questionPackage)) {
+        window.requestAnimationFrame(() => requestViewportFit())
+      }
     },
     [
       clearJustificationAnswers,
@@ -670,6 +688,7 @@ export const WorkspaceLayout = () => {
       setHostLaunchErrorMessage,
       setNewtonSaveMode,
       setRoutingVisualization,
+      requestViewportFit,
       sim,
       setLeftSidebarTab,
       setIsLeftOpen
@@ -679,11 +698,16 @@ export const WorkspaceLayout = () => {
   // Local/dev question load (no iframe host): consume a requested package through
   // the same loader the host launch uses.
   useEffect(() => {
-    if (!questionLoadRequest) {
+    if (!questionLoadRequest || loadingQuestionRequestRef.current === questionLoadRequest) {
       return
     }
-    void loadQuestionIntoWorkspace(questionLoadRequest, undefined)
+    loadingQuestionRequestRef.current = questionLoadRequest
     clearQuestionLoadRequest()
+    void loadQuestionIntoWorkspace(questionLoadRequest, undefined).finally(() => {
+      if (loadingQuestionRequestRef.current === questionLoadRequest) {
+        loadingQuestionRequestRef.current = null
+      }
+    })
   }, [questionLoadRequest, loadQuestionIntoWorkspace, clearQuestionLoadRequest])
 
   useEffect(() => {

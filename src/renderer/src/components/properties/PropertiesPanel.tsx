@@ -36,6 +36,7 @@ import { describeRequestOperation } from '../../../../engine/core/requestSemanti
 import type { WorkloadProfile } from '../../../../engine/core/types'
 import type { FieldPath } from '@renderer/config/fieldConfig'
 import { setPathValue } from '@renderer/utils/nodeFieldEdit'
+import { isLabQuestion } from '@renderer/utils/experienceEnvelope'
 import type { AnyNodeData, EdgeSimulationData, NodeSimulationMetrics } from '@renderer/types/ui'
 import { useNodeMetrics } from '@renderer/hooks/useNodeMetrics'
 import type { CanvasNodeDataV2 } from '../../../../engine/catalog/nodeSpecTypes'
@@ -1464,6 +1465,7 @@ export const PropertiesPanel = ({ results = null }: { results?: SimulationOutput
     },
     [builderPolicy, builderPolicyApplies, selectedNode]
   )
+  const labConfigurationMode = isLabQuestion(activeQuestion)
 
   // Advisory contract ⇄ graph reconciliation for the selected custom-definition node
   // (spec §21). Feedback only — never affects grading.
@@ -1487,18 +1489,18 @@ export const PropertiesPanel = ({ results = null }: { results?: SimulationOutput
     selectedNodeId &&
     scaffoldNodeIds.includes(selectedNodeId) &&
     (attemptStatus === 'LOCKED' ||
-      !canEditScaffoldNodes ||
-      activeQuestion?.constraints.canModifyScaffold === false ||
-      activeQuestion?.scaffold.lockedNodeIds?.includes(selectedNodeId))
+      activeQuestion?.scaffold.lockedNodeIds?.includes(selectedNodeId) ||
+      (!labConfigurationMode &&
+        (!canEditScaffoldNodes || activeQuestion?.constraints.canModifyScaffold === false)))
   )
   const selectedEdgeId = selectedEdge?.id
   const selectedEdgeLocked = Boolean(
     selectedEdgeId &&
     scaffoldEdgeIds.includes(selectedEdgeId) &&
     (attemptStatus === 'LOCKED' ||
-      !canEditScaffoldNodes ||
-      activeQuestion?.constraints.canModifyScaffold === false ||
-      activeQuestion?.scaffold.lockedEdgeIds?.includes(selectedEdgeId))
+      activeQuestion?.scaffold.lockedEdgeIds?.includes(selectedEdgeId) ||
+      (!labConfigurationMode &&
+        (!canEditScaffoldNodes || activeQuestion?.constraints.canModifyScaffold === false)))
   )
   const selectedEdgeFlow = selectedEdge ? edgeFlowById[selectedEdge.id] : undefined
   const selectedEdgeHasRuntime = Boolean(selectedEdgeFlow && selectedEdgeFlow.totalAttempted > 0)

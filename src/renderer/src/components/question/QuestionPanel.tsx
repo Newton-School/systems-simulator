@@ -104,6 +104,49 @@ type PendingRun = {
 
 type QuestionPanelView = 'brief' | 'tests'
 
+function LabQuickStart(): React.JSX.Element {
+  const steps = [
+    {
+      title: 'Inspect',
+      detail: 'Select any node on the canvas. Its editable settings open in the Inspector.'
+    },
+    {
+      title: 'Run a baseline',
+      detail: 'Use Run in the top toolbar, then inspect throughput, latency, and pressure.'
+    },
+    {
+      title: 'Tune and compare',
+      detail: 'Change one property in the Inspector and run again to see its effect.'
+    }
+  ]
+
+  return (
+    <section className="rounded-lg border border-cyan-500/25 bg-cyan-500/8 p-3">
+      <div>
+        <p className="text-[10px] font-bold uppercase tracking-widest text-cyan-600 dark:text-cyan-300">
+          Start here
+        </p>
+        <p className="mt-1 text-[11px] leading-relaxed text-nss-muted">
+          You can tune settings, but the nodes and connections are intentionally locked.
+        </p>
+      </div>
+      <ol className="mt-3 space-y-2">
+        {steps.map((step, index) => (
+          <li key={step.title} className="flex gap-2.5">
+            <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-cyan-500/15 text-[10px] font-bold text-cyan-700 dark:text-cyan-200">
+              {index + 1}
+            </span>
+            <div className="min-w-0">
+              <p className="text-[11px] font-semibold text-nss-text">{step.title}</p>
+              <p className="mt-0.5 text-[10px] leading-relaxed text-nss-muted">{step.detail}</p>
+            </div>
+          </li>
+        ))}
+      </ol>
+    </section>
+  )
+}
+
 function formatSupportTier(tier: SupportTier): string {
   switch (tier) {
     case 'first-class':
@@ -696,8 +739,9 @@ export const QuestionPanel = () => {
     graderStatus === 'grading'
       ? 'Grading…'
       : experience.kind === 'LAB'
-        ? 'Run Lab'
+        ? 'Check Configuration'
         : experience.testActionLabel
+  const isLab = experience.kind === 'LAB'
 
   return (
     <section className="flex h-full min-h-0 flex-col text-nss-text">
@@ -798,6 +842,8 @@ export const QuestionPanel = () => {
             {SHOW_ENTRY_FORMAT_WORKFLOW && (
               <QuestionEntryFormatGuideCard question={activeQuestion} />
             )}
+
+            {isLab && <LabQuickStart />}
 
             {sanitizedPromptHtml ? (
               <div
@@ -1045,7 +1091,7 @@ export const QuestionPanel = () => {
             {!hasEvaluatedTests && visibleTestRows.length > 0 && (
               <p className="rounded border border-nss-border bg-nss-surface px-3 py-2 text-[11px] leading-relaxed text-nss-muted">
                 {experience.kind === 'LAB'
-                  ? 'Use Run Lab to evaluate the current configuration. Until you run it, the authored checks below stay pending.'
+                  ? 'Use Check Configuration to verify that the locked topology is still valid. Use Run in the top toolbar to generate simulation results.'
                   : 'Use Run & Evaluate to evaluate the current topology. Until you run it, the authored checks below stay pending. Submit records the graded attempt.'}
               </p>
             )}
@@ -1198,25 +1244,33 @@ export const QuestionPanel = () => {
         )}
       </div>
 
-      <footer className="flex gap-2 border-t border-nss-border p-4">
-        <button
-          type="button"
-          onClick={onTest}
-          disabled={graderStatus === 'grading' || !canTest}
-          className="flex-1 rounded-md border border-nss-border bg-nss-surface px-3 py-2 text-xs font-semibold text-nss-text hover:bg-nss-bg disabled:opacity-50"
-        >
-          {testButtonLabel}
-        </button>
-        {showSubmit && (
+      <footer className="border-t border-nss-border p-4">
+        {isLab && (
+          <p className="mb-2 text-[10px] leading-relaxed text-nss-muted">
+            This check validates the configuration. To simulate traffic, use <strong>Run</strong> in
+            the top toolbar.
+          </p>
+        )}
+        <div className="flex gap-2">
           <button
             type="button"
-            onClick={onSubmit}
-            disabled={graderStatus === 'grading' || isAttemptLocked}
-            className="flex-1 rounded-md bg-nss-primary px-3 py-2 text-xs font-semibold text-white hover:bg-nss-primary-hover disabled:opacity-50"
+            onClick={onTest}
+            disabled={graderStatus === 'grading' || !canTest}
+            className="flex-1 rounded-md border border-nss-border bg-nss-surface px-3 py-2 text-xs font-semibold text-nss-text hover:bg-nss-bg disabled:opacity-50"
           >
-            {graderStatus === 'grading' ? 'Grading…' : isAttemptLocked ? 'Locked' : 'Submit'}
+            {testButtonLabel}
           </button>
-        )}
+          {showSubmit && (
+            <button
+              type="button"
+              onClick={onSubmit}
+              disabled={graderStatus === 'grading' || isAttemptLocked}
+              className="flex-1 rounded-md bg-nss-primary px-3 py-2 text-xs font-semibold text-white hover:bg-nss-primary-hover disabled:opacity-50"
+            >
+              {graderStatus === 'grading' ? 'Grading…' : isAttemptLocked ? 'Locked' : 'Submit'}
+            </button>
+          )}
+        </div>
       </footer>
     </section>
   )
