@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 
+/* eslint-disable @typescript-eslint/explicit-function-return-type -- This validator runs as standalone JavaScript without a TypeScript build step. */
+
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
