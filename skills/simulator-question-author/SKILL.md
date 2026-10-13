@@ -1,230 +1,169 @@
 ---
 name: simulator-question-author
-description: 'Convert a system-design question into three openable System Design Simulator JSON files: a Question Studio authoring project, a compiled question package, and a reference solution topology that passes every check. Optionally also emit the learner and author Markdown walkthroughs. Use when mapping an interview or curriculum prompt to simulator components, workloads, test-case rows, grading rules, capacity math, and honest modeling boundaries.'
+description: 'Turn a system-design prompt into a validated Question Studio project, private grader package, and canonical passing TopologyJSON. Use for simulator curriculum questions, workloads, grading rules, reference designs, and optional author or learner walkthroughs.'
 ---
 
 # Simulator Question Author
 
-This is a standalone, vendor-neutral skill. Everything required for its normal
-workflow is inside this directory; do not assume access to a source repository,
-another skill, Codex, or an OpenAI product.
+Create one coherent, testable question contract. Do not treat prose, JSON, and the
+reference design as separate deliverables.
 
-The embedded capability and Question Studio snapshot was verified on
-**2026-09-21**. If the user supplies newer UI, schema, or runtime documentation,
-prefer that evidence and identify any compatibility change.
+The bundled capability snapshot targets simulator commit `c33c557` plus the
+student-assignment privacy boundary introduced in October 2026. If the target
+simulator exposes a newer schema or capability registry, prefer it and report the
+compatibility delta.
 
-## Output contract
+## Required outputs
 
-Given one system-design question, create exactly these **three openable JSON
-files**, using one title-derived slug `<slug>`:
+Create exactly these author-side files from one title-derived `<slug>`:
 
-1. `<slug>.simulator-question-project.json` — opens in **Question Studio** (Open
-   project); the editable authoring project. This is exactly the filename Question
-   Studio writes on Save draft / Save project.
-2. `<slug>.question-package.json` — opens in the **Simulator** (Open question
-   package); the compiled, gradeable question a learner attempts.
-3. `<slug>.solution-topology.json` — opens in the **Simulator** (Open
-   design/topology); a reference solution canvas that passes every check.
+1. `<slug>.simulator-question-project.json` — editable Question Studio source.
+2. `<slug>.question-package.json` — **private** compiled author/grader contract.
+   It contains hidden cases, rules, and rubric data and must not be delivered to a
+   learner browser.
+3. `<slug>.solution-topology.json` — canonical engine `TopologyJSON` that opens in
+   the simulator and passes the private package.
 
-`<slug>` is derived from the question title, not fixed — QuickCart is only the
-worked example. Generate these for any question.
+A browser-safe student assignment is a publication projection, not a replacement
+for these authoring artifacts. Generate it only when the target product exposes a
+stable student-package export. It may contain the prompt, scaffold, constraints,
+public justification prompts, and at most the public `dryRunCase`; it must exclude
+private suite cases, rubric checks, structural rules, semantic criteria, grader
+hints, and answer tokens.
 
-The exact schema of each file, the cross-file consistency contract, and the
-capacity math that makes the solution pass are in
-[json-artifact-schemas.md](references/json-artifact-schemas.md). Guaranteed-valid
-worked instances of all three are in [`examples/quickcart/`](examples/quickcart/).
+Optional Markdown walkthroughs are emitted only when requested.
 
-Place the files in the user-selected output location. If no writable filesystem is
-available, return three separately labeled JSON artifacts with those exact
-filenames.
+## Read only what the question needs
 
-The two Markdown walkthroughs (`builder-walkthrough.md`,
-`question-studio-walkthrough.md`) are now **optional**: produce them only when the
-user asks for docs, following [the walkthrough steps](#optional-emit-the-markdown-walkthroughs).
-Do not create Django assignments, screenshots, or indexes unless explicitly
-requested.
+Always read:
 
-## Minimum input
+- [feasibility and physics](references/simulator-feasibility.md)
+- [component and metric catalog](references/component-and-metric-catalog.md)
+- [grading and evaluation](references/grading-dsl-and-evaluation.md)
+- [artifact schemas](references/json-artifact-schemas.md)
 
-The only required input is the raw system-design question. Use supplied scale,
-NFRs, solution hints, difficulty, or simulator details when available. Make
-conservative assumptions when values are missing and list them visibly. Ask a
-question only when the accepted solution family or dominant lesson cannot be
-chosen without materially changing the result.
+Read [Question Studio authoring](references/question-studio-authoring.md) for UI
+instructions. Read the deep [evaluation manual](references/evaluation-authoring-reference-manual.md)
+only for advanced traits, environment profiles, costs, faults/experiments,
+consistency, custom builders, or Newton/Django handoff. Read the
+[test-case catalog](references/test-case-catalog.md) only for exact low-level row
+or state-transition fields. Read the [walkthrough contract](references/walkthrough-pair-contract.md)
+only when walkthroughs are requested. Read [archetype patterns](references/archetype-patterns.md)
+when selecting a starting structure; choose the closest archetype and remove
+irrelevant parts rather than cloning the QuickCart example.
 
-## Embedded source of truth
-
-Use the bundled references in this order:
-
-1. [Simulator feasibility and physics](references/simulator-feasibility.md)
-2. [Component and metric catalog](references/component-and-metric-catalog.md)
-3. [Grading DSL and evaluation](references/grading-dsl-and-evaluation.md)
-4. [Question Studio authoring](references/question-studio-authoring.md)
-5. [JSON artifact schemas](references/json-artifact-schemas.md) — the exact shape of
-   the three emitted files, the cross-file contract, and the capacity math.
-6. [Walkthrough pair contract](references/walkthrough-pair-contract.md) — only when
-   the user also asks for the Markdown docs.
-
-For advanced or exact authoring details, load these deep references only when
-the task needs them:
-
-- [Evaluation Authoring Reference Manual](references/evaluation-authoring-reference-manual.md)
-  for discriminatory authoring, workload modeling, node sizing, environment
-  profiles, validation behavior, and the Django/Newton handoff.
-- [Test-Case Catalog](references/test-case-catalog.md) for exact row JSON,
-  rule/criterion/check fields, `SIMULATOR_CONFIG`, workload examples, and
-  component vocabulary.
-
-The two deep references are bundled snapshots of larger source manuals and may
-contain historical guidance or provenance paths. They do not require those
-external paths. If they conflict with the first five curated references, this
-`SKILL.md`, or controls visible in a newer target Studio, prefer the newer/curated
-contract. In particular, do not apply the manuals' 2,000–5,000 RPS discrete-run
-guidance to a supported high-rate analytic/fluid capacity question.
-
-The QuickCart files under `examples/quickcart/` are a worked pattern, not a
-template to copy blindly.
-
-If an implementation detail is absent from this package, do not invent it.
-Choose a supported proxy, make it explanation-only, or label it for validation
-against the target simulator version.
+The curated references and bundled capability evidence must agree. When they do
+not, use the newer engine-derived evidence, avoid inventing fields, and report the
+mismatch.
 
 ## Workflow
 
-### 1. Translate the lesson
+### 1. Bound the lesson
 
-- Normalize the prompt into an architecture task rather than application code.
-- Extract each functional requirement, NFR, scale fact, constraint, expected
-  tradeoff, and interviewer hint.
-- Choose one dominant lesson, bottleneck, workload character, and plausible wrong
-  design.
-- Follow [question-translation-playbook.md](references/question-translation-playbook.md).
+Extract functional requirements, NFRs, scale, failure expectations, constraints,
+and hints. Choose one dominant lesson, one workload character, one plausible wrong
+design, and the smallest accepted solution family. Ask only when choosing the
+solution family would materially change the assignment.
 
-### 2. Run the feasibility gate
+Classify each requirement as structural, semantic, runtime, invariant, budget,
+explanation-only, or deferred. Do not grade business logic or provider guarantees
+with unrelated runtime metrics.
 
-Classify every source requirement as one of:
+### 2. Select honest evidence
 
-- runtime-simulated;
-- structurally graded;
-- semantically inferred;
-- budget-constrained;
-- explanation-only;
-- deferred.
+Use analytic/fluid execution for high-rate steady-state capacity, throughput,
+utilization, error rate, and supported latency approximations. Use discrete
+execution for request ordering, queues, retries, breakers, faults, sessions,
+protocol state, and trait counters. Feature metrics are generally unresolved when
+the relevant feature is absent; use that fail-closed behavior deliberately.
 
-Choose discrete or analytic execution based on the evidence the lesson needs.
-Do not promise application logic, provider behavior, transport physics,
-consistency guarantees, or metrics not described in this package.
+Narrow exactly-once, global ordering, provider semantics, and multi-key
+transactional guarantees to supported proxies. Bounded single-key register
+linearizability is supported only when every operation is checked; pair zero
+violations with `consistency.linearizableVerified == 1` or
+`consistency.linearizabilityOpsNotChecked == 0`.
 
-If the dominant lesson is not honestly representable, explain the nearest
-supported reframing instead of writing misleading walkthroughs.
+### 3. Establish one authoring contract
 
-Read the full evaluation manual only when the question depends on advanced node
-sizing, environment profiles, cost/budget semantics, contention, runtime state,
-or Django/Newton row handoff.
+Record:
 
-### 3. Create one internal authoring contract
-
-Before drafting the artifacts, establish one shared contract in working notes:
-
-- stable title and title-derived slug;
-- question type, entry format, difficulty, domains, concepts, and workload;
-- canonical topology and accepted equivalent variants;
-- component label-to-type mappings;
-- edge modes and routing assumptions;
-- resource and capacity derivation;
-- workload cases, fixed seeds, durations, request mix, faults, and invariants;
+- title, slug, type, entry format, difficulty, domains, concepts, and workload;
+- canonical topology and accepted variants, including component-family matching;
+- scaffold/locks, constraints, and `builderPolicy`;
+- edge model, routing, resources, service time, and derived capacity;
+- private cases, one intentionally public dry run, seeds, faults/experiments, and invariants;
 - structural rules, semantic criteria, rubric checks, points, and threshold;
-- one passing design, one plausible near miss, and one anti-gaming design;
-- unsupported or narrative-only concerns.
+- a passing design, a near miss, an anti-gaming design, and unsupported concerns.
 
-All outputs must be derived from this same contract.
+Generic component requirements are directional: `load-balancer` accepts its L4
+and L7 subtypes; `load-balancer-l7` accepts only L7. Apply the same relation to
+allowlists, structural/semantic checks, and solution validation.
 
-### 4. Design grading and compiled row intent
+### 4. Design grading
 
-- Bind every gradeable statement to one implemented surface: structural,
-  semantic, runtime metric, invariant, or budget.
-- Use exactly the four row types documented in the grading reference:
-  `SIMULATOR_CONFIG`, `STRUCTURAL_RULE`, `SEMANTIC_CRITERION`, and
-  `RUBRIC_CHECK`.
-- Prefer structural rules for topology checks. The visual Studio's advanced
-  verdict selector exposes simulation/invariant metrics, not topology metrics.
-- Keep human UI units distinct from raw DSL units. For example, Studio error
-  rate `1%` corresponds to raw `summary.errorRate < 0.01`.
-- Ensure every runtime metric has a scenario capable of producing it.
-- Consult the full test-case catalog when exact row JSON or less-common fields are
-  required; do not copy an example without checking it against the curated
-  grading and feasibility references.
+Use the four Newton/Django row types only: `SIMULATOR_CONFIG`,
+`STRUCTURAL_RULE`, `SEMANTIC_CRITERION`, and `RUBRIC_CHECK`. Builder policy,
+constraints, suite data, and environment metadata live inside the config row.
 
-### 5. Emit the three JSON files
+Prefer structural rules for component-specific presence, counts, paths, and
+placement. Studio also exposes fixed topology totals (`topology.totalNodes`,
+`topology.totalEdges`, `topology.totalWorkers`) as rubric metrics. Bind every
+runtime check to a case that produces the metric. Preserve human UI units versus
+raw package units (`1%` becomes `0.01`).
 
-Follow [json-artifact-schemas.md](references/json-artifact-schemas.md) and start
-each file from its template in [`assets/`](assets/):
+For faults or chaos experiments, target learner-resolvable component/location IDs,
+use fixed timing and seeds, and make the experiment verdict an explicit gate.
 
-- `assets/question-studio-project.template.json` → `<slug>.simulator-question-project.json`
-- `assets/question-package.template.json` → `<slug>.question-package.json`
-- `assets/solution-topology.template.json` → `<slug>.solution-topology.json`
+### 5. Emit from the bundled templates
 
-Fill every `{{PLACEHOLDER}}` from the internal authoring contract (step 3). Then:
+Use:
 
-- **Derive the solution, do not guess it.** Size the service tier with the capacity
-  formula in the schema reference (`capacity = workers ÷ serviceTimeSeconds`;
-  `utilization = (load ÷ fan-out) ÷ capacity`). Replicate the single service node in
-  the template to the number of nodes the budget requires, wire each to the router,
-  and confirm the busiest node lands **inside** the invariant target with margin.
-- **Keep routers passthrough.** A load balancer never bottlenecks; only service
-  nodes appear in `perNode.maxUtilization`.
-- **Write the same plain-sentence learner-facing descriptions in both artifacts**:
-  each rule/check draft in `<slug>.simulator-question-project.json` and its compiled
-  counterpart in `<slug>.question-package.json` must carry identical `description`
-  text (e.g. "Serve the full 1,000,000 req/s"), never `metric op value` jargon.
-  Question Studio preserves these descriptions into the Django rows; omitting them
-  intentionally opts into Studio's generic generated fallback.
+- `assets/question-studio-project.template.json`
+- `assets/question-package.template.json`
+- `assets/solution-topology.template.json`
 
-### 6. Enforce the cross-file consistency contract
+The solution template is canonical engine `TopologyJSON`, not a React Flow canvas
+file. Do not emit renderer types, handles, dimensions, or `data.rendererType`.
 
-Apply §4 of [json-artifact-schemas.md](references/json-artifact-schemas.md): id,
-title, thresholds, allowed node types, rubric checks, declared invariants, and the
-workload/seed must agree across all three files, and every `componentType` in the
-solution must be an allowed type.
+Derive capacity from the actual serialized node fields. If instance resources are
+present, use the simulator's instance/execution-profile derivation; otherwise use
+authored capacity only when the question intentionally supplies it. Do not assume
+all routers or gateways are infinite: confirm the selected component's current
+spec before excluding it from bottleneck analysis.
 
-### 7. Validate honestly
+Use identical learner-facing descriptions and stable IDs in project and compiled
+package. Keep private cases out of the public dry run. A dry run should teach the
+surface without revealing hidden thresholds, faults, or rubric structure.
 
-Always perform these offline checks:
+### 6. Validate
 
-- all three files parse as JSON with no unresolved `{{PLACEHOLDER}}`;
-- #1 has `"artifact": "dsds-question-project"`; #2 has `version`, `suite`, `rubric`;
-  #3 has `"version": "2.0.0"` and a non-empty `nodes` array;
-- all component tokens, rule kinds, semantic kinds, and metrics occur in the
-  bundled catalogs;
-- request weights per case sum to a positive total; warmup is below duration;
-- raw fraction/percentage conversions are correct (UI `1%` → `0.01`);
-- every graded runtime/invariant check has an executable scenario that produces it;
-- the solution's **derived** utilization is strictly inside the budget, and one
-  plausible near-miss (e.g. one fewer server) would fail for the intended reason.
+Always run the bundled standalone validator:
 
-If the target environment allows, open #2 as the question and #3 as the design, run
-**Run & Evaluate**, and confirm a full pass. Report offline validation and any
-in-app run as separate levels of evidence. Never claim a design passes merely
-because the JSON is internally coherent.
+```bash
+node scripts/validate-artifacts.mjs <output-directory> <slug>
+```
 
-### Optional: emit the Markdown walkthroughs
+In a simulator checkout, also run:
 
-Only when the user asks for docs, additionally produce `builder-walkthrough.md`
-(from `assets/builder-walkthrough.template.md`) and `question-studio-walkthrough.md`
-(from `assets/question-studio-walkthrough.template.md`), then reconcile them with
-[walkthrough-pair-contract.md](references/walkthrough-pair-contract.md). They must
-describe the exact same topology, capacity math, workload, and thresholds as the
-three JSON files.
+```bash
+npm run sim -- validate <slug>.solution-topology.json
+npm run sim -- grade <slug>.question-package.json <slug>.solution-topology.json
+```
+
+Then grade the near miss and confirm it fails the intended obligation. When the
+Question Studio is available, open the project in AUTHOR mode, compile it, and
+compare the exported package. Assignment mode is not a verification environment:
+topology files, raw JSON, terminal/settings, private checks, and repeated dry runs
+may be unavailable by design.
+
+Report these evidence levels separately: JSON/cross-file validation, schema and
+compiler validation, headless behavioral grading, and in-app author verification.
+Never claim a pass from arithmetic or JSON coherence alone.
 
 ## Completion standard
 
-The task is complete only when:
-
-- the question has one clear teaching objective;
-- every graded requirement has a supported evidence source;
-- all three JSON files parse and open in their target surface without edits;
-- the three files agree per the cross-file consistency contract;
-- the solution topology passes every check, and one plausible wrong design fails
-  for the intended reason;
-- any optional walkthroughs use the same modeling boundaries as the JSON;
-- the response names the emitted files and states the validation actually done.
+Finish only when all three files parse and open, the Studio project compiles to
+the supplied private package, the canonical solution passes every gate, the near
+miss fails for the intended reason, family-aware constraints accept every solution
+component, private grading data is excluded from the student projection/public dry
+run, and any walkthrough matches the artifacts exactly.

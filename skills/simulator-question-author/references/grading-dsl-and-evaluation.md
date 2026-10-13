@@ -11,7 +11,7 @@ The Newton/Django row contract recognizes exactly four row types:
 
 | Row type             | Purpose                                                                                                               |               Runs simulation? |
 | -------------------- | --------------------------------------------------------------------------------------------------------------------- | -----------------------------: |
-| `SIMULATOR_CONFIG`   | Question identity, entry shape, scaffold, constraints, suite, budget, rubric setup, environment.                      |                             No |
+| `SIMULATOR_CONFIG`   | Question identity, entry shape, scaffold, constraints, builder policy, suite, budget, rubric setup, environment.      |                             No |
 | `STRUCTURAL_RULE`    | Static graph shape: components, categories, edges, paths, counts, redundancy, connectivity, source count.             |                             No |
 | `SEMANTIC_CRITERION` | Component meaning, configuration, placement, guarded paths, fan-out, store fit, and supported runtime state evidence. |                      Sometimes |
 | `RUBRIC_CHECK`       | Numeric assertion over topology, simulation, or invariant verdict data.                                               | Simulation/invariant checks do |
@@ -197,7 +197,25 @@ The suite must create every metric the rubric asserts. A latency, throughput,
 error, capability-counter, or state-transition check with no executable case is
 an authoring bug.
 
-## 10. Traceability table
+`suite.cases[].experiment` runs a supported chaos preset or composition against
+the learner design and adds a mandatory experiment-verdict gate. Do not combine a
+case-level experiment with a second independent fault source in the same case; the
+experiment owns its run plan. Feature metrics remain available to shared rubric
+checks when the experiment produces them.
+
+## 10. Private and public package boundary
+
+The compiled `QuestionPackage` is a private author/grader artifact. It includes
+hidden cases and the exact rules needed to game the assignment, so it must not be
+sent to a learner browser.
+
+The browser-safe student projection may contain the prompt, scaffold, constraints,
+public justification prompt shape, metadata, and only `suite.dryRunCase`. It must
+exclude `suite.cases`, the rubric, structural rules, semantic criteria, and grader
+hints. The public dry run must not copy hidden invariants, faults, experiments, or
+thresholds merely because it resembles the private case.
+
+## 11. Traceability table
 
 Put a table like this in the Question Studio walkthrough:
 
@@ -209,7 +227,7 @@ Put a table like this in the Question Studio walkthrough:
 Every prompt requirement must appear once. If two checks reinforce the same
 requirement (for example topology plus runtime), say why both are useful.
 
-## 11. Discrimination design
+## 12. Discrimination design
 
 Create at least:
 
@@ -224,7 +242,7 @@ Multiple variants in one architecture family may all pass. Truly different
 families are not yet a first-class OR expression; narrow or split instead of
 weakening checks.
 
-## 12. Validation
+## 13. Validation
 
 Without simulator access, validate catalog membership, units, scenario coverage,
 cross-file consistency, and good/bad-design discrimination analytically. When the

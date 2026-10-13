@@ -10,7 +10,8 @@
 > Runtime semantic kinds `stateTransition` and `stateSequence` are supported in
 > addition to the static semantic kinds summarized near the start of this file.
 > The current visual Studio uses structural rules for topology obligations; do
-> not assume its advanced verdict selector exposes raw `topology.*` metrics.
+> exposes fixed topology totals (`topology.totalNodes`, `topology.totalEdges`, and
+> `topology.totalWorkers`). Use structural rules for component-specific topology.
 
 > A complete reference for authoring **any** simulator question from Django rows: every
 > row type, every rule / criterion / check kind (with what it does), every verdict
@@ -956,7 +957,9 @@ Submit; `chromeDensity` is `full` · `minimal`. `visibility.*` are booleans exce
 `rubricChecks` = `HIDDEN` · `LIVE_DURING_BUILD` · `POST_SUBMIT_ONLY`. `capabilities.edgeModel`
 is `network` (modeled edges) · `connector` (dumb wires); the other capabilities
 (`canEditEdges`, `canEditScaffoldNodes`, `canEditResources`, `canEditExecutionProfile`,
-`canTriggerTestRuns`) are booleans; `editPaletteList` restricts the palette (or `null`).
+`canTriggerTestRuns`, `canUseTopologyFiles`, `canViewTopologyJson`, `canUseTerminal`,
+`canUseSettings`) are booleans; `editPaletteList` restricts the palette (or `null`).
+`maxTestRuns` bounds learner dry runs; use `1` for the standard graded profile.
 
 **`SIMULATOR_CONFIG: environment-assignment`** — the standard locked assignment lens.
 
@@ -972,14 +975,19 @@ is `network` (modeled edges) · `connector` (dumb wires); the other capabilities
       "scaffoldSourceNodes": true,
       "gradingSuiteDetails": false,
       "liveMetrics": true,
-      "rubricChecks": "LIVE_DURING_BUILD"
+      "rubricChecks": "HIDDEN"
     },
     "capabilities": {
       "edgeModel": "connector",
       "canEditEdges": false,
-      "canEditResources": false,
-      "canEditExecutionProfile": false,
-      "canTriggerTestRuns": true
+      "canEditResources": true,
+      "canEditExecutionProfile": true,
+      "canTriggerTestRuns": true,
+      "maxTestRuns": 1,
+      "canUseTopologyFiles": false,
+      "canViewTopologyJson": false,
+      "canUseTerminal": false,
+      "canUseSettings": false
     }
   }
 }

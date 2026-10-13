@@ -5,7 +5,7 @@ import { migrateCanvasNodes } from '../../../engine/catalog/legacyCanvasMigratio
 import { LEGACY_RENDERER_NODE_TYPES } from '../../../engine/catalog/rendererNodeTypes'
 import legacyCanvas from '../../../engine/catalog/__fixtures__/legacy-renderer-names.canvas.json'
 import currentCanvas from '../../../engine/__samples__/multi-az-auto-latency.json'
-import legacySkillExample from '../../../../skills/simulator-question-author/examples/quickcart/quickcart-flash-sale.solution-topology.json'
+import currentSkillTopology from '../../../../skills/simulator-question-author/examples/quickcart/quickcart-flash-sale.solution-topology.json'
 import { nodeTypes } from '@renderer/components/canvas/config/flowConfig'
 import useStore from '@renderer/store/useStore'
 import { normalizeScenarioState } from '@renderer/types/ui'
@@ -105,9 +105,10 @@ describe('legacy renderer names (#219)', () => {
     expect(exportTopology(legacyCanvas)).toBe(exportTopology(currentCanvas))
   })
 
-  it('an old-name skill example (quickcart solution) loads with current names only', () => {
-    expect(rawTypes(legacySkillExample).some((type) => LEGACY_NAMES.has(type))).toBe(true)
-    expectCurrentNames(load(legacySkillExample))
+  it('the canonical quickcart skill topology adapts to current renderer names', () => {
+    expect(rawTypes(currentSkillTopology).some((type) => LEGACY_NAMES.has(type))).toBe(false)
+    const canvas = topologyToCanvasFileData(structuredClone(currentSkillTopology) as TopologyJSON)
+    expectCurrentNames(load(canvas))
   })
 
   it('the store renames old names on every setGraph / setNodes / addNode', () => {

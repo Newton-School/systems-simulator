@@ -18,10 +18,10 @@
       "concepts": ["horizontal-scaling", "capacity-headroom", "load-balancing"],
       "workloadCategory": "read-heavy",
       "estimatedTimeMinutes": 10,
-      "passThreshold": 0.81,
-      "suiteVisibleToStudent": true,
+      "passThreshold": 1,
+      "suiteVisibleToStudent": false,
       "constraints": {
-        "allowedNodeTypes": ["microservice", "api-endpoint", "load-balancer-l7"],
+        "allowedNodeTypes": ["microservice", "api-endpoint", "load-balancer"],
         "canModifyScaffold": true,
         "canRemoveScaffoldNodes": true
       }
@@ -47,7 +47,19 @@
         }
       ]
     },
-    "dryRunScenarioId": "baseline",
+    "dryRunCase": {
+      "id": "public-dry-run",
+      "description": "{{PUBLIC_DRY_RUN_DESCRIPTION}}",
+      "global": { "simulationDuration": 5000, "seed": "{{SLUG}}-v1", "warmupDuration": 0 },
+      "workload": {
+        "pattern": "constant",
+        "baseRps": 1000000,
+        "requestDistribution": [
+          { "type": "read", "weight": 1, "sizeBytes": 100 },
+          { "type": "write", "weight": 0, "sizeBytes": 100 }
+        ]
+      }
+    },
     "justify": [],
     "scenarios": [
       {
@@ -64,7 +76,7 @@
         "faults": [],
         "invariants": [
           {
-            "id": "invariant-1",
+            "id": "headroom-80",
             "description": "{{INVARIANT_DESCRIPTION}}",
             "condition": "perNode.maxUtilization <= 0.8"
           }
@@ -73,14 +85,19 @@
     ],
     "structuralRules": [
       {
-        "id": "structural-rule-2",
+        "id": "requires-load-balancer",
         "description": "{{LOAD_BALANCER_RULE_DESCRIPTION}}",
         "kind": "requires_component",
-        "componentType": "load-balancer-l7",
+        "componentType": "load-balancer",
         "minCount": 1
       },
       {
-        "id": "structural-rule-5",
+        "id": "requires-single-source",
+        "description": "Use exactly one traffic source.",
+        "kind": "requires_single_source"
+      },
+      {
+        "id": "requires-connected-design",
         "description": "{{CONNECTED_GRAPH_RULE_DESCRIPTION}}",
         "kind": "requires_connected_graph"
       }

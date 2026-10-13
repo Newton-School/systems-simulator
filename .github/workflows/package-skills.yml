@@ -8,7 +8,13 @@ on:
     paths:
       - 'skills/**'
       - 'scripts/package-skill.sh'
+      - 'scripts/generate-simulator-question-author-snapshot.ts'
+      - 'scripts/validate-simulator-question-author.ts'
+      - 'src/engine/analysis/authoringCapabilities.ts'
+      - 'src/engine/analysis/builderPolicy.ts'
+      - 'src/engine/catalog/paletteTemplates.ts'
       - 'package.json'
+      - 'package-lock.json'
       - '.github/workflows/package-skills.yml'
 
 permissions:
@@ -22,6 +28,15 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
 
       - name: Package standalone skill
         run: bash scripts/package-skill.sh simulator-question-author

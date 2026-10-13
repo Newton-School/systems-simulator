@@ -1,149 +1,78 @@
 # Component and Metric Catalog
 
-This is the standalone mapping snapshot for walkthrough authoring. Use serialized
-type tokens in grading rules, never palette labels.
+Use [capability-snapshot.json](capability-snapshot.json) as the complete,
+machine-generated catalog. It is derived from the engine authoring registry,
+palette, and builder-policy enums and includes:
 
-## Component label to type
+- every authorable component token, label, alias, category, and support tier;
+- every rubric metric with kind, group, unit, operator set, and evidence mode;
+- every structural and semantic rule kind;
+- workload patterns and chaos-experiment presets;
+- builder node classes, runtime templates, and trait packs;
+- directional component-family relationships.
 
-| Category       | Palette label               | Type token                   |
-| -------------- | --------------------------- | ---------------------------- |
-| Compute        | Client App / Input Source   | `api-endpoint`               |
-| Compute        | API Server / custom service | `microservice`               |
-| Compute        | Serverless Function         | `serverless-function`        |
-| Compute        | Job Worker / Cron Job       | `batch-worker`               |
-| Compute        | Auth Service                | `auth-service`               |
-| Compute        | Search Service              | `search-service`             |
-| Compute        | Sidecar Proxy               | `sidecar`                    |
-| Storage        | SQL DB / Read Replica       | `relational-db`              |
-| Storage        | NoSQL DB                    | `nosql-db`                   |
-| Storage        | Distributed Cache           | `in-memory-cache`            |
-| Storage        | Object Storage              | `object-storage`             |
-| Storage        | Search Index                | `search-index`               |
-| Storage        | Time-series DB              | `time-series-db`             |
-| Storage        | Graph DB                    | `graph-db`                   |
-| Storage        | Vector DB                   | `vector-db`                  |
-| Storage        | Data Warehouse              | `data-warehouse`             |
-| Storage        | Data Lake                   | `data-lake`                  |
-| Storage        | KV Store                    | `kv-store`                   |
-| Network        | Load Balancer               | `load-balancer`              |
-| Network        | Load Balancer L4            | `load-balancer-l4`           |
-| Network        | Load Balancer L7            | `load-balancer-l7`           |
-| Network        | Ingress Controller          | `ingress-controller`         |
-| Network        | Reverse Proxy               | `reverse-proxy`              |
-| Network        | Service Mesh                | `service-mesh`               |
-| Network        | API Gateway                 | `api-gateway`                |
-| Network        | CDN                         | `cdn`                        |
-| Network        | Edge Router                 | `edge-router`                |
-| Network        | NAT Gateway                 | `nat-gateway`                |
-| Network        | VPN Gateway                 | `vpn-gateway`                |
-| Messaging      | Message Queue               | `queue`                      |
-| Messaging      | Event Broker                | `message-broker`             |
-| Messaging      | Pub/Sub                     | `pub-sub`                    |
-| Messaging      | Event Stream                | `stream`                     |
-| Coordination   | Rate Limiter                | `rate-limiter`               |
-| Coordination   | Circuit Breaker             | `circuit-breaker-controller` |
-| Coordination   | Distributed Lock            | `distributed-lock`           |
-| Coordination   | Idempotency Guard           | `idempotency-manager`        |
-| Coordination   | Reservation Store           | `reservation-store`          |
-| Coordination   | Sharding                    | `sharding`                   |
-| Coordination   | Hashing                     | `hashing`                    |
-| Coordination   | Shard Node                  | `shard-node`                 |
-| Coordination   | Partition Node              | `partition-node`             |
-| Infrastructure | Discovery Service           | `service-registry`           |
-| Infrastructure | Config Store                | `config-store`               |
-| Infrastructure | Secrets Manager             | `secrets-manager`            |
-| Infrastructure | Feature Flag Service        | `feature-flag-service`       |
-| Observability  | Metrics Collector           | `metrics-store`              |
-| Observability  | Log Collector               | `centralized-logging`        |
-| Observability  | Tracing Collector           | `distributed-tracing`        |
-| Observability  | Alerting Engine             | `alerting-hook`              |
-| Observability  | Health Check Manager        | `health-check-manager`       |
+Never infer a token from a palette label. Search the snapshot by label or alias and
+serialize the matching `id`.
 
-When a requested palette item is absent, do not guess its type token. Use a
-documented broader category, choose a listed proxy, or mark target-version
-validation as required.
+## Component families
 
-## Categories
+Family matching is directional. A requirement for `load-balancer` accepts
+`load-balancer`, `load-balancer-l4`, and `load-balancer-l7`. A requirement for
+`load-balancer-l7` accepts only `load-balancer-l7`. Apply this rule consistently
+to allowlists, forbidden lists, structural rules, semantic criteria, topology
+component-count metrics, and reference-solution validation.
 
-Valid common category tokens:
+## Metric selection
 
-- `compute`
-- `network-and-edge`
-- `storage-and-data`
-- `messaging-and-streaming`
-- `orchestration-and-infra`
-- `security-and-identity`
-- `observability`
-- `devops-and-delivery`
-- `data-infra-and-analytics`
-- `real-time-and-media`
-- `external-and-integration`
-- `dns-and-certs`
-- `consensus-and-coordination`
-- `auxiliary`
+Use a metric only when its `evidenceModes` include the selected execution path.
+The main groups are:
 
-## Common rubric metrics
+- `latency`, `requests`, `perNode`: core simulation outcomes;
+- `coordination`, `resilience`, `consistency`: opt-in runtime mechanisms;
+- `topology`: fixed totals available without component-specific metric invention;
+- `cache`, `collapse`, `changeStream`, `telemetry`, `cluster`, `edges`,
+  `faultDomains`: feature metrics that normally resolve only when the feature is
+  configured and exercised;
+- `invariants`: declared case invariants and global correctness checks.
 
-### Summary
-
-- `summary.latency.p50`
-- `summary.latency.p90`
-- `summary.latency.p95`
-- `summary.latency.p99`
-- `summary.latency.min`
-- `summary.latency.max`
-- `summary.latency.mean`
-- `summary.throughput`
-- `summary.totalRequests`
-- `summary.successfulRequests`
-- `summary.failedRequests`
-- `summary.rejectedRequests`
-- `summary.timedOutRequests`
-- `summary.connectionResetRequests`
-- `summary.errorRate`
-
-### Worst-node aggregates
-
-- `perNode.maxUtilization`
-- `perNode.maxErrorRate`
-- `perNode.maxLatencyP99`
-
-### Invariants and consistency
-
-- `invariantViolations.count`
-- `sloBreaches.count`
-- `conservation.unbalanced`
-- `littlesLaw.violations`
-
-The runtime may expose additional reservation, lock, retry, rate-limit, broker,
-replication, protocol, and idempotency counters. Use those only when newer target
-documentation or the Studio selector confirms the exact path. Unknown metric
-paths fail; never improvise one.
+An unresolved metric fails; it does not behave as zero. This makes checks such as
+`cache.hitRatio >= 0.8` fail closed when no cache lookup occurred, and prevents a
+design without the required feature from passing a `== 0` feature-counter check.
 
 ## Units
 
-| Value                            | Raw unit                      |
-| -------------------------------- | ----------------------------- |
-| Latency                          | milliseconds                  |
-| Throughput                       | requests/second               |
-| Utilization                      | fraction `0..1`               |
-| Error rate                       | fraction `0..1`               |
-| Pass threshold                   | fraction `0..1`               |
-| Studio friendly error-rate input | percent; `1` means raw `0.01` |
+Use the `unit` stored beside each metric. Important conversions:
 
-## Capability-bearing components
+| Human statement         | Raw package value               |
+| ----------------------- | ------------------------------- |
+| Error rate below 1%     | `summary.errorRate < 0.01`      |
+| Utilization at most 80% | `perNode.maxUtilization <= 0.8` |
+| Latency below 250 ms    | latency metric `< 250`          |
+| Pass threshold 100%     | `rubric.passThreshold: 1`       |
 
-- `stream`: partitions, consumer groups, offsets, retention, replay,
-  rebalancing, and broker-availability evidence.
-- replicated `relational-db` / `nosql-db`: ack policy, replica members,
-  deterministic promotion, staleness, and failover-window proxies.
-- `load-balancer-l4`, `load-balancer-l7`, `api-gateway`: protocol/session and
-  L4/L7 behavior within guided network boundaries.
-- `rate-limiter` / `api-gateway`: configured admission behavior and counters.
-- `idempotency-manager`: duplicate suppression, commit-outcome journal, and
-  modeled reconciliation evidence.
-- `distributed-lock`: lock acquisition, lease, and contention proxies.
-- `reservation-store`: reservation-state and guard-store behavior.
+For count metrics, remember the grader's floating comparison tolerance. Express an
+integer maximum as `<= N`, not `< N+1`.
 
-Presence alone does not enable every behavior; configuration and discrete
-execution may be required.
+## Consistency and linearizability
+
+Consistency metrics require replicated SQL/NoSQL nodes with a configured
+consistency model plus keyed reads/writes. Session guarantees require
+`workload.sessions.count`.
+
+A zero `consistency.linearizabilityViolations` count is insufficient by itself.
+Pair it with `consistency.linearizableVerified == 1` or
+`consistency.linearizabilityOpsNotChecked == 0` so bounded-out operations cannot
+produce a false claim. The verifier covers single-key register histories, not
+multi-key transactional linearizability.
+
+## Maintaining the snapshot
+
+From a simulator checkout:
+
+```bash
+npx tsx scripts/generate-simulator-question-author-snapshot.ts
+npm run check:simulator-question-author-snapshot
+```
+
+Do not hand-edit the generated JSON. A stale-snapshot check should fail before the
+skill is packaged.

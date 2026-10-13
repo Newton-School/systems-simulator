@@ -6,7 +6,7 @@ does not implement.
 
 ## 1. Support tiers
 
-This package embeds the support snapshot verified on **2026-09-21**. Treat it as
+This package embeds the support snapshot verified on **2026-10-13**. Treat it as
 the authoring contract when no newer target-environment documentation is
 available.
 
@@ -98,8 +98,9 @@ Important consequences:
 - If the question states “each server handles X RPS,” confirm the learner can
   reproduce X. Otherwise use a prepared scaffold, express the problem through
   derived capacity, or change the wording.
-- Load balancers, gateways, sources, and similar passthrough nodes may not be
-  modeled as bottlenecks in the same way as capacity-bound processors.
+- Sources and components whose current catalog spec marks them as passthrough do
+  not behave like capacity-bound processors. Do not generalize this to every
+  router or gateway; confirm the selected component spec and enabled traits.
 
 Always show the capacity arithmetic in the builder guide and verify it matches
 the serialized topology.
@@ -159,8 +160,8 @@ Within the embedded snapshot, these are reliable starting points:
 
 Common unsafe claims:
 
-- formal exactly-once;
-- linearizability proof;
+- formal end-to-end exactly-once;
+- multi-key or transactional linearizability proof;
 - real Raft election timing or packet-level replication;
 - physical multi-broker replication guarantees;
 - strict global ordering;
@@ -171,6 +172,11 @@ Common unsafe claims:
 
 Translate these into supported proxies, explanation prompts, or explicit
 boundaries. Never label a proxy as proof of the original guarantee.
+
+The current runtime does provide a bounded single-key register linearizability
+verifier. A question may grade it only when keyed operations are present and the
+rubric also proves that no operations were left unchecked. State the 100-operations
+per key / 200-key bound and never extend the claim to transactions.
 
 ## 9. Feasibility decision
 
