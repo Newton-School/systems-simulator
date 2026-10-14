@@ -312,8 +312,12 @@ export const QuestionPanel = () => {
   }, [budget, nodes, edges, serialize])
 
   useEffect(() => {
-    setArchivedCount(activeQuestionId ? listArchivedSubmissionIds(activeQuestionId).length : 0)
-  }, [activeQuestionId])
+    setArchivedCount(
+      activeQuestionId && environmentProfile.mode !== 'ASSIGNMENT'
+        ? listArchivedSubmissionIds(activeQuestionId).length
+        : 0
+    )
+  }, [activeQuestionId, environmentProfile.mode])
 
   useEffect(() => {
     resetGrader()
@@ -395,8 +399,10 @@ export const QuestionPanel = () => {
             cases: graderRuns ?? [],
             contract
           })
-          archiveSubmission(envelope)
-          setArchivedCount(listArchivedSubmissionIds(activeQuestion.id).length)
+          if (environmentProfile.mode !== 'ASSIGNMENT') {
+            archiveSubmission(envelope)
+            setArchivedCount(listArchivedSubmissionIds(activeQuestion.id).length)
+          }
         } catch (err) {
           console.error('Failed to archive submission envelope', err)
         }
@@ -435,6 +441,7 @@ export const QuestionPanel = () => {
     graderGrade,
     graderRuns,
     graderStatus,
+    environmentProfile.mode,
     newtonSaveMode,
     pendingRun,
     setAttemptState

@@ -19,10 +19,10 @@ export function SettingsButton({
   openRequestVersion?: number
 }): React.JSX.Element | null {
   const [open, setOpen] = useState(false)
-  const mode = useStore((s) => s.environmentProfile.mode)
+  const canUseSettings = useStore((s) => s.environmentProfile.capabilities.canUseSettings)
 
   useEffect(() => {
-    if (mode === 'ASSIGNMENT') {
+    if (!canUseSettings) {
       setOpen(false)
       return
     }
@@ -30,9 +30,9 @@ export function SettingsButton({
     if (openRequestVersion > 0) {
       setOpen(true)
     }
-  }, [mode, openRequestVersion])
+  }, [canUseSettings, openRequestVersion])
 
-  if (mode === 'ASSIGNMENT') {
+  if (!canUseSettings) {
     return null
   }
 

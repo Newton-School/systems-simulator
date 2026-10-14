@@ -5,8 +5,8 @@
  * shared QuestionPackage. The same question runs unchanged in three modes:
  *
  *   - AUTHOR     — full UI; the setter sees and can do everything.
- *   - ASSIGNMENT — graded; authored checks visible, dry-run feedback live,
- *                  scaffold locked.
+ *   - ASSIGNMENT — graded; private checks hidden, one public dry run by default,
+ *                  scaffold and sensitive utility surfaces locked.
  *   - PRACTICE   — self-paced practice; live rubric feedback, free editing, not
  *                  graded.
  *
@@ -36,6 +36,14 @@ export interface EnvironmentVisibility {
 }
 
 export interface EnvironmentCapabilities {
+  /** Open/import and save/export topology files. Never enabled for graded attempts. */
+  canUseTopologyFiles: boolean
+  /** Inspect the raw serialized topology. Disabled in assignments to prevent trivial sharing. */
+  canViewTopologyJson: boolean
+  /** Open the simulator command terminal. Disabled in assignments. */
+  canUseTerminal: boolean
+  /** Open environment/simulation settings. Disabled in assignments. */
+  canUseSettings: boolean
   /** Whether the separate teaching-annotation layer is available on the canvas. */
   canAnnotate: boolean
   /** Allowed palette node types (null = all, [] = none). */
@@ -125,6 +133,10 @@ export const AUTHOR_ENVIRONMENT_PROFILE: EnvironmentProfile = {
     rubricChecks: 'LIVE_DURING_BUILD'
   },
   capabilities: {
+    canUseTopologyFiles: true,
+    canViewTopologyJson: true,
+    canUseTerminal: true,
+    canUseSettings: true,
     canAnnotate: true,
     editPaletteList: null,
     canEditScaffoldNodes: true,
@@ -145,9 +157,13 @@ export const ASSIGNMENT_ENVIRONMENT_PROFILE: EnvironmentProfile = {
     scaffoldSourceNodes: true,
     gradingSuiteDetails: false,
     liveMetrics: true,
-    rubricChecks: 'LIVE_DURING_BUILD'
+    rubricChecks: 'HIDDEN'
   },
   capabilities: {
+    canUseTopologyFiles: false,
+    canViewTopologyJson: false,
+    canUseTerminal: false,
+    canUseSettings: false,
     canAnnotate: false,
     editPaletteList: null,
     canEditScaffoldNodes: false,
@@ -160,7 +176,10 @@ export const ASSIGNMENT_ENVIRONMENT_PROFILE: EnvironmentProfile = {
     // Compute nodes default to io-bound; a graded student may still switch a
     // node's execution profile to cpu-bound when the question calls for it (e.g.
     // a latency-sensitive design that wants fast-core service time).
-    canEditExecutionProfile: true
+    canEditExecutionProfile: true,
+    // A contest attempt gets at most one representative/public dry run by default.
+    // Hidden grading must happen on the host/backend, never in this browser profile.
+    maxTestRuns: 1
   },
   graded: true,
   chromeDensity: 'minimal'
@@ -176,6 +195,10 @@ export const PRACTICE_ENVIRONMENT_PROFILE: EnvironmentProfile = {
     rubricChecks: 'LIVE_DURING_BUILD'
   },
   capabilities: {
+    canUseTopologyFiles: true,
+    canViewTopologyJson: true,
+    canUseTerminal: true,
+    canUseSettings: true,
     canAnnotate: true,
     editPaletteList: null,
     canEditScaffoldNodes: true,
@@ -225,6 +248,10 @@ const InputObjectSchema = z
       .optional(),
     capabilities: z
       .object({
+        canUseTopologyFiles: z.boolean().optional(),
+        canViewTopologyJson: z.boolean().optional(),
+        canUseTerminal: z.boolean().optional(),
+        canUseSettings: z.boolean().optional(),
         canAnnotate: z.boolean().optional(),
         editPaletteList: z.array(z.string()).nullable().optional(),
         canEditScaffoldNodes: z.boolean().optional(),
@@ -264,13 +291,32 @@ export function resolveEnvironmentProfile(input?: unknown): EnvironmentProfile {
   }
 
   const base = ENVIRONMENT_PROFILE_PRESETS[value.mode ?? 'AUTHOR']
-  return {
+  const resolved: EnvironmentProfile = {
     mode: base.mode,
     visibility: { ...base.visibility, ...value.visibility },
     capabilities: { ...base.capabilities, ...value.capabilities },
     graded: value.graded ?? base.graded,
     chromeDensity: value.chromeDensity ?? base.chromeDensity
   }
+
+  // Sensitive Assignment surfaces fail closed. A host may tune pedagogical
+  // controls (run count, resource editing, feedback timing), but it cannot turn
+  // a graded launch into an import/export or inspection surface through payload
+  // overrides. Backend authorization remains the real trust boundary.
+  if (resolved.mode === 'ASSIGNMENT') {
+    return {
+      ...resolved,
+      capabilities: {
+        ...resolved.capabilities,
+        canUseTopologyFiles: false,
+        canViewTopologyJson: false,
+        canUseTerminal: false,
+        canUseSettings: false
+      }
+    }
+  }
+
+  return resolved
 }
 
 /**
