@@ -61,6 +61,43 @@ describe('engine-owned authoring capability registry', () => {
     for (const metric of INVARIANT_RUBRIC_METRICS) expect(registered.has(metric)).toBe(true)
   })
 
+  it('exposes authentication decisions as simulation-gradeable security metrics', () => {
+    const authentication = RUBRIC_METRIC_CAPABILITIES.filter((capability) =>
+      capability.id.startsWith('authentication.')
+    )
+    expect(authentication.map((capability) => capability.id)).toEqual([
+      'authentication.attempts',
+      'authentication.succeeded',
+      'authentication.missingCredentials',
+      'authentication.invalidCredentials',
+      'authentication.expiredCredentials',
+      'authentication.forbidden'
+    ])
+    expect(authentication.every((capability) => capability.group === 'security')).toBe(true)
+  })
+
+  it('exposes every remaining priority-zero outcome to Question Studio', () => {
+    const registered = new Set(RUBRIC_METRIC_CAPABILITIES.map((capability) => capability.id))
+    for (const metric of [
+      'queue.accepted',
+      'queue.lost',
+      'queue.noLoss',
+      'queue.maxQueueDepth',
+      'queue.capacityRejected',
+      'partners.queuedForAvailability',
+      'partners.assignments',
+      'stream.partitions',
+      'stream.maxPartitionLag',
+      'stream.rebalances',
+      'sharding.skewRatio',
+      'sharding.hotDetections',
+      'sharding.splits',
+      'sharding.migratedKeys'
+    ]) {
+      expect(registered.has(metric), metric).toBe(true)
+    }
+  })
+
   it('derives component selectors and support tiers from the palette and support ledger', () => {
     const paletteTypes = new Set(
       Object.values(PALETTE_TEMPLATES)
