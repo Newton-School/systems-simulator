@@ -31,7 +31,8 @@ describe('environment profile presets', () => {
     // io-bound by default; some questions need a cpu-bound override).
     expect(ASSIGNMENT_ENVIRONMENT_PROFILE.capabilities.canEditExecutionProfile).toBe(true)
     expect(ASSIGNMENT_ENVIRONMENT_PROFILE.capabilities.canAnnotate).toBe(false)
-    expect(ASSIGNMENT_ENVIRONMENT_PROFILE.capabilities.maxTestRuns).toBe(1)
+    // Test runs are uncapped unless the host passes maxTestRuns.
+    expect(ASSIGNMENT_ENVIRONMENT_PROFILE.capabilities.maxTestRuns).toBeUndefined()
     expect(ASSIGNMENT_ENVIRONMENT_PROFILE.capabilities.canUseTopologyFiles).toBe(false)
     expect(ASSIGNMENT_ENVIRONMENT_PROFILE.capabilities.canViewTopologyJson).toBe(false)
     expect(ASSIGNMENT_ENVIRONMENT_PROFILE.capabilities.canUseTerminal).toBe(false)
@@ -126,8 +127,8 @@ describe('canTriggerTestRun', () => {
       canTriggerTestRun(resolveEnvironmentProfile({ mode: 'ASSIGNMENT' }), { testRunCount: 0 })
     ).toBe(true)
     expect(
-      canTriggerTestRun(resolveEnvironmentProfile({ mode: 'ASSIGNMENT' }), { testRunCount: 3 })
-    ).toBe(false)
+      canTriggerTestRun(resolveEnvironmentProfile({ mode: 'ASSIGNMENT' }), { testRunCount: 4 })
+    ).toBe(true)
     expect(
       canTriggerTestRun(
         resolveEnvironmentProfile({ mode: 'ASSIGNMENT', capabilities: { maxTestRuns: 3 } }),

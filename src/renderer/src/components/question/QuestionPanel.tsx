@@ -710,6 +710,11 @@ export const QuestionPanel = () => {
     resultsRevealed || shouldShowRubricResults(environmentProfile, { hasSubmittedGrade })
   const showSubmit = environmentProfile.graded
   const canTest = canTriggerTestRun(environmentProfile, { testRunCount }) && !isAttemptLocked
+  const maxTestRuns = environmentProfile.capabilities.maxTestRuns
+  const testRunLimitReached =
+    environmentProfile.capabilities.canTriggerTestRuns &&
+    maxTestRuns !== undefined &&
+    testRunCount >= maxTestRuns
   const rawTestRows = showRubricResults ? testRows : buildQuestionTestRows(activeQuestion)
   // The auto-injected placeholder rubric check (present only when the author wrote
   // no RUBRIC_CHECK rows) exists solely to satisfy the "≥1 check" schema rule; it is
@@ -1248,6 +1253,12 @@ export const QuestionPanel = () => {
           <p className="mb-2 text-[10px] leading-relaxed text-nss-muted">
             This check validates the configuration. To simulate traffic, use <strong>Run</strong> in
             the top toolbar.
+          </p>
+        )}
+        {testRunLimitReached && !isAttemptLocked && (
+          <p className="mb-2 text-[10px] leading-relaxed text-nss-muted">
+            You have used all {maxTestRuns} test run{maxTestRuns === 1 ? '' : 's'} for this
+            assignment. You can still submit.
           </p>
         )}
         <div className="flex gap-2">

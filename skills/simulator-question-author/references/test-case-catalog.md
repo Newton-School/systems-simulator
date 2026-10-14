@@ -959,7 +959,7 @@ is `network` (modeled edges) · `connector` (dumb wires); the other capabilities
 (`canEditEdges`, `canEditScaffoldNodes`, `canEditResources`, `canEditExecutionProfile`,
 `canTriggerTestRuns`, `canUseTopologyFiles`, `canViewTopologyJson`, `canUseTerminal`,
 `canUseSettings`) are booleans; `editPaletteList` restricts the palette (or `null`).
-`maxTestRuns` bounds learner dry runs; use `1` for the standard graded profile.
+`maxTestRuns` bounds learner dry runs; it is absent (unlimited) in the standard graded profile, so set it only when the host wants a cap.
 
 **`SIMULATOR_CONFIG: environment-assignment`** — the standard locked assignment lens.
 
