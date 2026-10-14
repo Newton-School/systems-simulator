@@ -48,8 +48,6 @@ import { buildGamePlaygroundResult } from '../../../../engine/analysis/gamePlayg
 import {
   createAttemptState,
   lockAttempt,
-  resolveVisibleAttemptGrade,
-  topologySnapshotSignature,
   type AttemptState,
   type QuestionPackage
 } from '../../../../engine/analysis/question'
@@ -78,10 +76,6 @@ import { Header } from './Header'
 import { ShortcutsModal } from './ShortcutsModal'
 import { SampleScenarioPicker } from '../samples/SampleScenarioPicker'
 import { SAMPLE_SCENARIOS, type SampleScenario } from '@renderer/config/sampleScenarios'
-import {
-  QuestionExperienceStrip,
-  SHOW_ENTRY_FORMAT_WORKFLOW
-} from '../question/questionEntryFormatPresentation'
 
 // Atoms
 import { ErrorBoundary } from '../ui/ErrorBoundary'
@@ -571,41 +565,6 @@ export const WorkspaceLayout = () => {
       )
   }, [isLiveRun, liveVisualization])
   const { serialize } = useTopologySerializer()
-  const currentQuestionTopology = useMemo(() => {
-    if (!activeQuestion) {
-      return null
-    }
-    try {
-      return serialize().topology
-    } catch {
-      return null
-    }
-  }, [activeQuestion, serialize])
-  const latestVisibleQuestionGrade = useMemo(
-    () => resolveVisibleAttemptGrade(attemptState, currentQuestionTopology),
-    [attemptState, currentQuestionTopology]
-  )
-  const questionTopologyHasEdits = useMemo(() => {
-    if (!activeQuestion) {
-      return false
-    }
-    if (!currentQuestionTopology) {
-      if (activeQuestion.scaffold.type === 'empty' || !activeQuestion.scaffold.topology) {
-        return nodes.length > 0 || edges.length > 0
-      }
-      return (
-        nodes.length !== activeQuestion.scaffold.topology.nodes.length ||
-        edges.length !== activeQuestion.scaffold.topology.edges.length
-      )
-    }
-    if (activeQuestion.scaffold.type === 'empty' || !activeQuestion.scaffold.topology) {
-      return currentQuestionTopology.nodes.length > 0 || currentQuestionTopology.edges.length > 0
-    }
-    return (
-      topologySnapshotSignature(currentQuestionTopology) !==
-      topologySnapshotSignature(activeQuestion.scaffold.topology)
-    )
-  }, [activeQuestion, currentQuestionTopology, edges.length, nodes.length])
 
   useEffect(() => {
     if (!isNewtonAssignmentHost) {
@@ -1696,19 +1655,6 @@ export const WorkspaceLayout = () => {
         canOpen={canUseTopologyFiles}
         canSave={canUseTopologyFiles}
       />
-
-      {activeQuestion && SHOW_ENTRY_FORMAT_WORKFLOW && !isLabQuestion(activeQuestion) && (
-        <QuestionExperienceStrip
-          question={activeQuestion}
-          experience={experienceEnvelope}
-          runtime={{
-            hasTopologyEdits: questionTopologyHasEdits,
-            hasCurrentEvaluation: latestVisibleQuestionGrade !== null,
-            evaluationPassed: latestVisibleQuestionGrade?.contract.allPassed ?? false,
-            testRunCount: attemptState?.testRunCount ?? 0
-          }}
-        />
-      )}
 
       {builderPolicyNotice && (
         <RunToast
