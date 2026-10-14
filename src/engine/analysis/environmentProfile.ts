@@ -5,8 +5,9 @@
  * shared QuestionPackage. The same question runs unchanged in three modes:
  *
  *   - AUTHOR     — full UI; the setter sees and can do everything.
- *   - ASSIGNMENT — graded; private checks hidden, public dry runs only,
- *                  scaffold and sensitive utility surfaces locked.
+ *   - ASSIGNMENT — graded; check results shown after each test run, grading
+ *                  suite internals hidden, scaffold and sensitive utility
+ *                  surfaces locked.
  *   - PRACTICE   — self-paced practice; live rubric feedback, free editing, not
  *                  graded.
  *
@@ -157,7 +158,9 @@ export const ASSIGNMENT_ENVIRONMENT_PROFILE: EnvironmentProfile = {
     scaffoldSourceNodes: true,
     gradingSuiteDetails: false,
     liveMetrics: true,
-    rubricChecks: 'HIDDEN'
+    // Students see each check's result after a test run; the suite's private
+    // cases and thresholds stay hidden through gradingSuiteDetails.
+    rubricChecks: 'LIVE_DURING_BUILD'
   },
   capabilities: {
     canUseTopologyFiles: false,

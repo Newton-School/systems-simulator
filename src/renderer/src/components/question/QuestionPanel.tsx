@@ -1098,7 +1098,11 @@ export const QuestionPanel = () => {
               <p className="rounded border border-nss-border bg-nss-surface px-3 py-2 text-[11px] leading-relaxed text-nss-muted">
                 {experience.kind === 'LAB'
                   ? 'Use Check Configuration to verify that the locked topology is still valid. Use Run in the top toolbar to generate simulation results.'
-                  : 'Use Run & Evaluate to evaluate the current topology. Until you run it, the authored checks below stay pending. Submit records the graded attempt.'}
+                  : !showRubricResults && testRunCount > 0
+                    ? environmentProfile.visibility.rubricChecks === 'POST_SUBMIT_ONLY'
+                      ? 'Your test runs are recorded. Check results appear after you submit.'
+                      : 'Your test runs are recorded. Check results are hidden for this assignment.'
+                    : 'Use Run & Evaluate to evaluate the current topology. Until you run it, the authored checks below stay pending. Submit records the graded attempt.'}
               </p>
             )}
 

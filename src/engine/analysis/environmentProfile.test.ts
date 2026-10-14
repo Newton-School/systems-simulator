@@ -25,7 +25,7 @@ describe('environment profile presets', () => {
     expect(AUTHOR_ENVIRONMENT_PROFILE.capabilities.canAnnotate).toBe(true)
 
     expect(ASSIGNMENT_ENVIRONMENT_PROFILE.graded).toBe(true)
-    expect(ASSIGNMENT_ENVIRONMENT_PROFILE.visibility.rubricChecks).toBe('HIDDEN')
+    expect(ASSIGNMENT_ENVIRONMENT_PROFILE.visibility.rubricChecks).toBe('LIVE_DURING_BUILD')
     expect(ASSIGNMENT_ENVIRONMENT_PROFILE.visibility.gradingSuiteDetails).toBe(false)
     expect(ASSIGNMENT_ENVIRONMENT_PROFILE.capabilities.canEditScaffoldNodes).toBe(false)
     // Graded students may still switch a node's execution profile (compute is
@@ -76,7 +76,7 @@ describe('resolveEnvironmentProfile', () => {
     expect(resolved.capabilities.canAnnotate).toBe(true)
     // untouched preset fields survive
     expect(resolved.capabilities.canEditScaffoldNodes).toBe(false)
-    expect(resolved.visibility.rubricChecks).toBe('HIDDEN')
+    expect(resolved.visibility.rubricChecks).toBe('LIVE_DURING_BUILD')
   })
 
   it('lets an override flip a single flag (e.g. graded PRACTICE)', () => {
