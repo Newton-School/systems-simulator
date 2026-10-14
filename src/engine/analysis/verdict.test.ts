@@ -80,6 +80,55 @@ describe('projectToVerdict', () => {
       config,
       12
     )
+    output.perNode['node-a']!.traitCounters = {
+      authAttempts: 3,
+      authSucceeded: 1,
+      authMissingCredentials: 1,
+      authForbidden: 1,
+      queueAccepted: 2,
+      queueRedeliveries: 1,
+      partnerRequests: 2,
+      partnerQueuedForAvailability: 1,
+      partnerAssignments: 1,
+      partnerWaits: 1,
+      partnerWaitMs: 80,
+      streamAppends: 3,
+      streamOffsetCommits: 2,
+      streamConsumerRebalances: 1,
+      shardRoutedRequests: 10,
+      hotShardDetections: 1,
+      shardRebalances: 1,
+      shardSplits: 1,
+      shardKeysMigrated: 1,
+      'shardTarget:shard-a': 7,
+      'shardTarget:shard-b': 3
+    }
+    output.requestOutcomes = [
+      { status: 'success', semantics: { flowKind: 'queued' }, stateTimeline: [] },
+      { status: 'in-flight', semantics: { flowKind: 'queued' }, stateTimeline: [] }
+    ] as never
+    output.acceptedWorkConservation = { accepted: 2, delivered: 1, lost: 0 }
+    output.streamProjection = [
+      {
+        nodeId: 'node-a',
+        brokerAvailable: true,
+        consumerGroupMode: true,
+        partitions: [
+          { partition: 0, startOffset: 0, nextOffset: 2, retainedRecords: 2 },
+          { partition: 1, startOffset: 0, nextOffset: 1, retainedRecords: 1 }
+        ],
+        groups: [
+          {
+            group: 'orders',
+            members: ['consumer'],
+            committedOffsets: { '0': 1, '1': 0 },
+            lag: { '0': 1, '1': 1 }
+          }
+        ],
+        replayCount: 0,
+        retentionRemovals: 0
+      }
+    ]
 
     output.sloBreaches.push({
       nodeId: 'node-a',
@@ -103,6 +152,53 @@ describe('projectToVerdict', () => {
     expect(verdict.summary.totalRequests).toBe(output.summary.totalRequests)
     expect(verdict.summary.postWarmupTotalRequests).toBe(output.summary.postWarmupTotalRequests)
     expect(verdict.summary.latency.mean).toBe(output.summary.latency.mean)
+    expect(verdict.authentication).toEqual({
+      attempts: 3,
+      succeeded: 1,
+      missingCredentials: 1,
+      invalidCredentials: 0,
+      expiredCredentials: 0,
+      forbidden: 1
+    })
+    expect(verdict.queue).toEqual({
+      accepted: 2,
+      delivered: 1,
+      pending: 1,
+      dlqRouted: 0,
+      lost: 0,
+      redeliveries: 1,
+      noLoss: 1,
+      maxQueueDepth: output.perNode['node-a']!.peakQueueLength,
+      maxAvgQueueLength: output.perNode['node-a']!.avgQueueLength,
+      capacityRejected: 0
+    })
+    expect(verdict.partners).toMatchObject({ assignments: 1, waits: 1, waitMs: 80 })
+    expect(verdict.stream).toMatchObject({
+      appends: 3,
+      partitions: 2,
+      retainedRecords: 3,
+      totalLag: 2,
+      maxPartitionLag: 1,
+      offsetCommits: 2,
+      rebalances: 1
+    })
+    expect(verdict.sharding).toEqual({
+      routingAttempts: 0,
+      routedRequests: 10,
+      distinctKeys: 0,
+      missingKeys: 0,
+      fallbackRoutes: 0,
+      missingKeyRejects: 0,
+      keyCoverage: 0,
+      shardTargets: 2,
+      maxShardRequests: 7,
+      minShardRequests: 3,
+      skewRatio: 7 / 3,
+      hotDetections: 1,
+      rebalances: 1,
+      splits: 1,
+      migratedKeys: 1
+    })
     expect(verdict.perNode['node-a']).toMatchObject({
       nodeLabel: 'API',
       totalArrived: 1,

@@ -112,6 +112,18 @@ export interface NodeSimulationConfig {
     blockRate?: number
     droppedPackets?: number
   }
+  /** Deterministic request-metadata authentication/authorization gate. */
+  authenticationEnabled?: boolean
+  authTokenField?: string
+  authStatusField?: string
+  authScopesField?: string
+  /** Comma-separated scopes required on every accepted request. */
+  authRequiredScopes?: string
+  /** Finite delivery-partner assignment pool layered onto a service/worker. */
+  partnerPoolEnabled?: boolean
+  partnerCapacity?: number
+  partnerUnavailableUntilMs?: number
+  partnerMatchMs?: number
   healthCheckEnabled?: boolean
   cacheHitRate?: number
   cacheModel?: 'declared-rate' | 'derived-lru'
@@ -125,6 +137,7 @@ export interface NodeSimulationConfig {
   cacheStrategy?: 'cache-aside' | 'read-through' | 'write-through' | 'write-behind'
   dataModel?: 'document' | 'key-value' | 'wide-column'
   routingRules?: ContentRoutingRule[]
+  contentRouteFailurePolicy?: 'fallback' | 'reject'
   /**
    * Request metadata field the `sticky` routing strategy hashes on (session
    * affinity). Defaults to `sessionId` then the canonical `__key`. Ignored by
@@ -190,6 +203,11 @@ export interface NodeSimulationConfig {
   /** Optional vendor label, e.g. Cloudflare, Fastly, or Akamai for a generic CDN. */
   provider?: string
   routingKeyField?: string
+  missingRoutingKeyPolicy?: 'fallback-request-id' | 'reject'
+  hotShardThresholdRatio?: number
+  hotShardMinSamples?: number
+  autoShardRebalance?: boolean
+  shardSplitKeyField?: string
   dnsRoutingPolicy?: 'simple' | 'weighted' | 'failover' | 'latency-based' | 'geolocation'
   dnsCacheTtlSeconds?: number
   circuitBreaker?: {
@@ -224,6 +242,12 @@ export interface NodeSimulationConfig {
   storageQueryMs?: number
   storageScanMs?: number
   storageIngestMs?: number
+  /** Finite datastore disk ceiling. Absent keeps the historical unbounded-storage model. */
+  storageCapacityGb?: number
+  /** Dataset already present when the run starts. */
+  initialStorageGb?: number
+  /** Physical bytes consumed per logical request payload byte. */
+  storageWriteAmplification?: number
   dedupWindowMs?: number
   storeLookupMs?: number
   dedupKeyField?: string

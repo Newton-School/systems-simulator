@@ -504,4 +504,70 @@ describe('relational-db serializeCanvas readLatencyMs/writeLatencyMs', () => {
       fencing: false
     })
   })
+
+  it('serializes authentication and authorization fields onto node.config', () => {
+    const spec = getComponentSpec('auth-service')!
+    const node = spec.serializeCanvas(
+      makeNodeData('auth-service', {
+        queue: { workers: 8, capacity: 100, discipline: 'fifo' },
+        processing: { distribution: { type: 'constant', value: 2 }, timeout: 1_000 },
+        authenticationEnabled: true,
+        authTokenField: 'credential',
+        authStatusField: 'credentialState',
+        authScopesField: 'permissions',
+        authRequiredScopes: 'orders:read, orders:write'
+      }),
+      { nodeId: 'auth', position: { x: 0, y: 0 } }
+    )
+
+    expect(node?.config).toMatchObject({
+      authenticationEnabled: true,
+      authTokenField: 'credential',
+      authStatusField: 'credentialState',
+      authScopesField: 'permissions',
+      authRequiredScopes: 'orders:read, orders:write'
+    })
+  })
+
+  it('serializes delivery-partner capacity and hot-shard remediation config', () => {
+    const service = getComponentSpec('microservice')!.serializeCanvas(
+      makeNodeData('microservice', {
+        queue: { workers: 8, capacity: 100, discipline: 'fifo' },
+        processing: { distribution: { type: 'constant', value: 2 }, timeout: 1_000 },
+        partnerPoolEnabled: true,
+        partnerCapacity: 12,
+        partnerUnavailableUntilMs: 5_000,
+        partnerMatchMs: 20
+      }),
+      { nodeId: 'delivery', position: { x: 0, y: 0 } }
+    )
+    const sharding = getComponentSpec('sharding')!.serializeCanvas(
+      makeNodeData(
+        'sharding',
+        {
+          queue: { workers: 2, capacity: 100, discipline: 'fifo' },
+          processing: { distribution: { type: 'constant', value: 1 }, timeout: 1_000 },
+          hotShardThresholdRatio: 1.4,
+          hotShardMinSamples: 50,
+          autoShardRebalance: true,
+          shardSplitKeyField: 'orderId'
+        },
+        { profile: 'router', structuralRole: 'router' }
+      ),
+      { nodeId: 'router', position: { x: 0, y: 0 } }
+    )
+
+    expect(service?.config).toMatchObject({
+      partnerPoolEnabled: true,
+      partnerCapacity: 12,
+      partnerUnavailableUntilMs: 5_000,
+      partnerMatchMs: 20
+    })
+    expect(sharding?.config).toMatchObject({
+      hotShardThresholdRatio: 1.4,
+      hotShardMinSamples: 50,
+      autoShardRebalance: true,
+      shardSplitKeyField: 'orderId'
+    })
+  })
 })

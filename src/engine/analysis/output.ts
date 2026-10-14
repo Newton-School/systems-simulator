@@ -232,6 +232,8 @@ export interface RuntimeSemanticsSummary {
 export interface StreamBrokerProjection {
   nodeId: string
   brokerAvailable: boolean
+  /** Whether this broker emits one independent copy per consumer group. */
+  consumerGroupMode?: boolean
   partitions: Array<{
     partition: number
     startOffset: number
@@ -246,6 +248,12 @@ export interface StreamBrokerProjection {
   }>
   replayCount: number
   retentionRemovals: number
+}
+
+export interface AcceptedWorkConservation {
+  accepted: number
+  delivered: number
+  lost: number
 }
 
 export interface ReplicationProjection {
@@ -313,6 +321,8 @@ export interface SimulationOutput {
   runtimeSemanticsSummary: RuntimeSemanticsSummary
   /** Broker-state projections for stream nodes with partitioned broker semantics enabled. */
   streamProjection: StreamBrokerProjection[]
+  /** Exact, unsampled queue acceptance/delivery ledger maintained by the engine. */
+  acceptedWorkConservation: AcceptedWorkConservation
   /** Durable replication cluster projections for storage nodes with replication enabled. */
   replicationProjection: ReplicationProjection[]
   /**
@@ -500,6 +510,7 @@ export function generateSimulationOutput(
     requestOutcomeBreakdown?: Record<RequestOutcomeFamily, number>
     requestOutcomesSampled?: boolean
     streamProjection?: StreamBrokerProjection[]
+    acceptedWorkConservation?: AcceptedWorkConservation
     replicationProjection?: ReplicationProjection[]
   }
 ): SimulationOutput {
@@ -554,6 +565,11 @@ export function generateSimulationOutput(
     ),
     runtimeSemanticsSummary,
     streamProjection: debugData?.streamProjection ?? [],
+    acceptedWorkConservation: debugData?.acceptedWorkConservation ?? {
+      accepted: 0,
+      delivered: 0,
+      lost: 0
+    },
     replicationProjection: debugData?.replicationProjection ?? [],
     // Real value is filled in by the engine (which holds the topology); [] here.
     singlePointsOfFailure: []

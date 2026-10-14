@@ -142,14 +142,20 @@ export const streamBrokerTrait: NodeBehaviourTrait = {
         const selected = groupCandidates[hash(`${group}:${partition}`) % groupCandidates.length]
         return [{ ...selected, edge: { ...selected.edge, mode: 'asynchronous' as const } }]
       })
-      request.metadata.__streamConsumerGroups = [...byGroup.keys()]
+      const consumerGroups = [...byGroup.keys()]
+      request.metadata.__streamConsumerGroups = consumerGroups
       return {
         routes,
         decision: 'consumer-group-delivery',
         payload: {
           streamPartition: partition,
-          consumerGroup: [...byGroup.keys()].join(','),
-          metricCounters: { streamGroupDeliveries: routes.length }
+          consumerGroup: consumerGroups.join(','),
+          metricCounters: {
+            streamGroupDeliveries: routes.length,
+            ...Object.fromEntries(
+              consumerGroups.map((group) => [`streamGroupDelivery:${group}`, 1])
+            )
+          }
         }
       }
     }
@@ -169,21 +175,16 @@ export const streamBrokerTrait: NodeBehaviourTrait = {
     const partition = request.metadata.__streamPartition
     const offset = request.metadata.__streamOffset
     if (typeof partition !== 'number' || typeof offset !== 'number') return undefined
-    const groups = request.metadata.__streamConsumerGroups
-    const consumerGroups =
-      Array.isArray(groups) && groups.every((value) => typeof value === 'string')
-        ? groups
-        : ['default']
+    const consumerGroup = request.metadata.__streamConsumerGroup
+    if (typeof consumerGroup !== 'string' || consumerGroup.length === 0) return undefined
     const broker = log(node, sharedState ?? state)
-    for (const group of consumerGroups) {
-      broker.commit(group, partition, offset)
-    }
+    broker.commit(consumerGroup, partition, offset)
     return {
       streamPartition: partition,
       streamOffset: offset,
       streamOffsetCommitted: true,
-      consumerGroup: consumerGroups.join(','),
-      metricCounters: { streamOffsetCommits: consumerGroups.length }
+      consumerGroup,
+      metricCounters: { streamOffsetCommits: 1 }
     }
   }
 }
@@ -197,7 +198,7 @@ export const streamBrokerCapabilityModule: NodeCapabilityModule = {
       {
         id: 'stream-broker',
         title: 'Stream Broker',
-        note: 'When enabled, producers are acknowledged on append, the same key stays partition-affine, successful consumers commit a per-group partition offset, and expired records are removed before later appends. Replication and rebalancing remain out of scope.',
+        note: 'When enabled, producers are acknowledged on append, the same key stays partition-affine, successful consumers commit per-group offsets, expired records are removed, and membership changes rebalance consumer groups. Multi-broker physical replication remains out of scope.',
         noteTone: 'info',
         fields: [
           {

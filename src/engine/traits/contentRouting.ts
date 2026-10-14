@@ -52,6 +52,10 @@ function isContentRoutingRule(value: unknown): value is ContentRoutingRule {
   return fieldOk && valueOk && targetOk && operatorOk && keyOk
 }
 
+function failurePolicy(nodeConfig: Record<string, unknown> | undefined): 'fallback' | 'reject' {
+  return nodeConfig?.['contentRouteFailurePolicy'] === 'reject' ? 'reject' : 'fallback'
+}
+
 export function parseRoutingRules(value: unknown): ContentRoutingRule[] {
   if (!Array.isArray(value)) {
     return []
@@ -66,6 +70,7 @@ export const contentRoutingTrait: NodeBehaviourTrait = {
     if (rules.length === 0) {
       return { routes: candidates, decision: 'no-rules-configured' }
     }
+    const policy = failurePolicy(node.config)
 
     const matchedRule = rules.find((rule) =>
       requestFieldMatches(
@@ -77,7 +82,33 @@ export const contentRoutingTrait: NodeBehaviourTrait = {
       )
     )
     if (!matchedRule) {
-      return { routes: candidates, decision: 'no-rule-matched' }
+      if (policy === 'reject') {
+        return {
+          routes: [],
+          decision: 'no-rule-matched-rejected',
+          rejectionReason: 'api_route_unmatched',
+          payload: {
+            contentRouteFailurePolicy: policy,
+            metricCounters: {
+              contentRouteAttempts: 1,
+              contentRouteUnmatched: 1,
+              contentRouteRejects: 1
+            }
+          }
+        }
+      }
+      return {
+        routes: candidates,
+        decision: 'no-rule-matched-fallback',
+        payload: {
+          contentRouteFailurePolicy: policy,
+          metricCounters: {
+            contentRouteAttempts: 1,
+            contentRouteUnmatched: 1,
+            contentRouteFallbacks: 1
+          }
+        }
+      }
     }
 
     const targeted = candidates.filter(
@@ -85,13 +116,39 @@ export const contentRoutingTrait: NodeBehaviourTrait = {
     )
 
     if (targeted.length === 0) {
+      if (policy === 'reject') {
+        return {
+          routes: [],
+          decision: 'matched-target-unreachable-rejected',
+          rejectionReason: 'api_route_target_unavailable',
+          payload: {
+            matchField: matchedRule.matchField,
+            matchValue: matchedRule.matchValue,
+            targetNodeId: matchedRule.targetNodeId,
+            contentRouteFailurePolicy: policy,
+            metricCounters: {
+              contentRouteAttempts: 1,
+              contentRouteMatched: 1,
+              contentRouteTargetUnavailable: 1,
+              contentRouteRejects: 1
+            }
+          }
+        }
+      }
       return {
         routes: candidates,
-        decision: 'matched-target-unreachable',
+        decision: 'matched-target-unreachable-fallback',
         payload: {
           matchField: matchedRule.matchField,
           matchValue: matchedRule.matchValue,
-          targetNodeId: matchedRule.targetNodeId
+          targetNodeId: matchedRule.targetNodeId,
+          contentRouteFailurePolicy: policy,
+          metricCounters: {
+            contentRouteAttempts: 1,
+            contentRouteMatched: 1,
+            contentRouteTargetUnavailable: 1,
+            contentRouteFallbacks: 1
+          }
         }
       }
     }
@@ -102,7 +159,13 @@ export const contentRoutingTrait: NodeBehaviourTrait = {
       payload: {
         matchField: matchedRule.matchField,
         matchValue: matchedRule.matchValue,
-        targetNodeId: matchedRule.targetNodeId
+        targetNodeId: matchedRule.targetNodeId,
+        contentRouteFailurePolicy: policy,
+        metricCounters: {
+          contentRouteAttempts: 1,
+          contentRouteMatched: 1,
+          [`contentRouteTarget:${matchedRule.targetNodeId}`]: 1
+        }
       }
     }
   }
@@ -129,16 +192,43 @@ export const contentRoutingCapabilityModule: NodeCapabilityModule = {
             label: 'Routing rules',
             renderer: 'routing-rules',
             why: 'Routes requests by request content instead of only by generic balancing strategy.'
+          },
+          {
+            path: 'sim.contentRouteFailurePolicy',
+            type: 'select',
+            label: 'Route failure policy',
+            options: ['fallback', 'reject'],
+            altitude: 'primary',
+            why: 'Fallback preserves generic balancing for unmatched or unavailable routes. Reject prevents an API from reaching the wrong backend.'
           }
         ]
       }
     ]
   },
-  defaults: [],
+  defaults: [
+    {
+      path: 'sim.contentRouteFailurePolicy',
+      value: 'fallback',
+      rationale: 'Preserves existing topology behavior while making every fallback observable.'
+    }
+  ],
+  metrics: {
+    counters: [
+      'contentRouteAttempts',
+      'contentRouteMatched',
+      'contentRouteUnmatched',
+      'contentRouteFallbacks',
+      'contentRouteTargetUnavailable',
+      'contentRouteRejects'
+    ],
+    rejectionReasons: ['api_route_unmatched', 'api_route_target_unavailable']
+  },
   honesty: {
     simulates: [
       'request matching by type, method, path, host, or a named header',
-      'equals / prefix / regex match operators'
+      'equals / prefix / regex match operators',
+      'observable unmatched-route and unreachable-target fallback or rejection',
+      'per-backend matched-route delivery counters'
     ],
     notModeled: ['header transforms/rewrites', 'SSL termination overhead']
   }

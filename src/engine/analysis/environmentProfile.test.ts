@@ -24,19 +24,25 @@ describe('environment profile presets', () => {
     expect(AUTHOR_ENVIRONMENT_PROFILE.capabilities.canAnnotate).toBe(true)
 
     expect(ASSIGNMENT_ENVIRONMENT_PROFILE.graded).toBe(true)
-    expect(ASSIGNMENT_ENVIRONMENT_PROFILE.visibility.rubricChecks).toBe('LIVE_DURING_BUILD')
+    expect(ASSIGNMENT_ENVIRONMENT_PROFILE.visibility.rubricChecks).toBe('HIDDEN')
     expect(ASSIGNMENT_ENVIRONMENT_PROFILE.visibility.gradingSuiteDetails).toBe(false)
     expect(ASSIGNMENT_ENVIRONMENT_PROFILE.capabilities.canEditScaffoldNodes).toBe(false)
     // Graded students may still switch a node's execution profile (compute is
     // io-bound by default; some questions need a cpu-bound override).
     expect(ASSIGNMENT_ENVIRONMENT_PROFILE.capabilities.canEditExecutionProfile).toBe(true)
     expect(ASSIGNMENT_ENVIRONMENT_PROFILE.capabilities.canAnnotate).toBe(false)
-    expect(ASSIGNMENT_ENVIRONMENT_PROFILE.capabilities.maxTestRuns).toBeUndefined()
+    expect(ASSIGNMENT_ENVIRONMENT_PROFILE.capabilities.maxTestRuns).toBe(1)
+    expect(ASSIGNMENT_ENVIRONMENT_PROFILE.capabilities.canUseTopologyFiles).toBe(false)
+    expect(ASSIGNMENT_ENVIRONMENT_PROFILE.capabilities.canViewTopologyJson).toBe(false)
+    expect(ASSIGNMENT_ENVIRONMENT_PROFILE.capabilities.canUseTerminal).toBe(false)
+    expect(ASSIGNMENT_ENVIRONMENT_PROFILE.capabilities.canUseSettings).toBe(false)
 
     expect(PRACTICE_ENVIRONMENT_PROFILE.graded).toBe(false)
     expect(PRACTICE_ENVIRONMENT_PROFILE.visibility.rubricChecks).toBe('LIVE_DURING_BUILD')
     expect(PRACTICE_ENVIRONMENT_PROFILE.capabilities.canEditExecutionProfile).toBe(true)
     expect(PRACTICE_ENVIRONMENT_PROFILE.capabilities.canAnnotate).toBe(true)
+    expect(PRACTICE_ENVIRONMENT_PROFILE.capabilities.canUseTopologyFiles).toBe(true)
+    expect(PRACTICE_ENVIRONMENT_PROFILE.capabilities.canViewTopologyJson).toBe(true)
   })
 })
 
@@ -68,7 +74,7 @@ describe('resolveEnvironmentProfile', () => {
     expect(resolved.capabilities.canAnnotate).toBe(true)
     // untouched preset fields survive
     expect(resolved.capabilities.canEditScaffoldNodes).toBe(false)
-    expect(resolved.visibility.rubricChecks).toBe('LIVE_DURING_BUILD')
+    expect(resolved.visibility.rubricChecks).toBe('HIDDEN')
   })
 
   it('lets an override flip a single flag (e.g. graded PRACTICE)', () => {
@@ -76,6 +82,23 @@ describe('resolveEnvironmentProfile', () => {
     expect(resolved.mode).toBe('PRACTICE')
     expect(resolved.graded).toBe(true)
     expect(resolved.visibility.rubricChecks).toBe('LIVE_DURING_BUILD')
+  })
+
+  it('fails closed for sensitive Assignment surfaces even when a host requests them', () => {
+    const resolved = resolveEnvironmentProfile({
+      mode: 'ASSIGNMENT',
+      capabilities: {
+        canUseTopologyFiles: true,
+        canViewTopologyJson: true,
+        canUseTerminal: true,
+        canUseSettings: true
+      }
+    })
+
+    expect(resolved.capabilities.canUseTopologyFiles).toBe(false)
+    expect(resolved.capabilities.canViewTopologyJson).toBe(false)
+    expect(resolved.capabilities.canUseTerminal).toBe(false)
+    expect(resolved.capabilities.canUseSettings).toBe(false)
   })
 })
 
@@ -104,7 +127,7 @@ describe('canTriggerTestRun', () => {
     ).toBe(true)
     expect(
       canTriggerTestRun(resolveEnvironmentProfile({ mode: 'ASSIGNMENT' }), { testRunCount: 3 })
-    ).toBe(true)
+    ).toBe(false)
     expect(
       canTriggerTestRun(
         resolveEnvironmentProfile({ mode: 'ASSIGNMENT', capabilities: { maxTestRuns: 3 } }),

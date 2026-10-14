@@ -79,7 +79,7 @@ describe('contentRoutingTrait', () => {
     })
 
     expect(result).toMatchObject({
-      decision: 'no-rule-matched',
+      decision: 'no-rule-matched-fallback',
       routes: [
         expect.objectContaining({ targetNodeId: 'db-primary' }),
         expect.objectContaining({ targetNodeId: 'db-replica' })
@@ -112,7 +112,7 @@ describe('contentRoutingTrait', () => {
     })
 
     expect(result).toMatchObject({
-      decision: 'matched-target-unreachable',
+      decision: 'matched-target-unreachable-fallback',
       routes: [
         expect.objectContaining({ targetNodeId: 'db-primary' }),
         expect.objectContaining({ targetNodeId: 'db-replica' })

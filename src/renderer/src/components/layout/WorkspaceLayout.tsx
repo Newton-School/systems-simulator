@@ -397,7 +397,9 @@ export const WorkspaceLayout = () => {
   )
   const isNewtonAssignmentHost = isNewtonHostMode()
   const canUseTopologyFiles =
-    !isNewtonAssignmentHost && (!activeQuestion || environmentProfile.mode === 'AUTHOR')
+    !isNewtonAssignmentHost && environmentProfile.capabilities.canUseTopologyFiles
+  const canViewTopologyJson = environmentProfile.capabilities.canViewTopologyJson
+  const canUseTerminal = environmentProfile.capabilities.canUseTerminal
   const { confirm, dialog } = useConfirmDialog()
   const confirmDiscardChanges = useCallback(
     () =>
@@ -422,6 +424,15 @@ export const WorkspaceLayout = () => {
 
     setLeftSidebarTab(experienceEnvelope.allowedTabs[0] ?? 'question')
   }, [experienceEnvelope.allowedTabs, leftSidebarTab])
+
+  useEffect(() => {
+    if (!canViewTopologyJson && rightPanelView === 'json') {
+      setRightPanelView('inspector')
+    }
+    if (!canUseTerminal) {
+      setTerminalOpen(false)
+    }
+  }, [canUseTerminal, canViewTopologyJson, rightPanelView])
 
   const clearQuestionSession = useCallback(() => {
     setActiveQuestion(null)
@@ -615,12 +626,17 @@ export const WorkspaceLayout = () => {
   }, [isNewtonAssignmentHost])
 
   useEffect(() => {
-    if (!activeQuestion || !attemptState || attemptState.questionId !== activeQuestion.id) {
+    if (
+      environmentProfile.mode === 'ASSIGNMENT' ||
+      !activeQuestion ||
+      !attemptState ||
+      attemptState.questionId !== activeQuestion.id
+    ) {
       return
     }
 
     persistAttemptState(attemptState)
-  }, [activeQuestion, attemptState])
+  }, [activeQuestion, attemptState, environmentProfile.mode])
 
   // Load a question package into the workspace. Shared by both host protocols
   // (our `ns-simulator:*` launch-context and the Newton Game Playground seed).
@@ -796,12 +812,17 @@ export const WorkspaceLayout = () => {
       // Lock outbound (ready/submit/error) to this host origin from now on.
       rememberTrustedHostOrigin(event.origin)
       const { questionPackage, priorAttempt, environmentProfile } = launchContext.payload
-      setEnvironmentProfile(resolveEnvironmentProfile(environmentProfile))
+      const resolvedProfile = resolveEnvironmentProfile(environmentProfile)
+      setEnvironmentProfile(resolvedProfile)
       setResultsRevealed(false)
 
       void (async () => {
         const restoredAttempt =
-          priorAttempt ?? loadPersistedAttemptState(questionPackage.id, new Date().toISOString())
+          priorAttempt ??
+          (resolvedProfile.mode === 'ASSIGNMENT'
+            ? undefined
+            : (loadPersistedAttemptState(questionPackage.id, new Date().toISOString()) ??
+              undefined))
         await loadQuestionIntoWorkspace(questionPackage, restoredAttempt, {
           onError: () =>
             postQuestionHostMessage({
@@ -1262,8 +1283,10 @@ export const WorkspaceLayout = () => {
       const switchesLeftTab = isMod && /^[1-9]$/.test(key)
 
       if (event.ctrlKey && !event.altKey && event.key === '`') {
-        event.preventDefault()
-        toggleTerminal()
+        if (canUseTerminal) {
+          event.preventDefault()
+          toggleTerminal()
+        }
         return
       }
 
@@ -1342,7 +1365,7 @@ export const WorkspaceLayout = () => {
       }
 
       if (!event.shiftKey && !event.altKey && key === ',') {
-        if (environmentProfile.mode === 'AUTHOR') {
+        if (environmentProfile.capabilities.canUseSettings) {
           event.preventDefault()
           setSettingsOpenRequestVersion((version) => version + 1)
         }
@@ -1399,7 +1422,8 @@ export const WorkspaceLayout = () => {
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [
-    environmentProfile.mode,
+    canUseTerminal,
+    environmentProfile.capabilities.canUseSettings,
     experienceEnvelope.allowedTabs,
     handleAutoLayout,
     handleLeftSidebarTabSelect,
@@ -1451,6 +1475,13 @@ export const WorkspaceLayout = () => {
     />
   )
 
+  const rightPanelTabs: ReadonlyArray<readonly ['inspector' | 'json', string]> = canViewTopologyJson
+    ? [
+        ['inspector', 'Inspector'],
+        ['json', 'JSON']
+      ]
+    : [['inspector', 'Inspector']]
+
   const propertiesContent = (
     <div className="flex h-full min-h-0 flex-col bg-nss-panel">
       <div
@@ -1458,12 +1489,7 @@ export const WorkspaceLayout = () => {
         aria-label="Right panel view"
         className="flex shrink-0 items-center gap-1 border-b border-l border-nss-border px-2 pt-1.5"
       >
-        {(
-          [
-            ['inspector', 'Inspector'],
-            ['json', 'JSON']
-          ] as const
-        ).map(([view, label]) => (
+        {rightPanelTabs.map(([view, label]) => (
           <button
             key={view}
             type="button"
@@ -1481,7 +1507,7 @@ export const WorkspaceLayout = () => {
         ))}
       </div>
       <div className="min-h-0 flex-1">
-        {rightPanelView === 'json' ? (
+        {canViewTopologyJson && rightPanelView === 'json' ? (
           <Suspense fallback={<PanelFallback label="Loading JSON viewer..." />}>
             <TopologyJsonViewer
               onImport={canUseTopologyFiles ? () => setShowImportJson(true) : undefined}
@@ -1497,6 +1523,7 @@ export const WorkspaceLayout = () => {
   )
 
   const toggleJsonViewer = () => {
+    if (!canViewTopologyJson) return
     if (isRightOpen && rightPanelView === 'json') {
       setIsRightOpen(false)
       return
@@ -1635,12 +1662,14 @@ export const WorkspaceLayout = () => {
         onOpen={handleOpenTopology}
         onAutoLayout={handleAutoLayout}
         topologyJsonControls={
-          <TopologyJsonMenu
-            isViewerOpen={isRightOpen && rightPanelView === 'json'}
-            onToggleViewer={toggleJsonViewer}
-            onImport={canUseTopologyFiles ? () => setShowImportJson(true) : undefined}
-            canExport={canUseTopologyFiles}
-          />
+          canViewTopologyJson ? (
+            <TopologyJsonMenu
+              isViewerOpen={isRightOpen && rightPanelView === 'json'}
+              onToggleViewer={toggleJsonViewer}
+              onImport={canUseTopologyFiles ? () => setShowImportJson(true) : undefined}
+              canExport={canUseTopologyFiles}
+            />
+          ) : undefined
         }
         fileName={fileName}
         isUnsaved={isUnsaved}
@@ -1712,7 +1741,7 @@ export const WorkspaceLayout = () => {
           experience={experienceEnvelope}
           onSelect={handleLeftSidebarTabSelect}
           onShowShortcuts={() => setShowShortcuts(true)}
-          onToggleTerminal={toggleTerminal}
+          onToggleTerminal={canUseTerminal ? toggleTerminal : undefined}
           terminalOpen={terminalOpen}
           settingsOpenRequestVersion={settingsOpenRequestVersion}
         />

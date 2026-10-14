@@ -9,6 +9,8 @@ type StorageOperation = 'read' | 'write' | 'query' | 'scan' | 'ingest'
 export const STORAGE_PROFILE_COMPONENT_TYPES = [
   'relational-db',
   'nosql-db',
+  'shard-node',
+  'partition-node',
   'object-storage',
   'search-index',
   'time-series-db',
@@ -86,7 +88,9 @@ const DEFAULT_STORAGE_PROFILE_MS: Record<
   'vector-db': { read: 11, write: 18, query: 13, scan: 22, ingest: 15 },
   'data-warehouse': { read: 18, write: 28, query: 22, scan: 40, ingest: 24 },
   'data-lake': { read: 22, write: 26, query: 30, scan: 48, ingest: 18 },
-  'kv-store': { read: 1, write: 2, query: 55, scan: 85, ingest: 3 }
+  'kv-store': { read: 1, write: 2, query: 55, scan: 85, ingest: 3 },
+  'shard-node': { read: 6, write: 10, query: 14, scan: 38, ingest: 9 },
+  'partition-node': { read: 5, write: 9, query: 12, scan: 34, ingest: 8 }
 }
 
 function asPositiveNumber(value: unknown): number | null {
@@ -123,7 +127,9 @@ function configuredStorageLatencyMs(
   )
 }
 
-function classifyRequestOperation(request: Request): StorageOperation {
+export function classifyStorageOperation(
+  request: Pick<Request, 'type' | 'metadata'>
+): StorageOperation {
   const normalized = request.type.trim().toLowerCase()
 
   if (
@@ -211,7 +217,7 @@ function metricCounter(operation: StorageOperation): Record<string, number> {
 export const storageProfileTrait: NodeBehaviourTrait = {
   name: 'storage.profile',
   beforeArrival: ({ node, request }) => {
-    const operation = classifyRequestOperation(request)
+    const operation = classifyStorageOperation(request)
     const latencyMs = configuredStorageLatencyMs(node.config, node.type, operation)
     request.metadata[SERVICE_TIME_DISTRIBUTION_OVERRIDE_KEY] = {
       type: 'constant',

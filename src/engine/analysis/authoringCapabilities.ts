@@ -216,7 +216,15 @@ export const SEMANTIC_AUTHORING_CAPABILITIES = Object.entries(SEMANTIC_CAPABILIT
   ([id, seed]) => capability('semantic', id, seed)
 )
 
-export type RubricMetricUnit = 'ms' | 'ratio' | 'req/s' | 'count' | 'replicas' | 'pods' | 'pod-s'
+export type RubricMetricUnit =
+  | 'ms'
+  | 'ratio'
+  | 'req/s'
+  | 'count'
+  | 'GB'
+  | 'replicas'
+  | 'pods'
+  | 'pod-s'
 
 export type RubricMetricGroup =
   | 'latency'
@@ -224,6 +232,13 @@ export type RubricMetricGroup =
   | 'perNode'
   | 'coordination'
   | 'resilience'
+  | 'security'
+  | 'apiRouting'
+  | 'queue'
+  | 'partners'
+  | 'stream'
+  | 'sharding'
+  | 'storage'
   | 'consistency'
   | 'topology'
   | 'cache'
@@ -242,6 +257,13 @@ export const RUBRIC_METRIC_GROUP_LABELS: Readonly<Record<RubricMetricGroup, stri
   perNode: 'Per-node worst case',
   coordination: 'Reservations and locks',
   resilience: 'Retries and rate limits',
+  security: 'Authentication and authorization',
+  apiRouting: 'API and content routing',
+  queue: 'Queue conservation',
+  partners: 'Delivery-partner capacity',
+  stream: 'Stream partitions and lag',
+  sharding: 'Shard distribution and rebalance',
+  storage: 'Storage capacity and growth',
   consistency: 'Read consistency',
   topology: 'Topology size and capacity',
   cache: 'Cache hit ratio',
@@ -288,6 +310,7 @@ function legacyGroup(id: string): RubricMetricGroup {
   if (id.startsWith('perNode.')) return 'perNode'
   if (id.startsWith('reservations.') || id.startsWith('locks.')) return 'coordination'
   if (id.startsWith('retries.') || id.startsWith('rateLimit.')) return 'resilience'
+  if (id.startsWith('authentication.')) return 'security'
   if (id.startsWith('consistency.')) return 'consistency'
   return 'invariants'
 }
@@ -349,6 +372,12 @@ const SIMULATION_METRIC_IDS = [
   'rateLimit.rejected',
   'rateLimit.breaches',
   'rateLimit.keyless',
+  'authentication.attempts',
+  'authentication.succeeded',
+  'authentication.missingCredentials',
+  'authentication.invalidCredentials',
+  'authentication.expiredCredentials',
+  'authentication.forbidden',
   'consistency.reads',
   'consistency.writes',
   'consistency.staleReads',
@@ -386,6 +415,13 @@ const SLOTS_ABSENT = 'Every edge carries an in-flight cap, so 0 means it never b
 const CONN_ABSENT = 'Unresolved unless an edge with a connection model carried traffic.'
 const BATCH_ABSENT = 'Unresolved unless an edge with producer batching sent a batch.'
 const DOMAIN_ABSENT = 'Unresolved unless a Region / AZ / Subnet outage took a component down.'
+const QUEUE_ABSENT = 'Unresolved unless an asynchronous Queue is present.'
+const PARTNER_ABSENT = 'Unresolved unless a service enables the delivery-partner pool.'
+const STREAM_ABSENT = 'Unresolved unless an Event Stream enables partitioned-broker behavior.'
+const SHARD_ABSENT = 'Unresolved unless a Sharding or Hashing router is present.'
+const STORAGE_ABSENT = 'Unresolved unless a datastore has finite storage capacity configured.'
+const API_ROUTING_ABSENT =
+  'Unresolved unless an API Gateway, L7 load balancer, or ingress has content-routing rules.'
 
 /**
  * Gradeable metrics for opt-in simulator features. Each resolves against the
@@ -399,6 +435,142 @@ const FEATURE_METRIC_SEEDS: Readonly<Record<RubricMetricGroup, readonly FeatureM
   perNode: [],
   coordination: [],
   resilience: [],
+  security: [],
+  apiRouting: [
+    ['apiRouting.attempts', 'Content route attempts', 'count', API_ROUTING_ABSENT],
+    ['apiRouting.matched', 'Matched API routes', 'count', API_ROUTING_ABSENT],
+    ['apiRouting.unmatched', 'Unmatched API routes', 'count', API_ROUTING_ABSENT],
+    ['apiRouting.fallbacks', 'Generic routing fallbacks', 'count', API_ROUTING_ABSENT],
+    ['apiRouting.targetUnavailable', 'Unavailable configured targets', 'count', API_ROUTING_ABSENT],
+    ['apiRouting.rejects', 'Content route rejects', 'count', API_ROUTING_ABSENT],
+    ['apiRouting.matchCoverage', 'API route match coverage', 'ratio', API_ROUTING_ABSENT],
+    ['apiRouting.routedTargets', 'Backends reached by rules', 'count', API_ROUTING_ABSENT],
+    ['apiRouting.busiestTargetRequests', 'Busiest routed backend', 'count', API_ROUTING_ABSENT]
+  ],
+  queue: [
+    [
+      'queue.accepted',
+      'Accepted queued work',
+      'count',
+      `Producer-acknowledged queue entries. ${QUEUE_ABSENT}`
+    ],
+    [
+      'queue.delivered',
+      'Delivered queued work',
+      'count',
+      `Accepted work completed by a consumer. ${QUEUE_ABSENT}`
+    ],
+    [
+      'queue.pending',
+      'Pending queued work',
+      'count',
+      `Accepted work still retained or in flight at cutoff. ${QUEUE_ABSENT}`
+    ],
+    [
+      'queue.dlqRouted',
+      'Work routed to DLQ',
+      'count',
+      `Failed deliveries transferred to a dead-letter queue. ${QUEUE_ABSENT}`
+    ],
+    [
+      'queue.lost',
+      'Lost accepted work',
+      'count',
+      `Final failed deliveries with no retry or DLQ retention. ${QUEUE_ABSENT}`
+    ],
+    [
+      'queue.redeliveries',
+      'Queue redeliveries',
+      'count',
+      `Delivery attempts rescheduled after failure. ${QUEUE_ABSENT}`
+    ],
+    [
+      'queue.noLoss',
+      'No-loss verdict',
+      'count',
+      `1 when no accepted queue entry was lost; 0 otherwise. ${QUEUE_ABSENT}`
+    ],
+    [
+      'queue.maxQueueDepth',
+      'Peak queue depth',
+      'count',
+      `Largest observed queue backlog. ${QUEUE_ABSENT}`
+    ],
+    [
+      'queue.maxAvgQueueLength',
+      'Worst average queue length',
+      'count',
+      `Largest time-averaged queue backlog. ${QUEUE_ABSENT}`
+    ],
+    [
+      'queue.capacityRejected',
+      'Queue capacity rejects',
+      'count',
+      `Work rejected because queue or memory capacity was exhausted. ${QUEUE_ABSENT}`
+    ]
+  ],
+  partners: [
+    ['partners.requests', 'Partner assignment requests', 'count', PARTNER_ABSENT],
+    ['partners.queuedForAvailability', 'Orders waiting for partners', 'count', PARTNER_ABSENT],
+    ['partners.assignments', 'Successful partner assignments', 'count', PARTNER_ABSENT],
+    ['partners.assignmentFailures', 'Partner assignment failures', 'count', PARTNER_ABSENT],
+    ['partners.waits', 'Assignments that waited', 'count', PARTNER_ABSENT],
+    ['partners.waitMs', 'Total partner wait', 'ms', PARTNER_ABSENT]
+  ],
+  stream: [
+    ['stream.brokers', 'Partitioned stream brokers', 'count', STREAM_ABSENT],
+    ['stream.consumerGroupBrokers', 'Brokers using consumer groups', 'count', STREAM_ABSENT],
+    ['stream.appends', 'Stream appends', 'count', STREAM_ABSENT],
+    ['stream.partitions', 'Stream partitions', 'count', STREAM_ABSENT],
+    ['stream.consumerGroups', 'Independent consumer groups', 'count', STREAM_ABSENT],
+    ['stream.consumerMembers', 'Consumer group members', 'count', STREAM_ABSENT],
+    ['stream.consumerGroupAppends', 'Events offered to consumer groups', 'count', STREAM_ABSENT],
+    ['stream.expectedGroupDeliveries', 'Expected independent deliveries', 'count', STREAM_ABSENT],
+    ['stream.groupsWithDeliveries', 'Groups receiving events', 'count', STREAM_ABSENT],
+    ['stream.groupDeliveries', 'Consumer-group deliveries', 'count', STREAM_ABSENT],
+    ['stream.minGroupDeliveries', 'Least group deliveries', 'count', STREAM_ABSENT],
+    ['stream.maxGroupDeliveries', 'Most group deliveries', 'count', STREAM_ABSENT],
+    ['stream.groupFanoutCoverage', 'Independent group fanout coverage', 'ratio', STREAM_ABSENT],
+    ['stream.retainedRecords', 'Retained stream records', 'count', STREAM_ABSENT],
+    ['stream.totalLag', 'Total consumer lag', 'count', STREAM_ABSENT],
+    ['stream.maxPartitionLag', 'Worst partition lag', 'count', STREAM_ABSENT],
+    ['stream.offsetCommits', 'Offset commits', 'count', STREAM_ABSENT],
+    ['stream.rebalances', 'Consumer rebalances', 'count', STREAM_ABSENT],
+    ['stream.replayReads', 'Replay reads', 'count', STREAM_ABSENT],
+    ['stream.retentionExpired', 'Expired records', 'count', STREAM_ABSENT],
+    ['stream.unavailable', 'Unavailable broker decisions', 'count', STREAM_ABSENT]
+  ],
+  sharding: [
+    ['sharding.routingAttempts', 'Shard routing attempts', 'count', SHARD_ABSENT],
+    ['sharding.routedRequests', 'Shard-routed requests', 'count', SHARD_ABSENT],
+    ['sharding.distinctKeys', 'Distinct shard keys', 'count', SHARD_ABSENT],
+    ['sharding.missingKeys', 'Requests missing shard key', 'count', SHARD_ABSENT],
+    ['sharding.fallbackRoutes', 'Keyless fallback routes', 'count', SHARD_ABSENT],
+    ['sharding.missingKeyRejects', 'Missing-key rejects', 'count', SHARD_ABSENT],
+    ['sharding.keyCoverage', 'Shard-key coverage', 'ratio', SHARD_ABSENT],
+    ['sharding.shardTargets', 'Active shard targets', 'count', SHARD_ABSENT],
+    ['sharding.maxShardRequests', 'Busiest shard requests', 'count', SHARD_ABSENT],
+    ['sharding.minShardRequests', 'Least-busy shard requests', 'count', SHARD_ABSENT],
+    ['sharding.skewRatio', 'Shard load skew', 'ratio', SHARD_ABSENT],
+    ['sharding.hotDetections', 'Hot-shard detections', 'count', SHARD_ABSENT],
+    ['sharding.rebalances', 'Shard rebalances', 'count', SHARD_ABSENT],
+    ['sharding.splits', 'Virtual shard splits', 'count', SHARD_ABSENT],
+    ['sharding.migratedKeys', 'Migrated hot keys', 'count', SHARD_ABSENT]
+  ],
+  storage: [
+    ['storage.nodes', 'Capacity-limited storage nodes', 'count', STORAGE_ABSENT],
+    ['storage.capacityGb', 'Total storage capacity', 'GB', STORAGE_ABSENT],
+    ['storage.initialUsedGb', 'Initial stored data', 'GB', STORAGE_ABSENT],
+    ['storage.usedGb', 'Stored data at cutoff', 'GB', STORAGE_ABSENT],
+    ['storage.freeGb', 'Free storage at cutoff', 'GB', STORAGE_ABSENT],
+    ['storage.utilization', 'Fleet storage utilization', 'ratio', STORAGE_ABSENT],
+    ['storage.maxNodeUtilization', 'Fullest node utilization', 'ratio', STORAGE_ABSENT],
+    ['storage.writeAttempts', 'Storage write attempts', 'count', STORAGE_ABSENT],
+    ['storage.writesCommitted', 'Committed storage writes', 'count', STORAGE_ABSENT],
+    ['storage.writtenGb', 'Data written during run', 'GB', STORAGE_ABSENT],
+    ['storage.writeFailures', 'Incomplete storage writes', 'count', STORAGE_ABSENT],
+    ['storage.fullRejects', 'Storage-full rejects', 'count', STORAGE_ABSENT]
+  ],
   consistency: [],
   invariants: [],
   topology: [],

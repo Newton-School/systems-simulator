@@ -1224,6 +1224,114 @@
       ]
     },
     {
+      "id": "authentication.attempts",
+      "kind": "simulation",
+      "group": "security",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete",
+        "analytic"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ]
+    },
+    {
+      "id": "authentication.succeeded",
+      "kind": "simulation",
+      "group": "security",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete",
+        "analytic"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ]
+    },
+    {
+      "id": "authentication.missingCredentials",
+      "kind": "simulation",
+      "group": "security",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete",
+        "analytic"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ]
+    },
+    {
+      "id": "authentication.invalidCredentials",
+      "kind": "simulation",
+      "group": "security",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete",
+        "analytic"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ]
+    },
+    {
+      "id": "authentication.expiredCredentials",
+      "kind": "simulation",
+      "group": "security",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete",
+        "analytic"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ]
+    },
+    {
+      "id": "authentication.forbidden",
+      "kind": "simulation",
+      "group": "security",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete",
+        "analytic"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ]
+    },
+    {
       "id": "consistency.reads",
       "kind": "simulation",
       "group": "consistency",
@@ -1456,6 +1564,1320 @@
         "==",
         "!="
       ]
+    },
+    {
+      "id": "apiRouting.attempts",
+      "kind": "simulation",
+      "group": "apiRouting",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Unresolved unless an API Gateway, L7 load balancer, or ingress has content-routing rules."
+    },
+    {
+      "id": "apiRouting.matched",
+      "kind": "simulation",
+      "group": "apiRouting",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Unresolved unless an API Gateway, L7 load balancer, or ingress has content-routing rules."
+    },
+    {
+      "id": "apiRouting.unmatched",
+      "kind": "simulation",
+      "group": "apiRouting",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Unresolved unless an API Gateway, L7 load balancer, or ingress has content-routing rules."
+    },
+    {
+      "id": "apiRouting.fallbacks",
+      "kind": "simulation",
+      "group": "apiRouting",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Unresolved unless an API Gateway, L7 load balancer, or ingress has content-routing rules."
+    },
+    {
+      "id": "apiRouting.targetUnavailable",
+      "kind": "simulation",
+      "group": "apiRouting",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Unresolved unless an API Gateway, L7 load balancer, or ingress has content-routing rules."
+    },
+    {
+      "id": "apiRouting.rejects",
+      "kind": "simulation",
+      "group": "apiRouting",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Unresolved unless an API Gateway, L7 load balancer, or ingress has content-routing rules."
+    },
+    {
+      "id": "apiRouting.matchCoverage",
+      "kind": "simulation",
+      "group": "apiRouting",
+      "unit": "ratio",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Unresolved unless an API Gateway, L7 load balancer, or ingress has content-routing rules."
+    },
+    {
+      "id": "apiRouting.routedTargets",
+      "kind": "simulation",
+      "group": "apiRouting",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Unresolved unless an API Gateway, L7 load balancer, or ingress has content-routing rules."
+    },
+    {
+      "id": "apiRouting.busiestTargetRequests",
+      "kind": "simulation",
+      "group": "apiRouting",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Unresolved unless an API Gateway, L7 load balancer, or ingress has content-routing rules."
+    },
+    {
+      "id": "queue.accepted",
+      "kind": "simulation",
+      "group": "queue",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Producer-acknowledged queue entries. Unresolved unless an asynchronous Queue is present."
+    },
+    {
+      "id": "queue.delivered",
+      "kind": "simulation",
+      "group": "queue",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Accepted work completed by a consumer. Unresolved unless an asynchronous Queue is present."
+    },
+    {
+      "id": "queue.pending",
+      "kind": "simulation",
+      "group": "queue",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Accepted work still retained or in flight at cutoff. Unresolved unless an asynchronous Queue is present."
+    },
+    {
+      "id": "queue.dlqRouted",
+      "kind": "simulation",
+      "group": "queue",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Failed deliveries transferred to a dead-letter queue. Unresolved unless an asynchronous Queue is present."
+    },
+    {
+      "id": "queue.lost",
+      "kind": "simulation",
+      "group": "queue",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Final failed deliveries with no retry or DLQ retention. Unresolved unless an asynchronous Queue is present."
+    },
+    {
+      "id": "queue.redeliveries",
+      "kind": "simulation",
+      "group": "queue",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Delivery attempts rescheduled after failure. Unresolved unless an asynchronous Queue is present."
+    },
+    {
+      "id": "queue.noLoss",
+      "kind": "simulation",
+      "group": "queue",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "1 when no accepted queue entry was lost; 0 otherwise. Unresolved unless an asynchronous Queue is present."
+    },
+    {
+      "id": "queue.maxQueueDepth",
+      "kind": "simulation",
+      "group": "queue",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Largest observed queue backlog. Unresolved unless an asynchronous Queue is present."
+    },
+    {
+      "id": "queue.maxAvgQueueLength",
+      "kind": "simulation",
+      "group": "queue",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Largest time-averaged queue backlog. Unresolved unless an asynchronous Queue is present."
+    },
+    {
+      "id": "queue.capacityRejected",
+      "kind": "simulation",
+      "group": "queue",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Work rejected because queue or memory capacity was exhausted. Unresolved unless an asynchronous Queue is present."
+    },
+    {
+      "id": "partners.requests",
+      "kind": "simulation",
+      "group": "partners",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Unresolved unless a service enables the delivery-partner pool."
+    },
+    {
+      "id": "partners.queuedForAvailability",
+      "kind": "simulation",
+      "group": "partners",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Unresolved unless a service enables the delivery-partner pool."
+    },
+    {
+      "id": "partners.assignments",
+      "kind": "simulation",
+      "group": "partners",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Unresolved unless a service enables the delivery-partner pool."
+    },
+    {
+      "id": "partners.assignmentFailures",
+      "kind": "simulation",
+      "group": "partners",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Unresolved unless a service enables the delivery-partner pool."
+    },
+    {
+      "id": "partners.waits",
+      "kind": "simulation",
+      "group": "partners",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Unresolved unless a service enables the delivery-partner pool."
+    },
+    {
+      "id": "partners.waitMs",
+      "kind": "simulation",
+      "group": "partners",
+      "unit": "ms",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Unresolved unless a service enables the delivery-partner pool."
+    },
+    {
+      "id": "stream.brokers",
+      "kind": "simulation",
+      "group": "stream",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Unresolved unless an Event Stream enables partitioned-broker behavior."
+    },
+    {
+      "id": "stream.consumerGroupBrokers",
+      "kind": "simulation",
+      "group": "stream",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Unresolved unless an Event Stream enables partitioned-broker behavior."
+    },
+    {
+      "id": "stream.appends",
+      "kind": "simulation",
+      "group": "stream",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Unresolved unless an Event Stream enables partitioned-broker behavior."
+    },
+    {
+      "id": "stream.partitions",
+      "kind": "simulation",
+      "group": "stream",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Unresolved unless an Event Stream enables partitioned-broker behavior."
+    },
+    {
+      "id": "stream.consumerGroups",
+      "kind": "simulation",
+      "group": "stream",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Unresolved unless an Event Stream enables partitioned-broker behavior."
+    },
+    {
+      "id": "stream.consumerMembers",
+      "kind": "simulation",
+      "group": "stream",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Unresolved unless an Event Stream enables partitioned-broker behavior."
+    },
+    {
+      "id": "stream.consumerGroupAppends",
+      "kind": "simulation",
+      "group": "stream",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Unresolved unless an Event Stream enables partitioned-broker behavior."
+    },
+    {
+      "id": "stream.expectedGroupDeliveries",
+      "kind": "simulation",
+      "group": "stream",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Unresolved unless an Event Stream enables partitioned-broker behavior."
+    },
+    {
+      "id": "stream.groupsWithDeliveries",
+      "kind": "simulation",
+      "group": "stream",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Unresolved unless an Event Stream enables partitioned-broker behavior."
+    },
+    {
+      "id": "stream.groupDeliveries",
+      "kind": "simulation",
+      "group": "stream",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Unresolved unless an Event Stream enables partitioned-broker behavior."
+    },
+    {
+      "id": "stream.minGroupDeliveries",
+      "kind": "simulation",
+      "group": "stream",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Unresolved unless an Event Stream enables partitioned-broker behavior."
+    },
+    {
+      "id": "stream.maxGroupDeliveries",
+      "kind": "simulation",
+      "group": "stream",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Unresolved unless an Event Stream enables partitioned-broker behavior."
+    },
+    {
+      "id": "stream.groupFanoutCoverage",
+      "kind": "simulation",
+      "group": "stream",
+      "unit": "ratio",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Unresolved unless an Event Stream enables partitioned-broker behavior."
+    },
+    {
+      "id": "stream.retainedRecords",
+      "kind": "simulation",
+      "group": "stream",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Unresolved unless an Event Stream enables partitioned-broker behavior."
+    },
+    {
+      "id": "stream.totalLag",
+      "kind": "simulation",
+      "group": "stream",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Unresolved unless an Event Stream enables partitioned-broker behavior."
+    },
+    {
+      "id": "stream.maxPartitionLag",
+      "kind": "simulation",
+      "group": "stream",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Unresolved unless an Event Stream enables partitioned-broker behavior."
+    },
+    {
+      "id": "stream.offsetCommits",
+      "kind": "simulation",
+      "group": "stream",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Unresolved unless an Event Stream enables partitioned-broker behavior."
+    },
+    {
+      "id": "stream.rebalances",
+      "kind": "simulation",
+      "group": "stream",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Unresolved unless an Event Stream enables partitioned-broker behavior."
+    },
+    {
+      "id": "stream.replayReads",
+      "kind": "simulation",
+      "group": "stream",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Unresolved unless an Event Stream enables partitioned-broker behavior."
+    },
+    {
+      "id": "stream.retentionExpired",
+      "kind": "simulation",
+      "group": "stream",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Unresolved unless an Event Stream enables partitioned-broker behavior."
+    },
+    {
+      "id": "stream.unavailable",
+      "kind": "simulation",
+      "group": "stream",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Unresolved unless an Event Stream enables partitioned-broker behavior."
+    },
+    {
+      "id": "sharding.routingAttempts",
+      "kind": "simulation",
+      "group": "sharding",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Unresolved unless a Sharding or Hashing router is present."
+    },
+    {
+      "id": "sharding.routedRequests",
+      "kind": "simulation",
+      "group": "sharding",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Unresolved unless a Sharding or Hashing router is present."
+    },
+    {
+      "id": "sharding.distinctKeys",
+      "kind": "simulation",
+      "group": "sharding",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Unresolved unless a Sharding or Hashing router is present."
+    },
+    {
+      "id": "sharding.missingKeys",
+      "kind": "simulation",
+      "group": "sharding",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Unresolved unless a Sharding or Hashing router is present."
+    },
+    {
+      "id": "sharding.fallbackRoutes",
+      "kind": "simulation",
+      "group": "sharding",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Unresolved unless a Sharding or Hashing router is present."
+    },
+    {
+      "id": "sharding.missingKeyRejects",
+      "kind": "simulation",
+      "group": "sharding",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Unresolved unless a Sharding or Hashing router is present."
+    },
+    {
+      "id": "sharding.keyCoverage",
+      "kind": "simulation",
+      "group": "sharding",
+      "unit": "ratio",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Unresolved unless a Sharding or Hashing router is present."
+    },
+    {
+      "id": "sharding.shardTargets",
+      "kind": "simulation",
+      "group": "sharding",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Unresolved unless a Sharding or Hashing router is present."
+    },
+    {
+      "id": "sharding.maxShardRequests",
+      "kind": "simulation",
+      "group": "sharding",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Unresolved unless a Sharding or Hashing router is present."
+    },
+    {
+      "id": "sharding.minShardRequests",
+      "kind": "simulation",
+      "group": "sharding",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Unresolved unless a Sharding or Hashing router is present."
+    },
+    {
+      "id": "sharding.skewRatio",
+      "kind": "simulation",
+      "group": "sharding",
+      "unit": "ratio",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Unresolved unless a Sharding or Hashing router is present."
+    },
+    {
+      "id": "sharding.hotDetections",
+      "kind": "simulation",
+      "group": "sharding",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Unresolved unless a Sharding or Hashing router is present."
+    },
+    {
+      "id": "sharding.rebalances",
+      "kind": "simulation",
+      "group": "sharding",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Unresolved unless a Sharding or Hashing router is present."
+    },
+    {
+      "id": "sharding.splits",
+      "kind": "simulation",
+      "group": "sharding",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Unresolved unless a Sharding or Hashing router is present."
+    },
+    {
+      "id": "sharding.migratedKeys",
+      "kind": "simulation",
+      "group": "sharding",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Unresolved unless a Sharding or Hashing router is present."
+    },
+    {
+      "id": "storage.nodes",
+      "kind": "simulation",
+      "group": "storage",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Unresolved unless a datastore has finite storage capacity configured."
+    },
+    {
+      "id": "storage.capacityGb",
+      "kind": "simulation",
+      "group": "storage",
+      "unit": "GB",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Unresolved unless a datastore has finite storage capacity configured."
+    },
+    {
+      "id": "storage.initialUsedGb",
+      "kind": "simulation",
+      "group": "storage",
+      "unit": "GB",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Unresolved unless a datastore has finite storage capacity configured."
+    },
+    {
+      "id": "storage.usedGb",
+      "kind": "simulation",
+      "group": "storage",
+      "unit": "GB",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Unresolved unless a datastore has finite storage capacity configured."
+    },
+    {
+      "id": "storage.freeGb",
+      "kind": "simulation",
+      "group": "storage",
+      "unit": "GB",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Unresolved unless a datastore has finite storage capacity configured."
+    },
+    {
+      "id": "storage.utilization",
+      "kind": "simulation",
+      "group": "storage",
+      "unit": "ratio",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Unresolved unless a datastore has finite storage capacity configured."
+    },
+    {
+      "id": "storage.maxNodeUtilization",
+      "kind": "simulation",
+      "group": "storage",
+      "unit": "ratio",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Unresolved unless a datastore has finite storage capacity configured."
+    },
+    {
+      "id": "storage.writeAttempts",
+      "kind": "simulation",
+      "group": "storage",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Unresolved unless a datastore has finite storage capacity configured."
+    },
+    {
+      "id": "storage.writesCommitted",
+      "kind": "simulation",
+      "group": "storage",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Unresolved unless a datastore has finite storage capacity configured."
+    },
+    {
+      "id": "storage.writtenGb",
+      "kind": "simulation",
+      "group": "storage",
+      "unit": "GB",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Unresolved unless a datastore has finite storage capacity configured."
+    },
+    {
+      "id": "storage.writeFailures",
+      "kind": "simulation",
+      "group": "storage",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Unresolved unless a datastore has finite storage capacity configured."
+    },
+    {
+      "id": "storage.fullRejects",
+      "kind": "simulation",
+      "group": "storage",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Unresolved unless a datastore has finite storage capacity configured."
     },
     {
       "id": "cache.hitRatio",
@@ -2518,5 +3940,5 @@
       "arrival"
     ]
   },
-  "digest": "sha256:7d62e1444d9085014ae8a5c91d10d2b9fe83809708a7898892fcf2e289e00a7c"
+  "digest": "sha256:9bf3afc0bdf89aab4247ba76c103317d40f1e7e590757432a700790e085a963a"
 }

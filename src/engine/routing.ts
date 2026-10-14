@@ -29,6 +29,9 @@ export type RouteRejectionReason =
   | 'no_healthy_targets'
   | 'trait_invalid_reroute'
   | 'broker_unavailable'
+  | 'missing_shard_key'
+  | 'api_route_unmatched'
+  | 'api_route_target_unavailable'
 
 export interface ResolveTargetOptions {
   clock?: bigint
@@ -615,7 +618,13 @@ export class RoutingTable {
             ? 'trait_invalid_reroute'
             : decision.rejectionReason === 'broker_unavailable'
               ? 'broker_unavailable'
-              : undefined,
+              : decision.rejectionReason === 'missing_shard_key'
+                ? 'missing_shard_key'
+                : decision.rejectionReason === 'api_route_unmatched'
+                  ? 'api_route_unmatched'
+                  : decision.rejectionReason === 'api_route_target_unavailable'
+                    ? 'api_route_target_unavailable'
+                    : undefined,
       payload: {
         beforeCandidateCount: previousRoutes.length,
         afterCandidateCount: decision.routes.length,

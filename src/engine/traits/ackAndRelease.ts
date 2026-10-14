@@ -73,7 +73,7 @@ export const ackAndReleaseTrait: NodeBehaviourTrait = {
   beforeArrival: () => ({
     action: 'handled',
     latencyUs: 0n,
-    payload: { forkConsumerRequest: true }
+    payload: { forkConsumerRequest: true, metricCounters: { queueAccepted: 1 } }
   })
 }
 
@@ -140,7 +140,7 @@ export const ackAndReleaseCapabilityModule: NodeCapabilityModule = {
     }
   ],
   metrics: {
-    counters: ['queueRedeliveries', 'queueDlqMoves']
+    counters: ['queueAccepted', 'queueRedeliveries', 'queueDlqMoves']
   },
   honesty: {
     simulates: [
