@@ -1,0 +1,110 @@
+{
+  "artifact": "simulator-question-coverage",
+  "version": "1.0",
+  "questionId": "food-delivery-api-gateway",
+  "source": {
+    "document": "Hld Questions.pdf",
+    "section": "Question 2 - Add API Gateway"
+  },
+  "series": {
+    "buildsOn": "food-delivery-load-balancer-and-queue"
+  },
+  "requirements": [
+    {
+      "id": "r-services",
+      "kind": "requirement",
+      "text": "The platform has multiple services: User, Restaurant, Order, Payment, and Delivery.",
+      "status": "covered",
+      "checks": ["five-services"]
+    },
+    {
+      "id": "r-no-direct",
+      "kind": "requirement",
+      "text": "Mobile and Web applications should not directly communicate with individual services.",
+      "status": "covered",
+      "checks": ["gateway-single-entry"]
+    },
+    {
+      "id": "r-single-entry",
+      "kind": "requirement",
+      "text": "All client requests should enter through a single entry point.",
+      "status": "graded",
+      "checks": ["gateway-single-entry"]
+    },
+    {
+      "id": "r-authenticated",
+      "kind": "requirement",
+      "text": "Requests should be authenticated before reaching services.",
+      "status": "graded",
+      "checks": ["requests-authenticated"]
+    },
+    {
+      "id": "r-routing",
+      "kind": "requirement",
+      "text": "Different APIs should be routed to the correct backend service.",
+      "status": "graded",
+      "checks": ["route-match-coverage"]
+    },
+    {
+      "id": "r-independent-scaling",
+      "kind": "requirement",
+      "text": "Services should continue scaling independently.",
+      "status": "graded",
+      "checks": ["five-services"]
+    },
+    {
+      "id": "c-previous",
+      "kind": "concept",
+      "text": "Everything from Q1",
+      "status": "covered",
+      "checks": ["balancer-in-middle", "queue-feeds-worker"]
+    },
+    {
+      "id": "c-gateway",
+      "kind": "concept",
+      "text": "API Gateway",
+      "status": "covered",
+      "checks": ["gateway-single-entry"]
+    },
+    {
+      "id": "c-service-routing",
+      "kind": "concept",
+      "text": "Service routing",
+      "status": "covered",
+      "checks": ["route-match-coverage"]
+    },
+    {
+      "id": "c-auth-layer",
+      "kind": "concept",
+      "text": "Authentication layer",
+      "status": "covered",
+      "checks": ["requests-authenticated"]
+    },
+    {
+      "id": "c-rate-limiting",
+      "kind": "concept",
+      "text": "Rate limiting",
+      "status": "graded",
+      "checks": ["rate-limit-holds"]
+    }
+  ],
+  "sanity": ["single-source", "connected-graph", "balancer-in-middle", "queue-feeds-worker"],
+  "carriedForward": [],
+  "advisories": [
+    {
+      "code": "domains.supportTier",
+      "path": "domains",
+      "reason": "The question is tagged 'network' because the PDF lesson is the client entry point. Only gateway routing, authentication, and rate-limit counters are graded, all of which are first-class verdict metrics; no guided network physics is graded."
+    },
+    {
+      "code": "concepts.supportTier",
+      "path": "concepts[3]",
+      "reason": "The PDF names rate limiting. Only the measured limiter contract (rateLimit.breaches == 0) is graded; algorithm trade-offs are left to discussion."
+    },
+    {
+      "code": "guardedPath.readWriteMix",
+      "path": "semanticCriteria[2]",
+      "reason": "All-traffic guard by design: the PDF requires every client request, read or write, to enter through the single API Gateway."
+    }
+  ]
+}

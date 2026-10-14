@@ -189,7 +189,28 @@ Canonical edges contain engine semantics rather than renderer styling:
 Author connection, batching, congestion, geo latency, or protocol fields only when
 the lesson needs them.
 
-## 4. Cross-file contract
+## 4. Coverage map
+
+`<slug>.coverage.json` (template: `assets/coverage.template.json`) traces the
+source to the grading and records the grading budget:
+
+| Field                 | Meaning                                                                                                      |
+| --------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `artifact`, `version` | `"simulator-question-coverage"`, `"1.0"`                                                                     |
+| `questionId`          | Same id as the project and package                                                                           |
+| `source`              | `document` and `section` the question was written from                                                       |
+| `series.buildsOn`     | Previous question id; required when `carriedForward` is not empty                                            |
+| `requirements[]`      | Every source bullet verbatim: `id`, `kind` (`requirement`, `concept`, `nfr`), `status`, `checks` or `reason` |
+| `sanity[]`            | Ids of sanity rows                                                                                           |
+| `carriedForward[]`    | `{ check, from }` presence rows kept from earlier questions                                                  |
+| `advisories[]`        | `{ code, path?, reason }` for each Studio advisory left in place                                             |
+
+`status` is `graded` (one core check), `covered` (already graded by listed
+checks), or `explained` (a `reason`, no checks). Every project rule and check id
+must appear in exactly one tier. Rules are in
+[grading budget](grading-budget.md).
+
+## 5. Cross-file contract
 
 Verify:
 
@@ -206,9 +227,12 @@ Verify:
   duration, and execution mode;
 - the public dry run contains no hidden invariant, fault, experiment, or rubric
   threshold;
-- the solution passes, and the near miss fails the intended obligation.
+- the solution passes, and the near miss fails the intended obligation;
+- the project stores the solution as `assets.referenceTopology`, each near miss in
+  `assets.gamedTopologies` targets a core check, and `verification` is current;
+- the coverage map traces every row and stays inside the grading budget.
 
-## 5. Validation commands
+## 6. Validation commands
 
 Standalone:
 
@@ -219,6 +243,7 @@ node scripts/validate-artifacts.mjs <directory> <slug>
 Simulator checkout:
 
 ```bash
+npm run audit:simulator-question -- <directory> <slug>
 npm run sim -- validate <slug>.solution-topology.json
 npm run sim -- grade <slug>.question-package.json <slug>.solution-topology.json
 ```

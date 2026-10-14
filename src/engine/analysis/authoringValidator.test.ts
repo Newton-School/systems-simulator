@@ -74,6 +74,27 @@ describe('validateAuthoredQuestion', () => {
     expect(codes(pkg)).toContain('domains.mismatch')
   })
 
+  it('accepts a storage domain graded by replication, storage, or sharding metrics', () => {
+    for (const metric of [
+      'consistency.staleReads',
+      'storage.fullRejects',
+      'sharding.keyCoverage'
+    ]) {
+      const pkg = base()
+      pkg.domains = ['storage']
+      pkg.rubric.checks.push({
+        id: 'data',
+        kind: 'simulation',
+        description: 'data evidence',
+        metric,
+        op: '==',
+        value: 0,
+        points: 1
+      })
+      expect(codes(pkg)).not.toContain('domains.mismatch')
+    }
+  })
+
   it('keeps legacy questions clean when entryFormat is omitted', () => {
     const pkg = base()
     delete pkg.entryFormat

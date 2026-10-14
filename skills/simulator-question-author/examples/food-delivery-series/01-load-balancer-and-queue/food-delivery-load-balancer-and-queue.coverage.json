@@ -1,0 +1,77 @@
+{
+  "artifact": "simulator-question-coverage",
+  "version": "1.0",
+  "questionId": "food-delivery-load-balancer-and-queue",
+  "source": {
+    "document": "Hld Questions.pdf",
+    "section": "Question 1 - Load Balancer + Queue Design"
+  },
+  "requirements": [
+    {
+      "id": "r-concurrent-users",
+      "kind": "requirement",
+      "text": "Multiple users can place orders simultaneously.",
+      "status": "explained",
+      "reason": "Concurrency is the condition the hidden workload creates, not a separate behavior to grade."
+    },
+    {
+      "id": "r-horizontal-scaling",
+      "kind": "requirement",
+      "text": "The application should support horizontal scaling.",
+      "status": "graded",
+      "checks": ["two-app-servers"]
+    },
+    {
+      "id": "r-peak-slower",
+      "kind": "requirement",
+      "text": "During peak hours, order processing may become slower.",
+      "status": "explained",
+      "reason": "Describes tolerated behavior under load; slower processing is allowed, so nothing is graded."
+    },
+    {
+      "id": "r-no-loss",
+      "kind": "requirement",
+      "text": "Orders should not be lost if the processing servers are overloaded.",
+      "status": "graded",
+      "checks": ["queue-no-loss"]
+    },
+    {
+      "id": "r-partner-wait",
+      "kind": "requirement",
+      "text": "If delivery partners are currently unavailable, orders should wait until they become available.",
+      "status": "graded",
+      "checks": ["partner-wait-observed"]
+    },
+    {
+      "id": "c-load-balancer",
+      "kind": "concept",
+      "text": "Load Balancer",
+      "status": "covered",
+      "checks": ["balancer-in-middle"]
+    },
+    {
+      "id": "c-app-servers",
+      "kind": "concept",
+      "text": "Multiple application servers",
+      "status": "covered",
+      "checks": ["two-app-servers"]
+    },
+    {
+      "id": "c-queue",
+      "kind": "concept",
+      "text": "Queue for buffering requests",
+      "status": "covered",
+      "checks": ["queue-feeds-worker"]
+    },
+    {
+      "id": "c-async",
+      "kind": "concept",
+      "text": "Asynchronous order processing",
+      "status": "graded",
+      "checks": ["async-order-handoff"]
+    }
+  ],
+  "sanity": ["single-source", "connected-graph", "balancer-in-middle", "queue-feeds-worker"],
+  "carriedForward": [],
+  "advisories": []
+}

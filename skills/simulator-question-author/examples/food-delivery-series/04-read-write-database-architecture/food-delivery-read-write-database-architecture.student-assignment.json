@@ -1,0 +1,133 @@
+{
+  "version": "1.0",
+  "id": "food-delivery-read-write-database-architecture",
+  "title": "Food Delivery Read Write Database Architecture",
+  "description": "Separate write traffic onto a replicated primary and read traffic onto lag-aware replicas while maintaining a bounded strong single-key consistency proxy.",
+  "difficulty": "advanced",
+  "estimatedTimeMinutes": 30,
+  "type": "open-build",
+  "entryFormat": "blank-canvas",
+  "prompt": {
+    "text": "Extend the event-driven platform with a read-heavy relational workload. Send writes to a primary database and distribute reads to replicas. Configure replication and handle replica lag without returning stale values in the hidden single-key workload. This simulator verifies a bounded single-key register history; it does not prove multi-key transactional consistency.",
+    "functionalRequirements": [
+      "Send writes to a primary database.",
+      "Send reads to at least two read replicas.",
+      "Never return stale data from a replica, even while replication lags.",
+      "Keep the API Gateway, event stream, load-balanced order path, and queue from the previous designs."
+    ],
+    "nonFunctionalRequirements": [],
+    "scale": {
+      "dau": 5000000,
+      "peakRps": 1000,
+      "readWriteRatio": 80,
+      "storageGb": 10000,
+      "growthRatePercent": 2
+    },
+    "additionalContext": "The hidden run is a deterministic, scaled discrete proxy for the stated production workload. It grades supported simulator behavior, not cloud-provider guarantees."
+  },
+  "scaffold": {
+    "type": "empty"
+  },
+  "constraints": {
+    "allowedNodeTypes": [
+      "api-endpoint",
+      "api-gateway",
+      "load-balancer",
+      "load-balancer-l7",
+      "microservice",
+      "queue",
+      "batch-worker",
+      "stream",
+      "streaming-analytics",
+      "relational-db"
+    ],
+    "maxTotalWorkers": 1000,
+    "canModifyScaffold": true,
+    "canRemoveScaffoldNodes": true
+  },
+  "workloadCategory": "read-heavy",
+  "domains": ["storage"],
+  "concepts": ["read-write-splitting", "primary-replica", "replication-lag"],
+  "dryRunCase": {
+    "id": "public-dry-run",
+    "description": "A low-rate public run for checking connectivity and request flow.",
+    "global": {
+      "simulationDuration": 1500,
+      "seed": "food-delivery-read-write-database-architecture-solution-public-v1",
+      "warmupDuration": 0,
+      "timeResolution": "microsecond",
+      "defaultTimeout": 5000,
+      "traceSampleRate": 0.1
+    },
+    "workload": {
+      "sourceNodeId": "source",
+      "pattern": "constant",
+      "baseRps": 2,
+      "sessions": {
+        "count": 4
+      },
+      "requestDistribution": [
+        {
+          "type": "read",
+          "weight": 0.4,
+          "sizeBytes": 1024,
+          "metadata": {
+            "path": "/orders",
+            "authToken": "valid-token",
+            "authStatus": "valid",
+            "authScopes": ["api:access"],
+            "clientId": "mobile-client",
+            "partitionKey": "order-stream",
+            "headers": {
+              "x-read-replica": "a"
+            }
+          },
+          "keyspace": {
+            "field": "recordKey",
+            "size": 8,
+            "skew": 0
+          }
+        },
+        {
+          "type": "read",
+          "weight": 0.4,
+          "sizeBytes": 1024,
+          "metadata": {
+            "path": "/orders",
+            "authToken": "valid-token",
+            "authStatus": "valid",
+            "authScopes": ["api:access"],
+            "clientId": "mobile-client",
+            "partitionKey": "order-stream",
+            "headers": {
+              "x-read-replica": "b"
+            }
+          },
+          "keyspace": {
+            "field": "recordKey",
+            "size": 8,
+            "skew": 0
+          }
+        },
+        {
+          "type": "write",
+          "weight": 0.2,
+          "sizeBytes": 4096,
+          "metadata": {
+            "path": "/orders",
+            "authToken": "valid-token",
+            "authStatus": "valid",
+            "authScopes": ["api:access"],
+            "clientId": "mobile-client",
+            "partitionKey": "order-stream"
+          },
+          "keyspace": {
+            "field": "recordKey",
+            "size": 8,
+            "skew": 0
+          }
+        }
+      ]
+    }
+  }
+}

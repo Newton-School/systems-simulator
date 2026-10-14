@@ -1,0 +1,338 @@
+{
+  "version": "1.0",
+  "id": "food-delivery-read-write-database-architecture",
+  "title": "Food Delivery Read Write Database Architecture",
+  "description": "Separate write traffic onto a replicated primary and read traffic onto lag-aware replicas while maintaining a bounded strong single-key consistency proxy.",
+  "difficulty": "advanced",
+  "estimatedTimeMinutes": 30,
+  "type": "open-build",
+  "entryFormat": "blank-canvas",
+  "prompt": {
+    "text": "Extend the event-driven platform with a read-heavy relational workload. Send writes to a primary database and distribute reads to replicas. Configure replication and handle replica lag without returning stale values in the hidden single-key workload. This simulator verifies a bounded single-key register history; it does not prove multi-key transactional consistency.",
+    "functionalRequirements": [
+      "Send writes to a primary database.",
+      "Send reads to at least two read replicas.",
+      "Never return stale data from a replica, even while replication lags.",
+      "Keep the API Gateway, event stream, load-balanced order path, and queue from the previous designs."
+    ],
+    "nonFunctionalRequirements": [],
+    "scale": {
+      "dau": 5000000,
+      "peakRps": 1000,
+      "readWriteRatio": 80,
+      "storageGb": 10000,
+      "growthRatePercent": 2
+    },
+    "additionalContext": "The hidden run is a deterministic, scaled discrete proxy for the stated production workload. It grades supported simulator behavior, not cloud-provider guarantees."
+  },
+  "scaffold": {
+    "type": "empty"
+  },
+  "constraints": {
+    "allowedNodeTypes": [
+      "api-endpoint",
+      "api-gateway",
+      "load-balancer",
+      "load-balancer-l7",
+      "microservice",
+      "queue",
+      "batch-worker",
+      "stream",
+      "streaming-analytics",
+      "relational-db"
+    ],
+    "maxTotalWorkers": 1000,
+    "canModifyScaffold": true,
+    "canRemoveScaffoldNodes": true
+  },
+  "structuralRules": [
+    {
+      "id": "single-source",
+      "description": "Use exactly one traffic source.",
+      "kind": "requires_single_source"
+    },
+    {
+      "id": "connected-graph",
+      "description": "Keep every component connected to the architecture.",
+      "kind": "requires_connected_graph"
+    },
+    {
+      "id": "gateway-retained",
+      "description": "Keep the API Gateway from the previous design.",
+      "kind": "requires_component",
+      "componentType": "api-gateway",
+      "minCount": 1
+    },
+    {
+      "id": "stream-retained",
+      "description": "Keep the event stream from the previous design.",
+      "kind": "requires_component",
+      "componentType": "stream",
+      "minCount": 1
+    }
+  ],
+  "semanticCriteria": [
+    {
+      "id": "balancer-in-middle",
+      "description": "Place the load balancer between incoming traffic and the application servers.",
+      "points": 1,
+      "hardFail": true,
+      "kind": "placement",
+      "componentType": "load-balancer",
+      "between": ["api-endpoint", "microservice"]
+    },
+    {
+      "id": "queue-feeds-worker",
+      "description": "Place the queue between the order service and a background worker that consumes it.",
+      "points": 1,
+      "hardFail": true,
+      "kind": "placement",
+      "componentType": "queue",
+      "between": ["microservice", "batch-worker"]
+    },
+    {
+      "id": "stream-feeds-consumers",
+      "description": "Place the event stream between the producing services and the consumers that read it.",
+      "points": 1,
+      "hardFail": true,
+      "kind": "placement",
+      "componentType": "stream",
+      "between": ["microservice", "batch-worker"]
+    },
+    {
+      "id": "primary-database",
+      "description": "Include a primary database.",
+      "points": 1,
+      "kind": "componentPresence",
+      "componentType": "relational-db",
+      "minCount": 1
+    },
+    {
+      "id": "primary-role",
+      "description": "Configure a database as the replication primary for writes.",
+      "points": 2,
+      "hardFail": true,
+      "kind": "componentProperty",
+      "parentId": "primary-database",
+      "property": "replicationRole",
+      "operator": "equals",
+      "expected": "leader"
+    },
+    {
+      "id": "replica-databases",
+      "description": "Include at least two read replicas.",
+      "points": 1,
+      "kind": "componentPresence",
+      "componentType": "relational-db",
+      "minCount": 2
+    },
+    {
+      "id": "replica-role",
+      "description": "Configure at least two databases as read replicas.",
+      "points": 2,
+      "hardFail": true,
+      "kind": "componentProperty",
+      "parentId": "replica-databases",
+      "property": "replicationRole",
+      "operator": "equals",
+      "expected": "follower"
+    }
+  ],
+  "workloadCategory": "read-heavy",
+  "domains": ["storage"],
+  "concepts": ["read-write-splitting", "primary-replica", "replication-lag"],
+  "suite": {
+    "name": "food-delivery-read-write-database-architecture-suite",
+    "cases": [
+      {
+        "id": "private-baseline",
+        "description": "Run an 80/20 read/write mix through two lagged strong-read replicas and a primary-acknowledged write leader.",
+        "global": {
+          "simulationDuration": 5000,
+          "seed": "food-delivery-read-write-database-architecture-private-v1",
+          "warmupDuration": 0,
+          "timeResolution": "microsecond",
+          "defaultTimeout": 5000,
+          "traceSampleRate": 0.1
+        },
+        "workload": {
+          "sourceNodeId": "source",
+          "pattern": "constant",
+          "baseRps": 100,
+          "requestDistribution": [
+            {
+              "type": "read",
+              "weight": 0.4,
+              "sizeBytes": 1024,
+              "metadata": {
+                "path": "/orders",
+                "authToken": "valid-token",
+                "authStatus": "valid",
+                "authScopes": ["api:access"],
+                "clientId": "mobile-client",
+                "partitionKey": "order-stream",
+                "headers": {
+                  "x-read-replica": "a"
+                }
+              },
+              "keyspace": {
+                "field": "recordKey",
+                "size": 8,
+                "skew": 0
+              }
+            },
+            {
+              "type": "read",
+              "weight": 0.4,
+              "sizeBytes": 1024,
+              "metadata": {
+                "path": "/orders",
+                "authToken": "valid-token",
+                "authStatus": "valid",
+                "authScopes": ["api:access"],
+                "clientId": "mobile-client",
+                "partitionKey": "order-stream",
+                "headers": {
+                  "x-read-replica": "b"
+                }
+              },
+              "keyspace": {
+                "field": "recordKey",
+                "size": 8,
+                "skew": 0
+              }
+            },
+            {
+              "type": "write",
+              "weight": 0.2,
+              "sizeBytes": 4096,
+              "metadata": {
+                "path": "/orders",
+                "authToken": "valid-token",
+                "authStatus": "valid",
+                "authScopes": ["api:access"],
+                "clientId": "mobile-client",
+                "partitionKey": "order-stream"
+              },
+              "keyspace": {
+                "field": "recordKey",
+                "size": 8,
+                "skew": 0
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "visibleToStudent": false,
+    "dryRunCase": {
+      "id": "public-dry-run",
+      "description": "A low-rate public run for checking connectivity and request flow.",
+      "global": {
+        "simulationDuration": 1500,
+        "seed": "food-delivery-read-write-database-architecture-solution-public-v1",
+        "warmupDuration": 0,
+        "timeResolution": "microsecond",
+        "defaultTimeout": 5000,
+        "traceSampleRate": 0.1
+      },
+      "workload": {
+        "sourceNodeId": "source",
+        "pattern": "constant",
+        "baseRps": 2,
+        "sessions": {
+          "count": 4
+        },
+        "requestDistribution": [
+          {
+            "type": "read",
+            "weight": 0.4,
+            "sizeBytes": 1024,
+            "metadata": {
+              "path": "/orders",
+              "authToken": "valid-token",
+              "authStatus": "valid",
+              "authScopes": ["api:access"],
+              "clientId": "mobile-client",
+              "partitionKey": "order-stream",
+              "headers": {
+                "x-read-replica": "a"
+              }
+            },
+            "keyspace": {
+              "field": "recordKey",
+              "size": 8,
+              "skew": 0
+            }
+          },
+          {
+            "type": "read",
+            "weight": 0.4,
+            "sizeBytes": 1024,
+            "metadata": {
+              "path": "/orders",
+              "authToken": "valid-token",
+              "authStatus": "valid",
+              "authScopes": ["api:access"],
+              "clientId": "mobile-client",
+              "partitionKey": "order-stream",
+              "headers": {
+                "x-read-replica": "b"
+              }
+            },
+            "keyspace": {
+              "field": "recordKey",
+              "size": 8,
+              "skew": 0
+            }
+          },
+          {
+            "type": "write",
+            "weight": 0.2,
+            "sizeBytes": 4096,
+            "metadata": {
+              "path": "/orders",
+              "authToken": "valid-token",
+              "authStatus": "valid",
+              "authScopes": ["api:access"],
+              "clientId": "mobile-client",
+              "partitionKey": "order-stream"
+            },
+            "keyspace": {
+              "field": "recordKey",
+              "size": 8,
+              "skew": 0
+            }
+          }
+        ]
+      }
+    }
+  },
+  "rubric": {
+    "version": "1.0",
+    "id": "food-delivery-read-write-database-architecture-rubric",
+    "passThreshold": 1,
+    "checks": [
+      {
+        "id": "reads-served-by-replicas",
+        "description": "Reads must be served by replicas that catch up on replication lag.",
+        "kind": "simulation",
+        "metric": "consistency.catchUpWaits",
+        "op": ">=",
+        "value": 1,
+        "points": 3
+      },
+      {
+        "id": "no-stale-reads",
+        "description": "No read may return stale data.",
+        "kind": "simulation",
+        "metric": "consistency.staleReads",
+        "op": "==",
+        "value": 0,
+        "points": 3
+      }
+    ]
+  },
+  "author": "Hritvik Mohan",
+  "createdAt": "2026-10-14T00:00:00.000Z"
+}

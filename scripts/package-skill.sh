@@ -50,6 +50,11 @@ if [[ "$skill_name" == "simulator-question-author" ]]; then
     npm run validate:simulator-question-author-skill
     node skills/simulator-question-author/scripts/validate-artifacts.mjs \
       skills/simulator-question-author/examples/quickcart quickcart-flash-sale
+    for example_dir in skills/simulator-question-author/examples/food-delivery-series/*/; do
+      project_file="$(ls "$example_dir" | grep '\.simulator-question-project\.json$')"
+      node skills/simulator-question-author/scripts/validate-artifacts.mjs \
+        "$example_dir" "${project_file%.simulator-question-project.json}"
+    done
   )
 fi
 

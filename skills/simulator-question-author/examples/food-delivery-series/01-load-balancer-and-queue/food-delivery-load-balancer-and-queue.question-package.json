@@ -1,0 +1,180 @@
+{
+  "version": "1.0",
+  "id": "food-delivery-load-balancer-and-queue",
+  "title": "Food Delivery Load Balancer and Queue",
+  "description": "Design a horizontally scalable order intake path that buffers overload and retains orders while delivery partners are unavailable.",
+  "difficulty": "beginner",
+  "estimatedTimeMinutes": 20,
+  "type": "open-build",
+  "entryFormat": "blank-canvas",
+  "prompt": {
+    "text": "Design the high-level architecture for a food-delivery order-processing system receiving millions of orders per day. Multiple users place orders concurrently, application processing scales horizontally, peak traffic may create backlog, accepted orders must not be lost, and delivery assignment must wait when partners are unavailable.",
+    "functionalRequirements": [
+      "Spread incoming orders across at least two application servers behind a load balancer.",
+      "Hand orders from the application servers to a queue asynchronously.",
+      "Do not lose accepted orders when processing is overloaded.",
+      "Make orders wait for an available delivery partner instead of failing."
+    ],
+    "nonFunctionalRequirements": [],
+    "scale": {
+      "dau": 5000000,
+      "peakRps": 100,
+      "readWriteRatio": 80,
+      "storageGb": 10000,
+      "growthRatePercent": 2
+    },
+    "additionalContext": "The hidden run is a deterministic, scaled discrete proxy for the stated production workload. It grades supported simulator behavior, not cloud-provider guarantees."
+  },
+  "scaffold": {
+    "type": "empty"
+  },
+  "constraints": {
+    "allowedNodeTypes": [
+      "api-endpoint",
+      "load-balancer",
+      "load-balancer-l7",
+      "microservice",
+      "queue",
+      "batch-worker"
+    ],
+    "maxTotalWorkers": 1000,
+    "canModifyScaffold": true,
+    "canRemoveScaffoldNodes": true
+  },
+  "structuralRules": [
+    {
+      "id": "single-source",
+      "description": "Use exactly one traffic source.",
+      "kind": "requires_single_source"
+    },
+    {
+      "id": "connected-graph",
+      "description": "Keep every component connected to the architecture.",
+      "kind": "requires_connected_graph"
+    },
+    {
+      "id": "two-app-servers",
+      "description": "Run at least two application servers.",
+      "kind": "requires_component",
+      "componentType": "microservice",
+      "minCount": 2
+    },
+    {
+      "id": "async-order-handoff",
+      "description": "Send orders from an application server to the queue asynchronously.",
+      "kind": "requires_edge",
+      "fromType": "microservice",
+      "toType": "queue",
+      "mode": "asynchronous"
+    }
+  ],
+  "semanticCriteria": [
+    {
+      "id": "balancer-in-middle",
+      "description": "Place the load balancer between incoming traffic and the application servers.",
+      "points": 1,
+      "hardFail": true,
+      "kind": "placement",
+      "componentType": "load-balancer",
+      "between": ["api-endpoint", "microservice"]
+    },
+    {
+      "id": "queue-feeds-worker",
+      "description": "Place the queue between the order service and a background worker that consumes it.",
+      "points": 1,
+      "hardFail": true,
+      "kind": "placement",
+      "componentType": "queue",
+      "between": ["microservice", "batch-worker"]
+    }
+  ],
+  "workloadCategory": "correctness-heavy",
+  "domains": ["compute"],
+  "concepts": [
+    "load-balancing",
+    "horizontal-scaling",
+    "queue-buffering",
+    "asynchronous-processing"
+  ],
+  "suite": {
+    "name": "food-delivery-load-balancer-and-queue-suite",
+    "cases": [
+      {
+        "id": "private-baseline",
+        "description": "Exercise asynchronous queue conservation and a temporary delivery-partner outage.",
+        "global": {
+          "simulationDuration": 5000,
+          "seed": "food-delivery-load-balancer-and-queue-private-v1",
+          "warmupDuration": 0,
+          "timeResolution": "microsecond",
+          "defaultTimeout": 5000,
+          "traceSampleRate": 0.1
+        },
+        "workload": {
+          "sourceNodeId": "source",
+          "pattern": "constant",
+          "baseRps": 4,
+          "requestDistribution": [
+            {
+              "type": "create-order",
+              "weight": 1,
+              "sizeBytes": 1024
+            }
+          ]
+        }
+      }
+    ],
+    "visibleToStudent": false,
+    "dryRunCase": {
+      "id": "public-dry-run",
+      "description": "A low-rate public run for checking connectivity and request flow.",
+      "global": {
+        "simulationDuration": 1500,
+        "seed": "food-delivery-load-balancer-and-queue-solution-public-v1",
+        "warmupDuration": 0,
+        "timeResolution": "microsecond",
+        "defaultTimeout": 5000,
+        "traceSampleRate": 0.1
+      },
+      "workload": {
+        "sourceNodeId": "source",
+        "pattern": "constant",
+        "baseRps": 2,
+        "requestDistribution": [
+          {
+            "type": "create-order",
+            "weight": 1,
+            "sizeBytes": 1024
+          }
+        ]
+      }
+    }
+  },
+  "rubric": {
+    "version": "1.0",
+    "id": "food-delivery-load-balancer-and-queue-rubric",
+    "passThreshold": 1,
+    "checks": [
+      {
+        "id": "queue-no-loss",
+        "description": "No accepted order may be lost.",
+        "kind": "simulation",
+        "metric": "queue.noLoss",
+        "op": "==",
+        "value": 1,
+        "points": 3
+      },
+      {
+        "id": "partner-wait-observed",
+        "description": "Orders must wait for a delivery partner to become available.",
+        "kind": "simulation",
+        "metric": "partners.queuedForAvailability",
+        "op": ">=",
+        "value": 1,
+        "points": 3
+      }
+    ]
+  },
+  "author": "Hritvik Mohan",
+  "createdAt": "2026-10-14T00:00:00.000Z"
+}

@@ -1,0 +1,61 @@
+{
+  "artifact": "simulator-question-coverage",
+  "version": "1.0",
+  "questionId": "quickcart-flash-sale",
+  "source": {
+    "document": "QuickCart flash-sale prompt",
+    "section": "QuickCart Flash Sale"
+  },
+  "requirements": [
+    {
+      "id": "nfr-throughput",
+      "kind": "nfr",
+      "text": "The website is expected to receive up to 1,000,000 requests per second.",
+      "status": "graded",
+      "checks": ["rubric-check-1"]
+    },
+    {
+      "id": "nfr-errors",
+      "kind": "nfr",
+      "text": "Serve the full offered load without dropping requests.",
+      "status": "graded",
+      "checks": ["metric-target"]
+    },
+    {
+      "id": "r-headroom",
+      "kind": "requirement",
+      "text": "Use no more than 80% of each server's capacity.",
+      "status": "graded",
+      "checks": ["rubric-check-2"]
+    },
+    {
+      "id": "r-balancer",
+      "kind": "requirement",
+      "text": "Accept incoming user traffic through a load balancer.",
+      "status": "graded",
+      "checks": ["requires-load-balancer"]
+    },
+    {
+      "id": "r-server-pool",
+      "kind": "requirement",
+      "text": "Distribute traffic evenly across a pool of backend servers.",
+      "status": "graded",
+      "checks": ["requires-api-server"]
+    },
+    {
+      "id": "r-server-capacity",
+      "kind": "requirement",
+      "text": "Each backend server can handle a maximum of 100,000 requests per second.",
+      "status": "explained",
+      "reason": "A fixed server property that sets the arithmetic; the headroom and throughput checks grade its consequence."
+    }
+  ],
+  "sanity": [
+    "requires-single-source",
+    "requires-connected-design",
+    "requires-source-to-balancer",
+    "requires-balancer-to-server"
+  ],
+  "carriedForward": [],
+  "advisories": []
+}

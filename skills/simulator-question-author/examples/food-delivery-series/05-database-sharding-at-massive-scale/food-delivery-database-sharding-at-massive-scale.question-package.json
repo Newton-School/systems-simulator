@@ -1,0 +1,283 @@
+{
+  "version": "1.0",
+  "id": "food-delivery-database-sharding-at-massive-scale",
+  "title": "Food Delivery Database Sharding at Massive Scale",
+  "description": "Partition read and write traffic across multiple replicated database shards using an explicit shard key, finite per-node storage, and hot-shard mitigation.",
+  "difficulty": "advanced",
+  "estimatedTimeMinutes": 30,
+  "type": "open-build",
+  "entryFormat": "blank-canvas",
+  "prompt": {
+    "text": "Extend the read/write database architecture for billions of users and transactions. Route every operation by userId, distribute writes across shard primaries and reads across shard replicas, keep finite storage below capacity, and detect plus virtually split a hot shard. Physical provisioning and byte-copy cutover are outside this simulator; the rebalance is a stable two-target virtual split over existing shard nodes.",
+    "functionalRequirements": [
+      "Spread data across at least four database shards.",
+      "Route every database request through a sharding layer using the userId shard key.",
+      "Detect a hot shard and rebalance its hot keys.",
+      "Keep every shard within its storage capacity as data grows.",
+      "Keep the API Gateway, event stream, load-balanced order path, and queue from the previous designs."
+    ],
+    "nonFunctionalRequirements": [],
+    "scale": {
+      "dau": 1000000000,
+      "peakRps": 5000,
+      "readWriteRatio": 75,
+      "storageGb": 1000000,
+      "growthRatePercent": 10
+    },
+    "additionalContext": "The hidden run is a deterministic, scaled discrete proxy for the stated production workload. It grades supported simulator behavior, not cloud-provider guarantees."
+  },
+  "scaffold": {
+    "type": "empty"
+  },
+  "constraints": {
+    "allowedNodeTypes": [
+      "api-endpoint",
+      "api-gateway",
+      "load-balancer",
+      "load-balancer-l7",
+      "microservice",
+      "queue",
+      "batch-worker",
+      "stream",
+      "streaming-analytics",
+      "sharding",
+      "hashing",
+      "relational-db"
+    ],
+    "maxTotalWorkers": 1000,
+    "canModifyScaffold": true,
+    "canRemoveScaffoldNodes": true
+  },
+  "structuralRules": [
+    {
+      "id": "single-source",
+      "description": "Use exactly one traffic source.",
+      "kind": "requires_single_source"
+    },
+    {
+      "id": "connected-graph",
+      "description": "Keep every component connected to the architecture.",
+      "kind": "requires_connected_graph"
+    },
+    {
+      "id": "gateway-retained",
+      "description": "Keep the API Gateway from the previous design.",
+      "kind": "requires_component",
+      "componentType": "api-gateway",
+      "minCount": 1
+    },
+    {
+      "id": "stream-retained",
+      "description": "Keep the event stream from the previous design.",
+      "kind": "requires_component",
+      "componentType": "stream",
+      "minCount": 1
+    }
+  ],
+  "semanticCriteria": [
+    {
+      "id": "balancer-in-middle",
+      "description": "Place the load balancer between incoming traffic and the application servers.",
+      "points": 1,
+      "hardFail": true,
+      "kind": "placement",
+      "componentType": "load-balancer",
+      "between": ["api-endpoint", "microservice"]
+    },
+    {
+      "id": "queue-feeds-worker",
+      "description": "Place the queue between the order service and a background worker that consumes it.",
+      "points": 1,
+      "hardFail": true,
+      "kind": "placement",
+      "componentType": "queue",
+      "between": ["microservice", "batch-worker"]
+    },
+    {
+      "id": "stream-feeds-consumers",
+      "description": "Place the event stream between the producing services and the consumers that read it.",
+      "points": 1,
+      "hardFail": true,
+      "kind": "placement",
+      "componentType": "stream",
+      "between": ["microservice", "batch-worker"]
+    },
+    {
+      "id": "sharding-guards-databases",
+      "description": "Every database path must cross a sharding router.",
+      "points": 3,
+      "hardFail": true,
+      "kind": "guardedPath",
+      "from": "load-balancer-l7",
+      "guard": "sharding",
+      "to": "relational-db"
+    }
+  ],
+  "workloadCategory": "write-heavy",
+  "domains": ["storage"],
+  "concepts": ["database-sharding", "shard-key", "data-partitioning", "hot-shard-mitigation"],
+  "suite": {
+    "name": "food-delivery-database-sharding-at-massive-scale-suite",
+    "cases": [
+      {
+        "id": "private-baseline",
+        "description": "Run a skewed keyed workload through separate read/write sharding routers and finite replicated shard storage.",
+        "global": {
+          "simulationDuration": 5000,
+          "seed": "food-delivery-database-sharding-at-massive-scale-private-v1",
+          "warmupDuration": 0,
+          "timeResolution": "microsecond",
+          "defaultTimeout": 5000,
+          "traceSampleRate": 0.1
+        },
+        "workload": {
+          "sourceNodeId": "source",
+          "pattern": "constant",
+          "baseRps": 20,
+          "requestDistribution": [
+            {
+              "type": "read",
+              "weight": 0.75,
+              "sizeBytes": 100000,
+              "metadata": {
+                "path": "/orders",
+                "authToken": "valid-token",
+                "authStatus": "valid",
+                "authScopes": ["api:access"],
+                "clientId": "mobile-client",
+                "partitionKey": "order-stream"
+              },
+              "keyspace": {
+                "field": "userId",
+                "size": 32,
+                "skew": 1.4
+              }
+            },
+            {
+              "type": "write",
+              "weight": 0.25,
+              "sizeBytes": 100000,
+              "metadata": {
+                "path": "/orders",
+                "authToken": "valid-token",
+                "authStatus": "valid",
+                "authScopes": ["api:access"],
+                "clientId": "mobile-client",
+                "partitionKey": "order-stream"
+              },
+              "keyspace": {
+                "field": "userId",
+                "size": 32,
+                "skew": 1.4
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "visibleToStudent": false,
+    "dryRunCase": {
+      "id": "public-dry-run",
+      "description": "A low-rate public run for checking connectivity and request flow.",
+      "global": {
+        "simulationDuration": 1500,
+        "seed": "food-delivery-database-sharding-at-massive-scale-solution-public-v1",
+        "warmupDuration": 0,
+        "timeResolution": "microsecond",
+        "defaultTimeout": 5000,
+        "traceSampleRate": 0.1
+      },
+      "workload": {
+        "sourceNodeId": "source",
+        "pattern": "constant",
+        "baseRps": 2,
+        "sessions": {
+          "count": 8
+        },
+        "requestDistribution": [
+          {
+            "type": "read",
+            "weight": 0.75,
+            "sizeBytes": 100000,
+            "metadata": {
+              "path": "/orders",
+              "authToken": "valid-token",
+              "authStatus": "valid",
+              "authScopes": ["api:access"],
+              "clientId": "mobile-client",
+              "partitionKey": "order-stream"
+            },
+            "keyspace": {
+              "field": "userId",
+              "size": 32,
+              "skew": 1.4
+            }
+          },
+          {
+            "type": "write",
+            "weight": 0.25,
+            "sizeBytes": 100000,
+            "metadata": {
+              "path": "/orders",
+              "authToken": "valid-token",
+              "authStatus": "valid",
+              "authScopes": ["api:access"],
+              "clientId": "mobile-client",
+              "partitionKey": "order-stream"
+            },
+            "keyspace": {
+              "field": "userId",
+              "size": 32,
+              "skew": 1.4
+            }
+          }
+        ]
+      }
+    }
+  },
+  "rubric": {
+    "version": "1.0",
+    "id": "food-delivery-database-sharding-at-massive-scale-rubric",
+    "passThreshold": 1,
+    "checks": [
+      {
+        "id": "four-shard-targets",
+        "description": "Data must be spread across at least four database shards.",
+        "kind": "simulation",
+        "metric": "sharding.shardTargets",
+        "op": ">=",
+        "value": 4,
+        "points": 3
+      },
+      {
+        "id": "all-requests-have-shard-key",
+        "description": "Every sharded request must be routed by its shard key.",
+        "kind": "simulation",
+        "metric": "sharding.keyCoverage",
+        "op": "==",
+        "value": 1,
+        "points": 3
+      },
+      {
+        "id": "hot-shard-rebalanced",
+        "description": "A hot shard must be detected and its hot keys rebalanced.",
+        "kind": "simulation",
+        "metric": "sharding.rebalances",
+        "op": ">=",
+        "value": 1,
+        "points": 3
+      },
+      {
+        "id": "no-storage-full",
+        "description": "No write may be rejected because a shard ran out of storage.",
+        "kind": "simulation",
+        "metric": "storage.fullRejects",
+        "op": "==",
+        "value": 0,
+        "points": 2
+      }
+    ]
+  },
+  "author": "Hritvik Mohan",
+  "createdAt": "2026-10-14T00:00:00.000Z"
+}

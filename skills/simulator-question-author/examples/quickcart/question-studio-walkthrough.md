@@ -345,7 +345,9 @@ the incomplete field.
 
 ## Acceptance check
 
-Use these designs to confirm the question discriminates correctly:
+Use these designs to confirm the question discriminates correctly. The project
+stores the 12-server design as its near miss; the Discrimination lab must show
+it caught by the headroom check (`rubric-check-2`).
 
 | Candidate             |  Per-server load | Maximum utilization | Expected result                    |
 | --------------------- | ---------------: | ------------------: | ---------------------------------- |

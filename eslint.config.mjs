@@ -13,6 +13,9 @@ export default defineConfig(
       '**/node_modules',
       '**/dist',
       '**/outputs/**',
+      'out/**',
+      'output/**',
+      'tmp/**',
       '**/ns-simulator-docs/**',
       '**/.claude/**'
     ]
