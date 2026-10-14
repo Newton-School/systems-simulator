@@ -2,6 +2,7 @@ import type { CanvasNodeDataV2, RoutingStrategy } from '../catalog/nodeSpecTypes
 import { hasWorkloadSourceConfig, isSourceComponentData } from '../catalog/sourceNodeSemantics'
 import type { ComponentType, LocationProvider } from '../core/types'
 import { ackAndReleaseCapabilityModule } from './ackAndRelease'
+import { authenticationCapabilityModule } from './authentication'
 import { broadcastFanoutCapabilityModule } from './broadcastFanout'
 import { cacheCapabilityModule } from './cache'
 import { circuitBreakerCapabilityModule } from './circuitBreaker'
@@ -10,6 +11,7 @@ import { CONTENT_ROUTING_COMPONENT_TYPES, contentRoutingCapabilityModule } from 
 import { consumerLagCapabilityModule } from './consumerLag'
 import { consumerGroupMembershipCapabilityModule } from './consumerGroupMembership'
 import { dnsRoutingPolicyCapabilityModule } from './dnsRoutingPolicy'
+import { deliveryPartnerPoolCapabilityModule } from './deliveryPartnerPool'
 import { healthAwareRoutingCapabilityModule } from './healthAwareRouting'
 import { idempotencyDedupCapabilityModule } from './idempotencyDedup'
 import { externalLatencyCapabilityModule } from './externalLatency'
@@ -37,6 +39,7 @@ import { consistencyModelCapabilityModule } from './consistencyModel'
 import { protocolSessionCapabilityModule } from './protocolSession'
 import { retryBackoffCapabilityModule } from './retryBackoff'
 import { storageProfileCapabilityModule } from './storageProfile'
+import { storageCapacityCapabilityModule } from './storageCapacity'
 import { streamBrokerCapabilityModule } from './streamBroker'
 import { changeStreamCapabilityModule } from './changeStream'
 import { telemetrySinkCapabilityModule } from './telemetrySink'
@@ -1034,6 +1037,8 @@ const NODE_HONESTY_MODULES: readonly NodeCapabilityModule[] = [
 ]
 
 export const TRAIT_CAPABILITY_MODULES: readonly NodeCapabilityModule[] = [
+  authenticationCapabilityModule,
+  deliveryPartnerPoolCapabilityModule,
   rateLimiterCapabilityModule,
   contentRoutingCapabilityModule,
   healthAwareRoutingCapabilityModule,
@@ -1054,6 +1059,7 @@ export const TRAIT_CAPABILITY_MODULES: readonly NodeCapabilityModule[] = [
   consistencyModelCapabilityModule,
   protocolSessionCapabilityModule,
   storageProfileCapabilityModule,
+  storageCapacityCapabilityModule,
   retryBackoffCapabilityModule,
   idempotencyDedupCapabilityModule,
   lockLeaseCapabilityModule,

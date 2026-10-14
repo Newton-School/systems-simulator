@@ -29,7 +29,9 @@ type OutcomeStatusLike = 'success' | 'timeout' | 'rejected' | 'connection_reset'
 
 const CLIENT_ERROR_HINTS: Record<string, string> = {
   rate_limited: '429',
-  security_blocked: '403'
+  security_blocked: '403',
+  missing_shard_key: '400',
+  api_route_unmatched: '404'
 }
 
 const SERVER_ERROR_HINTS: Record<string, string> = {
@@ -43,6 +45,8 @@ const SERVER_ERROR_HINTS: Record<string, string> = {
   circuit_breaker_open: '503',
   lock_contended: '503',
   read_only_node: '503',
+  api_route_target_unavailable: '503',
+  storage_full: '507',
   node_failed: '503',
   node_error_rate: '500',
   trait_invalid_reroute: '500',

@@ -1,4 +1,5 @@
 import {
+  AcceptedWorkConservation,
   generateSimulationOutput,
   ReplicationProjection,
   SimulationOutput,
@@ -157,6 +158,7 @@ import {
   streamBrokerAvailabilityStateKey,
   streamBrokerLogStateKey
 } from './traits/streamBroker'
+import { deliveryPartnerCapacity } from './traits/deliveryPartnerPool'
 import type {
   BeforeArrivalDecision,
   BeforeRoutingDecision,
@@ -383,6 +385,11 @@ export class SimulationEngine {
   private readonly retainedRequestOutcomes: RequestOutcomeRecord[] = []
   private requestOutcomeTotal = 0
   private readonly requestOutcomeBreakdown = createEmptyRequestOutcomeBreakdown()
+  private readonly acceptedWorkConservation: AcceptedWorkConservation = {
+    accepted: 0,
+    delivered: 0,
+    lost: 0
+  }
   private readonly simulationDurationUs: bigint
   private readonly snapshotIntervalUs = secToMicro(1)
   private readonly resolvedStop: ResolvedStopCondition
@@ -1173,6 +1180,7 @@ export class SimulationEngine {
     for (let i = 0; i < routes.length; i++) {
       const route = routes[i]
       const routedRequest = routedRequests[i]
+      this.stampStreamConsumerGroup(sourceNodeId, routedRequest, route.targetNodeId)
       if (routedRequest.id !== request.id) {
         this.requestById.set(routedRequest.id, routedRequest)
         this.terminalStatusByRequestId.delete(routedRequest.id)
@@ -1423,6 +1431,9 @@ export class SimulationEngine {
         source: 'trait',
         detail: 'Queue acknowledged the producer before consumer processing.'
       })
+      if (this.nodeDefinitionsById.get(nodeId)?.type === 'queue') {
+        this.acceptedWorkConservation.accepted += 1
+      }
     }
     if (request.deadline <= completionTime) {
       this.eventQueue.insert(
@@ -1814,6 +1825,7 @@ export class SimulationEngine {
     for (let i = 0; i < routes.length; i++) {
       const route = routes[i]
       const routedRequest = routedRequests[i]
+      this.stampStreamConsumerGroup(event.nodeId, routedRequest, route.targetNodeId)
       if (routedRequest.id !== request.id) {
         this.requestById.set(routedRequest.id, routedRequest)
         this.terminalStatusByRequestId.delete(routedRequest.id)
@@ -2485,6 +2497,7 @@ export class SimulationEngine {
       projections.push({
         nodeId: node.id,
         brokerAvailable: this.isStreamBrokerAvailable(node.id),
+        consumerGroupMode: node.config?.['consumerGroupMode'] === true,
         partitions,
         groups,
         replayCount: counters.streamReplayReads ?? 0,
@@ -2860,6 +2873,27 @@ export class SimulationEngine {
     }
 
     return routedRequests
+  }
+
+  /** Assigns one consumer-group owner to each stream delivery branch. */
+  private stampStreamConsumerGroup(
+    sourceNodeId: string,
+    request: Request,
+    targetNodeId: string
+  ): void {
+    const source = this.nodeDefinitionsById.get(sourceNodeId)
+    if (
+      source?.type !== 'stream' ||
+      source.config?.['streamBrokerEnabled'] !== true ||
+      source.config?.['consumerGroupMode'] !== true
+    ) {
+      return
+    }
+    const configuredGroup = this.nodeDefinitionsById.get(targetNodeId)?.config?.['consumerGroup']
+    request.metadata.__streamConsumerGroup =
+      typeof configuredGroup === 'string' && configuredGroup.trim()
+        ? configuredGroup.trim()
+        : targetNodeId
   }
 
   private cloneRequestForBranch(request: Request): Request {
@@ -3299,6 +3333,18 @@ export class SimulationEngine {
     const operation = describeRequestOperation(request)
     const classification = classifyRequestOutcome(status, reasonCode)
     const semantics = this.buildOutcomeSemantics(request, status)
+    if (semantics.flowKind === 'queued') {
+      const deliveryStates = new Set(
+        (request.stateTimeline ?? [])
+          .filter((transition) => transition.scope === 'delivery')
+          .map((transition) => transition.state)
+      )
+      if (status === 'success') {
+        this.acceptedWorkConservation.delivered += 1
+      } else if (!deliveryStates.has('redelivery-scheduled') && !deliveryStates.has('dlq-routed')) {
+        this.acceptedWorkConservation.lost += 1
+      }
+    }
     this.requestOutcomeBreakdown[classification.family]++
     this.retainRequestOutcome({
       requestId: request.id,
@@ -3603,6 +3649,7 @@ export class SimulationEngine {
         requestOutcomeBreakdown: this.buildRequestOutcomeBreakdown(),
         requestOutcomesSampled: this.requestOutcomeTotal > DEFAULT_MAX_RETAINED_REQUEST_OUTCOMES,
         streamProjection: this.buildStreamProjection(),
+        acceptedWorkConservation: { ...this.acceptedWorkConservation },
         replicationProjection: this.buildReplicationProjection()
       }
     )
@@ -3636,9 +3683,19 @@ export class SimulationEngine {
   }
 
   private withNodeDefaults(node: ComponentNode): ComponentNode {
+    const partnerCapacity = deliveryPartnerCapacity(node.config)
+    const queue = node.queue ?? { workers: 1, capacity: 100, discipline: 'fifo' as const }
     return {
       ...node,
-      queue: node.queue ?? { workers: 1, capacity: 100, discipline: 'fifo' },
+      ...(partnerCapacity !== null ? { resources: undefined } : {}),
+      queue:
+        partnerCapacity === null
+          ? queue
+          : {
+              ...queue,
+              workers: partnerCapacity,
+              capacity: Math.max(queue.capacity, partnerCapacity)
+            },
       processing: node.processing ?? {
         distribution: { type: 'constant', value: 1 },
         timeout: 30_000

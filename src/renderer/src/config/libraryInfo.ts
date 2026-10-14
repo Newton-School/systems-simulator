@@ -57,7 +57,7 @@ const INFO_BY_ID: Record<string, LibraryItemInfo> = {
   'api-gateway': {
     represents: 'The public API entry point that can authenticate, throttle, and route requests.',
     realWorld: 'Kong, AWS API Gateway, Apigee, NGINX gateway.',
-    config: ['routing strategy', 'rate limits', 'auth/error rate']
+    config: ['content routes and failure policy', 'rate limits', 'token fields and required scopes']
   },
   'load-balancer': {
     represents:
@@ -176,7 +176,7 @@ const INFO_BY_ID: Record<string, LibraryItemInfo> = {
   'auth-service': {
     represents: 'Validates identity, tokens, and permissions before requests continue.',
     realWorld: 'OAuth service, Auth0, Cognito, custom auth API.',
-    config: ['latency', 'error rate', 'capacity']
+    config: ['token/status fields', 'required scopes', 'latency and capacity']
   },
   'search-service': {
     represents: 'Handles user or service search queries and returns matching results.',
@@ -221,9 +221,10 @@ const INFO_BY_ID: Record<string, LibraryItemInfo> = {
     config: ['subscriber count', 'delivery latency', 'retry policy']
   },
   stream: {
-    represents: 'Stores ordered events so consumers can read and process them over time.',
+    represents:
+      'Stores ordered events and can deliver one independent copy to each consumer group while members inside a group share partitions.',
     realWorld: 'Kafka, Kinesis, Pulsar.',
-    config: ['partitions', 'retention', 'consumer lag']
+    config: ['partitions', 'retention', 'consumer groups and rebalance']
   },
   'nosql-db': {
     represents: 'Stores data outside a strict relational model for flexible or high-scale access.',
@@ -359,22 +360,24 @@ const INFO_BY_ID: Record<string, LibraryItemInfo> = {
   sharding: {
     represents: 'A strategy for splitting data across shards so one node does not hold everything.',
     realWorld: 'Range/hash sharding strategy.',
-    config: ['shard key', 'shard count', 'rebalance policy']
+    config: ['shard key and missing-key policy', 'hot-shard threshold', 'auto split and rebalance']
   },
   hashing: {
     represents: 'Maps keys to shards or nodes so data and traffic are distributed predictably.',
     realWorld: 'Consistent hashing ring, rendezvous hashing.',
-    config: ['hash key', 'virtual nodes', 'replication factor']
+    config: ['hash key and missing-key policy', 'hot-shard threshold', 'split sub-key']
   },
   'shard-node': {
-    represents: 'One shard that owns a subset of data or traffic in a partitioned system.',
-    realWorld: 'Database shard, Kafka partition owner.',
-    config: ['capacity', 'replica count', 'node health']
+    represents:
+      'One database shard with operation-specific latency and optional finite disk growth. Write payloads consume its own capacity and can fail independently when that shard fills.',
+    realWorld: 'A PostgreSQL/MySQL shard or a physical NoSQL shard owner.',
+    config: ['read/write latency', 'disk capacity and initial usage', 'write amplification']
   },
   'partition-node': {
-    represents: 'A partition that handles one slice of traffic or data for horizontal scaling.',
-    realWorld: 'Kafka partition, DynamoDB partition, DB partition.',
-    config: ['partition key', 'throughput', 'hotspot risk']
+    represents:
+      'One database data partition with its own operation latency and optional finite storage ceiling. It is the data-bearing target behind a separate Sharding or Hashing router.',
+    realWorld: 'A DynamoDB/Cassandra partition owner or a range-partitioned database server.',
+    config: ['read/write latency', 'disk capacity and initial usage', 'write amplification']
   },
   'config-store': {
     represents: 'Stores runtime settings that services read without requiring code changes.',

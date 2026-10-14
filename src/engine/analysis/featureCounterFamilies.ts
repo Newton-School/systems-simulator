@@ -14,16 +14,114 @@ import type { NodeBehaviourTrait } from '../traits/types'
  * cache, and stays unresolved (never passes vacuously) on a design without it.
  */
 export interface FeatureCounterFamily {
-  id: 'collapse' | 'changeStream' | 'telemetry'
+  id:
+    | 'collapse'
+    | 'changeStream'
+    | 'telemetry'
+    | 'queue'
+    | 'stream'
+    | 'partners'
+    | 'sharding'
+    | 'storage'
+    | 'contentRouting'
   counters: readonly string[]
   /** True when this feature is switched on for the node (given its resolved traits). */
   enabledOn(node: ComponentNode, traits: readonly NodeBehaviourTrait[]): boolean
+  /** Optional non-zero gauges/config values to seed alongside the family counters. */
+  seedValues?: (node: ComponentNode) => Readonly<Record<string, number>>
 }
 
 const hasTrait = (traits: readonly NodeBehaviourTrait[], name: string): boolean =>
   traits.some((trait) => trait.name === name)
 
 export const FEATURE_COUNTER_FAMILIES: readonly FeatureCounterFamily[] = [
+  {
+    id: 'queue',
+    counters: ['queueAccepted', 'queueRedeliveries', 'queueDlqMoves'],
+    enabledOn: (_node, traits) => hasTrait(traits, 'queue.ack-and-release')
+  },
+  {
+    id: 'stream',
+    counters: [
+      'streamAppends',
+      'streamPartitionRoutes',
+      'streamGroupDeliveries',
+      'streamOffsetCommits',
+      'streamRetentionExpired',
+      'streamReplayReads',
+      'streamConsumerRebalances',
+      'streamBrokerFailures',
+      'streamBrokerRecoveries',
+      'streamBrokerUnavailable'
+    ],
+    enabledOn: (node, traits) =>
+      hasTrait(traits, 'stream.partitioned-broker') && node.config?.['streamBrokerEnabled'] === true
+  },
+  {
+    id: 'partners',
+    counters: [
+      'partnerRequests',
+      'partnerQueuedForAvailability',
+      'partnerAssignments',
+      'partnerAssignmentFailures',
+      'partnerWaits',
+      'partnerWaitMs'
+    ],
+    enabledOn: (node, traits) =>
+      hasTrait(traits, 'delivery.partner-pool') && node.config?.['partnerPoolEnabled'] === true
+  },
+  {
+    id: 'sharding',
+    counters: [
+      'shardRoutingAttempts',
+      'shardRoutedRequests',
+      'shardDistinctKeys',
+      'shardMissingKeys',
+      'shardFallbackRoutes',
+      'shardMissingKeyRejects',
+      'hotShardDetections',
+      'shardRebalances',
+      'shardSplits',
+      'shardKeysMigrated'
+    ],
+    enabledOn: (_node, traits) => hasTrait(traits, 'routing.key-based')
+  },
+  {
+    id: 'storage',
+    counters: [
+      'storageCapacityGb',
+      'storageInitialUsedGb',
+      'storageWriteAttempts',
+      'storageWritesCommitted',
+      'storageBytesWritten',
+      'storageWriteFailures',
+      'storageFullRejects'
+    ],
+    enabledOn: (_node, traits) => hasTrait(traits, 'storage.capacity'),
+    seedValues: (node) => ({
+      storageCapacityGb:
+        typeof node.config?.['storageCapacityGb'] === 'number'
+          ? node.config['storageCapacityGb']
+          : 0,
+      storageInitialUsedGb:
+        typeof node.config?.['initialStorageGb'] === 'number' ? node.config['initialStorageGb'] : 0
+    })
+  },
+  {
+    id: 'contentRouting',
+    counters: [
+      'contentRouteAttempts',
+      'contentRouteMatched',
+      'contentRouteUnmatched',
+      'contentRouteFallbacks',
+      'contentRouteTargetUnavailable',
+      'contentRouteRejects'
+    ],
+    enabledOn: (node, traits) =>
+      hasTrait(traits, 'routing.content') &&
+      Array.isArray(node.config?.['routingRules']) &&
+      node.config['routingRules'].length > 0
+  },
   {
     id: 'collapse',
     counters: [
@@ -71,6 +169,7 @@ export function featureCounterSeeds(
     if (!family.enabledOn(node, traits)) continue
     seeds ??= {}
     for (const counter of family.counters) seeds[counter] = 0
+    Object.assign(seeds, family.seedValues?.(node))
   }
   return seeds
 }

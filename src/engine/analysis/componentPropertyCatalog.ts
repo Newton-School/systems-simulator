@@ -19,6 +19,37 @@ const EQUALITY_OPERATORS = ['equals', 'notEquals'] as const
  */
 export const COMPONENT_PROPERTY_DEFINITIONS: readonly ComponentPropertyDefinition[] = [
   {
+    id: 'authenticationEnabled',
+    label: 'Authentication enforced',
+    valueType: 'boolean',
+    options: [true, false],
+    componentTypes: ['api-gateway', 'auth-service'],
+    operators: EQUALITY_OPERATORS
+  },
+  {
+    id: 'partnerPoolEnabled',
+    label: 'Delivery-partner pool enabled',
+    valueType: 'boolean',
+    options: [true, false],
+    componentTypes: ['microservice', 'batch-worker'],
+    operators: EQUALITY_OPERATORS
+  },
+  {
+    id: 'partnerCapacity',
+    label: 'Delivery-partner capacity',
+    valueType: 'number',
+    componentTypes: ['microservice', 'batch-worker'],
+    operators: COMPARISON_OPERATORS
+  },
+  {
+    id: 'autoShardRebalance',
+    label: 'Automatic hot-shard rebalance',
+    valueType: 'boolean',
+    options: [true, false],
+    componentTypes: ['sharding', 'hashing'],
+    operators: EQUALITY_OPERATORS
+  },
+  {
     id: 'dataModel',
     label: 'Data model',
     valueType: 'string',

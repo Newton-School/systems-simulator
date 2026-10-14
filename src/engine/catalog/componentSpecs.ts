@@ -361,6 +361,27 @@ function buildRuntimeNode(
     }
   }
 
+  if (typeof data.sim?.authenticationEnabled === 'boolean') {
+    config.authenticationEnabled = data.sim.authenticationEnabled
+  }
+  for (const field of [
+    'authTokenField',
+    'authStatusField',
+    'authScopesField',
+    'authRequiredScopes'
+  ] as const) {
+    const value = data.sim?.[field]
+    if (typeof value === 'string' && value.trim().length > 0) config[field] = value.trim()
+  }
+
+  if (typeof data.sim?.partnerPoolEnabled === 'boolean') {
+    config.partnerPoolEnabled = data.sim.partnerPoolEnabled
+  }
+  for (const field of ['partnerCapacity', 'partnerUnavailableUntilMs', 'partnerMatchMs'] as const) {
+    const value = data.sim?.[field]
+    if (typeof value === 'number' && Number.isFinite(value) && value >= 0) config[field] = value
+  }
+
   if (typeof data.sim?.healthCheckEnabled === 'boolean') {
     config.healthCheckEnabled = data.sim.healthCheckEnabled
   }
@@ -428,6 +449,12 @@ function buildRuntimeNode(
 
   if (Array.isArray(data.sim?.routingRules) && data.sim.routingRules.length > 0) {
     config.routingRules = data.sim.routingRules
+  }
+  if (
+    data.sim?.contentRouteFailurePolicy === 'fallback' ||
+    data.sim?.contentRouteFailurePolicy === 'reject'
+  ) {
+    config.contentRouteFailurePolicy = data.sim.contentRouteFailurePolicy
   }
 
   if (typeof data.sim?.stickyKeyField === 'string' && data.sim.stickyKeyField.trim().length > 0) {
@@ -516,6 +543,25 @@ function buildRuntimeNode(
   if (typeof data.sim?.routingKeyField === 'string' && data.sim.routingKeyField.trim().length > 0) {
     config.routingKeyField = data.sim.routingKeyField.trim()
   }
+  if (
+    data.sim?.missingRoutingKeyPolicy === 'fallback-request-id' ||
+    data.sim?.missingRoutingKeyPolicy === 'reject'
+  ) {
+    config.missingRoutingKeyPolicy = data.sim.missingRoutingKeyPolicy
+  }
+  for (const field of ['hotShardThresholdRatio', 'hotShardMinSamples'] as const) {
+    const value = data.sim?.[field]
+    if (typeof value === 'number' && Number.isFinite(value) && value > 0) config[field] = value
+  }
+  if (typeof data.sim?.autoShardRebalance === 'boolean') {
+    config.autoShardRebalance = data.sim.autoShardRebalance
+  }
+  if (
+    typeof data.sim?.shardSplitKeyField === 'string' &&
+    data.sim.shardSplitKeyField.trim().length > 0
+  ) {
+    config.shardSplitKeyField = data.sim.shardSplitKeyField.trim()
+  }
 
   if (typeof data.sim?.dnsRoutingPolicy === 'string') {
     config.dnsRoutingPolicy = data.sim.dnsRoutingPolicy
@@ -586,6 +632,20 @@ function buildRuntimeNode(
     if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
       config[field] = value
     }
+  }
+
+  for (const field of ['storageCapacityGb', 'storageWriteAmplification'] as const) {
+    const value = data.sim?.[field]
+    if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+      config[field] = value
+    }
+  }
+  if (
+    typeof data.sim?.initialStorageGb === 'number' &&
+    Number.isFinite(data.sim.initialStorageGb) &&
+    data.sim.initialStorageGb >= 0
+  ) {
+    config.initialStorageGb = data.sim.initialStorageGb
   }
 
   for (const field of ['dedupWindowMs', 'storeLookupMs'] as const) {
@@ -839,6 +899,94 @@ function validateSimulationNode(data: CanvasNodeDataV2): string[] {
     typeof data.sim.healthCheckEnabled !== 'boolean'
   ) {
     errors.push('Health checks must be either on or off.')
+  }
+
+  if (
+    data.sim?.authenticationEnabled !== undefined &&
+    typeof data.sim.authenticationEnabled !== 'boolean'
+  ) {
+    errors.push('Authentication enforcement must be either on or off.')
+  }
+
+  for (const [field, label] of [
+    ['authTokenField', 'Token metadata field'],
+    ['authStatusField', 'Status metadata field'],
+    ['authScopesField', 'Scopes metadata field']
+  ] as const) {
+    const value = data.sim?.[field]
+    if (value !== undefined && (typeof value !== 'string' || value.trim().length === 0)) {
+      errors.push(`${label} cannot be empty.`)
+    }
+  }
+
+  if (
+    data.sim?.partnerPoolEnabled !== undefined &&
+    typeof data.sim.partnerPoolEnabled !== 'boolean'
+  ) {
+    errors.push('Partner availability must be either on or off.')
+  }
+  if (
+    data.sim?.partnerCapacity !== undefined &&
+    (!Number.isInteger(data.sim.partnerCapacity) || data.sim.partnerCapacity < 1)
+  ) {
+    errors.push(wholeNumberAtLeastOne('Available partners'))
+  }
+  for (const [field, label] of [
+    ['partnerUnavailableUntilMs', 'Unavailable until'],
+    ['partnerMatchMs', 'Matching latency']
+  ] as const) {
+    const value = data.sim?.[field]
+    if (value !== undefined && (!Number.isFinite(value) || value < 0)) {
+      errors.push(nonNegativeNumber(label, 'ms'))
+    }
+  }
+  if (
+    data.sim?.hotShardThresholdRatio !== undefined &&
+    (!Number.isFinite(data.sim.hotShardThresholdRatio) || data.sim.hotShardThresholdRatio < 1)
+  ) {
+    errors.push('Hot-shard threshold must be 1 or greater.')
+  }
+  if (
+    data.sim?.hotShardMinSamples !== undefined &&
+    (!Number.isInteger(data.sim.hotShardMinSamples) || data.sim.hotShardMinSamples < 1)
+  ) {
+    errors.push(wholeNumberAtLeastOne('Detection samples'))
+  }
+  if (
+    data.sim?.autoShardRebalance !== undefined &&
+    typeof data.sim.autoShardRebalance !== 'boolean'
+  ) {
+    errors.push('Auto split and rebalance must be either on or off.')
+  }
+  if (
+    data.sim?.missingRoutingKeyPolicy !== undefined &&
+    data.sim.missingRoutingKeyPolicy !== 'fallback-request-id' &&
+    data.sim.missingRoutingKeyPolicy !== 'reject'
+  ) {
+    errors.push('Missing shard-key policy must be fallback-request-id or reject.')
+  }
+
+  for (const [field, label] of [
+    ['storageCapacityGb', 'Disk capacity'],
+    ['storageWriteAmplification', 'Write amplification']
+  ] as const) {
+    const value = data.sim?.[field]
+    if (value !== undefined && (!Number.isFinite(value) || value <= 0)) {
+      errors.push(`${label} must be greater than 0.`)
+    }
+  }
+  if (
+    data.sim?.initialStorageGb !== undefined &&
+    (!Number.isFinite(data.sim.initialStorageGb) || data.sim.initialStorageGb < 0)
+  ) {
+    errors.push('Initially used storage must be 0 or greater.')
+  }
+  if (
+    typeof data.sim?.storageCapacityGb === 'number' &&
+    typeof data.sim?.initialStorageGb === 'number' &&
+    data.sim.initialStorageGb > data.sim.storageCapacityGb
+  ) {
+    errors.push('Initially used storage cannot exceed disk capacity.')
   }
 
   if (
@@ -1136,6 +1284,13 @@ function validateSimulationNode(data: CanvasNodeDataV2): string[] {
         }
       })
     }
+  }
+  if (
+    data.sim?.contentRouteFailurePolicy !== undefined &&
+    data.sim.contentRouteFailurePolicy !== 'fallback' &&
+    data.sim.contentRouteFailurePolicy !== 'reject'
+  ) {
+    errors.push('Route failure policy must be fallback or reject.')
   }
 
   return errors

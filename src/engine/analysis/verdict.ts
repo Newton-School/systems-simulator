@@ -113,6 +113,27 @@ export interface SimulationVerdict {
     breaches: number
     keyless: number
   }
+  /** Run-wide credential and scope decisions from authentication-capable nodes. */
+  authentication: {
+    attempts: number
+    succeeded: number
+    missingCredentials: number
+    invalidCredentials: number
+    expiredCredentials: number
+    forbidden: number
+  }
+  /** API/content routing coverage and fallback correctness. */
+  apiRouting?: {
+    attempts: number
+    matched: number
+    unmatched: number
+    fallbacks: number
+    targetUnavailable: number
+    rejects: number
+    matchCoverage: number
+    routedTargets: number
+    busiestTargetRequests: number
+  }
   /**
    * Run-wide read-consistency oracles, present only when at least one
    * datastore has a `consistencyModel` (absent otherwise, so a
@@ -141,6 +162,85 @@ export interface SimulationVerdict {
     linearizabilityOpsChecked: number
     linearizabilityOpsNotChecked: number
     linearizableVerified: number
+  }
+  /** Accepted asynchronous work is conserved as delivered, retained/pending, or lost. */
+  queue?: {
+    accepted: number
+    delivered: number
+    pending: number
+    dlqRouted: number
+    lost: number
+    redeliveries: number
+    noLoss: number
+    maxQueueDepth: number
+    maxAvgQueueLength: number
+    capacityRejected: number
+  }
+  /** Finite delivery-partner pool outcomes and accumulated availability wait. */
+  partners?: {
+    requests: number
+    queuedForAvailability: number
+    assignments: number
+    assignmentFailures: number
+    waits: number
+    waitMs: number
+  }
+  /** Kafka-like broker state and lifecycle counters. */
+  stream?: {
+    brokers: number
+    consumerGroupBrokers: number
+    appends: number
+    partitions: number
+    consumerGroups: number
+    consumerMembers: number
+    consumerGroupAppends: number
+    expectedGroupDeliveries: number
+    groupsWithDeliveries: number
+    groupDeliveries: number
+    minGroupDeliveries: number
+    maxGroupDeliveries: number
+    groupFanoutCoverage: number
+    retainedRecords: number
+    totalLag: number
+    maxPartitionLag: number
+    offsetCommits: number
+    rebalances: number
+    replayReads: number
+    retentionExpired: number
+    unavailable: number
+  }
+  /** Key-routing skew and hot-shard remediation outcomes. */
+  sharding?: {
+    routingAttempts: number
+    routedRequests: number
+    distinctKeys: number
+    missingKeys: number
+    fallbackRoutes: number
+    missingKeyRejects: number
+    keyCoverage: number
+    shardTargets: number
+    maxShardRequests: number
+    minShardRequests: number
+    skewRatio: number
+    hotDetections: number
+    rebalances: number
+    splits: number
+    migratedKeys: number
+  }
+  /** Finite capacity and committed growth across storage-capacity-enabled nodes. */
+  storage?: {
+    nodes: number
+    capacityGb: number
+    initialUsedGb: number
+    usedGb: number
+    freeGb: number
+    utilization: number
+    maxNodeUtilization: number
+    writeAttempts: number
+    writesCommitted: number
+    writtenGb: number
+    writeFailures: number
+    fullRejects: number
   }
   /**
    * Cache lookups counted across every node that served one (hits and misses
@@ -351,6 +451,17 @@ function sumRateLimitCounters(output: SimulationOutput): SimulationVerdict['rate
   }
 }
 
+function sumAuthenticationCounters(output: SimulationOutput): SimulationVerdict['authentication'] {
+  return {
+    attempts: sumTraitCounter(output, 'authAttempts'),
+    succeeded: sumTraitCounter(output, 'authSucceeded'),
+    missingCredentials: sumTraitCounter(output, 'authMissingCredentials'),
+    invalidCredentials: sumTraitCounter(output, 'authInvalidCredentials'),
+    expiredCredentials: sumTraitCounter(output, 'authExpiredCredentials'),
+    forbidden: sumTraitCounter(output, 'authForbidden')
+  }
+}
+
 /** Run-wide consistency oracles (see the consistency-model capability). */
 function projectConsistency(
   report: NonNullable<SimulationOutput['consistency']>
@@ -409,6 +520,209 @@ function projectCollapse(output: SimulationOutput): SimulationVerdict['collapse'
     followersServed: sumTraitCounter(output, 'collapsedFollowersServed'),
     followersFailed: sumTraitCounter(output, 'collapsedFollowersFailed'),
     noKey: sumTraitCounter(output, 'collapseNoKey')
+  }
+}
+
+function projectQueue(output: SimulationOutput): SimulationVerdict['queue'] {
+  if (!familyInUse(output, 'queue')) return undefined
+  const { accepted, delivered, lost } = output.acceptedWorkConservation
+  const pending = Math.max(0, accepted - delivered - lost)
+  const queueNodes = Object.values(output.perNode).filter(
+    (metrics) => metrics.traitCounters?.queueAccepted !== undefined
+  )
+  return {
+    accepted,
+    delivered,
+    pending,
+    dlqRouted: sumTraitCounter(output, 'queueDlqMoves'),
+    lost,
+    redeliveries: sumTraitCounter(output, 'queueRedeliveries'),
+    noLoss: lost === 0 ? 1 : 0,
+    maxQueueDepth: Math.max(0, ...queueNodes.map((metrics) => metrics.peakQueueLength)),
+    maxAvgQueueLength: Math.max(0, ...queueNodes.map((metrics) => metrics.avgQueueLength)),
+    capacityRejected: queueNodes.reduce(
+      (sum, metrics) =>
+        sum +
+        (metrics.rejectionsByReason?.capacity_exceeded ?? 0) +
+        (metrics.rejectionsByReason?.oom ?? 0),
+      0
+    )
+  }
+}
+
+function projectPartners(output: SimulationOutput): SimulationVerdict['partners'] {
+  if (!familyInUse(output, 'partners')) return undefined
+  return {
+    requests: sumTraitCounter(output, 'partnerRequests'),
+    queuedForAvailability: sumTraitCounter(output, 'partnerQueuedForAvailability'),
+    assignments: sumTraitCounter(output, 'partnerAssignments'),
+    assignmentFailures: sumTraitCounter(output, 'partnerAssignmentFailures'),
+    waits: sumTraitCounter(output, 'partnerWaits'),
+    waitMs: sumTraitCounter(output, 'partnerWaitMs')
+  }
+}
+
+function projectStream(output: SimulationOutput): SimulationVerdict['stream'] {
+  if (!familyInUse(output, 'stream')) return undefined
+  let partitions = 0
+  let retainedRecords = 0
+  let totalLag = 0
+  let maxPartitionLag = 0
+  let consumerGroupBrokers = 0
+  let consumerGroups = 0
+  let consumerMembers = 0
+  let consumerGroupAppends = 0
+  let expectedGroupDeliveries = 0
+  for (const broker of output.streamProjection) {
+    partitions += broker.partitions.length
+    retainedRecords += broker.partitions.reduce(
+      (sum, partition) => sum + partition.retainedRecords,
+      0
+    )
+    if (broker.consumerGroupMode) {
+      consumerGroupBrokers++
+      consumerGroups += broker.groups.length
+      consumerMembers += broker.groups.reduce((sum, group) => sum + group.members.length, 0)
+      const brokerAppends = output.perNode[broker.nodeId]?.traitCounters?.streamAppends ?? 0
+      consumerGroupAppends += brokerAppends
+      expectedGroupDeliveries += brokerAppends * broker.groups.length
+    }
+    for (const group of broker.consumerGroupMode ? broker.groups : []) {
+      for (const lag of Object.values(group.lag)) {
+        totalLag += lag
+        maxPartitionLag = Math.max(maxPartitionLag, lag)
+      }
+    }
+  }
+  const perGroupDeliveries: number[] = []
+  for (const metrics of Object.values(output.perNode)) {
+    for (const [counter, value] of Object.entries(metrics.traitCounters ?? {})) {
+      if (counter.startsWith('streamGroupDelivery:')) perGroupDeliveries.push(value)
+    }
+  }
+  const appends = sumTraitCounter(output, 'streamAppends')
+  const groupDeliveries = sumTraitCounter(output, 'streamGroupDeliveries')
+  return {
+    brokers: output.streamProjection.length,
+    consumerGroupBrokers,
+    appends,
+    partitions,
+    consumerGroups,
+    consumerMembers,
+    consumerGroupAppends,
+    expectedGroupDeliveries,
+    groupsWithDeliveries: perGroupDeliveries.length,
+    groupDeliveries,
+    minGroupDeliveries: perGroupDeliveries.length > 0 ? Math.min(...perGroupDeliveries) : 0,
+    maxGroupDeliveries: perGroupDeliveries.length > 0 ? Math.max(...perGroupDeliveries) : 0,
+    groupFanoutCoverage:
+      expectedGroupDeliveries > 0 ? groupDeliveries / expectedGroupDeliveries : 0,
+    retainedRecords,
+    totalLag,
+    maxPartitionLag,
+    offsetCommits: sumTraitCounter(output, 'streamOffsetCommits'),
+    rebalances: sumTraitCounter(output, 'streamConsumerRebalances'),
+    replayReads: sumTraitCounter(output, 'streamReplayReads'),
+    retentionExpired: sumTraitCounter(output, 'streamRetentionExpired'),
+    unavailable: sumTraitCounter(output, 'streamBrokerUnavailable')
+  }
+}
+
+function projectSharding(output: SimulationOutput): SimulationVerdict['sharding'] {
+  if (!familyInUse(output, 'sharding')) return undefined
+  const targetLoads = new Map<string, number>()
+  for (const metrics of Object.values(output.perNode)) {
+    for (const [counter, value] of Object.entries(metrics.traitCounters ?? {})) {
+      if (!counter.startsWith('shardTarget:')) continue
+      const target = counter.slice('shardTarget:'.length)
+      targetLoads.set(target, (targetLoads.get(target) ?? 0) + value)
+    }
+  }
+  const loads = [...targetLoads.values()]
+  const maxShardRequests = loads.length > 0 ? Math.max(...loads) : 0
+  const minShardRequests = loads.length > 0 ? Math.min(...loads) : 0
+  return {
+    routingAttempts: sumTraitCounter(output, 'shardRoutingAttempts'),
+    routedRequests: sumTraitCounter(output, 'shardRoutedRequests'),
+    distinctKeys: sumTraitCounter(output, 'shardDistinctKeys'),
+    missingKeys: sumTraitCounter(output, 'shardMissingKeys'),
+    fallbackRoutes: sumTraitCounter(output, 'shardFallbackRoutes'),
+    missingKeyRejects: sumTraitCounter(output, 'shardMissingKeyRejects'),
+    keyCoverage:
+      sumTraitCounter(output, 'shardRoutingAttempts') > 0
+        ? 1 -
+          sumTraitCounter(output, 'shardMissingKeys') /
+            sumTraitCounter(output, 'shardRoutingAttempts')
+        : 0,
+    shardTargets: loads.length,
+    maxShardRequests,
+    minShardRequests,
+    skewRatio: minShardRequests > 0 ? maxShardRequests / minShardRequests : maxShardRequests,
+    hotDetections: sumTraitCounter(output, 'hotShardDetections'),
+    rebalances: sumTraitCounter(output, 'shardRebalances'),
+    splits: sumTraitCounter(output, 'shardSplits'),
+    migratedKeys: sumTraitCounter(output, 'shardKeysMigrated')
+  }
+}
+
+function projectStorage(output: SimulationOutput): SimulationVerdict['storage'] {
+  if (!familyInUse(output, 'storage')) return undefined
+  let nodes = 0
+  let capacityGb = 0
+  let initialUsedGb = 0
+  let maxNodeUtilization = 0
+  for (const metrics of Object.values(output.perNode)) {
+    const counters = metrics.traitCounters ?? {}
+    if (counters.storageCapacityGb === undefined) continue
+    nodes++
+    const nodeCapacity = counters.storageCapacityGb
+    const nodeInitial = counters.storageInitialUsedGb ?? 0
+    const nodeWrittenGb = (counters.storageBytesWritten ?? 0) / 1_000_000_000
+    const nodeUsed = nodeInitial + nodeWrittenGb
+    capacityGb += nodeCapacity
+    initialUsedGb += nodeInitial
+    if (nodeCapacity > 0) maxNodeUtilization = Math.max(maxNodeUtilization, nodeUsed / nodeCapacity)
+  }
+  const writtenGb = sumTraitCounter(output, 'storageBytesWritten') / 1_000_000_000
+  const usedGb = initialUsedGb + writtenGb
+  return {
+    nodes,
+    capacityGb,
+    initialUsedGb,
+    usedGb,
+    freeGb: Math.max(0, capacityGb - usedGb),
+    utilization: capacityGb > 0 ? usedGb / capacityGb : 0,
+    maxNodeUtilization,
+    writeAttempts: sumTraitCounter(output, 'storageWriteAttempts'),
+    writesCommitted: sumTraitCounter(output, 'storageWritesCommitted'),
+    writtenGb,
+    writeFailures: sumTraitCounter(output, 'storageWriteFailures'),
+    fullRejects: sumTraitCounter(output, 'storageFullRejects')
+  }
+}
+
+function projectApiRouting(output: SimulationOutput): SimulationVerdict['apiRouting'] {
+  if (!familyInUse(output, 'contentRouting')) return undefined
+  const targetLoads = new Map<string, number>()
+  for (const metrics of Object.values(output.perNode)) {
+    for (const [counter, value] of Object.entries(metrics.traitCounters ?? {})) {
+      if (!counter.startsWith('contentRouteTarget:')) continue
+      const target = counter.slice('contentRouteTarget:'.length)
+      targetLoads.set(target, (targetLoads.get(target) ?? 0) + value)
+    }
+  }
+  const attempts = sumTraitCounter(output, 'contentRouteAttempts')
+  const matched = sumTraitCounter(output, 'contentRouteMatched')
+  return {
+    attempts,
+    matched,
+    unmatched: sumTraitCounter(output, 'contentRouteUnmatched'),
+    fallbacks: sumTraitCounter(output, 'contentRouteFallbacks'),
+    targetUnavailable: sumTraitCounter(output, 'contentRouteTargetUnavailable'),
+    rejects: sumTraitCounter(output, 'contentRouteRejects'),
+    matchCoverage: attempts > 0 ? matched / attempts : 0,
+    routedTargets: targetLoads.size,
+    busiestTargetRequests: Math.max(0, ...targetLoads.values())
   }
 }
 
@@ -606,6 +920,13 @@ export function projectToVerdict(output: SimulationOutput): SimulationVerdict {
     locks: sumLockCounters(output),
     retries: sumRetryCounters(output),
     rateLimit: sumRateLimitCounters(output),
+    authentication: sumAuthenticationCounters(output),
+    ...optional('apiRouting', projectApiRouting(output)),
+    ...optional('queue', projectQueue(output)),
+    ...optional('partners', projectPartners(output)),
+    ...optional('stream', projectStream(output)),
+    ...optional('sharding', projectSharding(output)),
+    ...optional('storage', projectStorage(output)),
     ...(output.consistency ? { consistency: projectConsistency(output.consistency) } : {}),
     ...optional('cache', projectCache(output)),
     ...optional('collapse', projectCollapse(output)),

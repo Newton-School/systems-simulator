@@ -29,8 +29,13 @@ export const DOMAIN_SUPPORT_LEDGER: Record<QuestionDomain, SupportLedgerEntry> =
   storage: {
     tier: 'first-class',
     summary:
-      'Store-fit, cache placement, read/write routing, and data-path bottlenecks are gradeable through runtime and semantic checks.',
-    simulates: ['cache hit behavior', 'read/write latency differences', 'storage-fit proxies']
+      'Store-fit, cache placement, read/write routing, finite disk growth, and data-path bottlenecks are gradeable through runtime and semantic checks.',
+    simulates: [
+      'cache hit behavior',
+      'read/write latency differences',
+      'finite per-node storage and write growth',
+      'storage-fit proxies'
+    ]
   },
   network: {
     tier: 'guided',
@@ -189,6 +194,16 @@ export const COMPONENT_CATEGORY_SUPPORT_LEDGER: Record<ComponentCategory, Suppor
 }
 
 export const TRAIT_SUPPORT_LEDGER = {
+  'security.authentication': {
+    tier: 'guided',
+    summary:
+      'API Gateway and Auth Service can enforce deterministic token presence/status and required scopes, with distinct gradeable outcomes. Cryptographic JWT/JWK verification and identity-provider protocols are intentionally not modeled.'
+  },
+  'delivery.partner-pool': {
+    tier: 'guided',
+    summary:
+      'A service or worker can act as a finite partner pool: configured capacity becomes real concurrency, unavailable partners hold admitted orders until return, and assignment/wait counters are gradeable. Geospatial matching and individual driver behavior are not modeled.'
+  },
   'cache.read-through': {
     tier: 'first-class',
     summary: 'Cache hit/miss behavior, TTL, and latency differences are modeled and test-covered.'
@@ -200,7 +215,8 @@ export const TRAIT_SUPPORT_LEDGER = {
   },
   'routing.content-aware': {
     tier: 'first-class',
-    summary: 'Content-based routing decisions are modeled and exposed as node behavior.'
+    summary:
+      'Content-based routing decisions are modeled with per-target counters, match coverage, and explicit fallback-or-reject behavior for unmatched APIs and unavailable configured backends.'
   },
   'routing.health-aware': {
     tier: 'first-class',
@@ -208,7 +224,8 @@ export const TRAIT_SUPPORT_LEDGER = {
   },
   'routing.key-based': {
     tier: 'first-class',
-    summary: 'Deterministic key-based routing and partition affinity proxies are modeled.'
+    summary:
+      'Deterministic consistent-hash routing, shard-key presence/cardinality evidence, configurable missing-key rejection, per-shard load counters, hot-shard detection, and an optional stable two-target virtual split by sub-key are modeled. Physical node provisioning and byte-level copy/cutover cost remain outside the model.'
   },
   'routing.dns-policy': {
     tier: 'first-class',
@@ -238,7 +255,7 @@ export const TRAIT_SUPPORT_LEDGER = {
   'stream.partitioned-broker': {
     tier: 'first-class',
     summary:
-      'Partition-affine routing, one delivery per configured consumer group, offset commits, scheduled retention expiry, replay reads, group lag, rebalancing, and broker availability are modeled; multi-broker replication is not.'
+      'Partition-affine routing, one delivery per configured consumer group, per-group delivery coverage, membership, offset commits, scheduled retention expiry, replay reads, group lag, rebalancing, and broker availability are modeled; multi-broker replication is not.'
   },
   'queue.ack-and-release': {
     tier: 'guided',
@@ -342,6 +359,11 @@ export const TRAIT_SUPPORT_LEDGER = {
     tier: 'first-class',
     summary:
       'Different storage profiles can project distinct latency shapes for reads, writes, queries, scans, or ingest.'
+  },
+  'storage.capacity': {
+    tier: 'guided',
+    summary:
+      'Relational, NoSQL, Shard, and Partition nodes can enforce a finite disk ceiling. Write/ingest payloads reserve space before processing, commit growth after local success, and reject as storage_full when the disk cannot fit them. Deletes, compaction, compression, and byte-copy migration cost are not modeled.'
   },
   'streaming-broker.honesty': {
     tier: 'presentational-only',
