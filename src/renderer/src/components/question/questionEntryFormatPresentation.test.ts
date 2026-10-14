@@ -43,6 +43,14 @@ function baselineVerdict(): SimulationVerdict {
     locks: { acquires: 0, contentions: 0, keyless: 0 },
     retries: { attempts: 0, budgetExhausted: 0 },
     rateLimit: { admitted: 0, rejected: 0, breaches: 0, keyless: 0 },
+    authentication: {
+      attempts: 0,
+      succeeded: 0,
+      missingCredentials: 0,
+      invalidCredentials: 0,
+      expiredCredentials: 0,
+      forbidden: 0
+    },
     sloTargetCount: 0,
     sloBreaches: [],
     invariantViolations: [],
