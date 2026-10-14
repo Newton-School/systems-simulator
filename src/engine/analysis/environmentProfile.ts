@@ -419,6 +419,12 @@ export function canEditResourcesForQuestion(
   return question?.domains?.includes('cost') ?? false
 }
 
+/**
+ * Test runs are unlimited for now: `maxTestRuns` is accepted from profiles and
+ * hosts but not enforced. Flip this to re-enable per-profile caps.
+ */
+export const ENFORCE_TEST_RUN_LIMIT = false
+
 /** Whether the student may trigger another test run right now. */
 export function canTriggerTestRun(
   profile: EnvironmentProfile,
@@ -428,7 +434,7 @@ export function canTriggerTestRun(
     return false
   }
   const { maxTestRuns } = profile.capabilities
-  if (maxTestRuns === undefined) {
+  if (!ENFORCE_TEST_RUN_LIMIT || maxTestRuns === undefined) {
     return true
   }
   return context.testRunCount < maxTestRuns

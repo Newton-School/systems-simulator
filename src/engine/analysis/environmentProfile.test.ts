@@ -8,6 +8,7 @@ import {
   canEditEdgesForQuestion,
   canEditResourcesForQuestion,
   canTriggerTestRun,
+  ENFORCE_TEST_RUN_LIMIT,
   resolveEdgeModel,
   resolveEnvironmentProfile,
   shouldShowRubricResults
@@ -122,7 +123,7 @@ describe('shouldShowRubricResults', () => {
 })
 
 describe('canTriggerTestRun', () => {
-  it('respects the capability flag and the run limit', () => {
+  it('respects the capability flag and leaves test runs unlimited for now', () => {
     expect(
       canTriggerTestRun(resolveEnvironmentProfile({ mode: 'ASSIGNMENT' }), { testRunCount: 0 })
     ).toBe(true)
@@ -136,7 +137,7 @@ describe('canTriggerTestRun', () => {
           testRunCount: 3
         }
       )
-    ).toBe(false)
+    ).toBe(!ENFORCE_TEST_RUN_LIMIT)
     // unlimited when maxTestRuns is undefined
     expect(canTriggerTestRun(AUTHOR_ENVIRONMENT_PROFILE, { testRunCount: 999 })).toBe(true)
     // disabled outright

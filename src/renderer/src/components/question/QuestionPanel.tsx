@@ -31,6 +31,7 @@ import { buildQuestionEvaluationContract } from '../../../../engine/analysis/eva
 import { buildEvaluationEnvelope } from '../../../../engine/analysis/evaluationEnvelope'
 import {
   canTriggerTestRun,
+  ENFORCE_TEST_RUN_LIMIT,
   shouldShowRubricResults
 } from '../../../../engine/analysis/environmentProfile'
 import {
@@ -712,6 +713,7 @@ export const QuestionPanel = () => {
   const canTest = canTriggerTestRun(environmentProfile, { testRunCount }) && !isAttemptLocked
   const maxTestRuns = environmentProfile.capabilities.maxTestRuns
   const testRunLimitReached =
+    ENFORCE_TEST_RUN_LIMIT &&
     environmentProfile.capabilities.canTriggerTestRuns &&
     maxTestRuns !== undefined &&
     testRunCount >= maxTestRuns
