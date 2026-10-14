@@ -1,5 +1,6 @@
 import useStore from '@renderer/store/useStore'
 import {
+  ENFORCE_TEST_RUN_LIMIT,
   resolveEnvironmentProfile,
   type EnvironmentProfileMode
 } from '../../../../../engine/analysis/environmentProfile'
@@ -165,18 +166,20 @@ export function EnvironmentsTab(): React.JSX.Element {
 
       <SectionLabel>Grading flow</SectionLabel>
 
-      <SettingRow
-        id="settings-environment-test-runs"
-        label="Test-run limit"
-        hint="Max dry runs that can be triggered. Empty = unlimited."
-      >
-        <OptionalNumber
-          value={caps.maxTestRuns}
-          suffix="runs"
-          min={1}
-          onChange={(maxTestRuns) => setProfile(patchCapabilities(profile, { maxTestRuns }))}
-        />
-      </SettingRow>
+      {ENFORCE_TEST_RUN_LIMIT && (
+        <SettingRow
+          id="settings-environment-test-runs"
+          label="Test-run limit"
+          hint="Max dry runs that can be triggered. Empty = unlimited."
+        >
+          <OptionalNumber
+            value={caps.maxTestRuns}
+            suffix="runs"
+            min={1}
+            onChange={(maxTestRuns) => setProfile(patchCapabilities(profile, { maxTestRuns }))}
+          />
+        </SettingRow>
+      )}
 
       <SettingRow
         id="settings-environment-rubric"

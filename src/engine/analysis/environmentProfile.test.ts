@@ -8,6 +8,7 @@ import {
   canEditEdgesForQuestion,
   canEditResourcesForQuestion,
   canTriggerTestRun,
+  ENFORCE_TEST_RUN_LIMIT,
   resolveEdgeModel,
   resolveEnvironmentProfile,
   shouldShowRubricResults
@@ -31,7 +32,8 @@ describe('environment profile presets', () => {
     // io-bound by default; some questions need a cpu-bound override).
     expect(ASSIGNMENT_ENVIRONMENT_PROFILE.capabilities.canEditExecutionProfile).toBe(true)
     expect(ASSIGNMENT_ENVIRONMENT_PROFILE.capabilities.canAnnotate).toBe(false)
-    expect(ASSIGNMENT_ENVIRONMENT_PROFILE.capabilities.maxTestRuns).toBe(1)
+    // Test runs are uncapped unless the host passes maxTestRuns.
+    expect(ASSIGNMENT_ENVIRONMENT_PROFILE.capabilities.maxTestRuns).toBeUndefined()
     expect(ASSIGNMENT_ENVIRONMENT_PROFILE.capabilities.canUseTopologyFiles).toBe(false)
     expect(ASSIGNMENT_ENVIRONMENT_PROFILE.capabilities.canViewTopologyJson).toBe(false)
     expect(ASSIGNMENT_ENVIRONMENT_PROFILE.capabilities.canUseTerminal).toBe(false)
@@ -121,13 +123,13 @@ describe('shouldShowRubricResults', () => {
 })
 
 describe('canTriggerTestRun', () => {
-  it('respects the capability flag and the run limit', () => {
+  it('respects the capability flag and leaves test runs unlimited for now', () => {
     expect(
       canTriggerTestRun(resolveEnvironmentProfile({ mode: 'ASSIGNMENT' }), { testRunCount: 0 })
     ).toBe(true)
     expect(
-      canTriggerTestRun(resolveEnvironmentProfile({ mode: 'ASSIGNMENT' }), { testRunCount: 3 })
-    ).toBe(false)
+      canTriggerTestRun(resolveEnvironmentProfile({ mode: 'ASSIGNMENT' }), { testRunCount: 4 })
+    ).toBe(true)
     expect(
       canTriggerTestRun(
         resolveEnvironmentProfile({ mode: 'ASSIGNMENT', capabilities: { maxTestRuns: 3 } }),
@@ -135,7 +137,7 @@ describe('canTriggerTestRun', () => {
           testRunCount: 3
         }
       )
-    ).toBe(false)
+    ).toBe(!ENFORCE_TEST_RUN_LIMIT)
     // unlimited when maxTestRuns is undefined
     expect(canTriggerTestRun(AUTHOR_ENVIRONMENT_PROFILE, { testRunCount: 999 })).toBe(true)
     // disabled outright

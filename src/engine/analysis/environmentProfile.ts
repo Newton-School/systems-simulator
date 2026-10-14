@@ -5,7 +5,7 @@
  * shared QuestionPackage. The same question runs unchanged in three modes:
  *
  *   - AUTHOR     — full UI; the setter sees and can do everything.
- *   - ASSIGNMENT — graded; private checks hidden, one public dry run by default,
+ *   - ASSIGNMENT — graded; private checks hidden, public dry runs only,
  *                  scaffold and sensitive utility surfaces locked.
  *   - PRACTICE   — self-paced practice; live rubric feedback, free editing, not
  *                  graded.
@@ -176,10 +176,10 @@ export const ASSIGNMENT_ENVIRONMENT_PROFILE: EnvironmentProfile = {
     // Compute nodes default to io-bound; a graded student may still switch a
     // node's execution profile to cpu-bound when the question calls for it (e.g.
     // a latency-sensitive design that wants fast-core service time).
-    canEditExecutionProfile: true,
-    // A contest attempt gets at most one representative/public dry run by default.
-    // Hidden grading must happen on the host/backend, never in this browser profile.
-    maxTestRuns: 1
+    // Test runs are unlimited by default. A host that wants a cap passes
+    // `maxTestRuns` in its environment profile; hidden grading still happens on
+    // the host/backend, never in this browser profile.
+    canEditExecutionProfile: true
   },
   graded: true,
   chromeDensity: 'minimal'
@@ -419,6 +419,12 @@ export function canEditResourcesForQuestion(
   return question?.domains?.includes('cost') ?? false
 }
 
+/**
+ * Test runs are unlimited for now: `maxTestRuns` is accepted from profiles and
+ * hosts but not enforced. Flip this to re-enable per-profile caps.
+ */
+export const ENFORCE_TEST_RUN_LIMIT = false
+
 /** Whether the student may trigger another test run right now. */
 export function canTriggerTestRun(
   profile: EnvironmentProfile,
@@ -428,7 +434,7 @@ export function canTriggerTestRun(
     return false
   }
   const { maxTestRuns } = profile.capabilities
-  if (maxTestRuns === undefined) {
+  if (!ENFORCE_TEST_RUN_LIMIT || maxTestRuns === undefined) {
     return true
   }
   return context.testRunCount < maxTestRuns
