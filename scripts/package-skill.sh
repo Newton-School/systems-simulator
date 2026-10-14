@@ -39,6 +39,20 @@ if ! command -v shasum >/dev/null 2>&1; then
   exit 1
 fi
 
+if [[ "$skill_name" == "simulator-question-author" ]]; then
+  if [[ ! -x "$repo_root/node_modules/.bin/tsx" ]]; then
+    echo "Install repository dependencies before packaging simulator-question-author." >&2
+    exit 1
+  fi
+  (
+    cd "$repo_root"
+    npm run check:simulator-question-author-snapshot
+    npm run validate:simulator-question-author-skill
+    node skills/simulator-question-author/scripts/validate-artifacts.mjs \
+      skills/simulator-question-author/examples/quickcart quickcart-flash-sale
+  )
+fi
+
 mkdir -p "$output_dir"
 temp_dir="$(mktemp -d "${TMPDIR:-/tmp}/package-skill.XXXXXX")"
 trap 'rm -rf "$temp_dir"' EXIT
