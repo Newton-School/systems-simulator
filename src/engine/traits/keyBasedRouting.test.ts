@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { Request } from '../core/events'
 import type { ComponentNode, EdgeDefinition } from '../core/types'
 import type { ResolveRoute } from '../routing'
+import type { TraitStateStore } from './types'
 import { keyBasedRoutingTrait } from './keyBasedRouting'
 
 function makeRequest(overrides: Partial<Request> = {}): Request {
@@ -51,6 +52,14 @@ function makeRoute(targetNodeId: string): ResolveRoute {
   return { targetNodeId, edge }
 }
 
+function stateStore(): TraitStateStore {
+  const values = new Map<string, unknown>()
+  return {
+    get: <T>(key: string) => values.get(key) as T | undefined,
+    set: <T>(key: string, value: T) => values.set(key, value)
+  }
+}
+
 describe('keyBasedRoutingTrait', () => {
   it('routes the same key to the same shard deterministically', () => {
     const node = makeNode({ routingKeyField: 'tenantId' })
@@ -93,7 +102,7 @@ describe('keyBasedRoutingTrait', () => {
       payload: expect.objectContaining({
         routingKeyField: 'tenantId',
         routingKey: 'req-fallback',
-        metricCounters: { keyRoutedRequests: 1 }
+        metricCounters: expect.objectContaining({ keyRoutedRequests: 1 })
       })
     })
   })
@@ -141,5 +150,37 @@ describe('keyBasedRoutingTrait', () => {
       )
     }
     expect(targets.size).toBe(3)
+  })
+
+  it('detects a hot shard and can split/migrate its hot key to an existing shard', () => {
+    const state = stateStore()
+    const node = makeNode({
+      routingKeyField: 'tenantId',
+      hotShardThresholdRatio: 1.2,
+      hotShardMinSamples: 4,
+      autoShardRebalance: true
+    })
+    const candidates = [makeRoute('shard-a'), makeRoute('shard-b')]
+    let rebalances = 0
+    let hotDetections = 0
+    const selected = new Set<string>()
+
+    for (let index = 0; index < 10; index++) {
+      const result = keyBasedRoutingTrait.filterRoutes?.({
+        node,
+        request: makeRequest({ id: `req-${index}`, metadata: { tenantId: 'hot-tenant' } }),
+        clock: BigInt(index),
+        candidates,
+        state
+      })
+      selected.add(result!.routes[0].targetNodeId)
+      const counters = result!.payload?.metricCounters as Record<string, number>
+      rebalances += counters.shardRebalances ?? 0
+      hotDetections += counters.hotShardDetections ?? 0
+    }
+
+    expect(hotDetections).toBe(1)
+    expect(rebalances).toBe(1)
+    expect(selected.size).toBe(2)
   })
 })

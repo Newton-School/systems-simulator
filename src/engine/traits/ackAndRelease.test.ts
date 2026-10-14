@@ -29,7 +29,7 @@ describe('ackAndReleaseTrait', () => {
     expect(result).toEqual({
       action: 'handled',
       latencyUs: 0n,
-      payload: { forkConsumerRequest: true }
+      payload: { forkConsumerRequest: true, metricCounters: { queueAccepted: 1 } }
     })
   })
 })

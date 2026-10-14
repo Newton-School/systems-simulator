@@ -146,7 +146,7 @@ describe('streamBrokerTrait', () => {
     ).toBe(true)
   })
 
-  it('commits the delivered offset for every consumer group after success', () => {
+  it('commits the delivered offset for the branch consumer group after success', () => {
     const values = new Map<string, unknown>()
     const state = {
       get: <T>(key: string) => values.get(key) as T,
@@ -155,16 +155,17 @@ describe('streamBrokerTrait', () => {
     const node = makeStreamNode({ streamBrokerEnabled: true, consumerGroupMode: true })
     const request = makeRequest({ partitionKey: 'order-9' }) as never
     streamBrokerTrait.beforeArrival?.({ node, request, clock: 0n, state })
-    ;(request as { metadata: Record<string, unknown> }).metadata.__streamConsumerGroups = [
-      'search',
-      'email'
-    ]
+    expect(
+      streamBrokerTrait.afterTerminal?.({ node, request, clock: 1n, state, status: 'success' })
+    ).toBeUndefined()
+    ;(request as { metadata: Record<string, unknown> }).metadata.__streamConsumerGroup = 'search'
 
     expect(
       streamBrokerTrait.afterTerminal?.({ node, request, clock: 1n, state, status: 'success' })
     ).toMatchObject({
       streamOffsetCommitted: true,
-      metricCounters: { streamOffsetCommits: 2 }
+      consumerGroup: 'search',
+      metricCounters: { streamOffsetCommits: 1 }
     })
   })
 })
