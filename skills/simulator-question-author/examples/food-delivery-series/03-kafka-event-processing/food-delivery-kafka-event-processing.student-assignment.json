@@ -18,7 +18,7 @@
     "scale": {
       "dau": 5000000,
       "peakRps": 500,
-      "readWriteRatio": 80,
+      "readWriteRatio": 50,
       "storageGb": 10000,
       "growthRatePercent": 2
     },

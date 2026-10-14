@@ -156,6 +156,10 @@ authored capacity only when the question intentionally supplies it. Do not assum
 all routers or gateways are infinite: confirm the selected component's current
 spec before excluding it from bottleneck analysis.
 
+Set `prompt.scale.readWriteRatio` to the read share of the private workload (0
+for write-only work). Learners see it in the brief, and when it is omitted the
+Studio compiler fills it from the scenario default of 80.
+
 Use identical learner-facing descriptions and stable IDs in project and compiled
 package. Keep private cases out of the public dry run. A dry run should teach the
 surface without revealing hidden thresholds, faults, or rubric structure.

@@ -2,7 +2,7 @@
   "artifact": "dsds-question-project",
   "artifactVersion": "1.0",
   "projectId": "00000000-0000-4000-8000-000000000005",
-  "updatedAt": "2026-10-14T13:23:31.555Z",
+  "updatedAt": "2026-10-14T14:11:27.593Z",
   "question": {
     "id": "food-delivery-database-sharding-at-massive-scale",
     "title": "Food Delivery Database Sharding at Massive Scale",
@@ -46,6 +46,7 @@
       "scale": {
         "dau": 1000000000,
         "peakRps": 5000,
+        "readWriteRatio": 75,
         "storageGb": 1000000,
         "growthRatePercent": 10
       },
@@ -4936,6 +4937,6 @@
     "signature": "98660e16cabeeea0ded6b8048083a386",
     "ready": true,
     "blockers": [],
-    "generatedAt": "2026-10-14T13:23:31.555Z"
+    "generatedAt": "2026-10-14T14:11:27.593Z"
   }
 }

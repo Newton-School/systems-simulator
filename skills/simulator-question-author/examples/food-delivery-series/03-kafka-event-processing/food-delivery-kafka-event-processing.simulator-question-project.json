@@ -2,7 +2,7 @@
   "artifact": "dsds-question-project",
   "artifactVersion": "1.0",
   "projectId": "00000000-0000-4000-8000-000000000003",
-  "updatedAt": "2026-10-14T13:23:25.716Z",
+  "updatedAt": "2026-10-14T14:11:21.566Z",
   "question": {
     "id": "food-delivery-kafka-event-processing",
     "title": "Food Delivery Kafka Event Processing",
@@ -48,6 +48,7 @@
       "scale": {
         "dau": 5000000,
         "peakRps": 500,
+        "readWriteRatio": 50,
         "storageGb": 10000,
         "growthRatePercent": 2
       },
@@ -3213,9 +3214,9 @@
     "activeStage": "export"
   },
   "verification": {
-    "signature": "2759cc25520c9a53ef80b05f16d42ba9",
+    "signature": "c5e0efd0d8a7e0a4f452a5ce77175d5e",
     "ready": true,
     "blockers": [],
-    "generatedAt": "2026-10-14T13:23:25.716Z"
+    "generatedAt": "2026-10-14T14:11:21.566Z"
   }
 }

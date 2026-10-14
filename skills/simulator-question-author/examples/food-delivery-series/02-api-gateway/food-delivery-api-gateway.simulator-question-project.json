@@ -2,7 +2,7 @@
   "artifact": "dsds-question-project",
   "artifactVersion": "1.0",
   "projectId": "00000000-0000-4000-8000-000000000002",
-  "updatedAt": "2026-10-14T13:23:25.460Z",
+  "updatedAt": "2026-10-14T14:11:21.310Z",
   "question": {
     "id": "food-delivery-api-gateway",
     "title": "Food Delivery API Gateway",
@@ -41,6 +41,7 @@
       "scale": {
         "dau": 5000000,
         "peakRps": 200,
+        "readWriteRatio": 80,
         "storageGb": 10000,
         "growthRatePercent": 2
       },
@@ -2355,6 +2356,6 @@
     "signature": "95308535a1f7fb60dea66d159c585690",
     "ready": true,
     "blockers": [],
-    "generatedAt": "2026-10-14T13:23:25.460Z"
+    "generatedAt": "2026-10-14T14:11:21.310Z"
   }
 }

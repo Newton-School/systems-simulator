@@ -2,7 +2,7 @@
   "artifact": "dsds-question-project",
   "artifactVersion": "1.0",
   "projectId": "00000000-0000-4000-8000-000000000001",
-  "updatedAt": "2026-10-14T13:23:25.302Z",
+  "updatedAt": "2026-10-14T14:11:21.150Z",
   "question": {
     "id": "food-delivery-load-balancer-and-queue",
     "title": "Food Delivery Load Balancer and Queue",
@@ -45,6 +45,7 @@
       "scale": {
         "dau": 5000000,
         "peakRps": 100,
+        "readWriteRatio": 0,
         "storageGb": 10000,
         "growthRatePercent": 2
       },
@@ -1140,9 +1141,9 @@
     "activeStage": "export"
   },
   "verification": {
-    "signature": "8ca3b288eb410f2a2af9b8228983fbec",
+    "signature": "ca54377dadc8dc3663a2893913ab065a",
     "ready": true,
     "blockers": [],
-    "generatedAt": "2026-10-14T13:23:25.302Z"
+    "generatedAt": "2026-10-14T14:11:21.150Z"
   }
 }
