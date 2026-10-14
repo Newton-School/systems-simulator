@@ -1,0 +1,298 @@
+{
+  "version": "1.0",
+  "id": "food-delivery-api-gateway",
+  "title": "Food Delivery API Gateway",
+  "description": "Extend the scalable order platform with one authenticated, rate-limited API entry point that routes each API to the correct independently scalable service.",
+  "difficulty": "intermediate",
+  "estimatedTimeMinutes": 30,
+  "type": "open-build",
+  "entryFormat": "blank-canvas",
+  "prompt": {
+    "text": "Extend the food-delivery system with User, Restaurant, Order, Payment, and Delivery services. Mobile and web clients must use one entry point. Authenticate requests before service access, route every API to its intended backend, apply rate limiting, and preserve independent service scaling plus the queued order-processing path.",
+    "functionalRequirements": [
+      "Send every client request through one API Gateway before it reaches any service.",
+      "Authenticate requests at the gateway.",
+      "Route each API to its own backend service: User, Restaurant, Order, Payment, and Delivery.",
+      "Rate-limit clients at the gateway without exceeding the configured limit.",
+      "Keep the load-balanced, queued order path from the previous design."
+    ],
+    "nonFunctionalRequirements": [],
+    "scale": {
+      "dau": 5000000,
+      "peakRps": 200,
+      "readWriteRatio": 80,
+      "storageGb": 10000,
+      "growthRatePercent": 2
+    },
+    "additionalContext": "The hidden run is a deterministic, scaled discrete proxy for the stated production workload. It grades supported simulator behavior, not cloud-provider guarantees."
+  },
+  "scaffold": {
+    "type": "empty"
+  },
+  "constraints": {
+    "allowedNodeTypes": [
+      "api-endpoint",
+      "api-gateway",
+      "load-balancer",
+      "load-balancer-l7",
+      "microservice",
+      "queue",
+      "batch-worker"
+    ],
+    "maxTotalWorkers": 1000,
+    "canModifyScaffold": true,
+    "canRemoveScaffoldNodes": true
+  },
+  "structuralRules": [
+    {
+      "id": "single-source",
+      "description": "Use exactly one traffic source.",
+      "kind": "requires_single_source"
+    },
+    {
+      "id": "connected-graph",
+      "description": "Keep every component connected to the architecture.",
+      "kind": "requires_connected_graph"
+    },
+    {
+      "id": "five-services",
+      "description": "Model User, Restaurant, Order, Payment, and Delivery as separate services.",
+      "kind": "requires_component",
+      "componentType": "microservice",
+      "minCount": 5
+    }
+  ],
+  "semanticCriteria": [
+    {
+      "id": "balancer-in-middle",
+      "description": "Place the load balancer between incoming traffic and the application servers.",
+      "points": 1,
+      "hardFail": true,
+      "kind": "placement",
+      "componentType": "load-balancer",
+      "between": ["api-endpoint", "microservice"]
+    },
+    {
+      "id": "queue-feeds-worker",
+      "description": "Place the queue between the order service and a background worker that consumes it.",
+      "points": 1,
+      "hardFail": true,
+      "kind": "placement",
+      "componentType": "queue",
+      "between": ["microservice", "batch-worker"]
+    },
+    {
+      "id": "gateway-single-entry",
+      "description": "Every client-to-service path must pass through the API Gateway.",
+      "points": 3,
+      "hardFail": true,
+      "kind": "guardedPath",
+      "from": "api-endpoint",
+      "guard": "api-gateway",
+      "to": "microservice"
+    }
+  ],
+  "workloadCategory": "connection-heavy",
+  "domains": ["network"],
+  "concepts": ["api-gateway", "authentication", "content-routing", "rate-limiting"],
+  "suite": {
+    "name": "food-delivery-api-gateway-suite",
+    "cases": [
+      {
+        "id": "private-baseline",
+        "description": "Exercise authenticated traffic across all five API routes under a safe keyed rate limit.",
+        "global": {
+          "simulationDuration": 5000,
+          "seed": "food-delivery-api-gateway-private-v1",
+          "warmupDuration": 0,
+          "timeResolution": "microsecond",
+          "defaultTimeout": 5000,
+          "traceSampleRate": 0.1
+        },
+        "workload": {
+          "sourceNodeId": "source",
+          "pattern": "constant",
+          "baseRps": 10,
+          "requestDistribution": [
+            {
+              "type": "user-api",
+              "weight": 0.2,
+              "sizeBytes": 1024,
+              "metadata": {
+                "path": "/users",
+                "authToken": "valid-token",
+                "authStatus": "valid",
+                "authScopes": ["api:access"],
+                "clientId": "mobile-client"
+              }
+            },
+            {
+              "type": "restaurant-api",
+              "weight": 0.2,
+              "sizeBytes": 1024,
+              "metadata": {
+                "path": "/restaurants",
+                "authToken": "valid-token",
+                "authStatus": "valid",
+                "authScopes": ["api:access"],
+                "clientId": "mobile-client"
+              }
+            },
+            {
+              "type": "order-api",
+              "weight": 0.2,
+              "sizeBytes": 1024,
+              "metadata": {
+                "path": "/orders",
+                "authToken": "valid-token",
+                "authStatus": "valid",
+                "authScopes": ["api:access"],
+                "clientId": "mobile-client"
+              }
+            },
+            {
+              "type": "payment-api",
+              "weight": 0.2,
+              "sizeBytes": 1024,
+              "metadata": {
+                "path": "/payments",
+                "authToken": "valid-token",
+                "authStatus": "valid",
+                "authScopes": ["api:access"],
+                "clientId": "mobile-client"
+              }
+            },
+            {
+              "type": "delivery-api",
+              "weight": 0.2,
+              "sizeBytes": 1024,
+              "metadata": {
+                "path": "/delivery",
+                "authToken": "valid-token",
+                "authStatus": "valid",
+                "authScopes": ["api:access"],
+                "clientId": "mobile-client"
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "visibleToStudent": false,
+    "dryRunCase": {
+      "id": "public-dry-run",
+      "description": "A low-rate public run for checking connectivity and request flow.",
+      "global": {
+        "simulationDuration": 1500,
+        "seed": "food-delivery-api-gateway-solution-public-v1",
+        "warmupDuration": 0,
+        "timeResolution": "microsecond",
+        "defaultTimeout": 5000,
+        "traceSampleRate": 0.1
+      },
+      "workload": {
+        "sourceNodeId": "source",
+        "pattern": "constant",
+        "baseRps": 2,
+        "requestDistribution": [
+          {
+            "type": "user-api",
+            "weight": 0.2,
+            "sizeBytes": 1024,
+            "metadata": {
+              "path": "/users",
+              "authToken": "valid-token",
+              "authStatus": "valid",
+              "authScopes": ["api:access"],
+              "clientId": "mobile-client"
+            }
+          },
+          {
+            "type": "restaurant-api",
+            "weight": 0.2,
+            "sizeBytes": 1024,
+            "metadata": {
+              "path": "/restaurants",
+              "authToken": "valid-token",
+              "authStatus": "valid",
+              "authScopes": ["api:access"],
+              "clientId": "mobile-client"
+            }
+          },
+          {
+            "type": "order-api",
+            "weight": 0.2,
+            "sizeBytes": 1024,
+            "metadata": {
+              "path": "/orders",
+              "authToken": "valid-token",
+              "authStatus": "valid",
+              "authScopes": ["api:access"],
+              "clientId": "mobile-client"
+            }
+          },
+          {
+            "type": "payment-api",
+            "weight": 0.2,
+            "sizeBytes": 1024,
+            "metadata": {
+              "path": "/payments",
+              "authToken": "valid-token",
+              "authStatus": "valid",
+              "authScopes": ["api:access"],
+              "clientId": "mobile-client"
+            }
+          },
+          {
+            "type": "delivery-api",
+            "weight": 0.2,
+            "sizeBytes": 1024,
+            "metadata": {
+              "path": "/delivery",
+              "authToken": "valid-token",
+              "authStatus": "valid",
+              "authScopes": ["api:access"],
+              "clientId": "mobile-client"
+            }
+          }
+        ]
+      }
+    }
+  },
+  "rubric": {
+    "version": "1.0",
+    "id": "food-delivery-api-gateway-rubric",
+    "passThreshold": 1,
+    "checks": [
+      {
+        "id": "requests-authenticated",
+        "description": "The gateway must authenticate requests.",
+        "kind": "simulation",
+        "metric": "authentication.succeeded",
+        "op": ">=",
+        "value": 1,
+        "points": 3
+      },
+      {
+        "id": "route-match-coverage",
+        "description": "Every API request must match a route to its service.",
+        "kind": "simulation",
+        "metric": "apiRouting.matchCoverage",
+        "op": "==",
+        "value": 1,
+        "points": 3
+      },
+      {
+        "id": "rate-limit-holds",
+        "description": "The rate limiter must never exceed its limit.",
+        "kind": "simulation",
+        "metric": "rateLimit.breaches",
+        "op": "==",
+        "value": 0,
+        "points": 2
+      }
+    ]
+  },
+  "author": "Hritvik Mohan",
+  "createdAt": "2026-10-14T00:00:00.000Z"
+}

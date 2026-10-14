@@ -23,6 +23,10 @@ Create exactly these author-side files from one title-derived `<slug>`:
    learner browser.
 3. `<slug>.solution-topology.json` — canonical engine `TopologyJSON` that opens in
    the simulator and passes the private package.
+4. `<slug>.coverage.json` — the trace from every source bullet to the check that
+   grades it (or why nothing does), the sanity and carried-forward tiers, and the
+   explanation for every Studio advisory left in place. Instructors review this
+   file, not the JSON rules.
 
 A browser-safe student assignment is a publication projection, not a replacement
 for these authoring artifacts. Generate it only when the target product exposes a
@@ -37,6 +41,7 @@ Optional Markdown walkthroughs are emitted only when requested.
 
 Always read:
 
+- [grading budget](references/grading-budget.md)
 - [feasibility and physics](references/simulator-feasibility.md)
 - [component and metric catalog](references/component-and-metric-catalog.md)
 - [grading and evaluation](references/grading-dsl-and-evaluation.md)
@@ -68,6 +73,11 @@ solution family would materially change the assignment.
 Classify each requirement as structural, semantic, runtime, invariant, budget,
 explanation-only, or deferred. Do not grade business logic or provider guarantees
 with unrelated runtime metrics.
+
+Copy every source bullet (requirements and expected concepts) verbatim into the
+coverage map before designing any check. The source decides what is tested; the
+simulator's capabilities only decide how. When the source is one question in a
+series ("Everything from Q2 +"), grade only what this question adds.
 
 ### 2. Select honest evidence
 
@@ -101,6 +111,20 @@ allowlists, structural/semantic checks, and solution validation.
 
 ### 4. Design grading
 
+Stay inside the [grading budget](references/grading-budget.md): at most 5 sanity
+rows, 4 carried-forward presence rows, 6 core checks, and 15 rows in total.
+
+- **Sanity:** one traffic source, a connected graph, and the shape rules for
+  components the design uses (load balancer between traffic and servers, a queue
+  or stream feeding its consumer).
+- **Carried forward:** presence of an earlier question's headline component,
+  never its behavior.
+- **Core:** one check per source bullet this question adds. Mark context and
+  tolerated behavior as `explained` instead of grading it.
+- **NFRs:** only when the source states one, and always with the paired check.
+  Templates carry an example NFR with its check; keep both or remove both.
+- **Near misses:** at least one, each caught by a core check.
+
 Use the four Newton/Django row types only: `SIMULATOR_CONFIG`,
 `STRUCTURAL_RULE`, `SEMANTIC_CRITERION`, and `RUBRIC_CHECK`. Builder policy,
 constraints, suite data, and environment metadata live inside the config row.
@@ -121,6 +145,7 @@ Use:
 - `assets/question-studio-project.template.json`
 - `assets/question-package.template.json`
 - `assets/solution-topology.template.json`
+- `assets/coverage.template.json`
 
 The solution template is canonical engine `TopologyJSON`, not a React Flow canvas
 file. Do not emit renderer types, handles, dimensions, or `data.rendererType`.
@@ -130,6 +155,10 @@ present, use the simulator's instance/execution-profile derivation; otherwise us
 authored capacity only when the question intentionally supplies it. Do not assume
 all routers or gateways are infinite: confirm the selected component's current
 spec before excluding it from bottleneck analysis.
+
+Set `prompt.scale.readWriteRatio` to the read share of the private workload (0
+for write-only work). Learners see it in the brief, and when it is omitted the
+Studio compiler fills it from the scenario default of 80.
 
 Use identical learner-facing descriptions and stable IDs in project and compiled
 package. Keep private cases out of the public dry run. A dry run should teach the
@@ -146,9 +175,15 @@ node scripts/validate-artifacts.mjs <output-directory> <slug>
 In a simulator checkout, also run:
 
 ```bash
+npm run audit:simulator-question -- <output-directory> <slug>
 npm run sim -- validate <slug>.solution-topology.json
 npm run sim -- grade <slug>.question-package.json <slug>.solution-topology.json
 ```
+
+The audit compiles the project exactly as the Question Studio does, requires
+every Studio advisory to be fixed or explained in coverage, grades the reference
+and every near miss, and re-runs the grading budget. A question that fails the
+audit is not finished, even when it grades correctly.
 
 Then grade the near miss and confirm it fails the intended obligation. When the
 Question Studio is available, open the project in AUTHOR mode, compile it, and
@@ -162,8 +197,9 @@ Never claim a pass from arithmetic or JSON coherence alone.
 
 ## Completion standard
 
-Finish only when all three files parse and open, the Studio project compiles to
-the supplied private package, the canonical solution passes every gate, the near
+Finish only when all four files parse and open, the question is inside the
+grading budget with every source bullet traced, every Studio advisory is fixed or
+explained, the Studio project compiles to the supplied private package, the canonical solution passes every gate, the near
 miss fails for the intended reason, family-aware constraints accept every solution
 component, private grading data is excluded from the student projection/public dry
 run, and any walkthrough matches the artifacts exactly.

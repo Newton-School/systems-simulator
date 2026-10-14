@@ -2,8 +2,9 @@
 
 /* eslint-disable @typescript-eslint/explicit-function-return-type -- This validator runs as standalone JavaScript without a TypeScript build step. */
 
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { auditGradingBudget } from './grading-budget.mjs'
 
 const [directory, slug] = process.argv.slice(2)
 if (!directory || !slug) {
@@ -14,7 +15,9 @@ if (!directory || !slug) {
 const names = {
   project: `${slug}.simulator-question-project.json`,
   question: `${slug}.question-package.json`,
-  solution: `${slug}.solution-topology.json`
+  solution: `${slug}.solution-topology.json`,
+  coverage: `${slug}.coverage.json`,
+  student: `${slug}.student-assignment.json`
 }
 
 function load(name) {
@@ -36,6 +39,7 @@ function accepted(placed, required) {
 const project = load(names.project)
 const question = load(names.question)
 const solution = load(names.solution)
+const coverage = load(names.coverage)
 
 check(project.artifact === 'dsds-question-project', 'Project artifact marker is invalid.')
 check(question.version && question.suite && question.rubric, 'Question package shape is invalid.')
@@ -89,4 +93,23 @@ if (dryRun) {
   check(!dryRun.experiment, 'Public dry run must not reveal a hidden experiment.')
 }
 
-console.log(`Validated ${names.project}, ${names.question}, and ${names.solution}.`)
+if (existsSync(resolve(directory, names.student))) {
+  const student = load(names.student)
+  for (const key of ['suite', 'rubric', 'structuralRules', 'semanticCriteria', 'graderHints']) {
+    check(!(key in student), `Student assignment leaks private ${key}.`)
+  }
+  check(student.id === question.id, 'Student assignment and package IDs differ.')
+}
+
+const { findings, tally } = auditGradingBudget(project, coverage)
+for (const finding of findings)
+  console.error(`[${finding.level}] ${finding.code}: ${finding.message}`)
+if (findings.some((finding) => finding.level === 'error')) {
+  console.error(`Grading budget failed for ${slug}.`)
+  process.exit(1)
+}
+
+console.log(
+  `Validated ${names.project}, ${names.question}, ${names.solution}, and ${names.coverage} ` +
+    `(sanity ${tally.sanity}, carried forward ${tally.carriedForward}, core ${tally.core}, total ${tally.total}).`
+)

@@ -1,0 +1,119 @@
+{
+  "artifact": "simulator-question-coverage",
+  "version": "1.0",
+  "questionId": "food-delivery-kafka-event-processing",
+  "source": {
+    "document": "Hld Questions.pdf",
+    "section": "Question 3 - Add Kafka Event Processing"
+  },
+  "series": {
+    "buildsOn": "food-delivery-api-gateway"
+  },
+  "requirements": [
+    {
+      "id": "r-event-sources",
+      "kind": "requirement",
+      "text": "The platform now supports user actions, order creation, payment processing, and delivery updates.",
+      "status": "explained",
+      "reason": "These are the event sources; the hidden workload publishes events from the matching services."
+    },
+    {
+      "id": "r-notifications",
+      "kind": "requirement",
+      "text": "Notifications should be generated.",
+      "status": "covered",
+      "checks": ["groups-receive-events"]
+    },
+    {
+      "id": "r-activity",
+      "kind": "requirement",
+      "text": "User activity should be updated.",
+      "status": "covered",
+      "checks": ["groups-receive-events"]
+    },
+    {
+      "id": "r-analytics",
+      "kind": "requirement",
+      "text": "Analytics data should be collected.",
+      "status": "covered",
+      "checks": ["groups-receive-events"]
+    },
+    {
+      "id": "r-independent",
+      "kind": "requirement",
+      "text": "Other services should be able to consume the event independently.",
+      "status": "graded",
+      "checks": ["groups-receive-events"]
+    },
+    {
+      "id": "r-latency",
+      "kind": "requirement",
+      "text": "These background operations should not increase the response time of the main user request.",
+      "status": "graded",
+      "checks": ["async-event-publish"]
+    },
+    {
+      "id": "c-previous",
+      "kind": "concept",
+      "text": "Everything from Q2",
+      "status": "covered",
+      "checks": ["gateway-retained"]
+    },
+    {
+      "id": "c-load-balancers",
+      "kind": "concept",
+      "text": "Load Balancers",
+      "status": "covered",
+      "checks": ["balancer-in-middle"]
+    },
+    {
+      "id": "c-streaming",
+      "kind": "concept",
+      "text": "Kafka / Event Streaming",
+      "status": "covered",
+      "checks": ["stream-feeds-consumers"]
+    },
+    {
+      "id": "c-producer-consumer",
+      "kind": "concept",
+      "text": "Producer-Consumer architecture",
+      "status": "covered",
+      "checks": ["async-event-publish", "stream-feeds-consumers"]
+    },
+    {
+      "id": "c-independent-consumers",
+      "kind": "concept",
+      "text": "Multiple independent consumers",
+      "status": "covered",
+      "checks": ["groups-receive-events"]
+    },
+    {
+      "id": "c-async",
+      "kind": "concept",
+      "text": "Asynchronous processing",
+      "status": "covered",
+      "checks": ["async-event-publish"]
+    },
+    {
+      "id": "c-event-driven",
+      "kind": "concept",
+      "text": "Event-driven architecture",
+      "status": "covered",
+      "checks": ["groups-receive-events"]
+    }
+  ],
+  "sanity": [
+    "single-source",
+    "connected-graph",
+    "balancer-in-middle",
+    "queue-feeds-worker",
+    "stream-feeds-consumers"
+  ],
+  "carriedForward": [
+    {
+      "check": "gateway-retained",
+      "from": "food-delivery-api-gateway"
+    }
+  ],
+  "advisories": []
+}

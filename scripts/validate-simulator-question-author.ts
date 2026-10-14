@@ -1,6 +1,7 @@
 import { isDeepStrictEqual } from 'node:util'
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { auditSimulatorQuestion } from './audit-simulator-question'
 import { compileQuestionAuthoringPreview } from '../src/engine/analysis/questionAuthoringCompiler'
 import { parseQuestionAuthoringProject } from '../src/engine/analysis/questionAuthoringProject'
 import { gradeAttempt, parseQuestionPackage } from '../src/engine/analysis/question'
@@ -8,7 +9,8 @@ import { runSimulation } from '../src/engine/runSimulation'
 import type { TopologyJSON } from '../src/engine/core/types'
 import { TopologyJSONSchema, validateTopology } from '../src/engine/validation/validator'
 
-const root = resolve(process.cwd(), 'skills/simulator-question-author/examples/quickcart')
+const examples = resolve(process.cwd(), 'skills/simulator-question-author/examples')
+const root = resolve(examples, 'quickcart')
 
 function json(name: string): unknown {
   return JSON.parse(readFileSync(resolve(root, name), 'utf8'))
@@ -74,9 +76,34 @@ invariant(
   'The public dry run leaks private invariants, faults, or experiment details.'
 )
 
+// Every bundled example must stay inside the grading budget and clear the
+// Studio audit, so the skill never ships an example it would itself reject.
+const seriesRoot = resolve(examples, 'food-delivery-series')
+const audited = [
+  { directory: root, slug: 'quickcart-flash-sale' },
+  ...readdirSync(seriesRoot, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => {
+      const directory = resolve(seriesRoot, entry.name)
+      const project = readdirSync(directory).find((name) =>
+        name.endsWith('.simulator-question-project.json')
+      )
+      invariant(project, `${entry.name} has no Question Studio project.`)
+      return { directory, slug: project.replace('.simulator-question-project.json', '') }
+    })
+]
+const audits = audited.map(({ directory, slug }) => auditSimulatorQuestion(directory, slug))
+for (const audit of audits) {
+  invariant(
+    audit.passed,
+    `${audit.slug} fails the question audit: ${audit.findings.map((f) => f.message).join('; ')}`
+  )
+}
+
 console.log(
   JSON.stringify(
     {
+      audited: audits.map((audit) => `${audit.slug}: ${JSON.stringify(audit.tally)}`),
       project: 'parsed',
       compiler: 'exact package match',
       topology: 'valid',

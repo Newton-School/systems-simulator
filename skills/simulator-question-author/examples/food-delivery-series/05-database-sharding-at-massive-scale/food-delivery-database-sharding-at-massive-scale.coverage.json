@@ -1,0 +1,129 @@
+{
+  "artifact": "simulator-question-coverage",
+  "version": "1.0",
+  "questionId": "food-delivery-database-sharding-at-massive-scale",
+  "source": {
+    "document": "Hld Questions.pdf",
+    "section": "Database Sharding at Massive Scale"
+  },
+  "series": {
+    "buildsOn": "food-delivery-read-write-database-architecture"
+  },
+  "requirements": [
+    {
+      "id": "r-scale",
+      "kind": "requirement",
+      "text": "The platform grows to billions of users and transactions.",
+      "status": "explained",
+      "reason": "Sets the scale; the hidden run is a scaled, skewed keyed workload."
+    },
+    {
+      "id": "r-limits",
+      "kind": "requirement",
+      "text": "Storage capacity is increasing rapidly; write traffic is too high for a single database; read replicas are not enough.",
+      "status": "explained",
+      "reason": "Motivation for sharding; the graded behaviors follow from the design goals below."
+    },
+    {
+      "id": "r-distribute",
+      "kind": "requirement",
+      "text": "Distribute data across multiple database servers.",
+      "status": "graded",
+      "checks": ["four-shard-targets"]
+    },
+    {
+      "id": "r-growth",
+      "kind": "requirement",
+      "text": "Support increasing traffic and data growth.",
+      "status": "graded",
+      "checks": ["no-storage-full"]
+    },
+    {
+      "id": "r-route",
+      "kind": "requirement",
+      "text": "Efficiently route requests to the correct database.",
+      "status": "graded",
+      "checks": ["sharding-guards-databases"]
+    },
+    {
+      "id": "r-bottleneck",
+      "kind": "requirement",
+      "text": "Prevent a single database node from becoming a bottleneck.",
+      "status": "graded",
+      "checks": ["hot-shard-rebalanced"]
+    },
+    {
+      "id": "c-previous",
+      "kind": "concept",
+      "text": "Everything from Q4",
+      "status": "explained",
+      "reason": "Gateway and event stream are carried forward as presence. Read replicas are not re-checked: the shard databases already satisfy any replica-count rule, so it would not catch anything."
+    },
+    {
+      "id": "c-sharding",
+      "kind": "concept",
+      "text": "Database sharding",
+      "status": "covered",
+      "checks": ["four-shard-targets"]
+    },
+    {
+      "id": "c-shard-key",
+      "kind": "concept",
+      "text": "Shard key selection",
+      "status": "graded",
+      "checks": ["all-requests-have-shard-key"]
+    },
+    {
+      "id": "c-partitioning",
+      "kind": "concept",
+      "text": "Data partitioning",
+      "status": "covered",
+      "checks": ["four-shard-targets"]
+    },
+    {
+      "id": "c-routing-layer",
+      "kind": "concept",
+      "text": "Query routing layer",
+      "status": "covered",
+      "checks": ["sharding-guards-databases"]
+    },
+    {
+      "id": "c-horizontal",
+      "kind": "concept",
+      "text": "Horizontal database scaling",
+      "status": "covered",
+      "checks": ["four-shard-targets"]
+    },
+    {
+      "id": "c-hot-shards",
+      "kind": "concept",
+      "text": "Handling uneven data distribution (hot shards)",
+      "status": "covered",
+      "checks": ["hot-shard-rebalanced"]
+    }
+  ],
+  "sanity": [
+    "single-source",
+    "connected-graph",
+    "balancer-in-middle",
+    "queue-feeds-worker",
+    "stream-feeds-consumers"
+  ],
+  "carriedForward": [
+    {
+      "check": "gateway-retained",
+      "from": "food-delivery-api-gateway"
+    },
+    {
+      "check": "stream-retained",
+      "from": "food-delivery-kafka-event-processing"
+    }
+  ],
+  "advisories": [
+    {
+      "code": "guardedPath.readWriteMix",
+      "path": "semanticCriteria[3]",
+      "reason": "All-traffic guard by design: reads and writes both reach a shard only through the sharding router, so no legitimate path bypasses it."
+    }
+  ]
+}

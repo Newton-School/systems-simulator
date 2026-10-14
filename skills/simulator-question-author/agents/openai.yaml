@@ -1,4 +1,4 @@
 interface:
   display_name: 'Simulator Question Author'
   short_description: 'Create and validate private simulator question artifacts.'
-  default_prompt: 'Use $simulator-question-author to turn this system-design question into a validated Question Studio project, private grader package, and canonical passing reference topology.'
+  default_prompt: 'Use $simulator-question-author to turn this system-design question into a validated Question Studio project, private grader package, and canonical passing reference topology, grading only what the question asks for and tracing every check in a coverage map.'

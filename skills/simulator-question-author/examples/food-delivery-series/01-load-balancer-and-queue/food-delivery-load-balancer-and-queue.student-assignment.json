@@ -1,0 +1,76 @@
+{
+  "version": "1.0",
+  "id": "food-delivery-load-balancer-and-queue",
+  "title": "Food Delivery Load Balancer and Queue",
+  "description": "Design a horizontally scalable order intake path that buffers overload and retains orders while delivery partners are unavailable.",
+  "difficulty": "beginner",
+  "estimatedTimeMinutes": 20,
+  "type": "open-build",
+  "entryFormat": "blank-canvas",
+  "prompt": {
+    "text": "Design the high-level architecture for a food-delivery order-processing system receiving millions of orders per day. Multiple users place orders concurrently, application processing scales horizontally, peak traffic may create backlog, accepted orders must not be lost, and delivery assignment must wait when partners are unavailable.",
+    "functionalRequirements": [
+      "Spread incoming orders across at least two application servers behind a load balancer.",
+      "Hand orders from the application servers to a queue asynchronously.",
+      "Do not lose accepted orders when processing is overloaded.",
+      "Make orders wait for an available delivery partner instead of failing."
+    ],
+    "nonFunctionalRequirements": [],
+    "scale": {
+      "dau": 5000000,
+      "peakRps": 100,
+      "readWriteRatio": 0,
+      "storageGb": 10000,
+      "growthRatePercent": 2
+    },
+    "additionalContext": "The hidden run is a deterministic, scaled discrete proxy for the stated production workload. It grades supported simulator behavior, not cloud-provider guarantees."
+  },
+  "scaffold": {
+    "type": "empty"
+  },
+  "constraints": {
+    "allowedNodeTypes": [
+      "api-endpoint",
+      "load-balancer",
+      "load-balancer-l7",
+      "microservice",
+      "queue",
+      "batch-worker"
+    ],
+    "maxTotalWorkers": 1000,
+    "canModifyScaffold": true,
+    "canRemoveScaffoldNodes": true
+  },
+  "workloadCategory": "correctness-heavy",
+  "domains": ["compute"],
+  "concepts": [
+    "load-balancing",
+    "horizontal-scaling",
+    "queue-buffering",
+    "asynchronous-processing"
+  ],
+  "dryRunCase": {
+    "id": "public-dry-run",
+    "description": "A low-rate public run for checking connectivity and request flow.",
+    "global": {
+      "simulationDuration": 1500,
+      "seed": "food-delivery-load-balancer-and-queue-solution-public-v1",
+      "warmupDuration": 0,
+      "timeResolution": "microsecond",
+      "defaultTimeout": 5000,
+      "traceSampleRate": 0.1
+    },
+    "workload": {
+      "sourceNodeId": "source",
+      "pattern": "constant",
+      "baseRps": 2,
+      "requestDistribution": [
+        {
+          "type": "create-order",
+          "weight": 1,
+          "sizeBytes": 1024
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,109 @@
+{
+  "artifact": "simulator-question-coverage",
+  "version": "1.0",
+  "questionId": "food-delivery-read-write-database-architecture",
+  "source": {
+    "document": "Hld Questions.pdf",
+    "section": "Database Architecture (read/write separation)"
+  },
+  "series": {
+    "buildsOn": "food-delivery-kafka-event-processing"
+  },
+  "requirements": [
+    {
+      "id": "r-data",
+      "kind": "requirement",
+      "text": "The platform now stores user profiles, orders, payments, transactions, and user activity history.",
+      "status": "explained",
+      "reason": "Describes the stored entities; the hidden workload reads and writes these records."
+    },
+    {
+      "id": "r-read-heavy",
+      "kind": "requirement",
+      "text": "Millions of read requests and comparatively fewer write requests.",
+      "status": "explained",
+      "reason": "Sets the read-heavy hidden workload (80% reads); it is the condition under test."
+    },
+    {
+      "id": "r-bottleneck",
+      "kind": "requirement",
+      "text": "The database is becoming a bottleneck due to the high read traffic.",
+      "status": "explained",
+      "reason": "Motivation for the design; the graded behavior is reads moving to replicas."
+    },
+    {
+      "id": "r-separate",
+      "kind": "requirement",
+      "text": "Read and write operations are handled separately.",
+      "status": "graded",
+      "checks": ["reads-served-by-replicas"]
+    },
+    {
+      "id": "r-consistency",
+      "kind": "requirement",
+      "text": "Maintain data consistency.",
+      "status": "covered",
+      "checks": ["no-stale-reads"]
+    },
+    {
+      "id": "c-previous",
+      "kind": "concept",
+      "text": "Everything from Q3",
+      "status": "covered",
+      "checks": ["gateway-retained", "stream-retained", "stream-feeds-consumers"]
+    },
+    {
+      "id": "c-primary",
+      "kind": "concept",
+      "text": "Primary database for writes",
+      "status": "graded",
+      "checks": ["primary-role", "primary-database"]
+    },
+    {
+      "id": "c-replicas",
+      "kind": "concept",
+      "text": "Read replicas for reads",
+      "status": "graded",
+      "checks": ["replica-role", "replica-databases"]
+    },
+    {
+      "id": "c-replication",
+      "kind": "concept",
+      "text": "Database replication",
+      "status": "covered",
+      "checks": ["replica-role"]
+    },
+    {
+      "id": "c-split",
+      "kind": "concept",
+      "text": "Read/write traffic separation",
+      "status": "covered",
+      "checks": ["reads-served-by-replicas"]
+    },
+    {
+      "id": "c-lag",
+      "kind": "concept",
+      "text": "Handling replication lag",
+      "status": "graded",
+      "checks": ["no-stale-reads"]
+    }
+  ],
+  "sanity": [
+    "single-source",
+    "connected-graph",
+    "balancer-in-middle",
+    "queue-feeds-worker",
+    "stream-feeds-consumers"
+  ],
+  "carriedForward": [
+    {
+      "check": "gateway-retained",
+      "from": "food-delivery-api-gateway"
+    },
+    {
+      "check": "stream-retained",
+      "from": "food-delivery-kafka-event-processing"
+    }
+  ],
+  "advisories": []
+}

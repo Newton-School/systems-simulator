@@ -135,6 +135,9 @@ function validateMetric(
  * may span several domains (e.g. compute + storage). V1 only ships `compute` / `storage`;
  * the other domains warn because their physics/traits are V2.
  */
+/** Verdict metric families that are runtime evidence for the storage domain. */
+const DATA_RUBRIC_METRIC_PREFIXES = ['consistency.', 'storage.', 'sharding.'] as const
+
 function validateDomains(pkg: QuestionPackage, out: AuthoringDiagnostic[]): void {
   const domains = pkg.domains
   if (!domains || domains.length === 0) {
@@ -174,16 +177,22 @@ function validateDomains(pkg: QuestionPackage, out: AuthoringDiagnostic[]): void
       return false
     })
   // Storage-domain questions grade the store choice, data fan-out shape, or
-  // stream broker runtime evidence; all are data-domain criteria.
-  const hasDataCriterion = (pkg.semanticCriteria ?? []).some(
-    (c) =>
-      c.kind === 'storageFit' ||
-      c.kind === 'fanout' ||
-      ((c.kind === 'stateTransition' || c.kind === 'stateSequence') &&
-        (c.kind === 'stateTransition'
-          ? c.match.scope === 'broker' || c.match.scope === 'replication'
-          : c.sequence.some((step) => step.scope === 'broker' || step.scope === 'replication')))
-  )
+  // stream broker runtime evidence; all are data-domain criteria. Replication,
+  // finite-storage, and sharding behavior graded through their verdict metrics
+  // is the same data-domain evidence measured at runtime.
+  const hasDataCriterion =
+    (pkg.semanticCriteria ?? []).some(
+      (c) =>
+        c.kind === 'storageFit' ||
+        c.kind === 'fanout' ||
+        ((c.kind === 'stateTransition' || c.kind === 'stateSequence') &&
+          (c.kind === 'stateTransition'
+            ? c.match.scope === 'broker' || c.match.scope === 'replication'
+            : c.sequence.some((step) => step.scope === 'broker' || step.scope === 'replication')))
+    ) ||
+    (pkg.rubric?.checks ?? []).some((c) =>
+      DATA_RUBRIC_METRIC_PREFIXES.some((p) => c.metric.startsWith(p))
+    )
   const hasCorrectnessShapeCriterion = (pkg.semanticCriteria ?? []).some(
     (c) => c.kind === 'guardedPath' || c.kind === 'forbidUnjustified' || c.kind === 'storageFit'
   )
@@ -224,7 +233,7 @@ function validateDomains(pkg: QuestionPackage, out: AuthoringDiagnostic[]): void
           out.push(
             warn(
               'domains.mismatch',
-              "domain 'storage' expects a `storageFit`, `fanout`, stream-broker, or replication runtime semantic criterion."
+              "domain 'storage' expects a `storageFit`, `fanout`, stream-broker, or replication runtime semantic criterion, or a graded consistency, storage, or sharding metric."
             )
           )
         break

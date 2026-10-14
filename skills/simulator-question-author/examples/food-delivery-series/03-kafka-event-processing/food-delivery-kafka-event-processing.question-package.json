@@ -1,0 +1,302 @@
+{
+  "version": "1.0",
+  "id": "food-delivery-kafka-event-processing",
+  "title": "Food Delivery Kafka Event Processing",
+  "description": "Add an asynchronous partitioned event stream whose independent consumer groups process notifications, activity updates, and analytics without blocking the request path.",
+  "difficulty": "intermediate",
+  "estimatedTimeMinutes": 30,
+  "type": "open-build",
+  "entryFormat": "blank-canvas",
+  "prompt": {
+    "text": "Extend the API-gateway architecture with event processing for user actions, order creation, payments, and delivery updates. Notifications, user activity, analytics, and future services must consume important events independently, while members inside one consumer group share work. Background processing must be asynchronous.",
+    "functionalRequirements": [
+      "Publish important events from the services to an event stream asynchronously, so the main request does not wait.",
+      "Let notifications, user activity, and analytics each consume every event independently.",
+      "Keep the API Gateway, load-balanced order path, and queue from the previous designs."
+    ],
+    "nonFunctionalRequirements": [],
+    "scale": {
+      "dau": 5000000,
+      "peakRps": 500,
+      "readWriteRatio": 50,
+      "storageGb": 10000,
+      "growthRatePercent": 2
+    },
+    "additionalContext": "The hidden run is a deterministic, scaled discrete proxy for the stated production workload. It grades supported simulator behavior, not cloud-provider guarantees."
+  },
+  "scaffold": {
+    "type": "empty"
+  },
+  "constraints": {
+    "allowedNodeTypes": [
+      "api-endpoint",
+      "api-gateway",
+      "load-balancer",
+      "load-balancer-l7",
+      "microservice",
+      "queue",
+      "batch-worker",
+      "stream",
+      "streaming-analytics"
+    ],
+    "maxTotalWorkers": 1000,
+    "canModifyScaffold": true,
+    "canRemoveScaffoldNodes": true
+  },
+  "structuralRules": [
+    {
+      "id": "single-source",
+      "description": "Use exactly one traffic source.",
+      "kind": "requires_single_source"
+    },
+    {
+      "id": "connected-graph",
+      "description": "Keep every component connected to the architecture.",
+      "kind": "requires_connected_graph"
+    },
+    {
+      "id": "gateway-retained",
+      "description": "Keep the API Gateway from the previous design.",
+      "kind": "requires_component",
+      "componentType": "api-gateway",
+      "minCount": 1
+    },
+    {
+      "id": "async-event-publish",
+      "description": "Publish events from a service to the event stream asynchronously.",
+      "kind": "requires_edge",
+      "fromType": "microservice",
+      "toType": "stream",
+      "mode": "asynchronous"
+    }
+  ],
+  "semanticCriteria": [
+    {
+      "id": "balancer-in-middle",
+      "description": "Place the load balancer between incoming traffic and the application servers.",
+      "points": 1,
+      "hardFail": true,
+      "kind": "placement",
+      "componentType": "load-balancer",
+      "between": ["api-endpoint", "microservice"]
+    },
+    {
+      "id": "queue-feeds-worker",
+      "description": "Place the queue between the order service and a background worker that consumes it.",
+      "points": 1,
+      "hardFail": true,
+      "kind": "placement",
+      "componentType": "queue",
+      "between": ["microservice", "batch-worker"]
+    },
+    {
+      "id": "stream-feeds-consumers",
+      "description": "Place the event stream between the producing services and the consumers that read it.",
+      "points": 1,
+      "hardFail": true,
+      "kind": "placement",
+      "componentType": "stream",
+      "between": ["microservice", "batch-worker"]
+    }
+  ],
+  "workloadCategory": "correctness-heavy",
+  "domains": ["compute"],
+  "concepts": [
+    "event-streaming",
+    "producer-consumer",
+    "consumer-groups",
+    "asynchronous-processing"
+  ],
+  "suite": {
+    "name": "food-delivery-kafka-event-processing-suite",
+    "cases": [
+      {
+        "id": "private-baseline",
+        "description": "Exercise four event-producing services and three independent consumer groups with one competing-consumer group.",
+        "global": {
+          "simulationDuration": 5000,
+          "seed": "food-delivery-kafka-event-processing-private-v1",
+          "warmupDuration": 0,
+          "timeResolution": "microsecond",
+          "defaultTimeout": 5000,
+          "traceSampleRate": 0.1
+        },
+        "workload": {
+          "sourceNodeId": "source",
+          "pattern": "constant",
+          "baseRps": 8,
+          "requestDistribution": [
+            {
+              "type": "user-api",
+              "weight": 0.2,
+              "sizeBytes": 1024,
+              "metadata": {
+                "path": "/users",
+                "authToken": "valid-token",
+                "authStatus": "valid",
+                "authScopes": ["api:access"],
+                "clientId": "mobile-client",
+                "partitionKey": "entity-0"
+              }
+            },
+            {
+              "type": "restaurant-api",
+              "weight": 0.2,
+              "sizeBytes": 1024,
+              "metadata": {
+                "path": "/restaurants",
+                "authToken": "valid-token",
+                "authStatus": "valid",
+                "authScopes": ["api:access"],
+                "clientId": "mobile-client",
+                "partitionKey": "entity-1"
+              }
+            },
+            {
+              "type": "order-api",
+              "weight": 0.2,
+              "sizeBytes": 1024,
+              "metadata": {
+                "path": "/orders",
+                "authToken": "valid-token",
+                "authStatus": "valid",
+                "authScopes": ["api:access"],
+                "clientId": "mobile-client",
+                "partitionKey": "entity-2"
+              }
+            },
+            {
+              "type": "payment-api",
+              "weight": 0.2,
+              "sizeBytes": 1024,
+              "metadata": {
+                "path": "/payments",
+                "authToken": "valid-token",
+                "authStatus": "valid",
+                "authScopes": ["api:access"],
+                "clientId": "mobile-client",
+                "partitionKey": "entity-3"
+              }
+            },
+            {
+              "type": "delivery-api",
+              "weight": 0.2,
+              "sizeBytes": 1024,
+              "metadata": {
+                "path": "/delivery",
+                "authToken": "valid-token",
+                "authStatus": "valid",
+                "authScopes": ["api:access"],
+                "clientId": "mobile-client",
+                "partitionKey": "entity-4"
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "visibleToStudent": false,
+    "dryRunCase": {
+      "id": "public-dry-run",
+      "description": "A low-rate public run for checking connectivity and request flow.",
+      "global": {
+        "simulationDuration": 1500,
+        "seed": "food-delivery-kafka-event-processing-solution-public-v1",
+        "warmupDuration": 0,
+        "timeResolution": "microsecond",
+        "defaultTimeout": 5000,
+        "traceSampleRate": 0.1
+      },
+      "workload": {
+        "sourceNodeId": "source",
+        "pattern": "constant",
+        "baseRps": 2,
+        "requestDistribution": [
+          {
+            "type": "user-api",
+            "weight": 0.2,
+            "sizeBytes": 1024,
+            "metadata": {
+              "path": "/users",
+              "authToken": "valid-token",
+              "authStatus": "valid",
+              "authScopes": ["api:access"],
+              "clientId": "mobile-client",
+              "partitionKey": "entity-0"
+            }
+          },
+          {
+            "type": "restaurant-api",
+            "weight": 0.2,
+            "sizeBytes": 1024,
+            "metadata": {
+              "path": "/restaurants",
+              "authToken": "valid-token",
+              "authStatus": "valid",
+              "authScopes": ["api:access"],
+              "clientId": "mobile-client",
+              "partitionKey": "entity-1"
+            }
+          },
+          {
+            "type": "order-api",
+            "weight": 0.2,
+            "sizeBytes": 1024,
+            "metadata": {
+              "path": "/orders",
+              "authToken": "valid-token",
+              "authStatus": "valid",
+              "authScopes": ["api:access"],
+              "clientId": "mobile-client",
+              "partitionKey": "entity-2"
+            }
+          },
+          {
+            "type": "payment-api",
+            "weight": 0.2,
+            "sizeBytes": 1024,
+            "metadata": {
+              "path": "/payments",
+              "authToken": "valid-token",
+              "authStatus": "valid",
+              "authScopes": ["api:access"],
+              "clientId": "mobile-client",
+              "partitionKey": "entity-3"
+            }
+          },
+          {
+            "type": "delivery-api",
+            "weight": 0.2,
+            "sizeBytes": 1024,
+            "metadata": {
+              "path": "/delivery",
+              "authToken": "valid-token",
+              "authStatus": "valid",
+              "authScopes": ["api:access"],
+              "clientId": "mobile-client",
+              "partitionKey": "entity-4"
+            }
+          }
+        ]
+      }
+    }
+  },
+  "rubric": {
+    "version": "1.0",
+    "id": "food-delivery-kafka-event-processing-rubric",
+    "passThreshold": 1,
+    "checks": [
+      {
+        "id": "groups-receive-events",
+        "description": "Notifications, activity, and analytics must each receive events independently.",
+        "kind": "simulation",
+        "metric": "stream.groupsWithDeliveries",
+        "op": ">=",
+        "value": 3,
+        "points": 3
+      }
+    ]
+  },
+  "author": "Hritvik Mohan",
+  "createdAt": "2026-10-14T00:00:00.000Z"
+}

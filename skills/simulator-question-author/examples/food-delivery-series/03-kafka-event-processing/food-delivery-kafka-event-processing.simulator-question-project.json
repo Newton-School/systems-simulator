@@ -1,0 +1,3222 @@
+{
+  "artifact": "dsds-question-project",
+  "artifactVersion": "1.0",
+  "projectId": "00000000-0000-4000-8000-000000000003",
+  "updatedAt": "2026-10-14T14:11:21.566Z",
+  "question": {
+    "id": "food-delivery-kafka-event-processing",
+    "title": "Food Delivery Kafka Event Processing",
+    "description": "Add an asynchronous partitioned event stream whose independent consumer groups process notifications, activity updates, and analytics without blocking the request path.",
+    "tags": [],
+    "author": "Hritvik Mohan",
+    "createdAt": "2026-10-14T00:00:00.000Z",
+    "setup": {
+      "difficulty": "intermediate",
+      "type": "open-build",
+      "entryFormat": "blank-canvas",
+      "domains": ["compute"],
+      "concepts": [
+        "event-streaming",
+        "producer-consumer",
+        "consumer-groups",
+        "asynchronous-processing"
+      ],
+      "workloadCategory": "correctness-heavy",
+      "estimatedTimeMinutes": 30,
+      "passThreshold": 1,
+      "suiteVisibleToStudent": false,
+      "constraints": {
+        "allowedNodeTypes": [
+          "api-endpoint",
+          "api-gateway",
+          "load-balancer",
+          "load-balancer-l7",
+          "microservice",
+          "queue",
+          "batch-worker",
+          "stream",
+          "streaming-analytics"
+        ],
+        "maxTotalWorkers": 1000,
+        "canModifyScaffold": true,
+        "canRemoveScaffoldNodes": true
+      }
+    },
+    "prompt": {
+      "text": "Extend the API-gateway architecture with event processing for user actions, order creation, payments, and delivery updates. Notifications, user activity, analytics, and future services must consume important events independently, while members inside one consumer group share work. Background processing must be asynchronous.",
+      "additionalContext": "The hidden run is a deterministic, scaled discrete proxy for the stated production workload. It grades supported simulator behavior, not cloud-provider guarantees.",
+      "scale": {
+        "dau": 5000000,
+        "peakRps": 500,
+        "readWriteRatio": 50,
+        "storageGb": 10000,
+        "growthRatePercent": 2
+      },
+      "functionalRequirements": [
+        {
+          "id": "fr-1",
+          "text": "Publish important events from the services to an event stream asynchronously, so the main request does not wait."
+        },
+        {
+          "id": "fr-2",
+          "text": "Let notifications, user activity, and analytics each consume every event independently."
+        },
+        {
+          "id": "fr-3",
+          "text": "Keep the API Gateway, load-balanced order path, and queue from the previous designs."
+        }
+      ],
+      "nonFunctionalRequirements": []
+    },
+    "dryRunCase": {
+      "id": "public-dry-run",
+      "description": "A low-rate public run for checking connectivity and request flow.",
+      "global": {
+        "simulationDuration": 1500,
+        "seed": "food-delivery-kafka-event-processing-solution-public-v1",
+        "warmupDuration": 0,
+        "timeResolution": "microsecond",
+        "defaultTimeout": 5000,
+        "traceSampleRate": 0.1
+      },
+      "workload": {
+        "sourceNodeId": "source",
+        "pattern": "constant",
+        "baseRps": 2,
+        "requestDistribution": [
+          {
+            "type": "user-api",
+            "weight": 0.2,
+            "sizeBytes": 1024,
+            "metadata": {
+              "path": "/users",
+              "authToken": "valid-token",
+              "authStatus": "valid",
+              "authScopes": ["api:access"],
+              "clientId": "mobile-client",
+              "partitionKey": "entity-0"
+            }
+          },
+          {
+            "type": "restaurant-api",
+            "weight": 0.2,
+            "sizeBytes": 1024,
+            "metadata": {
+              "path": "/restaurants",
+              "authToken": "valid-token",
+              "authStatus": "valid",
+              "authScopes": ["api:access"],
+              "clientId": "mobile-client",
+              "partitionKey": "entity-1"
+            }
+          },
+          {
+            "type": "order-api",
+            "weight": 0.2,
+            "sizeBytes": 1024,
+            "metadata": {
+              "path": "/orders",
+              "authToken": "valid-token",
+              "authStatus": "valid",
+              "authScopes": ["api:access"],
+              "clientId": "mobile-client",
+              "partitionKey": "entity-2"
+            }
+          },
+          {
+            "type": "payment-api",
+            "weight": 0.2,
+            "sizeBytes": 1024,
+            "metadata": {
+              "path": "/payments",
+              "authToken": "valid-token",
+              "authStatus": "valid",
+              "authScopes": ["api:access"],
+              "clientId": "mobile-client",
+              "partitionKey": "entity-3"
+            }
+          },
+          {
+            "type": "delivery-api",
+            "weight": 0.2,
+            "sizeBytes": 1024,
+            "metadata": {
+              "path": "/delivery",
+              "authToken": "valid-token",
+              "authStatus": "valid",
+              "authScopes": ["api:access"],
+              "clientId": "mobile-client",
+              "partitionKey": "entity-4"
+            }
+          }
+        ]
+      }
+    },
+    "justify": [],
+    "scenarios": [
+      {
+        "id": "private-baseline",
+        "description": "Exercise four event-producing services and three independent consumer groups with one competing-consumer group.",
+        "seed": "food-delivery-kafka-event-processing-private-v1",
+        "pattern": "constant",
+        "durationSeconds": 5,
+        "warmupSeconds": 0,
+        "timeResolution": "microsecond",
+        "defaultTimeoutMs": 5000,
+        "traceSampleRatePercent": 10,
+        "baseRps": 8,
+        "readPercent": 80,
+        "requestSizeBytes": 1024,
+        "sourceNodeId": "source",
+        "requestDistribution": [
+          {
+            "type": "user-api",
+            "weight": 0.2,
+            "sizeBytes": 1024,
+            "metadata": {
+              "path": "/users",
+              "authToken": "valid-token",
+              "authStatus": "valid",
+              "authScopes": ["api:access"],
+              "clientId": "mobile-client",
+              "partitionKey": "entity-0"
+            }
+          },
+          {
+            "type": "restaurant-api",
+            "weight": 0.2,
+            "sizeBytes": 1024,
+            "metadata": {
+              "path": "/restaurants",
+              "authToken": "valid-token",
+              "authStatus": "valid",
+              "authScopes": ["api:access"],
+              "clientId": "mobile-client",
+              "partitionKey": "entity-1"
+            }
+          },
+          {
+            "type": "order-api",
+            "weight": 0.2,
+            "sizeBytes": 1024,
+            "metadata": {
+              "path": "/orders",
+              "authToken": "valid-token",
+              "authStatus": "valid",
+              "authScopes": ["api:access"],
+              "clientId": "mobile-client",
+              "partitionKey": "entity-2"
+            }
+          },
+          {
+            "type": "payment-api",
+            "weight": 0.2,
+            "sizeBytes": 1024,
+            "metadata": {
+              "path": "/payments",
+              "authToken": "valid-token",
+              "authStatus": "valid",
+              "authScopes": ["api:access"],
+              "clientId": "mobile-client",
+              "partitionKey": "entity-3"
+            }
+          },
+          {
+            "type": "delivery-api",
+            "weight": 0.2,
+            "sizeBytes": 1024,
+            "metadata": {
+              "path": "/delivery",
+              "authToken": "valid-token",
+              "authStatus": "valid",
+              "authScopes": ["api:access"],
+              "clientId": "mobile-client",
+              "partitionKey": "entity-4"
+            }
+          }
+        ],
+        "burstRps": 2500,
+        "burstDurationSeconds": 10,
+        "normalDurationSeconds": 20,
+        "spikeTimeSeconds": 20,
+        "spikeRps": 5000,
+        "spikeDurationSeconds": 10,
+        "sawtoothPeakRps": 3000,
+        "rampDurationSeconds": 20,
+        "diurnalPeakMultiplier": 2,
+        "keyspaceField": "",
+        "keyspaceSize": null,
+        "keyspaceSkew": null,
+        "faults": [],
+        "invariants": []
+      }
+    ],
+    "structuralRules": [
+      {
+        "id": "single-source",
+        "kind": "requires_single_source",
+        "description": "Use exactly one traffic source."
+      },
+      {
+        "id": "connected-graph",
+        "kind": "requires_connected_graph",
+        "description": "Keep every component connected to the architecture."
+      },
+      {
+        "id": "gateway-retained",
+        "kind": "requires_component",
+        "description": "Keep the API Gateway from the previous design.",
+        "componentType": "api-gateway",
+        "minCount": 1
+      },
+      {
+        "id": "async-event-publish",
+        "kind": "requires_edge",
+        "description": "Publish events from a service to the event stream asynchronously.",
+        "fromType": "microservice",
+        "toType": "stream",
+        "mode": "asynchronous"
+      }
+    ],
+    "semanticRules": [
+      {
+        "id": "balancer-in-middle",
+        "kind": "placement",
+        "points": 1,
+        "hardFail": true,
+        "description": "Place the load balancer between incoming traffic and the application servers.",
+        "componentType": "load-balancer",
+        "betweenFrom": "api-endpoint",
+        "betweenTo": "microservice"
+      },
+      {
+        "id": "queue-feeds-worker",
+        "kind": "placement",
+        "points": 1,
+        "hardFail": true,
+        "description": "Place the queue between the order service and a background worker that consumes it.",
+        "componentType": "queue",
+        "betweenFrom": "microservice",
+        "betweenTo": "batch-worker"
+      },
+      {
+        "id": "stream-feeds-consumers",
+        "kind": "placement",
+        "points": 1,
+        "hardFail": true,
+        "description": "Place the event stream between the producing services and the consumers that read it.",
+        "componentType": "stream",
+        "betweenFrom": "microservice",
+        "betweenTo": "batch-worker"
+      }
+    ],
+    "metricRules": [],
+    "rubricChecks": [
+      {
+        "id": "groups-receive-events",
+        "metric": "stream.groupsWithDeliveries",
+        "op": ">=",
+        "value": 3,
+        "points": 3,
+        "description": "Notifications, activity, and analytics must each receive events independently."
+      }
+    ]
+  },
+  "assets": {
+    "referenceTopology": {
+      "id": "food-delivery-kafka-event-processing-solution",
+      "name": "Food Delivery Kafka Event Processing - Reference Solution",
+      "version": "2.1.0",
+      "global": {
+        "simulationDuration": 5000,
+        "seed": "food-delivery-kafka-event-processing-private-v1",
+        "warmupDuration": 0,
+        "timeResolution": "microsecond",
+        "defaultTimeout": 5000,
+        "traceSampleRate": 0.1
+      },
+      "nodes": [
+        {
+          "id": "source",
+          "type": "api-endpoint",
+          "category": "compute",
+          "role": "source",
+          "label": "Source",
+          "position": {
+            "x": 40,
+            "y": 360
+          },
+          "queue": {
+            "workers": 8,
+            "capacity": 1000,
+            "discipline": "fifo"
+          },
+          "processing": {
+            "distribution": {
+              "type": "constant",
+              "value": 2
+            },
+            "timeout": 5000
+          },
+          "config": {}
+        },
+        {
+          "id": "api-gateway",
+          "type": "api-gateway",
+          "category": "network-and-edge",
+          "role": "router",
+          "label": "Api Gateway",
+          "position": {
+            "x": 220,
+            "y": 360
+          },
+          "queue": {
+            "workers": 8,
+            "capacity": 1000,
+            "discipline": "fifo"
+          },
+          "processing": {
+            "distribution": {
+              "type": "constant",
+              "value": 2
+            },
+            "timeout": 5000
+          },
+          "config": {
+            "authenticationEnabled": true,
+            "authRequiredScopes": "api:access",
+            "algorithm": "sliding-window",
+            "limit": 100,
+            "windowMs": 1000,
+            "rateLimitKeyField": "clientId",
+            "contentRouteFailurePolicy": "reject",
+            "routingRules": [
+              {
+                "matchField": "path",
+                "matchOperator": "prefix",
+                "matchValue": "/users",
+                "targetNodeId": "user-service"
+              },
+              {
+                "matchField": "path",
+                "matchOperator": "prefix",
+                "matchValue": "/restaurants",
+                "targetNodeId": "restaurant-service"
+              },
+              {
+                "matchField": "path",
+                "matchOperator": "prefix",
+                "matchValue": "/orders",
+                "targetNodeId": "order-service"
+              },
+              {
+                "matchField": "path",
+                "matchOperator": "prefix",
+                "matchValue": "/payments",
+                "targetNodeId": "payment-service"
+              },
+              {
+                "matchField": "path",
+                "matchOperator": "prefix",
+                "matchValue": "/delivery",
+                "targetNodeId": "delivery-service"
+              }
+            ]
+          }
+        },
+        {
+          "id": "user-service",
+          "type": "microservice",
+          "category": "compute",
+          "role": "processor",
+          "label": "User Service",
+          "position": {
+            "x": 500,
+            "y": 80
+          },
+          "queue": {
+            "workers": 8,
+            "capacity": 1000,
+            "discipline": "fifo"
+          },
+          "processing": {
+            "distribution": {
+              "type": "constant",
+              "value": 2
+            },
+            "timeout": 5000
+          },
+          "config": {
+            "routingStrategy": "broadcast"
+          }
+        },
+        {
+          "id": "restaurant-service",
+          "type": "microservice",
+          "category": "compute",
+          "role": "processor",
+          "label": "Restaurant Service",
+          "position": {
+            "x": 500,
+            "y": 220
+          },
+          "queue": {
+            "workers": 8,
+            "capacity": 1000,
+            "discipline": "fifo"
+          },
+          "processing": {
+            "distribution": {
+              "type": "constant",
+              "value": 2
+            },
+            "timeout": 5000
+          },
+          "config": {}
+        },
+        {
+          "id": "order-service",
+          "type": "microservice",
+          "category": "compute",
+          "role": "processor",
+          "label": "Order Service",
+          "position": {
+            "x": 500,
+            "y": 360
+          },
+          "queue": {
+            "workers": 8,
+            "capacity": 1000,
+            "discipline": "fifo"
+          },
+          "processing": {
+            "distribution": {
+              "type": "constant",
+              "value": 2
+            },
+            "timeout": 5000
+          },
+          "config": {
+            "routingStrategy": "broadcast"
+          }
+        },
+        {
+          "id": "payment-service",
+          "type": "microservice",
+          "category": "compute",
+          "role": "processor",
+          "label": "Payment Service",
+          "position": {
+            "x": 500,
+            "y": 500
+          },
+          "queue": {
+            "workers": 8,
+            "capacity": 1000,
+            "discipline": "fifo"
+          },
+          "processing": {
+            "distribution": {
+              "type": "constant",
+              "value": 2
+            },
+            "timeout": 5000
+          },
+          "config": {
+            "routingStrategy": "broadcast"
+          }
+        },
+        {
+          "id": "delivery-service",
+          "type": "microservice",
+          "category": "compute",
+          "role": "processor",
+          "label": "Delivery Service",
+          "position": {
+            "x": 500,
+            "y": 640
+          },
+          "queue": {
+            "workers": 8,
+            "capacity": 1000,
+            "discipline": "fifo"
+          },
+          "processing": {
+            "distribution": {
+              "type": "constant",
+              "value": 2
+            },
+            "timeout": 5000
+          },
+          "config": {
+            "routingStrategy": "broadcast"
+          }
+        },
+        {
+          "id": "order-load-balancer",
+          "type": "load-balancer-l7",
+          "category": "network-and-edge",
+          "role": "router",
+          "label": "Order Load Balancer",
+          "position": {
+            "x": 730,
+            "y": 360
+          },
+          "queue": {
+            "workers": 8,
+            "capacity": 1000,
+            "discipline": "fifo"
+          },
+          "processing": {
+            "distribution": {
+              "type": "constant",
+              "value": 2
+            },
+            "timeout": 5000
+          },
+          "config": {
+            "routingStrategy": "round-robin"
+          }
+        },
+        {
+          "id": "order-app-a",
+          "type": "microservice",
+          "category": "compute",
+          "role": "processor",
+          "label": "Order App A",
+          "position": {
+            "x": 930,
+            "y": 300
+          },
+          "queue": {
+            "workers": 8,
+            "capacity": 1000,
+            "discipline": "fifo"
+          },
+          "processing": {
+            "distribution": {
+              "type": "constant",
+              "value": 2
+            },
+            "timeout": 5000
+          },
+          "config": {}
+        },
+        {
+          "id": "order-app-b",
+          "type": "microservice",
+          "category": "compute",
+          "role": "processor",
+          "label": "Order App B",
+          "position": {
+            "x": 930,
+            "y": 420
+          },
+          "queue": {
+            "workers": 8,
+            "capacity": 1000,
+            "discipline": "fifo"
+          },
+          "processing": {
+            "distribution": {
+              "type": "constant",
+              "value": 2
+            },
+            "timeout": 5000
+          },
+          "config": {}
+        },
+        {
+          "id": "order-queue",
+          "type": "queue",
+          "category": "messaging-and-streaming",
+          "role": "processor",
+          "label": "Order Queue",
+          "position": {
+            "x": 780,
+            "y": 600
+          },
+          "queue": {
+            "workers": 8,
+            "capacity": 1000,
+            "discipline": "fifo"
+          },
+          "processing": {
+            "distribution": {
+              "type": "constant",
+              "value": 2
+            },
+            "timeout": 5000
+          },
+          "config": {
+            "deliverySemantics": "at-least-once",
+            "visibilityTimeoutMs": 10,
+            "maxReceiveCount": 3
+          }
+        },
+        {
+          "id": "order-worker",
+          "type": "batch-worker",
+          "category": "compute",
+          "role": "processor",
+          "label": "Order Worker",
+          "position": {
+            "x": 980,
+            "y": 600
+          },
+          "queue": {
+            "workers": 8,
+            "capacity": 1000,
+            "discipline": "fifo"
+          },
+          "processing": {
+            "distribution": {
+              "type": "constant",
+              "value": 2
+            },
+            "timeout": 5000
+          },
+          "config": {}
+        },
+        {
+          "id": "delivery-partner-pool",
+          "type": "microservice",
+          "category": "compute",
+          "role": "processor",
+          "label": "Delivery Partner Pool",
+          "position": {
+            "x": 1180,
+            "y": 600
+          },
+          "queue": {
+            "workers": 8,
+            "capacity": 1000,
+            "discipline": "fifo"
+          },
+          "processing": {
+            "distribution": {
+              "type": "constant",
+              "value": 2
+            },
+            "timeout": 5000
+          },
+          "config": {
+            "partnerPoolEnabled": true,
+            "partnerCapacity": 3,
+            "partnerUnavailableUntilMs": 600,
+            "partnerMatchMs": 5
+          }
+        },
+        {
+          "id": "event-stream",
+          "type": "stream",
+          "category": "messaging-and-streaming",
+          "role": "processor",
+          "label": "Event Stream",
+          "position": {
+            "x": 900,
+            "y": 120
+          },
+          "queue": {
+            "workers": 8,
+            "capacity": 1000,
+            "discipline": "fifo"
+          },
+          "processing": {
+            "distribution": {
+              "type": "constant",
+              "value": 2
+            },
+            "timeout": 5000
+          },
+          "config": {
+            "streamBrokerEnabled": true,
+            "consumerGroupMode": true,
+            "partitionCount": 4,
+            "partitionKeyField": "partitionKey",
+            "retentionMs": 60000
+          }
+        },
+        {
+          "id": "notification-a",
+          "type": "batch-worker",
+          "category": "compute",
+          "role": "processor",
+          "label": "Notification A",
+          "position": {
+            "x": 1160,
+            "y": 40
+          },
+          "queue": {
+            "workers": 8,
+            "capacity": 1000,
+            "discipline": "fifo"
+          },
+          "processing": {
+            "distribution": {
+              "type": "constant",
+              "value": 2
+            },
+            "timeout": 5000
+          },
+          "config": {
+            "consumerGroup": "notifications"
+          }
+        },
+        {
+          "id": "notification-b",
+          "type": "batch-worker",
+          "category": "compute",
+          "role": "processor",
+          "label": "Notification B",
+          "position": {
+            "x": 1160,
+            "y": 140
+          },
+          "queue": {
+            "workers": 8,
+            "capacity": 1000,
+            "discipline": "fifo"
+          },
+          "processing": {
+            "distribution": {
+              "type": "constant",
+              "value": 2
+            },
+            "timeout": 5000
+          },
+          "config": {
+            "consumerGroup": "notifications"
+          }
+        },
+        {
+          "id": "activity-consumer",
+          "type": "batch-worker",
+          "category": "compute",
+          "role": "processor",
+          "label": "Activity Consumer",
+          "position": {
+            "x": 1160,
+            "y": 240
+          },
+          "queue": {
+            "workers": 8,
+            "capacity": 1000,
+            "discipline": "fifo"
+          },
+          "processing": {
+            "distribution": {
+              "type": "constant",
+              "value": 2
+            },
+            "timeout": 5000
+          },
+          "config": {
+            "consumerGroup": "activity"
+          }
+        },
+        {
+          "id": "analytics-consumer",
+          "type": "streaming-analytics",
+          "category": "data-infra-and-analytics",
+          "role": "processor",
+          "label": "Analytics Consumer",
+          "position": {
+            "x": 1160,
+            "y": 340
+          },
+          "queue": {
+            "workers": 8,
+            "capacity": 1000,
+            "discipline": "fifo"
+          },
+          "processing": {
+            "distribution": {
+              "type": "constant",
+              "value": 2
+            },
+            "timeout": 5000
+          },
+          "config": {
+            "consumerGroup": "analytics"
+          }
+        }
+      ],
+      "edges": [
+        {
+          "id": "source-to-api-gateway",
+          "source": "source",
+          "target": "api-gateway",
+          "mode": "synchronous",
+          "protocol": "https",
+          "latency": {
+            "distribution": {
+              "type": "constant",
+              "value": 1
+            },
+            "pathType": "same-dc"
+          },
+          "bandwidth": 1000,
+          "maxConcurrentRequests": 10000,
+          "packetLossRate": 0,
+          "errorRate": 0
+        },
+        {
+          "id": "api-gateway-to-user-service",
+          "source": "api-gateway",
+          "target": "user-service",
+          "mode": "synchronous",
+          "protocol": "https",
+          "latency": {
+            "distribution": {
+              "type": "constant",
+              "value": 1
+            },
+            "pathType": "same-dc"
+          },
+          "bandwidth": 1000,
+          "maxConcurrentRequests": 10000,
+          "packetLossRate": 0,
+          "errorRate": 0
+        },
+        {
+          "id": "api-gateway-to-restaurant-service",
+          "source": "api-gateway",
+          "target": "restaurant-service",
+          "mode": "synchronous",
+          "protocol": "https",
+          "latency": {
+            "distribution": {
+              "type": "constant",
+              "value": 1
+            },
+            "pathType": "same-dc"
+          },
+          "bandwidth": 1000,
+          "maxConcurrentRequests": 10000,
+          "packetLossRate": 0,
+          "errorRate": 0
+        },
+        {
+          "id": "api-gateway-to-order-service",
+          "source": "api-gateway",
+          "target": "order-service",
+          "mode": "synchronous",
+          "protocol": "https",
+          "latency": {
+            "distribution": {
+              "type": "constant",
+              "value": 1
+            },
+            "pathType": "same-dc"
+          },
+          "bandwidth": 1000,
+          "maxConcurrentRequests": 10000,
+          "packetLossRate": 0,
+          "errorRate": 0
+        },
+        {
+          "id": "api-gateway-to-payment-service",
+          "source": "api-gateway",
+          "target": "payment-service",
+          "mode": "synchronous",
+          "protocol": "https",
+          "latency": {
+            "distribution": {
+              "type": "constant",
+              "value": 1
+            },
+            "pathType": "same-dc"
+          },
+          "bandwidth": 1000,
+          "maxConcurrentRequests": 10000,
+          "packetLossRate": 0,
+          "errorRate": 0
+        },
+        {
+          "id": "api-gateway-to-delivery-service",
+          "source": "api-gateway",
+          "target": "delivery-service",
+          "mode": "synchronous",
+          "protocol": "https",
+          "latency": {
+            "distribution": {
+              "type": "constant",
+              "value": 1
+            },
+            "pathType": "same-dc"
+          },
+          "bandwidth": 1000,
+          "maxConcurrentRequests": 10000,
+          "packetLossRate": 0,
+          "errorRate": 0
+        },
+        {
+          "id": "order-service-to-order-load-balancer",
+          "source": "order-service",
+          "target": "order-load-balancer",
+          "mode": "synchronous",
+          "protocol": "https",
+          "latency": {
+            "distribution": {
+              "type": "constant",
+              "value": 1
+            },
+            "pathType": "same-dc"
+          },
+          "bandwidth": 1000,
+          "maxConcurrentRequests": 10000,
+          "packetLossRate": 0,
+          "errorRate": 0
+        },
+        {
+          "id": "order-load-balancer-to-order-app-a",
+          "source": "order-load-balancer",
+          "target": "order-app-a",
+          "mode": "synchronous",
+          "protocol": "https",
+          "latency": {
+            "distribution": {
+              "type": "constant",
+              "value": 1
+            },
+            "pathType": "same-dc"
+          },
+          "bandwidth": 1000,
+          "maxConcurrentRequests": 10000,
+          "packetLossRate": 0,
+          "errorRate": 0
+        },
+        {
+          "id": "order-load-balancer-to-order-app-b",
+          "source": "order-load-balancer",
+          "target": "order-app-b",
+          "mode": "synchronous",
+          "protocol": "https",
+          "latency": {
+            "distribution": {
+              "type": "constant",
+              "value": 1
+            },
+            "pathType": "same-dc"
+          },
+          "bandwidth": 1000,
+          "maxConcurrentRequests": 10000,
+          "packetLossRate": 0,
+          "errorRate": 0
+        },
+        {
+          "id": "order-app-a-to-order-queue",
+          "source": "order-app-a",
+          "target": "order-queue",
+          "mode": "asynchronous",
+          "protocol": "tcp",
+          "latency": {
+            "distribution": {
+              "type": "constant",
+              "value": 1
+            },
+            "pathType": "same-dc"
+          },
+          "bandwidth": 1000,
+          "maxConcurrentRequests": 10000,
+          "packetLossRate": 0,
+          "errorRate": 0
+        },
+        {
+          "id": "order-app-b-to-order-queue",
+          "source": "order-app-b",
+          "target": "order-queue",
+          "mode": "asynchronous",
+          "protocol": "tcp",
+          "latency": {
+            "distribution": {
+              "type": "constant",
+              "value": 1
+            },
+            "pathType": "same-dc"
+          },
+          "bandwidth": 1000,
+          "maxConcurrentRequests": 10000,
+          "packetLossRate": 0,
+          "errorRate": 0
+        },
+        {
+          "id": "order-queue-to-order-worker",
+          "source": "order-queue",
+          "target": "order-worker",
+          "mode": "asynchronous",
+          "protocol": "tcp",
+          "latency": {
+            "distribution": {
+              "type": "constant",
+              "value": 1
+            },
+            "pathType": "same-dc"
+          },
+          "bandwidth": 1000,
+          "maxConcurrentRequests": 10000,
+          "packetLossRate": 0,
+          "errorRate": 0
+        },
+        {
+          "id": "order-worker-to-delivery-partner-pool",
+          "source": "order-worker",
+          "target": "delivery-partner-pool",
+          "mode": "synchronous",
+          "protocol": "https",
+          "latency": {
+            "distribution": {
+              "type": "constant",
+              "value": 1
+            },
+            "pathType": "same-dc"
+          },
+          "bandwidth": 1000,
+          "maxConcurrentRequests": 10000,
+          "packetLossRate": 0,
+          "errorRate": 0
+        },
+        {
+          "id": "user-service-to-event-stream",
+          "source": "user-service",
+          "target": "event-stream",
+          "mode": "asynchronous",
+          "protocol": "tcp",
+          "latency": {
+            "distribution": {
+              "type": "constant",
+              "value": 1
+            },
+            "pathType": "same-dc"
+          },
+          "bandwidth": 1000,
+          "maxConcurrentRequests": 10000,
+          "packetLossRate": 0,
+          "errorRate": 0
+        },
+        {
+          "id": "order-service-to-event-stream",
+          "source": "order-service",
+          "target": "event-stream",
+          "mode": "asynchronous",
+          "protocol": "tcp",
+          "latency": {
+            "distribution": {
+              "type": "constant",
+              "value": 1
+            },
+            "pathType": "same-dc"
+          },
+          "bandwidth": 1000,
+          "maxConcurrentRequests": 10000,
+          "packetLossRate": 0,
+          "errorRate": 0
+        },
+        {
+          "id": "payment-service-to-event-stream",
+          "source": "payment-service",
+          "target": "event-stream",
+          "mode": "asynchronous",
+          "protocol": "tcp",
+          "latency": {
+            "distribution": {
+              "type": "constant",
+              "value": 1
+            },
+            "pathType": "same-dc"
+          },
+          "bandwidth": 1000,
+          "maxConcurrentRequests": 10000,
+          "packetLossRate": 0,
+          "errorRate": 0
+        },
+        {
+          "id": "delivery-service-to-event-stream",
+          "source": "delivery-service",
+          "target": "event-stream",
+          "mode": "asynchronous",
+          "protocol": "tcp",
+          "latency": {
+            "distribution": {
+              "type": "constant",
+              "value": 1
+            },
+            "pathType": "same-dc"
+          },
+          "bandwidth": 1000,
+          "maxConcurrentRequests": 10000,
+          "packetLossRate": 0,
+          "errorRate": 0
+        },
+        {
+          "id": "event-stream-to-notification-a",
+          "source": "event-stream",
+          "target": "notification-a",
+          "mode": "asynchronous",
+          "protocol": "tcp",
+          "latency": {
+            "distribution": {
+              "type": "constant",
+              "value": 1
+            },
+            "pathType": "same-dc"
+          },
+          "bandwidth": 1000,
+          "maxConcurrentRequests": 10000,
+          "packetLossRate": 0,
+          "errorRate": 0
+        },
+        {
+          "id": "event-stream-to-notification-b",
+          "source": "event-stream",
+          "target": "notification-b",
+          "mode": "asynchronous",
+          "protocol": "tcp",
+          "latency": {
+            "distribution": {
+              "type": "constant",
+              "value": 1
+            },
+            "pathType": "same-dc"
+          },
+          "bandwidth": 1000,
+          "maxConcurrentRequests": 10000,
+          "packetLossRate": 0,
+          "errorRate": 0
+        },
+        {
+          "id": "event-stream-to-activity-consumer",
+          "source": "event-stream",
+          "target": "activity-consumer",
+          "mode": "asynchronous",
+          "protocol": "tcp",
+          "latency": {
+            "distribution": {
+              "type": "constant",
+              "value": 1
+            },
+            "pathType": "same-dc"
+          },
+          "bandwidth": 1000,
+          "maxConcurrentRequests": 10000,
+          "packetLossRate": 0,
+          "errorRate": 0
+        },
+        {
+          "id": "event-stream-to-analytics-consumer",
+          "source": "event-stream",
+          "target": "analytics-consumer",
+          "mode": "asynchronous",
+          "protocol": "tcp",
+          "latency": {
+            "distribution": {
+              "type": "constant",
+              "value": 1
+            },
+            "pathType": "same-dc"
+          },
+          "bandwidth": 1000,
+          "maxConcurrentRequests": 10000,
+          "packetLossRate": 0,
+          "errorRate": 0
+        }
+      ],
+      "workload": {
+        "sourceNodeId": "source",
+        "pattern": "constant",
+        "baseRps": 8,
+        "requestDistribution": [
+          {
+            "type": "user-api",
+            "weight": 0.2,
+            "sizeBytes": 1024,
+            "metadata": {
+              "path": "/users",
+              "authToken": "valid-token",
+              "authStatus": "valid",
+              "authScopes": ["api:access"],
+              "clientId": "mobile-client",
+              "partitionKey": "entity-0"
+            }
+          },
+          {
+            "type": "restaurant-api",
+            "weight": 0.2,
+            "sizeBytes": 1024,
+            "metadata": {
+              "path": "/restaurants",
+              "authToken": "valid-token",
+              "authStatus": "valid",
+              "authScopes": ["api:access"],
+              "clientId": "mobile-client",
+              "partitionKey": "entity-1"
+            }
+          },
+          {
+            "type": "order-api",
+            "weight": 0.2,
+            "sizeBytes": 1024,
+            "metadata": {
+              "path": "/orders",
+              "authToken": "valid-token",
+              "authStatus": "valid",
+              "authScopes": ["api:access"],
+              "clientId": "mobile-client",
+              "partitionKey": "entity-2"
+            }
+          },
+          {
+            "type": "payment-api",
+            "weight": 0.2,
+            "sizeBytes": 1024,
+            "metadata": {
+              "path": "/payments",
+              "authToken": "valid-token",
+              "authStatus": "valid",
+              "authScopes": ["api:access"],
+              "clientId": "mobile-client",
+              "partitionKey": "entity-3"
+            }
+          },
+          {
+            "type": "delivery-api",
+            "weight": 0.2,
+            "sizeBytes": 1024,
+            "metadata": {
+              "path": "/delivery",
+              "authToken": "valid-token",
+              "authStatus": "valid",
+              "authScopes": ["api:access"],
+              "clientId": "mobile-client",
+              "partitionKey": "entity-4"
+            }
+          }
+        ]
+      }
+    },
+    "gamedTopologies": [
+      {
+        "id": "competing-only",
+        "label": "One competing consumer pool",
+        "misconception": "Multiple consumers automatically receive independent copies of every event.",
+        "expectedObligationId": "groups-receive-events",
+        "topology": {
+          "id": "food-delivery-kafka-event-processing-solution",
+          "name": "Food Delivery Kafka Event Processing - Reference Solution",
+          "version": "2.1.0",
+          "global": {
+            "simulationDuration": 5000,
+            "seed": "food-delivery-kafka-event-processing-private-v1",
+            "warmupDuration": 0,
+            "timeResolution": "microsecond",
+            "defaultTimeout": 5000,
+            "traceSampleRate": 0.1
+          },
+          "nodes": [
+            {
+              "id": "source",
+              "type": "api-endpoint",
+              "category": "compute",
+              "role": "source",
+              "label": "Source",
+              "position": {
+                "x": 40,
+                "y": 360
+              },
+              "queue": {
+                "workers": 8,
+                "capacity": 1000,
+                "discipline": "fifo"
+              },
+              "processing": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 2
+                },
+                "timeout": 5000
+              },
+              "config": {}
+            },
+            {
+              "id": "api-gateway",
+              "type": "api-gateway",
+              "category": "network-and-edge",
+              "role": "router",
+              "label": "Api Gateway",
+              "position": {
+                "x": 220,
+                "y": 360
+              },
+              "queue": {
+                "workers": 8,
+                "capacity": 1000,
+                "discipline": "fifo"
+              },
+              "processing": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 2
+                },
+                "timeout": 5000
+              },
+              "config": {
+                "authenticationEnabled": true,
+                "authRequiredScopes": "api:access",
+                "algorithm": "sliding-window",
+                "limit": 100,
+                "windowMs": 1000,
+                "rateLimitKeyField": "clientId",
+                "contentRouteFailurePolicy": "reject",
+                "routingRules": [
+                  {
+                    "matchField": "path",
+                    "matchOperator": "prefix",
+                    "matchValue": "/users",
+                    "targetNodeId": "user-service"
+                  },
+                  {
+                    "matchField": "path",
+                    "matchOperator": "prefix",
+                    "matchValue": "/restaurants",
+                    "targetNodeId": "restaurant-service"
+                  },
+                  {
+                    "matchField": "path",
+                    "matchOperator": "prefix",
+                    "matchValue": "/orders",
+                    "targetNodeId": "order-service"
+                  },
+                  {
+                    "matchField": "path",
+                    "matchOperator": "prefix",
+                    "matchValue": "/payments",
+                    "targetNodeId": "payment-service"
+                  },
+                  {
+                    "matchField": "path",
+                    "matchOperator": "prefix",
+                    "matchValue": "/delivery",
+                    "targetNodeId": "delivery-service"
+                  }
+                ]
+              }
+            },
+            {
+              "id": "user-service",
+              "type": "microservice",
+              "category": "compute",
+              "role": "processor",
+              "label": "User Service",
+              "position": {
+                "x": 500,
+                "y": 80
+              },
+              "queue": {
+                "workers": 8,
+                "capacity": 1000,
+                "discipline": "fifo"
+              },
+              "processing": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 2
+                },
+                "timeout": 5000
+              },
+              "config": {
+                "routingStrategy": "broadcast"
+              }
+            },
+            {
+              "id": "restaurant-service",
+              "type": "microservice",
+              "category": "compute",
+              "role": "processor",
+              "label": "Restaurant Service",
+              "position": {
+                "x": 500,
+                "y": 220
+              },
+              "queue": {
+                "workers": 8,
+                "capacity": 1000,
+                "discipline": "fifo"
+              },
+              "processing": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 2
+                },
+                "timeout": 5000
+              },
+              "config": {}
+            },
+            {
+              "id": "order-service",
+              "type": "microservice",
+              "category": "compute",
+              "role": "processor",
+              "label": "Order Service",
+              "position": {
+                "x": 500,
+                "y": 360
+              },
+              "queue": {
+                "workers": 8,
+                "capacity": 1000,
+                "discipline": "fifo"
+              },
+              "processing": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 2
+                },
+                "timeout": 5000
+              },
+              "config": {
+                "routingStrategy": "broadcast"
+              }
+            },
+            {
+              "id": "payment-service",
+              "type": "microservice",
+              "category": "compute",
+              "role": "processor",
+              "label": "Payment Service",
+              "position": {
+                "x": 500,
+                "y": 500
+              },
+              "queue": {
+                "workers": 8,
+                "capacity": 1000,
+                "discipline": "fifo"
+              },
+              "processing": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 2
+                },
+                "timeout": 5000
+              },
+              "config": {
+                "routingStrategy": "broadcast"
+              }
+            },
+            {
+              "id": "delivery-service",
+              "type": "microservice",
+              "category": "compute",
+              "role": "processor",
+              "label": "Delivery Service",
+              "position": {
+                "x": 500,
+                "y": 640
+              },
+              "queue": {
+                "workers": 8,
+                "capacity": 1000,
+                "discipline": "fifo"
+              },
+              "processing": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 2
+                },
+                "timeout": 5000
+              },
+              "config": {
+                "routingStrategy": "broadcast"
+              }
+            },
+            {
+              "id": "order-load-balancer",
+              "type": "load-balancer-l7",
+              "category": "network-and-edge",
+              "role": "router",
+              "label": "Order Load Balancer",
+              "position": {
+                "x": 730,
+                "y": 360
+              },
+              "queue": {
+                "workers": 8,
+                "capacity": 1000,
+                "discipline": "fifo"
+              },
+              "processing": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 2
+                },
+                "timeout": 5000
+              },
+              "config": {
+                "routingStrategy": "round-robin"
+              }
+            },
+            {
+              "id": "order-app-a",
+              "type": "microservice",
+              "category": "compute",
+              "role": "processor",
+              "label": "Order App A",
+              "position": {
+                "x": 930,
+                "y": 300
+              },
+              "queue": {
+                "workers": 8,
+                "capacity": 1000,
+                "discipline": "fifo"
+              },
+              "processing": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 2
+                },
+                "timeout": 5000
+              },
+              "config": {}
+            },
+            {
+              "id": "order-app-b",
+              "type": "microservice",
+              "category": "compute",
+              "role": "processor",
+              "label": "Order App B",
+              "position": {
+                "x": 930,
+                "y": 420
+              },
+              "queue": {
+                "workers": 8,
+                "capacity": 1000,
+                "discipline": "fifo"
+              },
+              "processing": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 2
+                },
+                "timeout": 5000
+              },
+              "config": {}
+            },
+            {
+              "id": "order-queue",
+              "type": "queue",
+              "category": "messaging-and-streaming",
+              "role": "processor",
+              "label": "Order Queue",
+              "position": {
+                "x": 780,
+                "y": 600
+              },
+              "queue": {
+                "workers": 8,
+                "capacity": 1000,
+                "discipline": "fifo"
+              },
+              "processing": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 2
+                },
+                "timeout": 5000
+              },
+              "config": {
+                "deliverySemantics": "at-least-once",
+                "visibilityTimeoutMs": 10,
+                "maxReceiveCount": 3
+              }
+            },
+            {
+              "id": "order-worker",
+              "type": "batch-worker",
+              "category": "compute",
+              "role": "processor",
+              "label": "Order Worker",
+              "position": {
+                "x": 980,
+                "y": 600
+              },
+              "queue": {
+                "workers": 8,
+                "capacity": 1000,
+                "discipline": "fifo"
+              },
+              "processing": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 2
+                },
+                "timeout": 5000
+              },
+              "config": {}
+            },
+            {
+              "id": "delivery-partner-pool",
+              "type": "microservice",
+              "category": "compute",
+              "role": "processor",
+              "label": "Delivery Partner Pool",
+              "position": {
+                "x": 1180,
+                "y": 600
+              },
+              "queue": {
+                "workers": 8,
+                "capacity": 1000,
+                "discipline": "fifo"
+              },
+              "processing": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 2
+                },
+                "timeout": 5000
+              },
+              "config": {
+                "partnerPoolEnabled": true,
+                "partnerCapacity": 3,
+                "partnerUnavailableUntilMs": 600,
+                "partnerMatchMs": 5
+              }
+            },
+            {
+              "id": "event-stream",
+              "type": "stream",
+              "category": "messaging-and-streaming",
+              "role": "processor",
+              "label": "Event Stream",
+              "position": {
+                "x": 900,
+                "y": 120
+              },
+              "queue": {
+                "workers": 8,
+                "capacity": 1000,
+                "discipline": "fifo"
+              },
+              "processing": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 2
+                },
+                "timeout": 5000
+              },
+              "config": {
+                "streamBrokerEnabled": true,
+                "consumerGroupMode": false,
+                "partitionCount": 4,
+                "partitionKeyField": "partitionKey",
+                "retentionMs": 60000
+              }
+            },
+            {
+              "id": "notification-a",
+              "type": "batch-worker",
+              "category": "compute",
+              "role": "processor",
+              "label": "Notification A",
+              "position": {
+                "x": 1160,
+                "y": 40
+              },
+              "queue": {
+                "workers": 8,
+                "capacity": 1000,
+                "discipline": "fifo"
+              },
+              "processing": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 2
+                },
+                "timeout": 5000
+              },
+              "config": {
+                "consumerGroup": "notifications"
+              }
+            },
+            {
+              "id": "notification-b",
+              "type": "batch-worker",
+              "category": "compute",
+              "role": "processor",
+              "label": "Notification B",
+              "position": {
+                "x": 1160,
+                "y": 140
+              },
+              "queue": {
+                "workers": 8,
+                "capacity": 1000,
+                "discipline": "fifo"
+              },
+              "processing": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 2
+                },
+                "timeout": 5000
+              },
+              "config": {
+                "consumerGroup": "notifications"
+              }
+            },
+            {
+              "id": "activity-consumer",
+              "type": "batch-worker",
+              "category": "compute",
+              "role": "processor",
+              "label": "Activity Consumer",
+              "position": {
+                "x": 1160,
+                "y": 240
+              },
+              "queue": {
+                "workers": 8,
+                "capacity": 1000,
+                "discipline": "fifo"
+              },
+              "processing": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 2
+                },
+                "timeout": 5000
+              },
+              "config": {
+                "consumerGroup": "activity"
+              }
+            },
+            {
+              "id": "analytics-consumer",
+              "type": "streaming-analytics",
+              "category": "data-infra-and-analytics",
+              "role": "processor",
+              "label": "Analytics Consumer",
+              "position": {
+                "x": 1160,
+                "y": 340
+              },
+              "queue": {
+                "workers": 8,
+                "capacity": 1000,
+                "discipline": "fifo"
+              },
+              "processing": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 2
+                },
+                "timeout": 5000
+              },
+              "config": {
+                "consumerGroup": "analytics"
+              }
+            }
+          ],
+          "edges": [
+            {
+              "id": "source-to-api-gateway",
+              "source": "source",
+              "target": "api-gateway",
+              "mode": "synchronous",
+              "protocol": "https",
+              "latency": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 1
+                },
+                "pathType": "same-dc"
+              },
+              "bandwidth": 1000,
+              "maxConcurrentRequests": 10000,
+              "packetLossRate": 0,
+              "errorRate": 0
+            },
+            {
+              "id": "api-gateway-to-user-service",
+              "source": "api-gateway",
+              "target": "user-service",
+              "mode": "synchronous",
+              "protocol": "https",
+              "latency": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 1
+                },
+                "pathType": "same-dc"
+              },
+              "bandwidth": 1000,
+              "maxConcurrentRequests": 10000,
+              "packetLossRate": 0,
+              "errorRate": 0
+            },
+            {
+              "id": "api-gateway-to-restaurant-service",
+              "source": "api-gateway",
+              "target": "restaurant-service",
+              "mode": "synchronous",
+              "protocol": "https",
+              "latency": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 1
+                },
+                "pathType": "same-dc"
+              },
+              "bandwidth": 1000,
+              "maxConcurrentRequests": 10000,
+              "packetLossRate": 0,
+              "errorRate": 0
+            },
+            {
+              "id": "api-gateway-to-order-service",
+              "source": "api-gateway",
+              "target": "order-service",
+              "mode": "synchronous",
+              "protocol": "https",
+              "latency": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 1
+                },
+                "pathType": "same-dc"
+              },
+              "bandwidth": 1000,
+              "maxConcurrentRequests": 10000,
+              "packetLossRate": 0,
+              "errorRate": 0
+            },
+            {
+              "id": "api-gateway-to-payment-service",
+              "source": "api-gateway",
+              "target": "payment-service",
+              "mode": "synchronous",
+              "protocol": "https",
+              "latency": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 1
+                },
+                "pathType": "same-dc"
+              },
+              "bandwidth": 1000,
+              "maxConcurrentRequests": 10000,
+              "packetLossRate": 0,
+              "errorRate": 0
+            },
+            {
+              "id": "api-gateway-to-delivery-service",
+              "source": "api-gateway",
+              "target": "delivery-service",
+              "mode": "synchronous",
+              "protocol": "https",
+              "latency": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 1
+                },
+                "pathType": "same-dc"
+              },
+              "bandwidth": 1000,
+              "maxConcurrentRequests": 10000,
+              "packetLossRate": 0,
+              "errorRate": 0
+            },
+            {
+              "id": "order-service-to-order-load-balancer",
+              "source": "order-service",
+              "target": "order-load-balancer",
+              "mode": "synchronous",
+              "protocol": "https",
+              "latency": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 1
+                },
+                "pathType": "same-dc"
+              },
+              "bandwidth": 1000,
+              "maxConcurrentRequests": 10000,
+              "packetLossRate": 0,
+              "errorRate": 0
+            },
+            {
+              "id": "order-load-balancer-to-order-app-a",
+              "source": "order-load-balancer",
+              "target": "order-app-a",
+              "mode": "synchronous",
+              "protocol": "https",
+              "latency": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 1
+                },
+                "pathType": "same-dc"
+              },
+              "bandwidth": 1000,
+              "maxConcurrentRequests": 10000,
+              "packetLossRate": 0,
+              "errorRate": 0
+            },
+            {
+              "id": "order-load-balancer-to-order-app-b",
+              "source": "order-load-balancer",
+              "target": "order-app-b",
+              "mode": "synchronous",
+              "protocol": "https",
+              "latency": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 1
+                },
+                "pathType": "same-dc"
+              },
+              "bandwidth": 1000,
+              "maxConcurrentRequests": 10000,
+              "packetLossRate": 0,
+              "errorRate": 0
+            },
+            {
+              "id": "order-app-a-to-order-queue",
+              "source": "order-app-a",
+              "target": "order-queue",
+              "mode": "asynchronous",
+              "protocol": "tcp",
+              "latency": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 1
+                },
+                "pathType": "same-dc"
+              },
+              "bandwidth": 1000,
+              "maxConcurrentRequests": 10000,
+              "packetLossRate": 0,
+              "errorRate": 0
+            },
+            {
+              "id": "order-app-b-to-order-queue",
+              "source": "order-app-b",
+              "target": "order-queue",
+              "mode": "asynchronous",
+              "protocol": "tcp",
+              "latency": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 1
+                },
+                "pathType": "same-dc"
+              },
+              "bandwidth": 1000,
+              "maxConcurrentRequests": 10000,
+              "packetLossRate": 0,
+              "errorRate": 0
+            },
+            {
+              "id": "order-queue-to-order-worker",
+              "source": "order-queue",
+              "target": "order-worker",
+              "mode": "asynchronous",
+              "protocol": "tcp",
+              "latency": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 1
+                },
+                "pathType": "same-dc"
+              },
+              "bandwidth": 1000,
+              "maxConcurrentRequests": 10000,
+              "packetLossRate": 0,
+              "errorRate": 0
+            },
+            {
+              "id": "order-worker-to-delivery-partner-pool",
+              "source": "order-worker",
+              "target": "delivery-partner-pool",
+              "mode": "synchronous",
+              "protocol": "https",
+              "latency": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 1
+                },
+                "pathType": "same-dc"
+              },
+              "bandwidth": 1000,
+              "maxConcurrentRequests": 10000,
+              "packetLossRate": 0,
+              "errorRate": 0
+            },
+            {
+              "id": "user-service-to-event-stream",
+              "source": "user-service",
+              "target": "event-stream",
+              "mode": "asynchronous",
+              "protocol": "tcp",
+              "latency": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 1
+                },
+                "pathType": "same-dc"
+              },
+              "bandwidth": 1000,
+              "maxConcurrentRequests": 10000,
+              "packetLossRate": 0,
+              "errorRate": 0
+            },
+            {
+              "id": "order-service-to-event-stream",
+              "source": "order-service",
+              "target": "event-stream",
+              "mode": "asynchronous",
+              "protocol": "tcp",
+              "latency": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 1
+                },
+                "pathType": "same-dc"
+              },
+              "bandwidth": 1000,
+              "maxConcurrentRequests": 10000,
+              "packetLossRate": 0,
+              "errorRate": 0
+            },
+            {
+              "id": "payment-service-to-event-stream",
+              "source": "payment-service",
+              "target": "event-stream",
+              "mode": "asynchronous",
+              "protocol": "tcp",
+              "latency": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 1
+                },
+                "pathType": "same-dc"
+              },
+              "bandwidth": 1000,
+              "maxConcurrentRequests": 10000,
+              "packetLossRate": 0,
+              "errorRate": 0
+            },
+            {
+              "id": "delivery-service-to-event-stream",
+              "source": "delivery-service",
+              "target": "event-stream",
+              "mode": "asynchronous",
+              "protocol": "tcp",
+              "latency": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 1
+                },
+                "pathType": "same-dc"
+              },
+              "bandwidth": 1000,
+              "maxConcurrentRequests": 10000,
+              "packetLossRate": 0,
+              "errorRate": 0
+            },
+            {
+              "id": "event-stream-to-notification-a",
+              "source": "event-stream",
+              "target": "notification-a",
+              "mode": "asynchronous",
+              "protocol": "tcp",
+              "latency": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 1
+                },
+                "pathType": "same-dc"
+              },
+              "bandwidth": 1000,
+              "maxConcurrentRequests": 10000,
+              "packetLossRate": 0,
+              "errorRate": 0
+            },
+            {
+              "id": "event-stream-to-notification-b",
+              "source": "event-stream",
+              "target": "notification-b",
+              "mode": "asynchronous",
+              "protocol": "tcp",
+              "latency": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 1
+                },
+                "pathType": "same-dc"
+              },
+              "bandwidth": 1000,
+              "maxConcurrentRequests": 10000,
+              "packetLossRate": 0,
+              "errorRate": 0
+            },
+            {
+              "id": "event-stream-to-activity-consumer",
+              "source": "event-stream",
+              "target": "activity-consumer",
+              "mode": "asynchronous",
+              "protocol": "tcp",
+              "latency": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 1
+                },
+                "pathType": "same-dc"
+              },
+              "bandwidth": 1000,
+              "maxConcurrentRequests": 10000,
+              "packetLossRate": 0,
+              "errorRate": 0
+            },
+            {
+              "id": "event-stream-to-analytics-consumer",
+              "source": "event-stream",
+              "target": "analytics-consumer",
+              "mode": "asynchronous",
+              "protocol": "tcp",
+              "latency": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 1
+                },
+                "pathType": "same-dc"
+              },
+              "bandwidth": 1000,
+              "maxConcurrentRequests": 10000,
+              "packetLossRate": 0,
+              "errorRate": 0
+            }
+          ],
+          "workload": {
+            "sourceNodeId": "source",
+            "pattern": "constant",
+            "baseRps": 8,
+            "requestDistribution": [
+              {
+                "type": "user-api",
+                "weight": 0.2,
+                "sizeBytes": 1024,
+                "metadata": {
+                  "path": "/users",
+                  "authToken": "valid-token",
+                  "authStatus": "valid",
+                  "authScopes": ["api:access"],
+                  "clientId": "mobile-client",
+                  "partitionKey": "entity-0"
+                }
+              },
+              {
+                "type": "restaurant-api",
+                "weight": 0.2,
+                "sizeBytes": 1024,
+                "metadata": {
+                  "path": "/restaurants",
+                  "authToken": "valid-token",
+                  "authStatus": "valid",
+                  "authScopes": ["api:access"],
+                  "clientId": "mobile-client",
+                  "partitionKey": "entity-1"
+                }
+              },
+              {
+                "type": "order-api",
+                "weight": 0.2,
+                "sizeBytes": 1024,
+                "metadata": {
+                  "path": "/orders",
+                  "authToken": "valid-token",
+                  "authStatus": "valid",
+                  "authScopes": ["api:access"],
+                  "clientId": "mobile-client",
+                  "partitionKey": "entity-2"
+                }
+              },
+              {
+                "type": "payment-api",
+                "weight": 0.2,
+                "sizeBytes": 1024,
+                "metadata": {
+                  "path": "/payments",
+                  "authToken": "valid-token",
+                  "authStatus": "valid",
+                  "authScopes": ["api:access"],
+                  "clientId": "mobile-client",
+                  "partitionKey": "entity-3"
+                }
+              },
+              {
+                "type": "delivery-api",
+                "weight": 0.2,
+                "sizeBytes": 1024,
+                "metadata": {
+                  "path": "/delivery",
+                  "authToken": "valid-token",
+                  "authStatus": "valid",
+                  "authScopes": ["api:access"],
+                  "clientId": "mobile-client",
+                  "partitionKey": "entity-4"
+                }
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": "two-groups-only",
+        "label": "Missing analytics group",
+        "misconception": "Two background consumers are enough even though analytics is a separate obligation.",
+        "expectedObligationId": "groups-receive-events",
+        "topology": {
+          "id": "food-delivery-kafka-event-processing-solution",
+          "name": "Food Delivery Kafka Event Processing - Reference Solution",
+          "version": "2.1.0",
+          "global": {
+            "simulationDuration": 5000,
+            "seed": "food-delivery-kafka-event-processing-private-v1",
+            "warmupDuration": 0,
+            "timeResolution": "microsecond",
+            "defaultTimeout": 5000,
+            "traceSampleRate": 0.1
+          },
+          "nodes": [
+            {
+              "id": "source",
+              "type": "api-endpoint",
+              "category": "compute",
+              "role": "source",
+              "label": "Source",
+              "position": {
+                "x": 40,
+                "y": 360
+              },
+              "queue": {
+                "workers": 8,
+                "capacity": 1000,
+                "discipline": "fifo"
+              },
+              "processing": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 2
+                },
+                "timeout": 5000
+              },
+              "config": {}
+            },
+            {
+              "id": "api-gateway",
+              "type": "api-gateway",
+              "category": "network-and-edge",
+              "role": "router",
+              "label": "Api Gateway",
+              "position": {
+                "x": 220,
+                "y": 360
+              },
+              "queue": {
+                "workers": 8,
+                "capacity": 1000,
+                "discipline": "fifo"
+              },
+              "processing": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 2
+                },
+                "timeout": 5000
+              },
+              "config": {
+                "authenticationEnabled": true,
+                "authRequiredScopes": "api:access",
+                "algorithm": "sliding-window",
+                "limit": 100,
+                "windowMs": 1000,
+                "rateLimitKeyField": "clientId",
+                "contentRouteFailurePolicy": "reject",
+                "routingRules": [
+                  {
+                    "matchField": "path",
+                    "matchOperator": "prefix",
+                    "matchValue": "/users",
+                    "targetNodeId": "user-service"
+                  },
+                  {
+                    "matchField": "path",
+                    "matchOperator": "prefix",
+                    "matchValue": "/restaurants",
+                    "targetNodeId": "restaurant-service"
+                  },
+                  {
+                    "matchField": "path",
+                    "matchOperator": "prefix",
+                    "matchValue": "/orders",
+                    "targetNodeId": "order-service"
+                  },
+                  {
+                    "matchField": "path",
+                    "matchOperator": "prefix",
+                    "matchValue": "/payments",
+                    "targetNodeId": "payment-service"
+                  },
+                  {
+                    "matchField": "path",
+                    "matchOperator": "prefix",
+                    "matchValue": "/delivery",
+                    "targetNodeId": "delivery-service"
+                  }
+                ]
+              }
+            },
+            {
+              "id": "user-service",
+              "type": "microservice",
+              "category": "compute",
+              "role": "processor",
+              "label": "User Service",
+              "position": {
+                "x": 500,
+                "y": 80
+              },
+              "queue": {
+                "workers": 8,
+                "capacity": 1000,
+                "discipline": "fifo"
+              },
+              "processing": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 2
+                },
+                "timeout": 5000
+              },
+              "config": {
+                "routingStrategy": "broadcast"
+              }
+            },
+            {
+              "id": "restaurant-service",
+              "type": "microservice",
+              "category": "compute",
+              "role": "processor",
+              "label": "Restaurant Service",
+              "position": {
+                "x": 500,
+                "y": 220
+              },
+              "queue": {
+                "workers": 8,
+                "capacity": 1000,
+                "discipline": "fifo"
+              },
+              "processing": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 2
+                },
+                "timeout": 5000
+              },
+              "config": {}
+            },
+            {
+              "id": "order-service",
+              "type": "microservice",
+              "category": "compute",
+              "role": "processor",
+              "label": "Order Service",
+              "position": {
+                "x": 500,
+                "y": 360
+              },
+              "queue": {
+                "workers": 8,
+                "capacity": 1000,
+                "discipline": "fifo"
+              },
+              "processing": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 2
+                },
+                "timeout": 5000
+              },
+              "config": {
+                "routingStrategy": "broadcast"
+              }
+            },
+            {
+              "id": "payment-service",
+              "type": "microservice",
+              "category": "compute",
+              "role": "processor",
+              "label": "Payment Service",
+              "position": {
+                "x": 500,
+                "y": 500
+              },
+              "queue": {
+                "workers": 8,
+                "capacity": 1000,
+                "discipline": "fifo"
+              },
+              "processing": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 2
+                },
+                "timeout": 5000
+              },
+              "config": {
+                "routingStrategy": "broadcast"
+              }
+            },
+            {
+              "id": "delivery-service",
+              "type": "microservice",
+              "category": "compute",
+              "role": "processor",
+              "label": "Delivery Service",
+              "position": {
+                "x": 500,
+                "y": 640
+              },
+              "queue": {
+                "workers": 8,
+                "capacity": 1000,
+                "discipline": "fifo"
+              },
+              "processing": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 2
+                },
+                "timeout": 5000
+              },
+              "config": {
+                "routingStrategy": "broadcast"
+              }
+            },
+            {
+              "id": "order-load-balancer",
+              "type": "load-balancer-l7",
+              "category": "network-and-edge",
+              "role": "router",
+              "label": "Order Load Balancer",
+              "position": {
+                "x": 730,
+                "y": 360
+              },
+              "queue": {
+                "workers": 8,
+                "capacity": 1000,
+                "discipline": "fifo"
+              },
+              "processing": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 2
+                },
+                "timeout": 5000
+              },
+              "config": {
+                "routingStrategy": "round-robin"
+              }
+            },
+            {
+              "id": "order-app-a",
+              "type": "microservice",
+              "category": "compute",
+              "role": "processor",
+              "label": "Order App A",
+              "position": {
+                "x": 930,
+                "y": 300
+              },
+              "queue": {
+                "workers": 8,
+                "capacity": 1000,
+                "discipline": "fifo"
+              },
+              "processing": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 2
+                },
+                "timeout": 5000
+              },
+              "config": {}
+            },
+            {
+              "id": "order-app-b",
+              "type": "microservice",
+              "category": "compute",
+              "role": "processor",
+              "label": "Order App B",
+              "position": {
+                "x": 930,
+                "y": 420
+              },
+              "queue": {
+                "workers": 8,
+                "capacity": 1000,
+                "discipline": "fifo"
+              },
+              "processing": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 2
+                },
+                "timeout": 5000
+              },
+              "config": {}
+            },
+            {
+              "id": "order-queue",
+              "type": "queue",
+              "category": "messaging-and-streaming",
+              "role": "processor",
+              "label": "Order Queue",
+              "position": {
+                "x": 780,
+                "y": 600
+              },
+              "queue": {
+                "workers": 8,
+                "capacity": 1000,
+                "discipline": "fifo"
+              },
+              "processing": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 2
+                },
+                "timeout": 5000
+              },
+              "config": {
+                "deliverySemantics": "at-least-once",
+                "visibilityTimeoutMs": 10,
+                "maxReceiveCount": 3
+              }
+            },
+            {
+              "id": "order-worker",
+              "type": "batch-worker",
+              "category": "compute",
+              "role": "processor",
+              "label": "Order Worker",
+              "position": {
+                "x": 980,
+                "y": 600
+              },
+              "queue": {
+                "workers": 8,
+                "capacity": 1000,
+                "discipline": "fifo"
+              },
+              "processing": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 2
+                },
+                "timeout": 5000
+              },
+              "config": {}
+            },
+            {
+              "id": "delivery-partner-pool",
+              "type": "microservice",
+              "category": "compute",
+              "role": "processor",
+              "label": "Delivery Partner Pool",
+              "position": {
+                "x": 1180,
+                "y": 600
+              },
+              "queue": {
+                "workers": 8,
+                "capacity": 1000,
+                "discipline": "fifo"
+              },
+              "processing": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 2
+                },
+                "timeout": 5000
+              },
+              "config": {
+                "partnerPoolEnabled": true,
+                "partnerCapacity": 3,
+                "partnerUnavailableUntilMs": 600,
+                "partnerMatchMs": 5
+              }
+            },
+            {
+              "id": "event-stream",
+              "type": "stream",
+              "category": "messaging-and-streaming",
+              "role": "processor",
+              "label": "Event Stream",
+              "position": {
+                "x": 900,
+                "y": 120
+              },
+              "queue": {
+                "workers": 8,
+                "capacity": 1000,
+                "discipline": "fifo"
+              },
+              "processing": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 2
+                },
+                "timeout": 5000
+              },
+              "config": {
+                "streamBrokerEnabled": true,
+                "consumerGroupMode": true,
+                "partitionCount": 4,
+                "partitionKeyField": "partitionKey",
+                "retentionMs": 60000
+              }
+            },
+            {
+              "id": "notification-a",
+              "type": "batch-worker",
+              "category": "compute",
+              "role": "processor",
+              "label": "Notification A",
+              "position": {
+                "x": 1160,
+                "y": 40
+              },
+              "queue": {
+                "workers": 8,
+                "capacity": 1000,
+                "discipline": "fifo"
+              },
+              "processing": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 2
+                },
+                "timeout": 5000
+              },
+              "config": {
+                "consumerGroup": "notifications"
+              }
+            },
+            {
+              "id": "notification-b",
+              "type": "batch-worker",
+              "category": "compute",
+              "role": "processor",
+              "label": "Notification B",
+              "position": {
+                "x": 1160,
+                "y": 140
+              },
+              "queue": {
+                "workers": 8,
+                "capacity": 1000,
+                "discipline": "fifo"
+              },
+              "processing": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 2
+                },
+                "timeout": 5000
+              },
+              "config": {
+                "consumerGroup": "notifications"
+              }
+            },
+            {
+              "id": "activity-consumer",
+              "type": "batch-worker",
+              "category": "compute",
+              "role": "processor",
+              "label": "Activity Consumer",
+              "position": {
+                "x": 1160,
+                "y": 240
+              },
+              "queue": {
+                "workers": 8,
+                "capacity": 1000,
+                "discipline": "fifo"
+              },
+              "processing": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 2
+                },
+                "timeout": 5000
+              },
+              "config": {
+                "consumerGroup": "activity"
+              }
+            }
+          ],
+          "edges": [
+            {
+              "id": "source-to-api-gateway",
+              "source": "source",
+              "target": "api-gateway",
+              "mode": "synchronous",
+              "protocol": "https",
+              "latency": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 1
+                },
+                "pathType": "same-dc"
+              },
+              "bandwidth": 1000,
+              "maxConcurrentRequests": 10000,
+              "packetLossRate": 0,
+              "errorRate": 0
+            },
+            {
+              "id": "api-gateway-to-user-service",
+              "source": "api-gateway",
+              "target": "user-service",
+              "mode": "synchronous",
+              "protocol": "https",
+              "latency": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 1
+                },
+                "pathType": "same-dc"
+              },
+              "bandwidth": 1000,
+              "maxConcurrentRequests": 10000,
+              "packetLossRate": 0,
+              "errorRate": 0
+            },
+            {
+              "id": "api-gateway-to-restaurant-service",
+              "source": "api-gateway",
+              "target": "restaurant-service",
+              "mode": "synchronous",
+              "protocol": "https",
+              "latency": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 1
+                },
+                "pathType": "same-dc"
+              },
+              "bandwidth": 1000,
+              "maxConcurrentRequests": 10000,
+              "packetLossRate": 0,
+              "errorRate": 0
+            },
+            {
+              "id": "api-gateway-to-order-service",
+              "source": "api-gateway",
+              "target": "order-service",
+              "mode": "synchronous",
+              "protocol": "https",
+              "latency": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 1
+                },
+                "pathType": "same-dc"
+              },
+              "bandwidth": 1000,
+              "maxConcurrentRequests": 10000,
+              "packetLossRate": 0,
+              "errorRate": 0
+            },
+            {
+              "id": "api-gateway-to-payment-service",
+              "source": "api-gateway",
+              "target": "payment-service",
+              "mode": "synchronous",
+              "protocol": "https",
+              "latency": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 1
+                },
+                "pathType": "same-dc"
+              },
+              "bandwidth": 1000,
+              "maxConcurrentRequests": 10000,
+              "packetLossRate": 0,
+              "errorRate": 0
+            },
+            {
+              "id": "api-gateway-to-delivery-service",
+              "source": "api-gateway",
+              "target": "delivery-service",
+              "mode": "synchronous",
+              "protocol": "https",
+              "latency": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 1
+                },
+                "pathType": "same-dc"
+              },
+              "bandwidth": 1000,
+              "maxConcurrentRequests": 10000,
+              "packetLossRate": 0,
+              "errorRate": 0
+            },
+            {
+              "id": "order-service-to-order-load-balancer",
+              "source": "order-service",
+              "target": "order-load-balancer",
+              "mode": "synchronous",
+              "protocol": "https",
+              "latency": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 1
+                },
+                "pathType": "same-dc"
+              },
+              "bandwidth": 1000,
+              "maxConcurrentRequests": 10000,
+              "packetLossRate": 0,
+              "errorRate": 0
+            },
+            {
+              "id": "order-load-balancer-to-order-app-a",
+              "source": "order-load-balancer",
+              "target": "order-app-a",
+              "mode": "synchronous",
+              "protocol": "https",
+              "latency": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 1
+                },
+                "pathType": "same-dc"
+              },
+              "bandwidth": 1000,
+              "maxConcurrentRequests": 10000,
+              "packetLossRate": 0,
+              "errorRate": 0
+            },
+            {
+              "id": "order-load-balancer-to-order-app-b",
+              "source": "order-load-balancer",
+              "target": "order-app-b",
+              "mode": "synchronous",
+              "protocol": "https",
+              "latency": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 1
+                },
+                "pathType": "same-dc"
+              },
+              "bandwidth": 1000,
+              "maxConcurrentRequests": 10000,
+              "packetLossRate": 0,
+              "errorRate": 0
+            },
+            {
+              "id": "order-app-a-to-order-queue",
+              "source": "order-app-a",
+              "target": "order-queue",
+              "mode": "asynchronous",
+              "protocol": "tcp",
+              "latency": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 1
+                },
+                "pathType": "same-dc"
+              },
+              "bandwidth": 1000,
+              "maxConcurrentRequests": 10000,
+              "packetLossRate": 0,
+              "errorRate": 0
+            },
+            {
+              "id": "order-app-b-to-order-queue",
+              "source": "order-app-b",
+              "target": "order-queue",
+              "mode": "asynchronous",
+              "protocol": "tcp",
+              "latency": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 1
+                },
+                "pathType": "same-dc"
+              },
+              "bandwidth": 1000,
+              "maxConcurrentRequests": 10000,
+              "packetLossRate": 0,
+              "errorRate": 0
+            },
+            {
+              "id": "order-queue-to-order-worker",
+              "source": "order-queue",
+              "target": "order-worker",
+              "mode": "asynchronous",
+              "protocol": "tcp",
+              "latency": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 1
+                },
+                "pathType": "same-dc"
+              },
+              "bandwidth": 1000,
+              "maxConcurrentRequests": 10000,
+              "packetLossRate": 0,
+              "errorRate": 0
+            },
+            {
+              "id": "order-worker-to-delivery-partner-pool",
+              "source": "order-worker",
+              "target": "delivery-partner-pool",
+              "mode": "synchronous",
+              "protocol": "https",
+              "latency": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 1
+                },
+                "pathType": "same-dc"
+              },
+              "bandwidth": 1000,
+              "maxConcurrentRequests": 10000,
+              "packetLossRate": 0,
+              "errorRate": 0
+            },
+            {
+              "id": "user-service-to-event-stream",
+              "source": "user-service",
+              "target": "event-stream",
+              "mode": "asynchronous",
+              "protocol": "tcp",
+              "latency": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 1
+                },
+                "pathType": "same-dc"
+              },
+              "bandwidth": 1000,
+              "maxConcurrentRequests": 10000,
+              "packetLossRate": 0,
+              "errorRate": 0
+            },
+            {
+              "id": "order-service-to-event-stream",
+              "source": "order-service",
+              "target": "event-stream",
+              "mode": "asynchronous",
+              "protocol": "tcp",
+              "latency": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 1
+                },
+                "pathType": "same-dc"
+              },
+              "bandwidth": 1000,
+              "maxConcurrentRequests": 10000,
+              "packetLossRate": 0,
+              "errorRate": 0
+            },
+            {
+              "id": "payment-service-to-event-stream",
+              "source": "payment-service",
+              "target": "event-stream",
+              "mode": "asynchronous",
+              "protocol": "tcp",
+              "latency": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 1
+                },
+                "pathType": "same-dc"
+              },
+              "bandwidth": 1000,
+              "maxConcurrentRequests": 10000,
+              "packetLossRate": 0,
+              "errorRate": 0
+            },
+            {
+              "id": "delivery-service-to-event-stream",
+              "source": "delivery-service",
+              "target": "event-stream",
+              "mode": "asynchronous",
+              "protocol": "tcp",
+              "latency": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 1
+                },
+                "pathType": "same-dc"
+              },
+              "bandwidth": 1000,
+              "maxConcurrentRequests": 10000,
+              "packetLossRate": 0,
+              "errorRate": 0
+            },
+            {
+              "id": "event-stream-to-notification-a",
+              "source": "event-stream",
+              "target": "notification-a",
+              "mode": "asynchronous",
+              "protocol": "tcp",
+              "latency": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 1
+                },
+                "pathType": "same-dc"
+              },
+              "bandwidth": 1000,
+              "maxConcurrentRequests": 10000,
+              "packetLossRate": 0,
+              "errorRate": 0
+            },
+            {
+              "id": "event-stream-to-notification-b",
+              "source": "event-stream",
+              "target": "notification-b",
+              "mode": "asynchronous",
+              "protocol": "tcp",
+              "latency": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 1
+                },
+                "pathType": "same-dc"
+              },
+              "bandwidth": 1000,
+              "maxConcurrentRequests": 10000,
+              "packetLossRate": 0,
+              "errorRate": 0
+            },
+            {
+              "id": "event-stream-to-activity-consumer",
+              "source": "event-stream",
+              "target": "activity-consumer",
+              "mode": "asynchronous",
+              "protocol": "tcp",
+              "latency": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 1
+                },
+                "pathType": "same-dc"
+              },
+              "bandwidth": 1000,
+              "maxConcurrentRequests": 10000,
+              "packetLossRate": 0,
+              "errorRate": 0
+            }
+          ],
+          "workload": {
+            "sourceNodeId": "source",
+            "pattern": "constant",
+            "baseRps": 8,
+            "requestDistribution": [
+              {
+                "type": "user-api",
+                "weight": 0.2,
+                "sizeBytes": 1024,
+                "metadata": {
+                  "path": "/users",
+                  "authToken": "valid-token",
+                  "authStatus": "valid",
+                  "authScopes": ["api:access"],
+                  "clientId": "mobile-client",
+                  "partitionKey": "entity-0"
+                }
+              },
+              {
+                "type": "restaurant-api",
+                "weight": 0.2,
+                "sizeBytes": 1024,
+                "metadata": {
+                  "path": "/restaurants",
+                  "authToken": "valid-token",
+                  "authStatus": "valid",
+                  "authScopes": ["api:access"],
+                  "clientId": "mobile-client",
+                  "partitionKey": "entity-1"
+                }
+              },
+              {
+                "type": "order-api",
+                "weight": 0.2,
+                "sizeBytes": 1024,
+                "metadata": {
+                  "path": "/orders",
+                  "authToken": "valid-token",
+                  "authStatus": "valid",
+                  "authScopes": ["api:access"],
+                  "clientId": "mobile-client",
+                  "partitionKey": "entity-2"
+                }
+              },
+              {
+                "type": "payment-api",
+                "weight": 0.2,
+                "sizeBytes": 1024,
+                "metadata": {
+                  "path": "/payments",
+                  "authToken": "valid-token",
+                  "authStatus": "valid",
+                  "authScopes": ["api:access"],
+                  "clientId": "mobile-client",
+                  "partitionKey": "entity-3"
+                }
+              },
+              {
+                "type": "delivery-api",
+                "weight": 0.2,
+                "sizeBytes": 1024,
+                "metadata": {
+                  "path": "/delivery",
+                  "authToken": "valid-token",
+                  "authStatus": "valid",
+                  "authScopes": ["api:access"],
+                  "clientId": "mobile-client",
+                  "partitionKey": "entity-4"
+                }
+              }
+            ]
+          }
+        }
+      }
+    ]
+  },
+  "ui": {
+    "activeStage": "export"
+  },
+  "verification": {
+    "signature": "c5e0efd0d8a7e0a4f452a5ce77175d5e",
+    "ready": true,
+    "blockers": [],
+    "generatedAt": "2026-10-14T14:11:21.566Z"
+  }
+}
