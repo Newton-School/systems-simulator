@@ -1,0 +1,21 @@
+# Files that decide what students and question authors see or can do.
+# A PR touching them needs a code owner's review once "Require review from
+# Code Owners" is enabled in the master ruleset.
+
+# Environment profiles: Assignment / Practice / Author visibility, test-run
+# limits, result timing, locked surfaces.
+/src/engine/analysis/environmentProfile.ts @Hritvik-Mohan
+/src/renderer/src/utils/experienceEnvelope.ts @Hritvik-Mohan
+
+# The student question surface: brief, tests, submit, and the workspace around it.
+/src/renderer/src/components/question/ @Hritvik-Mohan
+/src/renderer/src/components/layout/WorkspaceLayout.tsx @Hritvik-Mohan
+/src/renderer/src/components/layout/settings/EnvironmentsTab.tsx @Hritvik-Mohan
+
+# The question-author skill and its audit.
+/skills/simulator-question-author/ @Hritvik-Mohan
+/scripts/audit-simulator-question.ts @Hritvik-Mohan
+
+# These ownership and review rules themselves.
+/.github/CODEOWNERS @Hritvik-Mohan
+/.github/pull_request_template.md @Hritvik-Mohan
