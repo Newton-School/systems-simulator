@@ -20,6 +20,8 @@
     "preview": "vite preview",
     "check:web-bundle-budget": "node scripts/check-web-bundle-budget.mjs",
     "audit:question-authoring": "tsx scripts/audit-question-authoring-coverage.ts",
+    "validate:simulator-question-author-skill": "tsx scripts/validate-simulator-question-author.ts",
+    "check:simulator-question-author-snapshot": "tsx scripts/generate-simulator-question-author-snapshot.ts --check",
     "generate:django-guides": "tsx scripts/generate-django-admin-assignment-guides.ts",
     "package:simulator-question-author": "bash scripts/package-skill.sh simulator-question-author",
     "validate:question-bank": "tsx scripts/validate-question-dir.ts ns-simulator-docs/examples/question-bank/*",

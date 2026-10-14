@@ -18,10 +18,10 @@
       "concepts": ["horizontal-scaling", "capacity-headroom", "load-balancing"],
       "workloadCategory": "read-heavy",
       "estimatedTimeMinutes": 10,
-      "passThreshold": 0.81,
-      "suiteVisibleToStudent": true,
+      "passThreshold": 1,
+      "suiteVisibleToStudent": false,
       "constraints": {
-        "allowedNodeTypes": ["microservice", "api-endpoint", "load-balancer-l7"],
+        "allowedNodeTypes": ["microservice", "api-endpoint", "load-balancer"],
         "canModifyScaffold": true,
         "canRemoveScaffoldNodes": true
       }
@@ -63,7 +63,23 @@
         }
       ]
     },
-    "dryRunScenarioId": "baseline",
+    "dryRunCase": {
+      "id": "public-dry-run",
+      "description": "Try the public flash-sale workload before submitting; hidden grading thresholds are evaluated separately.",
+      "global": {
+        "simulationDuration": 5000,
+        "seed": "quickcart-flash-sale-v1",
+        "warmupDuration": 0
+      },
+      "workload": {
+        "pattern": "constant",
+        "baseRps": 1000000,
+        "requestDistribution": [
+          { "type": "read", "weight": 1, "sizeBytes": 100 },
+          { "type": "write", "weight": 0, "sizeBytes": 100 }
+        ]
+      }
+    },
     "justify": [],
     "scenarios": [
       {
@@ -92,8 +108,8 @@
         "faults": [],
         "invariants": [
           {
-            "id": "invariant-1",
-            "description": "No server may exceed 80% of its capacity during the scale.",
+            "id": "headroom-80",
+            "description": "No server may exceed 80% of its capacity during the sale",
             "condition": "perNode.maxUtilization <= 0.8"
           }
         ]
@@ -101,14 +117,40 @@
     ],
     "structuralRules": [
       {
-        "id": "structural-rule-2",
-        "description": "Include at least 1 load-balancer-l7.",
+        "id": "requires-load-balancer",
+        "description": "Include a load balancer; either the L4 or L7 subtype is accepted.",
         "kind": "requires_component",
-        "componentType": "load-balancer-l7",
+        "componentType": "load-balancer",
         "minCount": 1
       },
       {
-        "id": "structural-rule-5",
+        "id": "requires-api-server",
+        "description": "Include at least one backend API server.",
+        "kind": "requires_component",
+        "componentType": "microservice",
+        "minCount": 1
+      },
+      {
+        "id": "requires-single-source",
+        "description": "Use exactly one traffic source.",
+        "kind": "requires_single_source"
+      },
+      {
+        "id": "requires-source-to-balancer",
+        "description": "Connect the traffic source directly to the load balancer.",
+        "kind": "requires_edge",
+        "fromType": "api-endpoint",
+        "toType": "load-balancer"
+      },
+      {
+        "id": "requires-balancer-to-server",
+        "description": "Connect the load balancer directly to the backend server pool.",
+        "kind": "requires_edge",
+        "fromType": "load-balancer",
+        "toType": "microservice"
+      },
+      {
+        "id": "requires-connected-design",
         "description": "Every node must be reachable (no orphans).",
         "kind": "requires_connected_graph"
       }

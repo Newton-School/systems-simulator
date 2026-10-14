@@ -1,7 +1,7 @@
 # Question Studio Authoring Reference
 
 Use this standalone UI snapshot to write the author-facing walkthrough. It was
-verified on **2026-09-21**. Newer controls visibly present in the target Studio or
+verified on **2026-10-13**. Newer controls visibly present in the target Studio or
 newer user-supplied documentation override this snapshot.
 
 ## 1. Entry and files
@@ -128,6 +128,9 @@ After returning, configure:
 - whether learners may edit/remove scaffold nodes;
 - optional locked node/edge IDs;
 - optional baseline verdict for optimization.
+- Service Builder and Custom Node Builder access through `builderPolicy`, including
+  allowed node classes, runtime templates, trait packs, definition/operation caps,
+  and optional locking after the first run.
 
 Entry format and scaffold shape must agree. A blank canvas cannot be a partial or
 broken scaffold; repair/optimization formats require non-empty scaffolds.
@@ -205,8 +208,10 @@ identical.
 ### Verdict-metric grading
 
 Use for advanced simulation and invariant metrics. The selector comes from the
-engine-owned capability registry. Topology metrics are not currently in this
-selector; express those as structural rules. Always set a plain-sentence
+engine-owned capability registry. It includes the fixed topology totals
+`topology.totalNodes`, `topology.totalEdges`, and `topology.totalWorkers`; express
+component-specific presence, counts, paths, and placement as structural rules.
+Always set a plain-sentence
 learner-facing description for checks whose generated metric label is too generic.
 
 ### Justification prompts
@@ -240,6 +245,14 @@ The guide must tell the author what to verify in each view: stable ID, scenario
 conditions, rules, metrics/units, points, pass threshold, and row ordering.
 
 Save the editable draft separately from the deployable Django bundle.
+
+The exported full question package is private grader material. Publication to a
+learner environment must use the product's student-safe projection, which exposes
+at most the public dry run and strips the private suite and grading contract.
+
+Reference-solution testing belongs in AUTHOR mode. ASSIGNMENT mode can disable
+topology files, raw JSON, terminal/settings, private checks, and repeated test runs
+by design; do not use it as the author verification surface.
 
 ## 10. Readiness and compiler checks
 

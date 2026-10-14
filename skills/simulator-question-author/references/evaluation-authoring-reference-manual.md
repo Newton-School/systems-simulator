@@ -256,10 +256,10 @@ simulation**. Convert them to:
 
 ### 4.1 Performance NFRs vs correctness NFRs - the hard boundary
 
-| NFR flavour                                                                         | Simulatable? | Graded by                                                                 |
-| ----------------------------------------------------------------------------------- | ------------ | ------------------------------------------------------------------------- |
-| **Performance** - latency, throughput, availability, utilization                    | ✅           | `rubric` `simulation` check                                               |
-| **Correctness** - consistency, exactly-once, ordering, immutability, no-double-book | ❌           | `storageFit` / `guardedPath` + `justify` - **NEVER** a `simulation` check |
+| NFR flavour                                                                         | Simulatable?                 | Graded by                                                                                                                                               |
+| ----------------------------------------------------------------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Performance** - latency, throughput, availability, utilization                    | ✅                           | `rubric` `simulation` check                                                                                                                             |
+| **Correctness** - consistency, exactly-once, ordering, immutability, no-double-book | Only for implemented oracles | Use consistency/state metrics only within their documented scope; otherwise use `storageFit` / `guardedPath` + `justify`. Never treat a proxy as proof. |
 
 The engine has no notion of contention, dedup, or transactional correctness. A
 `simulation` check on a correctness property never resolves and silently mis-grades.
@@ -834,8 +834,10 @@ Every customizable property across the DSL. **Scope** names the containing objec
 - **CLI vs in-app** - `forbidUnjustified` fails a present component in the CLI (no
   answer capture) but passes a defended one in-app.
 - **hardFail zeroes the question** - reserve for architecturally-naive mistakes.
-- **Correctness ≠ simulation** - never author a `simulation` check for exactly-once,
-  ordering, immutability, or no-double-book.
+- **Correctness requires an implemented oracle** - bounded single-key consistency,
+  ordering, and state evidence may be graded when their feature is configured and
+  exercised. Exactly-once, immutability, no-double-book, and multi-key guarantees
+  still require structural/semantic/explanation evidence rather than a fake metric.
 - **Tractable RPS** - `baseRps` ~2-5K; the real number goes in `prompt.scale`.
 - **Graded cost matches live cost** - question-package `budget.unit:"cost"` and
   `constraints.maxBudget` use the same instance-aware hourly USD model as the app.
@@ -1033,11 +1035,11 @@ grades.
 
 ### 10.1 Modes and the deployed default
 
-| Mode         | `graded` | Edges       | Resources editable | Use                                      |
-| ------------ | -------- | ----------- | ------------------ | ---------------------------------------- |
-| `AUTHOR`     | true     | `network`   | yes                | Full authoring / dev UI                  |
-| `ASSIGNMENT` | true     | `connector` | no                 | Graded student attempt (locked scaffold) |
-| `PRACTICE`   | false    | `connector` | yes                | Free self-paced sandbox                  |
+| Mode         | `graded` | Edges       | Resources editable | Use                                                                                                                                           |
+| ------------ | -------- | ----------- | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AUTHOR`     | true     | `network`   | yes                | Full authoring / dev UI                                                                                                                       |
+| `ASSIGNMENT` | true     | `connector` | yes                | Graded student attempt; design knobs remain usable, while private checks and sensitive utility surfaces are disabled and dry runs are bounded |
+| `PRACTICE`   | false    | `connector` | yes                | Free self-paced sandbox                                                                                                                       |
 
 `DEFAULT_ENVIRONMENT_PROFILE` (standalone / online-deployed default, no host
 payload) is **`PRACTICE` with connector edges** - a learner lands focused on the
@@ -1046,18 +1048,22 @@ on its own path, so the default never downgrades a graded launch.
 
 ### 10.2 Capabilities (`environmentProfile.capabilities`)
 
-| Field                     | Type                         | Meaning                                                     |
-| ------------------------- | ---------------------------- | ----------------------------------------------------------- |
-| `editPaletteList`         | `string[] \| null`           | Allowed palette types (`null` = all, `[]` = none).          |
-| `canEditScaffoldNodes`    | boolean                      | Whether scaffold nodes can be edited.                       |
-| `canTriggerTestRuns`      | boolean                      | Whether the student may dry-run before submit.              |
-| `edgeModel`               | `network \| connector`       | Whether edges are a modelled layer or dumb wires (§10.3).   |
-| `canEditEdges`            | boolean                      | Edit edge _properties_ - only meaningful in `network` mode. |
-| `canEditResources`        | boolean                      | Change a node's instance type / count / execution profile.  |
-| `canEditExecutionProfile` | boolean                      | Change a node's `workloadKind` (cpu/io) specifically.       |
-| `maxTestRuns`             | number?                      | Cap on dry runs (absent = unlimited).                       |
-| `resourceBudget`          | `{ totalVcpu, totalRamGb }`? | Hardware quota wall (absent = unbounded).                   |
-| `costBudget`              | `{ maxPerHour }`?            | Money wall, independent of quota (absent = unbounded).      |
+| Field                     | Type                         | Meaning                                                                           |
+| ------------------------- | ---------------------------- | --------------------------------------------------------------------------------- |
+| `editPaletteList`         | `string[] \| null`           | Allowed palette types (`null` = all, `[]` = none).                                |
+| `canEditScaffoldNodes`    | boolean                      | Whether scaffold nodes can be edited.                                             |
+| `canTriggerTestRuns`      | boolean                      | Whether the student may dry-run before submit.                                    |
+| `edgeModel`               | `network \| connector`       | Whether edges are a modelled layer or dumb wires (§10.3).                         |
+| `canEditEdges`            | boolean                      | Edit edge _properties_ - only meaningful in `network` mode.                       |
+| `canEditResources`        | boolean                      | Change a node's instance type / count / execution profile.                        |
+| `canEditExecutionProfile` | boolean                      | Change a node's `workloadKind` (cpu/io) specifically.                             |
+| `canUseTopologyFiles`     | boolean                      | Import, export, or otherwise use topology files. Disable for graded learners.     |
+| `canViewTopologyJson`     | boolean                      | Inspect raw topology JSON. Disable when it could expose or shortcut the exercise. |
+| `canUseTerminal`          | boolean                      | Open the simulator terminal/CLI surface. Disable for graded learners.             |
+| `canUseSettings`          | boolean                      | Open environment and application settings. Disable for graded learners.           |
+| `maxTestRuns`             | number?                      | Cap on dry runs (absent = unlimited).                                             |
+| `resourceBudget`          | `{ totalVcpu, totalRamGb }`? | Hardware quota wall (absent = unbounded).                                         |
+| `costBudget`              | `{ maxPerHour }`?            | Money wall, independent of quota (absent = unbounded).                            |
 
 Cost/resource totals are **always displayed** regardless of caps; the caps only
 gate. `resourceBudget` and `costBudget` are independent - a design can pass the
@@ -1084,13 +1090,19 @@ locked axis unlocks it (`resolveEdgeModel` / `canEditEdgesForQuestion` /
 
 - `domains` includes **`network`** → edges upgrade to `network` and edge editing
   unlocks, even under a connector profile (sizing the network _is_ the lesson).
-- `domains` includes **`cost`** → resource editing unlocks under ASSIGNMENT (the
-  allocation-within-budget lesson needs the instance knobs).
+- Resource and execution-profile editing remain available in the October 2026
+  ASSIGNMENT profile because sizing is part of the design surface. A host may
+  narrow those capabilities for a particular assignment, but authors must not
+  rely on hidden grader data or utility surfaces to teach sizing.
 
-So a `compute`/`storage` assignment keeps edges as connectors and resources locked;
-a `network` assignment gets editable network edges; a `cost` assignment gets
-editable resources. Choose `domains` deliberately - they drive platform edit policy,
-not just metadata.
+Topology file operations, raw JSON, terminal access, and settings are separate
+capabilities from design editing. Keep them disabled in graded assignment mode;
+perform reference-solution verification in AUTHOR mode instead.
+
+So a `compute`/`storage` assignment normally keeps edges as connectors while
+leaving sizing controls available; a `network` assignment upgrades to editable
+network edges. Choose `domains` deliberately because they drive edge policy, not
+just metadata.
 
 ---
 
@@ -1316,7 +1328,7 @@ Carries everything that is not a rule/criterion/check. Top-level keys:
       "scaffoldSourceNodes": true,
       "gradingSuiteDetails": false,
       "liveMetrics": true,
-      "rubricChecks": "LIVE_DURING_BUILD"
+      "rubricChecks": "HIDDEN"
     },
     "capabilities": {
       "editPaletteList": null,
@@ -1324,8 +1336,13 @@ Carries everything that is not a rule/criterion/check. Top-level keys:
       "canTriggerTestRuns": true,
       "edgeModel": "connector",
       "canEditEdges": false,
-      "canEditResources": false,
-      "canEditExecutionProfile": false
+      "canEditResources": true,
+      "canEditExecutionProfile": true,
+      "maxTestRuns": 1,
+      "canUseTopologyFiles": false,
+      "canViewTopologyJson": false,
+      "canUseTerminal": false,
+      "canUseSettings": false
     },
     "graded": true,
     "chromeDensity": "minimal"

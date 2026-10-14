@@ -16,8 +16,8 @@ as representative.
 > **Design the backend for a flash sale (QuickCart).** During the sale the site
 > receives **up to 1,000,000 requests per second**. Each backend server handles a
 > maximum of **100,000 req/s**, and to stay stable you must use **at most 80% of a
-> server's capacity**. The load balancer is already configured and distributes
-> requests evenly across every server you add.
+> server's capacity**. Configure the load balancer to distribute requests evenly
+> across every server you add.
 >
 > **Components available:** Users · Load Balancer · Servers.
 >
@@ -58,14 +58,16 @@ Drag onto the canvas from the library:
 
 ## Part 3 — Set each server's capacity (100,000 req/s)
 
-Each server must saturate at 100,000 req/s. Two ways:
+Each server must saturate at 100,000 req/s. For this authored exercise, use the
+given capacity directly:
 
-- **Simplest (matches the question wording):** give the server a **capacity of
+- Give the server a **capacity of
   `100000` req/s** directly. In the authored question this is the `capacityRps`
   field; in the builder it is the server's throughput ceiling.
-- **Derived (more realistic):** use the **Service Builder → Workload profile →
-  Service time** plus **Capacity → instances**, chosen so `concurrency ÷ service
-time = 100,000 req/s`. The engine derives the same ceiling either way.
+
+A derived-capacity variant is a different exercise: it must specify instance
+resources and service time and prove that the engine derives the same ceiling.
+Do not mix those two capacity contracts in one reference answer.
 
 Give **every** server the same 100,000 req/s ceiling so the even split is fair.
 

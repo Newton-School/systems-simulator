@@ -296,6 +296,11 @@ Verify the learner view shows:
 - the three functional requirements and two NFRs;
 - the baseline dry-run option.
 
+The private grading suite, invariant threshold, structural-rule internals, and
+rubric must not appear in the learner preview. The single public dry run contains
+only the workload and global run settings; it does not contain the private
+headroom invariant.
+
 The expected learner topology is:
 
 ```text
@@ -311,12 +316,13 @@ Click **Continue to Export**.
 
 ## Stage 7 — Export
 
-The Export stage must show **Generated output is current**. Review all three
-tabs:
+The Export stage must show **Generated output is current**. Review the private
+authoring outputs:
 
-1. **Question package** — confirm the ID is `quickcart-flash-sale`, the suite
-   contains a 1,000,000 req/s constant workload, and the invariant condition is
-   `perNode.maxUtilization <= 0.8`.
+1. **Question package** — confirm the ID is `quickcart-flash-sale`,
+   `suite.visibleToStudent` is `false`, the private suite contains a 1,000,000
+   req/s constant workload and `perNode.maxUtilization <= 0.8`, and the separate
+   public dry run contains neither invariants nor faults.
 2. **Newton rows** — confirm structural rules and rubric rows were generated.
 3. **Django handoff** — confirm the assignment fields and ordered rows are
    present.
@@ -325,6 +331,12 @@ Then:
 
 1. Click **Save draft** to keep the editable Question Studio project.
 2. Click **Download Django bundle** to generate the deployable handoff artifact.
+3. Export the reference solution as canonical engine `TopologyJSON`; do not use a
+   React Flow canvas dump containing renderer-only fields.
+
+Run compilation and reference grading in **AUTHOR** mode. Assignment mode is a
+learner boundary: raw JSON, topology files, terminal/settings, private checks,
+and repeated dry runs may be unavailable by design.
 
 If export is disabled, use the diagnostic link in the Export stage to return to
 the incomplete field.

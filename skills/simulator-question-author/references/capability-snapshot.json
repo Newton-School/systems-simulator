@@ -1,0 +1,2522 @@
+{
+  "snapshotVersion": "2026-10-13",
+  "sources": [
+    "src/engine/analysis/authoringCapabilities.ts",
+    "src/engine/analysis/builderPolicy.ts",
+    "src/engine/catalog/paletteTemplates.ts"
+  ],
+  "componentFamilies": {
+    "load-balancer": [
+      "load-balancer-l4",
+      "load-balancer-l7"
+    ]
+  },
+  "components": [
+    {
+      "id": "agent-orchestrator",
+      "label": "Agent Orchestrator",
+      "category": "orchestration-and-infra",
+      "supportTier": "presentational-only",
+      "aliases": [
+        "Multi-agent Control"
+      ]
+    },
+    {
+      "id": "alerting-hook",
+      "label": "Alerting Engine",
+      "category": "observability",
+      "supportTier": "presentational-only",
+      "aliases": [
+        "Pager / Webhook"
+      ]
+    },
+    {
+      "id": "api-gateway",
+      "label": "API Gateway",
+      "category": "network-and-edge",
+      "supportTier": "guided",
+      "aliases": [
+        "Request Router",
+        "Connection Server",
+        "WebSocket · Stateful"
+      ]
+    },
+    {
+      "id": "microservice",
+      "label": "API Server",
+      "category": "compute",
+      "supportTier": "first-class",
+      "aliases": [
+        "Long-running Process",
+        "ID Generator",
+        "Sequence · Counter",
+        "Service",
+        "Generic Placeholder",
+        "My Service",
+        "Named Placeholder"
+      ]
+    },
+    {
+      "id": "auth-service",
+      "label": "Auth Service",
+      "category": "compute",
+      "supportTier": "first-class",
+      "aliases": [
+        "Authentication / Tokens"
+      ]
+    },
+    {
+      "id": "cdn",
+      "label": "CDN",
+      "category": "network-and-edge",
+      "supportTier": "guided",
+      "aliases": [
+        "Edge Caching"
+      ]
+    },
+    {
+      "id": "circuit-breaker-controller",
+      "label": "Circuit Breaker",
+      "category": "auxiliary",
+      "supportTier": "guided",
+      "aliases": [
+        "Fail-Fast Guard"
+      ]
+    },
+    {
+      "id": "api-endpoint",
+      "label": "Client App",
+      "category": "compute",
+      "supportTier": "first-class",
+      "aliases": [
+        "Browser / Mobile",
+        "Traffic Source",
+        "Entry Point / Ingress"
+      ]
+    },
+    {
+      "id": "config-store",
+      "label": "Config Store",
+      "category": "orchestration-and-infra",
+      "supportTier": "presentational-only",
+      "aliases": [
+        "Configuration"
+      ]
+    },
+    {
+      "id": "data-lake",
+      "label": "Data Lake",
+      "category": "storage-and-data",
+      "supportTier": "first-class",
+      "aliases": [
+        "Raw Analytical Storage"
+      ]
+    },
+    {
+      "id": "data-warehouse",
+      "label": "Data Warehouse",
+      "category": "storage-and-data",
+      "supportTier": "first-class",
+      "aliases": [
+        "OLAP Analytics"
+      ]
+    },
+    {
+      "id": "in-memory-cache",
+      "label": "Distributed Cache",
+      "category": "storage-and-data",
+      "supportTier": "first-class",
+      "aliases": [
+        "Redis / Memcached"
+      ]
+    },
+    {
+      "id": "distributed-lock",
+      "label": "Distributed Lock",
+      "category": "consensus-and-coordination",
+      "supportTier": "guided",
+      "aliases": [
+        "Lease / Mutual Exclusion"
+      ]
+    },
+    {
+      "id": "internal-dns",
+      "label": "DNS Server",
+      "category": "dns-and-certs",
+      "supportTier": "guided",
+      "aliases": [
+        "Internal DNS / Authoritative",
+        "DNS Resolver",
+        "Client-side Name Resolution"
+      ]
+    },
+    {
+      "id": "edge-router",
+      "label": "Edge Router",
+      "category": "network-and-edge",
+      "supportTier": "guided",
+      "aliases": [
+        "Global / Edge Routing"
+      ]
+    },
+    {
+      "id": "message-broker",
+      "label": "Event Broker",
+      "category": "messaging-and-streaming",
+      "supportTier": "guided",
+      "aliases": [
+        "Kafka / Event Stream"
+      ]
+    },
+    {
+      "id": "stream",
+      "label": "Event Stream",
+      "category": "messaging-and-streaming",
+      "supportTier": "guided",
+      "aliases": [
+        "Ordered Event Log"
+      ]
+    },
+    {
+      "id": "feature-flag-service",
+      "label": "Feature Flag Service",
+      "category": "devops-and-delivery",
+      "supportTier": "presentational-only",
+      "aliases": [
+        "Feature Flags"
+      ]
+    },
+    {
+      "id": "firewall",
+      "label": "Firewall",
+      "category": "security-and-identity",
+      "supportTier": "presentational-only",
+      "aliases": [
+        "L4/L7 Filtering",
+        "Security Group",
+        "Network Boundary"
+      ]
+    },
+    {
+      "id": "global-traffic-manager",
+      "label": "Global Traffic Manager",
+      "category": "network-and-edge",
+      "supportTier": "guided",
+      "aliases": [
+        "Geo / Latency Routing"
+      ]
+    },
+    {
+      "id": "graph-db",
+      "label": "Graph DB",
+      "category": "storage-and-data",
+      "supportTier": "first-class",
+      "aliases": [
+        "Connected Data"
+      ]
+    },
+    {
+      "id": "hashing",
+      "label": "Hashing",
+      "category": "auxiliary",
+      "supportTier": "guided",
+      "aliases": [
+        "Partition Key Hash"
+      ]
+    },
+    {
+      "id": "health-check-manager",
+      "label": "Health Check Manager",
+      "category": "observability",
+      "supportTier": "presentational-only",
+      "aliases": [
+        "Synthetic Monitoring"
+      ]
+    },
+    {
+      "id": "idempotency-manager",
+      "label": "Idempotency Service",
+      "category": "auxiliary",
+      "supportTier": "guided",
+      "aliases": [
+        "Dedup Store / Key Check"
+      ]
+    },
+    {
+      "id": "ingress-controller",
+      "label": "Ingress Controller",
+      "category": "network-and-edge",
+      "supportTier": "guided",
+      "aliases": [
+        "Kubernetes Traffic Routing"
+      ]
+    },
+    {
+      "id": "batch-worker",
+      "label": "Job Worker",
+      "category": "compute",
+      "supportTier": "first-class",
+      "aliases": [
+        "Background Task",
+        "Cron Job",
+        "Scheduled Task"
+      ]
+    },
+    {
+      "id": "kubernetes-cluster",
+      "label": "Kubernetes Cluster",
+      "category": "orchestration-and-infra",
+      "supportTier": "presentational-only",
+      "aliases": [
+        "Pod Scheduling"
+      ]
+    },
+    {
+      "id": "llm-gateway",
+      "label": "LLM Gateway",
+      "category": "external-and-integration",
+      "supportTier": "guided",
+      "aliases": [
+        "Model Proxy / Guardrails"
+      ]
+    },
+    {
+      "id": "load-balancer",
+      "label": "Load Balancer",
+      "category": "network-and-edge",
+      "supportTier": "guided",
+      "aliases": [
+        "Distributes traffic across services"
+      ]
+    },
+    {
+      "id": "load-balancer-l4",
+      "label": "Load Balancer L4",
+      "category": "network-and-edge",
+      "supportTier": "guided",
+      "aliases": [
+        "TCP / UDP"
+      ]
+    },
+    {
+      "id": "load-balancer-l7",
+      "label": "Load Balancer L7",
+      "category": "network-and-edge",
+      "supportTier": "guided",
+      "aliases": [
+        "HTTP / gRPC"
+      ]
+    },
+    {
+      "id": "centralized-logging",
+      "label": "Log Collector",
+      "category": "observability",
+      "supportTier": "presentational-only",
+      "aliases": [
+        "Fluentd / Promtail",
+        "Centralized Logging",
+        "Elasticsearch / Loki"
+      ]
+    },
+    {
+      "id": "memory-fabric",
+      "label": "Memory Fabric",
+      "category": "data-infra-and-analytics",
+      "supportTier": "presentational-only",
+      "aliases": [
+        "Shared Agent Memory"
+      ]
+    },
+    {
+      "id": "queue",
+      "label": "Message Queue",
+      "category": "messaging-and-streaming",
+      "supportTier": "guided",
+      "aliases": [
+        "SQS / RabbitMQ"
+      ]
+    },
+    {
+      "id": "metrics-store",
+      "label": "Metrics Collector",
+      "category": "observability",
+      "supportTier": "presentational-only",
+      "aliases": [
+        "Agent / Telegraf"
+      ]
+    },
+    {
+      "id": "nat-gateway",
+      "label": "NAT Gateway",
+      "category": "network-and-edge",
+      "supportTier": "guided",
+      "aliases": [
+        "Outbound Internet"
+      ]
+    },
+    {
+      "id": "high-perf-nic",
+      "label": "Network Interface",
+      "category": "network-and-edge",
+      "supportTier": "guided",
+      "aliases": [
+        "NIC / ENI"
+      ]
+    },
+    {
+      "id": "nosql-db",
+      "label": "NoSQL DB",
+      "category": "storage-and-data",
+      "supportTier": "first-class",
+      "aliases": [
+        "Document / Key-value / Wide-column",
+        "Key-value model"
+      ]
+    },
+    {
+      "id": "push-notification-service",
+      "label": "Notification Service",
+      "category": "real-time-and-media",
+      "supportTier": "guided",
+      "aliases": [
+        "Push / Email / SMS"
+      ]
+    },
+    {
+      "id": "object-storage",
+      "label": "Object Storage",
+      "category": "storage-and-data",
+      "supportTier": "first-class",
+      "aliases": [
+        "S3 / Blob Store"
+      ]
+    },
+    {
+      "id": "third-party-api-connector",
+      "label": "Output Sink",
+      "category": "external-and-integration",
+      "supportTier": "guided",
+      "aliases": [
+        "Destination / Egress",
+        "External Service",
+        "3rd Party API"
+      ]
+    },
+    {
+      "id": "partition-node",
+      "label": "Partition Node",
+      "category": "auxiliary",
+      "supportTier": "guided",
+      "aliases": [
+        "Range / Key Slice"
+      ]
+    },
+    {
+      "id": "pub-sub",
+      "label": "Pub/Sub",
+      "category": "messaging-and-streaming",
+      "supportTier": "guided",
+      "aliases": [
+        "Topic Fan-out"
+      ]
+    },
+    {
+      "id": "rate-limiter",
+      "label": "Rate Limiter",
+      "category": "auxiliary",
+      "supportTier": "guided",
+      "aliases": [
+        "Token Bucket Guard"
+      ]
+    },
+    {
+      "id": "reservation-store",
+      "label": "Reservation Store",
+      "category": "auxiliary",
+      "supportTier": "guided",
+      "aliases": [
+        "Atomic Seat Reserve"
+      ]
+    },
+    {
+      "id": "reverse-proxy",
+      "label": "Reverse Proxy",
+      "category": "network-and-edge",
+      "supportTier": "guided",
+      "aliases": [
+        "L7 Routing"
+      ]
+    },
+    {
+      "id": "routing-policy",
+      "label": "Routing Policy",
+      "category": "network-and-edge",
+      "supportTier": "guided",
+      "aliases": [
+        "Traffic Distribution"
+      ]
+    },
+    {
+      "id": "routing-rule",
+      "label": "Routing Rule",
+      "category": "network-and-edge",
+      "supportTier": "guided",
+      "aliases": [
+        "Path / Header Matching"
+      ]
+    },
+    {
+      "id": "safety-observability-mesh",
+      "label": "Safety & Observability",
+      "category": "observability",
+      "supportTier": "presentational-only",
+      "aliases": [
+        "AI Eval / Audit / Policy"
+      ]
+    },
+    {
+      "id": "search-index",
+      "label": "Search Index",
+      "category": "storage-and-data",
+      "supportTier": "first-class",
+      "aliases": [
+        "Elasticsearch"
+      ]
+    },
+    {
+      "id": "search-service",
+      "label": "Search Service",
+      "category": "compute",
+      "supportTier": "first-class",
+      "aliases": [
+        "Query Processing"
+      ]
+    },
+    {
+      "id": "secrets-manager",
+      "label": "Secrets Manager",
+      "category": "orchestration-and-infra",
+      "supportTier": "presentational-only",
+      "aliases": [
+        "Secrets & Keys"
+      ]
+    },
+    {
+      "id": "serverless-function",
+      "label": "Serverless Function",
+      "category": "compute",
+      "supportTier": "first-class",
+      "aliases": [
+        "Event Driven"
+      ]
+    },
+    {
+      "id": "service-mesh",
+      "label": "Service Mesh",
+      "category": "network-and-edge",
+      "supportTier": "guided",
+      "aliases": [
+        "Service-to-Service Traffic"
+      ]
+    },
+    {
+      "id": "service-registry",
+      "label": "Service Registry",
+      "category": "orchestration-and-infra",
+      "supportTier": "presentational-only",
+      "aliases": [
+        "Service Discovery"
+      ]
+    },
+    {
+      "id": "shard-node",
+      "label": "Shard Node",
+      "category": "auxiliary",
+      "supportTier": "guided",
+      "aliases": [
+        "Partition Replica"
+      ]
+    },
+    {
+      "id": "sharding",
+      "label": "Sharding",
+      "category": "auxiliary",
+      "supportTier": "guided",
+      "aliases": [
+        "Shard Routing Strategy"
+      ]
+    },
+    {
+      "id": "sidecar",
+      "label": "Sidecar Proxy",
+      "category": "compute",
+      "supportTier": "first-class",
+      "aliases": [
+        "Local Data Plane"
+      ]
+    },
+    {
+      "id": "relational-db",
+      "label": "SQL DB",
+      "category": "storage-and-data",
+      "supportTier": "first-class",
+      "aliases": [
+        "Relational SQL",
+        "Read Replica",
+        "SQL Read Replica"
+      ]
+    },
+    {
+      "id": "streaming-analytics",
+      "label": "Streaming Analytics",
+      "category": "data-infra-and-analytics",
+      "supportTier": "presentational-only",
+      "aliases": []
+    },
+    {
+      "id": "time-series-db",
+      "label": "Time-series DB",
+      "category": "storage-and-data",
+      "supportTier": "first-class",
+      "aliases": [
+        "Metrics / Telemetry"
+      ]
+    },
+    {
+      "id": "tool-registry",
+      "label": "Tool Registry",
+      "category": "orchestration-and-infra",
+      "supportTier": "presentational-only",
+      "aliases": [
+        "Capability Catalog"
+      ]
+    },
+    {
+      "id": "distributed-tracing",
+      "label": "Tracing Collector",
+      "category": "observability",
+      "supportTier": "presentational-only",
+      "aliases": [
+        "OpenTelemetry"
+      ]
+    },
+    {
+      "id": "vector-db",
+      "label": "Vector DB",
+      "category": "storage-and-data",
+      "supportTier": "first-class",
+      "aliases": [
+        "Embeddings / ANN"
+      ]
+    },
+    {
+      "id": "vpn-gateway",
+      "label": "VPN Gateway",
+      "category": "network-and-edge",
+      "supportTier": "guided",
+      "aliases": [
+        "Secure Site-to-Site"
+      ]
+    },
+    {
+      "id": "waf",
+      "label": "WAF",
+      "category": "security-and-identity",
+      "supportTier": "presentational-only",
+      "aliases": [
+        "Web App Firewall"
+      ]
+    }
+  ],
+  "metrics": [
+    {
+      "id": "topology.totalNodes",
+      "kind": "topology",
+      "group": "topology",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete",
+        "analytic"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ]
+    },
+    {
+      "id": "topology.totalEdges",
+      "kind": "topology",
+      "group": "topology",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete",
+        "analytic"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ]
+    },
+    {
+      "id": "topology.totalWorkers",
+      "kind": "topology",
+      "group": "topology",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete",
+        "analytic"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ]
+    },
+    {
+      "id": "summary.latency.p50",
+      "kind": "simulation",
+      "group": "latency",
+      "unit": "ms",
+      "evidenceModes": [
+        "discrete",
+        "analytic"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ]
+    },
+    {
+      "id": "summary.latency.p90",
+      "kind": "simulation",
+      "group": "latency",
+      "unit": "ms",
+      "evidenceModes": [
+        "discrete",
+        "analytic"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ]
+    },
+    {
+      "id": "summary.latency.p95",
+      "kind": "simulation",
+      "group": "latency",
+      "unit": "ms",
+      "evidenceModes": [
+        "discrete",
+        "analytic"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ]
+    },
+    {
+      "id": "summary.latency.p99",
+      "kind": "simulation",
+      "group": "latency",
+      "unit": "ms",
+      "evidenceModes": [
+        "discrete",
+        "analytic"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ]
+    },
+    {
+      "id": "summary.latency.min",
+      "kind": "simulation",
+      "group": "latency",
+      "unit": "ms",
+      "evidenceModes": [
+        "discrete",
+        "analytic"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ]
+    },
+    {
+      "id": "summary.latency.max",
+      "kind": "simulation",
+      "group": "latency",
+      "unit": "ms",
+      "evidenceModes": [
+        "discrete",
+        "analytic"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ]
+    },
+    {
+      "id": "summary.latency.mean",
+      "kind": "simulation",
+      "group": "latency",
+      "unit": "ms",
+      "evidenceModes": [
+        "discrete",
+        "analytic"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ]
+    },
+    {
+      "id": "summary.errorRate",
+      "kind": "simulation",
+      "group": "requests",
+      "unit": "ratio",
+      "evidenceModes": [
+        "discrete",
+        "analytic"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ]
+    },
+    {
+      "id": "summary.throughput",
+      "kind": "simulation",
+      "group": "requests",
+      "unit": "req/s",
+      "evidenceModes": [
+        "discrete",
+        "analytic"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ]
+    },
+    {
+      "id": "summary.totalRequests",
+      "kind": "simulation",
+      "group": "requests",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete",
+        "analytic"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ]
+    },
+    {
+      "id": "summary.successfulRequests",
+      "kind": "simulation",
+      "group": "requests",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete",
+        "analytic"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ]
+    },
+    {
+      "id": "summary.failedRequests",
+      "kind": "simulation",
+      "group": "requests",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete",
+        "analytic"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ]
+    },
+    {
+      "id": "summary.rejectedRequests",
+      "kind": "simulation",
+      "group": "requests",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete",
+        "analytic"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ]
+    },
+    {
+      "id": "summary.timedOutRequests",
+      "kind": "simulation",
+      "group": "requests",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete",
+        "analytic"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ]
+    },
+    {
+      "id": "summary.connectionResetRequests",
+      "kind": "simulation",
+      "group": "requests",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete",
+        "analytic"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ]
+    },
+    {
+      "id": "perNode.maxUtilization",
+      "kind": "simulation",
+      "group": "perNode",
+      "unit": "ratio",
+      "evidenceModes": [
+        "discrete",
+        "analytic"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ]
+    },
+    {
+      "id": "perNode.maxErrorRate",
+      "kind": "simulation",
+      "group": "perNode",
+      "unit": "ratio",
+      "evidenceModes": [
+        "discrete",
+        "analytic"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ]
+    },
+    {
+      "id": "perNode.maxLatencyP99",
+      "kind": "simulation",
+      "group": "perNode",
+      "unit": "ms",
+      "evidenceModes": [
+        "discrete",
+        "analytic"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ]
+    },
+    {
+      "id": "reservations.commits",
+      "kind": "simulation",
+      "group": "coordination",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete",
+        "analytic"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ]
+    },
+    {
+      "id": "reservations.conflicts",
+      "kind": "simulation",
+      "group": "coordination",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete",
+        "analytic"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ]
+    },
+    {
+      "id": "reservations.oversells",
+      "kind": "simulation",
+      "group": "coordination",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete",
+        "analytic"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ]
+    },
+    {
+      "id": "locks.acquires",
+      "kind": "simulation",
+      "group": "coordination",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete",
+        "analytic"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ]
+    },
+    {
+      "id": "locks.contentions",
+      "kind": "simulation",
+      "group": "coordination",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete",
+        "analytic"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ]
+    },
+    {
+      "id": "locks.keyless",
+      "kind": "simulation",
+      "group": "coordination",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete",
+        "analytic"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ]
+    },
+    {
+      "id": "retries.attempts",
+      "kind": "simulation",
+      "group": "resilience",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete",
+        "analytic"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ]
+    },
+    {
+      "id": "retries.budgetExhausted",
+      "kind": "simulation",
+      "group": "resilience",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete",
+        "analytic"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ]
+    },
+    {
+      "id": "rateLimit.admitted",
+      "kind": "simulation",
+      "group": "resilience",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete",
+        "analytic"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ]
+    },
+    {
+      "id": "rateLimit.rejected",
+      "kind": "simulation",
+      "group": "resilience",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete",
+        "analytic"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ]
+    },
+    {
+      "id": "rateLimit.breaches",
+      "kind": "simulation",
+      "group": "resilience",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete",
+        "analytic"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ]
+    },
+    {
+      "id": "rateLimit.keyless",
+      "kind": "simulation",
+      "group": "resilience",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete",
+        "analytic"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ]
+    },
+    {
+      "id": "consistency.reads",
+      "kind": "simulation",
+      "group": "consistency",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete",
+        "analytic"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ]
+    },
+    {
+      "id": "consistency.writes",
+      "kind": "simulation",
+      "group": "consistency",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete",
+        "analytic"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ]
+    },
+    {
+      "id": "consistency.staleReads",
+      "kind": "simulation",
+      "group": "consistency",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete",
+        "analytic"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ]
+    },
+    {
+      "id": "consistency.readYourWritesViolations",
+      "kind": "simulation",
+      "group": "consistency",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete",
+        "analytic"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ]
+    },
+    {
+      "id": "consistency.monotonicReadViolations",
+      "kind": "simulation",
+      "group": "consistency",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete",
+        "analytic"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ]
+    },
+    {
+      "id": "consistency.catchUpWaits",
+      "kind": "simulation",
+      "group": "consistency",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete",
+        "analytic"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ]
+    },
+    {
+      "id": "consistency.catchUpWaitMs",
+      "kind": "simulation",
+      "group": "consistency",
+      "unit": "ms",
+      "evidenceModes": [
+        "discrete",
+        "analytic"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ]
+    },
+    {
+      "id": "consistency.sessionlessReads",
+      "kind": "simulation",
+      "group": "consistency",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete",
+        "analytic"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ]
+    },
+    {
+      "id": "consistency.linearizabilityKeysChecked",
+      "kind": "simulation",
+      "group": "consistency",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete",
+        "analytic"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ]
+    },
+    {
+      "id": "consistency.linearizabilityViolations",
+      "kind": "simulation",
+      "group": "consistency",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete",
+        "analytic"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ]
+    },
+    {
+      "id": "consistency.linearizabilityOpsChecked",
+      "kind": "simulation",
+      "group": "consistency",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete",
+        "analytic"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ]
+    },
+    {
+      "id": "consistency.linearizabilityOpsNotChecked",
+      "kind": "simulation",
+      "group": "consistency",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete",
+        "analytic"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ]
+    },
+    {
+      "id": "consistency.linearizableVerified",
+      "kind": "simulation",
+      "group": "consistency",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete",
+        "analytic"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ]
+    },
+    {
+      "id": "cache.hitRatio",
+      "kind": "simulation",
+      "group": "cache",
+      "unit": "ratio",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Hits / lookups summed over every cache for the whole run (lookup-weighted, not a point sample). Unresolved when no cache lookup happened."
+    },
+    {
+      "id": "cache.minHitRatio",
+      "kind": "simulation",
+      "group": "cache",
+      "unit": "ratio",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Lowest hits / lookups of any single cache that served a lookup. Unresolved when no cache lookup happened."
+    },
+    {
+      "id": "cache.maxHitRatio",
+      "kind": "simulation",
+      "group": "cache",
+      "unit": "ratio",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Highest hits / lookups of any single cache that served a lookup. Unresolved when no cache lookup happened."
+    },
+    {
+      "id": "cache.lookups",
+      "kind": "simulation",
+      "group": "cache",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Hits plus misses across every cache. Unresolved when no cache lookup happened."
+    },
+    {
+      "id": "cache.hits",
+      "kind": "simulation",
+      "group": "cache",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Lookups answered from cache. Unresolved when no cache lookup happened."
+    },
+    {
+      "id": "cache.misses",
+      "kind": "simulation",
+      "group": "cache",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Lookups that went to the backing store (or waited behind a collapse leader). Unresolved when no cache lookup happened."
+    },
+    {
+      "id": "collapse.leaders",
+      "kind": "simulation",
+      "group": "collapse",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Misses that made the single downstream fetch for their key. Unresolved unless a cache has request collapsing on."
+    },
+    {
+      "id": "collapse.collapsedMisses",
+      "kind": "simulation",
+      "group": "collapse",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Misses that waited behind an in-flight leader instead of calling downstream. Unresolved unless a cache has request collapsing on."
+    },
+    {
+      "id": "collapse.followersServed",
+      "kind": "simulation",
+      "group": "collapse",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Waiting misses completed by their leader's successful fetch. Unresolved unless a cache has request collapsing on."
+    },
+    {
+      "id": "collapse.followersFailed",
+      "kind": "simulation",
+      "group": "collapse",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Waiting misses failed because their leader's fetch failed. Unresolved unless a cache has request collapsing on."
+    },
+    {
+      "id": "collapse.noKey",
+      "kind": "simulation",
+      "group": "collapse",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Misses that could not collapse because the request carried no key. Unresolved unless a cache has request collapsing on."
+    },
+    {
+      "id": "changeStream.orderViolations",
+      "kind": "simulation",
+      "group": "changeStream",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Times a consumer applied an older change for an entity after a newer one. Unresolved unless an Event Stream has change-stream ordering on."
+    },
+    {
+      "id": "changeStream.waitedForOrder",
+      "kind": "simulation",
+      "group": "changeStream",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Deliveries held by per-partition or per-key ordered consumption until the earlier one finished. Unresolved unless an Event Stream has change-stream ordering on."
+    },
+    {
+      "id": "changeStream.applied",
+      "kind": "simulation",
+      "group": "changeStream",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Change events a consumer applied successfully. Unresolved unless an Event Stream has change-stream ordering on."
+    },
+    {
+      "id": "changeStream.captured",
+      "kind": "simulation",
+      "group": "changeStream",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Change events the stream numbered per entity. Unresolved unless an Event Stream has change-stream ordering on."
+    },
+    {
+      "id": "changeStream.noKey",
+      "kind": "simulation",
+      "group": "changeStream",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Events that reached the stream without an entity key (not ordered). Unresolved unless an Event Stream has change-stream ordering on."
+    },
+    {
+      "id": "changeStream.failed",
+      "kind": "simulation",
+      "group": "changeStream",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Consumer deliveries of a change event that failed. Unresolved unless an Event Stream has change-stream ordering on."
+    },
+    {
+      "id": "telemetry.dropped",
+      "kind": "simulation",
+      "group": "telemetry",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Events dropped past the ingest ceiling or a full collector buffer. Unresolved unless a collector has async telemetry ingest on."
+    },
+    {
+      "id": "telemetry.dropRate",
+      "kind": "simulation",
+      "group": "telemetry",
+      "unit": "ratio",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Dropped / offered (ingested + dropped); unresolved when nothing was offered. Unresolved unless a collector has async telemetry ingest on."
+    },
+    {
+      "id": "telemetry.ingested",
+      "kind": "simulation",
+      "group": "telemetry",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Events the collector accepted. Unresolved unless a collector has async telemetry ingest on."
+    },
+    {
+      "id": "telemetry.sampledOut",
+      "kind": "simulation",
+      "group": "telemetry",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Events head sampling kept off the collector (never exported). Unresolved unless a collector has async telemetry ingest on."
+    },
+    {
+      "id": "telemetry.offered",
+      "kind": "simulation",
+      "group": "telemetry",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Events that reached the ingest check (ingested + dropped). Unresolved unless a collector has async telemetry ingest on."
+    },
+    {
+      "id": "telemetry.droppedOverIngest",
+      "kind": "simulation",
+      "group": "telemetry",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Drops because the events/s ingest ceiling was reached. Unresolved unless a collector has async telemetry ingest on."
+    },
+    {
+      "id": "telemetry.droppedBufferFull",
+      "kind": "simulation",
+      "group": "telemetry",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Drops because the collector buffer was full. Unresolved unless a collector has async telemetry ingest on."
+    },
+    {
+      "id": "cluster.readyRatio",
+      "kind": "simulation",
+      "group": "cluster",
+      "unit": "ratio",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Time-weighted mean ready replicas over time-weighted mean desired, all workloads. Unresolved unless a workload is scheduled onto a Kubernetes Cluster."
+    },
+    {
+      "id": "cluster.minWorkloadReadyRatio",
+      "kind": "simulation",
+      "group": "cluster",
+      "unit": "ratio",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Lowest time-weighted ready / desired of any scheduled workload. Unresolved unless a workload is scheduled onto a Kubernetes Cluster."
+    },
+    {
+      "id": "cluster.avgReadyReplicas",
+      "kind": "simulation",
+      "group": "cluster",
+      "unit": "replicas",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Integral of ready replicas over the run / duration, summed over workloads. Unresolved unless a workload is scheduled onto a Kubernetes Cluster."
+    },
+    {
+      "id": "cluster.avgDesiredReplicas",
+      "kind": "simulation",
+      "group": "cluster",
+      "unit": "replicas",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Integral of desired replicas over the run / duration, summed over workloads. Unresolved unless a workload is scheduled onto a Kubernetes Cluster."
+    },
+    {
+      "id": "cluster.avgPendingPods",
+      "kind": "simulation",
+      "group": "cluster",
+      "unit": "pods",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Integral of unschedulable pods over the run / duration, summed over clusters. Unresolved unless a workload is scheduled onto a Kubernetes Cluster."
+    },
+    {
+      "id": "cluster.peakPendingPods",
+      "kind": "simulation",
+      "group": "cluster",
+      "unit": "pods",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Most pods pending at once in any cluster. Unresolved unless a workload is scheduled onto a Kubernetes Cluster."
+    },
+    {
+      "id": "cluster.pendingPodSeconds",
+      "kind": "simulation",
+      "group": "cluster",
+      "unit": "pod-s",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Total time pods spent pending, summed over workloads. Unresolved unless a workload is scheduled onto a Kubernetes Cluster."
+    },
+    {
+      "id": "cluster.podsLost",
+      "kind": "simulation",
+      "group": "cluster",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Pods lost to machine failures. Unresolved unless a workload is scheduled onto a Kubernetes Cluster."
+    },
+    {
+      "id": "cluster.podsRecovered",
+      "kind": "simulation",
+      "group": "cluster",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Lost pods whose replacement became ready. Unresolved unless a workload is scheduled onto a Kubernetes Cluster."
+    },
+    {
+      "id": "cluster.podsUnrecovered",
+      "kind": "simulation",
+      "group": "cluster",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Lost pods with no ready replacement by the end of the run. Unresolved unless a workload is scheduled onto a Kubernetes Cluster."
+    },
+    {
+      "id": "cluster.meanRecoveryMs",
+      "kind": "simulation",
+      "group": "cluster",
+      "unit": "ms",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Mean time from a machine failure to the replacement pod being ready; unresolved until a pod recovers. Unresolved unless a workload is scheduled onto a Kubernetes Cluster."
+    },
+    {
+      "id": "cluster.maxRecoveryMs",
+      "kind": "simulation",
+      "group": "cluster",
+      "unit": "ms",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Longest time from a machine failure to the replacement pod being ready; unresolved until a pod recovers. Unresolved unless a workload is scheduled onto a Kubernetes Cluster."
+    },
+    {
+      "id": "edges.slots.waited",
+      "kind": "simulation",
+      "group": "edges",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Post-warmup, summed over edges. Every edge carries an in-flight cap, so 0 means it never bound."
+    },
+    {
+      "id": "edges.slots.refused",
+      "kind": "simulation",
+      "group": "edges",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Every slot busy and the pending line full, summed over edges (post-warmup). Every edge carries an in-flight cap, so 0 means it never bound."
+    },
+    {
+      "id": "edges.slots.timedOutWaiting",
+      "kind": "simulation",
+      "group": "edges",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Deadline passed while waiting for a slot, summed over edges (post-warmup). Every edge carries an in-flight cap, so 0 means it never bound."
+    },
+    {
+      "id": "edges.slots.maxPeakWaiting",
+      "kind": "simulation",
+      "group": "edges",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Peak queue for slots on the worst edge (a peak, not a mean). Every edge carries an in-flight cap, so 0 means it never bound."
+    },
+    {
+      "id": "edges.connections.opened",
+      "kind": "simulation",
+      "group": "edges",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "New connections opened, summed over edges (post-warmup). Unresolved unless an edge with a connection model carried traffic."
+    },
+    {
+      "id": "edges.connections.reused",
+      "kind": "simulation",
+      "group": "edges",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Requests that reused a warm connection, summed over edges (post-warmup). Unresolved unless an edge with a connection model carried traffic."
+    },
+    {
+      "id": "edges.connections.waited",
+      "kind": "simulation",
+      "group": "edges",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Requests that waited for a free pooled connection or stream, summed over edges (post-warmup). Unresolved unless an edge with a connection model carried traffic."
+    },
+    {
+      "id": "edges.connections.resumed",
+      "kind": "simulation",
+      "group": "edges",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Opened connections that resumed a TLS session, summed over edges (post-warmup). Unresolved unless an edge with a connection model carried traffic."
+    },
+    {
+      "id": "edges.connections.closedIdle",
+      "kind": "simulation",
+      "group": "edges",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Keep-alive connections closed after idling, summed over edges (post-warmup). Unresolved unless an edge with a connection model carried traffic."
+    },
+    {
+      "id": "edges.batching.batchesSent",
+      "kind": "simulation",
+      "group": "edges",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Batches sent across every batching edge (post-warmup). Unresolved unless an edge with producer batching sent a batch."
+    },
+    {
+      "id": "edges.batching.recordsSent",
+      "kind": "simulation",
+      "group": "edges",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Records carried by those batches (post-warmup). Unresolved unless an edge with producer batching sent a batch."
+    },
+    {
+      "id": "edges.batching.meanRecordsPerBatch",
+      "kind": "simulation",
+      "group": "edges",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Records sent / batches sent across every batching edge (a per-batch mean). Unresolved unless an edge with producer batching sent a batch."
+    },
+    {
+      "id": "faultDomains.componentsFailed",
+      "kind": "simulation",
+      "group": "faultDomains",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Distinct components a Region / AZ / Subnet outage took down. Unresolved unless a Region / AZ / Subnet outage took a component down."
+    },
+    {
+      "id": "faultDomains.outages",
+      "kind": "simulation",
+      "group": "faultDomains",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Distinct Region / AZ / Subnet locations that went down. Unresolved unless a Region / AZ / Subnet outage took a component down."
+    },
+    {
+      "id": "faultDomains.componentDowntimeMs",
+      "kind": "simulation",
+      "group": "faultDomains",
+      "unit": "ms",
+      "evidenceModes": [
+        "discrete"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ],
+      "description": "Summed length of the failure windows those outages opened. Unresolved unless a Region / AZ / Subnet outage took a component down."
+    },
+    {
+      "id": "invariantViolations.count",
+      "kind": "invariant",
+      "group": "invariants",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete",
+        "analytic"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ]
+    },
+    {
+      "id": "sloBreaches.count",
+      "kind": "invariant",
+      "group": "invariants",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete",
+        "analytic"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ]
+    },
+    {
+      "id": "conservation.unbalanced",
+      "kind": "invariant",
+      "group": "invariants",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete",
+        "analytic"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ]
+    },
+    {
+      "id": "littlesLaw.violations",
+      "kind": "invariant",
+      "group": "invariants",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete",
+        "analytic"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ]
+    }
+  ],
+  "structuralRules": [
+    "requires_component",
+    "requires_category",
+    "requires_edge",
+    "max_component_count",
+    "requires_redundancy",
+    "forbids_component",
+    "requires_connected_graph",
+    "requires_single_source",
+    "min_node_count",
+    "max_node_count",
+    "requires_path"
+  ],
+  "semanticCriteria": [
+    "componentPresence",
+    "componentProperty",
+    "placement",
+    "guardedPath",
+    "fanout",
+    "storageFit",
+    "forbidUnjustified",
+    "stateTransition",
+    "stateSequence"
+  ],
+  "workloadPatterns": [
+    "constant",
+    "poisson",
+    "bursty",
+    "diurnal",
+    "spike",
+    "sawtooth",
+    "replay"
+  ],
+  "chaosExperimentPresets": [
+    "az-outage",
+    "db-failover",
+    "cache-stampede",
+    "traffic-spike"
+  ],
+  "builderPolicy": {
+    "nodeClasses": [
+      "compute",
+      "storage",
+      "network",
+      "messaging",
+      "external"
+    ],
+    "runtimeTemplates": [
+      "long-running-service",
+      "serverless-function",
+      "background-worker",
+      "external-dependency",
+      "relational-datastore",
+      "object-store",
+      "distributed-cache",
+      "message-queue",
+      "event-stream",
+      "request-source"
+    ],
+    "traitPacks": [
+      "capacity",
+      "workload-profile",
+      "serverless-lifecycle",
+      "retry-timeout",
+      "rate-limiting",
+      "external-dependency",
+      "cache",
+      "arrival"
+    ]
+  },
+  "digest": "sha256:7d62e1444d9085014ae8a5c91d10d2b9fe83809708a7898892fcf2e289e00a7c"
+}

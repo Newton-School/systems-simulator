@@ -9,31 +9,46 @@
   "entryFormat": "blank-canvas",
   "prompt": {
     "text": "{{LEARNER_PROMPT}}",
-    "functionalRequirements": [
-      "{{FUNCTIONAL_REQUIREMENT_1}}"
-    ],
+    "functionalRequirements": ["{{FUNCTIONAL_REQUIREMENT_1}}"],
     "nonFunctionalRequirements": [
-      { "metric": "throughput", "operator": ">=", "value": 1000000, "unit": "req_per_sec", "description": "{{THROUGHPUT_NFR_DESCRIPTION}}" },
-      { "metric": "error_rate", "operator": "<", "value": 1, "unit": "percent", "description": "{{ERROR_NFR_DESCRIPTION}}" }
+      {
+        "metric": "throughput",
+        "operator": ">=",
+        "value": 1000000,
+        "unit": "req_per_sec",
+        "description": "{{THROUGHPUT_NFR_DESCRIPTION}}"
+      },
+      {
+        "metric": "error_rate",
+        "operator": "<",
+        "value": 1,
+        "unit": "percent",
+        "description": "{{ERROR_NFR_DESCRIPTION}}"
+      }
     ],
     "scale": { "peakRps": 1000000, "readWriteRatio": 100 }
   },
   "scaffold": { "type": "empty" },
   "constraints": {
-    "allowedNodeTypes": ["microservice", "api-endpoint", "load-balancer-l7"],
+    "allowedNodeTypes": ["microservice", "api-endpoint", "load-balancer"],
     "canModifyScaffold": true,
     "canRemoveScaffoldNodes": true
   },
   "structuralRules": [
     {
-      "id": "structural-rule-2",
-      "description": "Include at least 1 load-balancer-l7.",
+      "id": "requires-load-balancer",
+      "description": "{{LOAD_BALANCER_RULE_DESCRIPTION}}",
       "kind": "requires_component",
-      "componentType": "load-balancer-l7",
+      "componentType": "load-balancer",
       "minCount": 1
     },
     {
-      "id": "structural-rule-5",
+      "id": "requires-single-source",
+      "description": "Use exactly one traffic source.",
+      "kind": "requires_single_source"
+    },
+    {
+      "id": "requires-connected-design",
       "description": "Every node must be reachable (no orphans).",
       "kind": "requires_connected_graph"
     }
@@ -57,14 +72,18 @@
           ]
         },
         "invariants": [
-          { "id": "headroom-80", "description": "{{INVARIANT_DESCRIPTION}}", "condition": "perNode.maxUtilization <= 0.8" }
+          {
+            "id": "headroom-80",
+            "description": "{{INVARIANT_DESCRIPTION}}",
+            "condition": "perNode.maxUtilization <= 0.8"
+          }
         ]
       }
     ],
-    "visibleToStudent": true,
+    "visibleToStudent": false,
     "dryRunCase": {
-      "id": "baseline",
-      "description": "{{SCENARIO_DESCRIPTION}}",
+      "id": "public-dry-run",
+      "description": "{{PUBLIC_DRY_RUN_DESCRIPTION}}",
       "global": { "simulationDuration": 5000, "seed": "{{SLUG}}-v1", "warmupDuration": 0 },
       "workload": {
         "pattern": "constant",
@@ -73,20 +92,40 @@
           { "type": "read", "weight": 1, "sizeBytes": 100 },
           { "type": "write", "weight": 0, "sizeBytes": 100 }
         ]
-      },
-      "invariants": [
-        { "id": "headroom-80", "description": "{{INVARIANT_DESCRIPTION}}", "condition": "perNode.maxUtilization <= 0.8" }
-      ]
+      }
     }
   },
   "rubric": {
     "version": "1.0",
     "id": "{{SLUG}}-rubric",
-    "passThreshold": 0.81,
+    "passThreshold": 1,
     "checks": [
-      { "id": "metric-target", "description": "{{ERROR_CHECK_DESCRIPTION}}", "kind": "simulation", "metric": "summary.errorRate", "op": "<", "value": 0.01 },
-      { "id": "rubric-check-1", "description": "{{THROUGHPUT_CHECK_DESCRIPTION}}", "kind": "simulation", "metric": "summary.throughput", "op": ">=", "value": 1000000, "points": 1 },
-      { "id": "rubric-check-2", "description": "{{HEADROOM_CHECK_DESCRIPTION}}", "kind": "invariant", "metric": "invariantViolations.count", "op": "==", "value": 0, "points": 2 }
+      {
+        "id": "metric-target",
+        "description": "{{ERROR_CHECK_DESCRIPTION}}",
+        "kind": "simulation",
+        "metric": "summary.errorRate",
+        "op": "<",
+        "value": 0.01
+      },
+      {
+        "id": "rubric-check-1",
+        "description": "{{THROUGHPUT_CHECK_DESCRIPTION}}",
+        "kind": "simulation",
+        "metric": "summary.throughput",
+        "op": ">=",
+        "value": 1000000,
+        "points": 1
+      },
+      {
+        "id": "rubric-check-2",
+        "description": "{{HEADROOM_CHECK_DESCRIPTION}}",
+        "kind": "invariant",
+        "metric": "invariantViolations.count",
+        "op": "==",
+        "value": 0,
+        "points": 2
+      }
     ]
   },
   "author": "{{AUTHOR}}",

@@ -1,7 +1,7 @@
 # Standalone Simulator Question Author Skill
 
-This folder is a self-contained prompt package for creating three openable System
-Design Simulator JSON artifacts from a system-design question:
+This folder is a self-contained skill for creating and validating three private,
+author-side System Design Simulator artifacts from a system-design question:
 
 - `<slug>.simulator-question-project.json`
 - `<slug>.question-package.json`
@@ -10,11 +10,14 @@ Design Simulator JSON artifacts from a system-design question:
 It can also create the learner and Question Studio Markdown walkthroughs when
 they are explicitly requested.
 
-Recipients do not need access to the original simulator or documentation
-repository. The package includes its workflow, templates, simulator feasibility
-rules, component/metric catalog, grading DSL, Question Studio field guide,
-cross-file consistency contract, the full evaluation-authoring and test-case
-manuals, and a worked QuickCart example.
+The compiled question package is a private grader contract, not a learner payload.
+A browser-safe student package must be derived by the product publication layer
+and must omit cases, rubric checks, grading rules, hints, and answer material.
+
+Recipients do not need access to the original repository for basic artifact
+validation. The package includes a standalone validator, generated capability
+snapshot, templates, feasibility rules, grading DSL, field guides, deep manuals,
+and a worked QuickCart example.
 
 ## Use with any LLM
 
@@ -45,12 +48,15 @@ simulator-question-author/
 ├── agents/openai.yaml                 # optional OpenAI/Codex discovery metadata
 ├── assets/                            # output templates
 ├── references/                        # curated guidance + full deep-reference manuals
+├── scripts/validate-artifacts.mjs     # standalone cross-file/privacy validator
 └── examples/quickcart/                # worked JSON artifacts + optional walkthroughs
 ```
 
 ## Version boundary
 
-The embedded simulator and Question Studio behavior was verified on
-**2026-09-22**. When the target application changes, update the embedded
-references or provide newer documentation to the LLM. The skill instructs the
-LLM to flag unsupported or unverified details instead of inventing them.
+The embedded snapshot targets simulator commit `c33c557` plus the October 2026
+student-assignment privacy boundary. In a simulator checkout, run
+`npm run check:simulator-question-author-snapshot` and
+`npm run validate:simulator-question-author-skill` before packaging. When the
+target changes, regenerate the snapshot and report compatibility differences
+instead of inventing fields.
