@@ -145,7 +145,8 @@ export interface EnvironmentProfile {
  */
 export const AUTHOR_ENVIRONMENT_PROFILE: EnvironmentProfile = {
   mode: 'AUTHOR',
-  abstraction: 'architect',
+  // Classroom by default; it only takes effect for a Classroom-ready question.
+  abstraction: 'classroom',
   visibility: {
     prompt: true,
     scaffoldSourceNodes: true,
@@ -215,7 +216,8 @@ export const ASSIGNMENT_ENVIRONMENT_PROFILE: EnvironmentProfile = {
 
 export const PRACTICE_ENVIRONMENT_PROFILE: EnvironmentProfile = {
   mode: 'PRACTICE',
-  abstraction: 'architect',
+  // The deployed / standalone default: Classroom for any Classroom-ready question.
+  abstraction: 'classroom',
   visibility: {
     prompt: true,
     scaffoldSourceNodes: true,
