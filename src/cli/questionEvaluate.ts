@@ -2,6 +2,7 @@ import { buildQuestionEvaluationContract } from '../engine/analysis/evaluationCo
 import { gradeAttempt, type QuestionPackage } from '../engine/analysis/question'
 import type { TopologyJSON } from '../engine/core/types'
 import { runSimulation } from '../engine/runSimulation'
+import type { Abstraction } from '../engine/classroom/types'
 
 export interface QuestionEvaluationOptions {
   simulatorVersion?: string
@@ -9,6 +10,8 @@ export interface QuestionEvaluationOptions {
   submissionId?: string
   topologyId?: string
   evaluatedAt?: string
+  /** Grade at this abstraction; 'classroom' rebuilds the submission from the question's givens. */
+  abstraction?: Abstraction
 }
 
 export function evaluateQuestionSubmission(
@@ -16,8 +19,12 @@ export function evaluateQuestionSubmission(
   topology: TopologyJSON,
   options: QuestionEvaluationOptions = {}
 ) {
-  const grade = gradeAttempt(question, topology, (candidateTopology) =>
-    runSimulation(candidateTopology)
+  const grade = gradeAttempt(
+    question,
+    topology,
+    (candidateTopology) => runSimulation(candidateTopology),
+    [],
+    { abstraction: options.abstraction }
   )
 
   return buildQuestionEvaluationContract(question, topology, grade, options)

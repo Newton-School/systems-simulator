@@ -3,6 +3,7 @@ import type { EdgeFlowEvent } from '../core/events'
 import type { SimulationOutput, TimeSeriesSnapshot } from '../analysis/output'
 import type { AttemptCaseRun, AttemptGrade, QuestionPackage } from '../analysis/question'
 import type { JustificationAnswer } from '../analysis/justification'
+import type { Abstraction } from '../classroom/types'
 import type { ValidationError } from '../validation/validator'
 
 /*
@@ -74,6 +75,8 @@ export interface GradeMessage {
     question: QuestionPackage
     topology: TopologyJSON
     justificationAnswers?: JustificationAnswer[]
+    /** Grade at this abstraction ('classroom' compiles the submission from the givens). */
+    abstraction?: Abstraction
   }
 }
 

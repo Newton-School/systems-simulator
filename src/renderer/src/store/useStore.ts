@@ -31,6 +31,7 @@ import type { EdgeFailureCause, EdgeFlowEvent } from '../../../engine/core/event
 import type { WorkloadProfile } from '../../../engine/core/types'
 import type { AttemptState, QuestionPackage } from '../../../engine/analysis/question'
 import {
+  resolveEffectiveProfile,
   DEFAULT_ENVIRONMENT_PROFILE,
   type EnvironmentProfile
 } from '../../../engine/analysis/environmentProfile'
@@ -208,7 +209,8 @@ function isEdgeDataEditLocked(
     return false
   }
   return (
-    !profile.capabilities.canEditEdges || activeQuestion?.constraints?.canModifyScaffold === false
+    !resolveEffectiveProfile(profile, activeQuestion).capabilities.canEditEdges ||
+    activeQuestion?.constraints?.canModifyScaffold === false
   )
 }
 import type { RoutingStrategy } from '../../../engine/catalog/nodeSpecTypes'

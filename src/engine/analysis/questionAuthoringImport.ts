@@ -169,7 +169,8 @@ export function createQuestionAuthoringProjectFromPackage(
       suiteVisibleToStudent: question.suite.visibleToStudent,
       budget: question.budget ? { ...question.budget } : undefined,
       constraints: { ...question.constraints },
-      ...(question.builderPolicy ? { builderPolicy: structuredClone(question.builderPolicy) } : {})
+      ...(question.builderPolicy ? { builderPolicy: structuredClone(question.builderPolicy) } : {}),
+      ...(question.classroom ? { classroom: structuredClone(question.classroom) } : {})
     },
     problemStatement: question.prompt.text,
     additionalContext: question.prompt.additionalContext,

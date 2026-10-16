@@ -1,9 +1,11 @@
 {
-  "snapshotVersion": "2026-10-13",
+  "snapshotVersion": "2026-10-15",
   "sources": [
     "src/engine/analysis/authoringCapabilities.ts",
     "src/engine/analysis/builderPolicy.ts",
-    "src/engine/catalog/paletteTemplates.ts"
+    "src/engine/catalog/paletteTemplates.ts",
+    "src/engine/classroom/conceptCards.ts",
+    "src/engine/classroom/types.ts"
   ],
   "componentFamilies": {
     "load-balancer": [
@@ -3940,5 +3942,132 @@
       "arrival"
     ]
   },
-  "digest": "sha256:9bf3afc0bdf89aab4247ba76c103317d40f1e7e590757432a700790e085a963a"
+  "classroom": {
+    "abstractions": [
+      "classroom",
+      "guided",
+      "architect"
+    ],
+    "givenFields": [
+      "label",
+      "capacityRps",
+      "costPerHour"
+    ],
+    "targetFields": [
+      "maxUtilization",
+      "maxErrorRate"
+    ],
+    "options": [
+      "designChecks"
+    ],
+    "checkTemplates": [
+      "traffic-flows-through",
+      "serves-all-traffic",
+      "within-target-utilization",
+      "right-sized"
+    ],
+    "cards": [
+      {
+        "id": "users",
+        "label": "Users",
+        "role": "source",
+        "covers": [
+          "api-endpoint"
+        ]
+      },
+      {
+        "id": "api-gateway",
+        "label": "API Gateway",
+        "role": "passthrough",
+        "covers": [
+          "api-gateway"
+        ]
+      },
+      {
+        "id": "cdn",
+        "label": "CDN",
+        "role": "passthrough",
+        "covers": [
+          "cdn"
+        ]
+      },
+      {
+        "id": "load-balancer",
+        "label": "Load Balancer",
+        "role": "passthrough",
+        "covers": [
+          "load-balancer"
+        ]
+      },
+      {
+        "id": "server",
+        "label": "Server",
+        "role": "compute",
+        "covers": [
+          "microservice"
+        ],
+        "copies": {
+          "min": 1,
+          "max": 50
+        }
+      },
+      {
+        "id": "worker",
+        "label": "Worker",
+        "role": "compute",
+        "covers": [
+          "batch-worker"
+        ],
+        "copies": {
+          "min": 1,
+          "max": 50
+        }
+      },
+      {
+        "id": "cache",
+        "label": "Cache",
+        "role": "compute",
+        "covers": [
+          "in-memory-cache"
+        ],
+        "copies": {
+          "min": 1,
+          "max": 50
+        }
+      },
+      {
+        "id": "sql-database",
+        "label": "SQL Database",
+        "role": "compute",
+        "covers": [
+          "relational-db"
+        ],
+        "copies": {
+          "min": 1,
+          "max": 50
+        }
+      },
+      {
+        "id": "nosql-database",
+        "label": "NoSQL Database",
+        "role": "compute",
+        "covers": [
+          "nosql-db"
+        ],
+        "copies": {
+          "min": 1,
+          "max": 50
+        }
+      },
+      {
+        "id": "queue",
+        "label": "Queue",
+        "role": "passthrough",
+        "covers": [
+          "queue"
+        ]
+      }
+    ]
+  },
+  "digest": "sha256:2eab9fde4853fded801a8fba6a00c9855c0d495c2902449503cd01dbd7000dfa"
 }

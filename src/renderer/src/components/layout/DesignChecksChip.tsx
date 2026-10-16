@@ -7,6 +7,7 @@ import {
   type AntiPatternWarning
 } from '../../../../engine/analysis/antiPatterns'
 import { AntiPatternPanel } from '../simulation/AntiPatternPanel'
+import { useDesignChecksHidden } from '@renderer/hooks/useClassroom'
 
 /**
  * Header chip for static design checks (anti-pattern detection). Like the cost
@@ -22,7 +23,10 @@ export function DesignChecksChip(): React.JSX.Element | null {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
+  // Classroom mode hides design checks unless the question turns them on.
+  const hidden = useDesignChecksHidden()
   const warnings = useMemo<AntiPatternWarning[]>(() => {
+    if (hidden) return []
     try {
       const topology = serialize().topology
       return topology ? detectAntiPatterns(topology) : []
@@ -30,7 +34,7 @@ export function DesignChecksChip(): React.JSX.Element | null {
       return []
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nodes, edges, serialize])
+  }, [nodes, edges, serialize, hidden])
 
   const labelById = useMemo(() => {
     const map = new Map<string, string>()
@@ -50,7 +54,7 @@ export function DesignChecksChip(): React.JSX.Element | null {
     return () => document.removeEventListener('mousedown', onDown)
   }, [open])
 
-  if (mode === 'ASSIGNMENT') return null
+  if (mode === 'ASSIGNMENT' || hidden) return null
 
   const hasNodes = nodes.length > 0
   const criticalCount = warnings.filter((w) => w.severity === 'critical').length

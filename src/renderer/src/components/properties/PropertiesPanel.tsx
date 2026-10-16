@@ -23,6 +23,7 @@ import {
 import type { SimulationOutput } from '../../../../engine/analysis/output'
 import { EdgeLatencyBreakdownView } from '../simulation/EdgeLatencyBreakdownView'
 import {
+  resolveEffectiveProfile,
   canEditEdgeLabelsForQuestion,
   canEditEdgesForQuestion,
   resolveEdgeModel,
@@ -68,6 +69,10 @@ import { MetricItem } from './MetricItem'
 import type { EdgePropertiesPanelValue } from '../ui/EdgePropertiesPanel'
 import { TooltipInfo } from '../ui/Tooltip'
 import { LocationRollupsPanel } from '@renderer/components/location/LocationRollupsPanel'
+import { ClassroomInspector } from './ClassroomInspector'
+import { useClassroomActive } from '@renderer/hooks/useClassroom'
+import { conceptCardForType } from '../../../../engine/classroom/conceptCards'
+import { classroomRunConditions } from '../../../../engine/classroom/compileClassroom'
 import {
   buildEdgeLocalityRollups,
   buildLocationTopology,
@@ -1417,6 +1422,9 @@ export const PropertiesPanel = ({ results = null }: { results?: SimulationOutput
   const setRunInspectorDrilldownActive = useStore((state) => state.setRunInspectorDrilldownActive)
 
   const activeQuestion = useStore((state) => state.activeQuestion)
+  const environmentProfile = useStore((state) => state.environmentProfile)
+  const setEnvironmentProfile = useStore((state) => state.setEnvironmentProfile)
+  const classroomActive = useClassroomActive()
   const scaffoldNodeIds = useStore((state) => state.scaffoldNodeIds)
   const scaffoldEdgeIds = useStore((state) => state.scaffoldEdgeIds)
   const attemptStatus = useStore((state) => state.attemptState?.status)
@@ -1440,7 +1448,9 @@ export const PropertiesPanel = ({ results = null }: { results?: SimulationOutput
     canEditResourcesForQuestion(state.environmentProfile, state.activeQuestion)
   )
   const canEditExecutionProfile = useStore(
-    (state) => state.environmentProfile.capabilities.canEditExecutionProfile
+    (state) =>
+      resolveEffectiveProfile(state.environmentProfile, state.activeQuestion).capabilities
+        .canEditExecutionProfile
   )
   const selectedNode = nodes.find((node) => node.selected)
   const selectedEdge = edges.find((edge) => edge.selected)
@@ -1575,6 +1585,14 @@ export const PropertiesPanel = ({ results = null }: { results?: SimulationOutput
   // A selected node takes precedence over an edge in the shared inspector.
   if (selectedNode) {
     const data = selectedNode.data as AnyNodeData
+    const guidedValue = (path: string): number | string | undefined => {
+      let value: unknown = data
+      for (const part of path.split('.')) {
+        if (!value || typeof value !== 'object') return undefined
+        value = (value as Record<string, unknown>)[part]
+      }
+      return typeof value === 'number' || typeof value === 'string' ? value : undefined
+    }
 
     // Read-only derived throughput ceiling (null for passthrough / no service model).
     const throughputCapacity = deriveDisplayThroughputCapacity(
@@ -1616,6 +1634,12 @@ export const PropertiesPanel = ({ results = null }: { results?: SimulationOutput
       (selectedComponentType !== undefined &&
         (BROADCAST_FANOUT_COMPONENT_TYPES as readonly string[]).includes(selectedComponentType)) ||
       (data as { routingStrategy?: string }).routingStrategy === 'broadcast'
+
+    // Classroom mode: a node with a concept card shows only its givens and copies.
+    const classroomCard =
+      classroomActive && selectedComponentType
+        ? conceptCardForType(selectedComponentType)
+        : undefined
 
     const selectedOutboundEdges = edges.filter((edge) => edge.source === selectedNode.id)
     const downstreamSplit =
@@ -1678,6 +1702,69 @@ export const PropertiesPanel = ({ results = null }: { results?: SimulationOutput
                 clusterScheduling={findClusterScheduling(results, selectedNode.id)}
               />
             )
+          ) : classroomCard && activeQuestion ? (
+            <ClassroomInspector
+              card={classroomCard}
+              componentType={selectedComponentType as string}
+              settings={activeQuestion.classroom}
+              peakRps={classroomRunConditions(activeQuestion).workload?.baseRps}
+              copies={data.sim?.resources?.instanceCount ?? 1}
+              choices={data.sim?.classroom?.choices ?? {}}
+              onCopiesChange={
+                selectedNodeLocked || !data.sim
+                  ? null
+                  : (copies) => {
+                      const nextSim = structuredClone(data.sim) as NonNullable<
+                        CanvasNodeDataV2['sim']
+                      >
+                      nextSim.resources = { ...nextSim.resources, instanceCount: copies }
+                      updateNodeData(selectedNode.id, { sim: nextSim })
+                    }
+              }
+              onChoiceChange={
+                selectedNodeLocked || !data.sim
+                  ? null
+                  : (choiceId, optionId) => {
+                      const nextSim = structuredClone(data.sim) as NonNullable<
+                        CanvasNodeDataV2['sim']
+                      >
+                      const marker = (nextSim.classroom ?? {}) as Record<string, unknown>
+                      const choices = (marker.choices ?? {}) as Record<string, string>
+                      nextSim.classroom = {
+                        ...marker,
+                        choices: { ...choices, [choiceId]: optionId }
+                      }
+                      updateNodeData(selectedNode.id, { sim: nextSim })
+                    }
+              }
+              canOpenArchitect={environmentProfile.mode === 'PRACTICE'}
+              onOpenArchitect={
+                environmentProfile.mode === 'PRACTICE'
+                  ? () =>
+                      setEnvironmentProfile({
+                        ...environmentProfile,
+                        abstraction: 'architect'
+                      })
+                  : null
+              }
+              guidedKnobs={
+                environmentProfile.abstraction === 'guided'
+                  ? (activeQuestion.classroom?.guidedKnobs ?? []).map((knob) => ({
+                      ...knob,
+                      value: guidedValue(`sim.${knob.path}`)
+                    }))
+                  : []
+              }
+              onGuidedKnobChange={
+                environmentProfile.abstraction === 'guided' && !selectedNodeLocked
+                  ? (path, value) =>
+                      updateNodeData(
+                        selectedNode.id,
+                        setPathValue(data, `sim.${path}` as FieldPath, value)
+                      )
+                  : null
+              }
+            />
           ) : (
             <>
               {throughputCapacity ? (

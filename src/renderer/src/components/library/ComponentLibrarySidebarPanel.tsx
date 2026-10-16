@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import useStore from '../../store/useStore'
 import { CATALOG_CONFIG } from '../../config/catalogConfig'
 import { filterCatalogCategories, type ComponentLibraryFilter } from '../../config/catalogFilter'
+import { useClassroomActive } from '@renderer/hooks/useClassroom'
 import { LibraryItem } from './LibraryItem'
 import { CustomDefinitionCreator, type DefinitionBuilderMode } from './CustomDefinitionCreator'
 import type { CatalogItem } from '@renderer/types/ui'
@@ -65,6 +66,7 @@ export function ComponentLibrarySidebarPanel({
   // A question allow-list turns the palette into a strict, curated set: only the
   // author's chosen types, one canonical item each, and no Common/All scoping.
   const hasQuestionAllowlist = Boolean(activeQuestion?.constraints.allowedNodeTypes)
+  const classroomActive = useClassroomActive()
 
   const filtered = useMemo(
     () =>
@@ -75,10 +77,12 @@ export function ComponentLibrarySidebarPanel({
         allowedNodeTypes: activeQuestion?.constraints.allowedNodeTypes ?? null,
         forbiddenNodeTypes: activeQuestion?.constraints.forbiddenNodeTypes ?? null,
         componentLibraryMode,
-        hiddenTemplateIds: hiddenComponentLibraryTemplateIds
+        hiddenTemplateIds: hiddenComponentLibraryTemplateIds,
+        ...(classroomActive ? { classroom: { settings: activeQuestion?.classroom } } : {})
       }),
     [
       activeQuestion,
+      classroomActive,
       componentLibraryMode,
       editPaletteList,
       filter,

@@ -2,6 +2,7 @@ import React, { memo, useState, useCallback, useMemo } from 'react'
 import { Anchor, AlertTriangle, Lock, XCircle } from 'lucide-react'
 import UniversalHandle from '@renderer/components/ui/UniversalHandle'
 import useStore from '@renderer/store/useStore'
+import { useDesignChecksHidden } from '@renderer/hooks/useClassroom'
 import { NODE_OFFSETS, NODE_POSITIONS } from './nodeConstants'
 import { NODE_HEALTH_STYLES, type NodeHealthStatus } from './nodePresentation'
 import type { NodeVisualStyle } from '@renderer/utils/liveVisualization'
@@ -125,7 +126,9 @@ const BaseNode = ({
       ? (s.lastRunOutput?.singlePointsOfFailure?.find((f) => f.nodeId === id)?.reason ?? null)
       : null
   )
-  const showSpofBadges = useStore((s) => s.displaySettings.showSpofBadges)
+  // Classroom mode hides design checks (SPOF included) unless the question turns them on.
+  const designChecksHidden = useDesignChecksHidden()
+  const showSpofBadges = useStore((s) => s.displaySettings.showSpofBadges) && !designChecksHidden
 
   // Live run styling (#70): measured, time-weighted values; null outside a run.
   const liveMetricsVisible = useStore((s) => s.environmentProfile.visibility.liveMetrics)
