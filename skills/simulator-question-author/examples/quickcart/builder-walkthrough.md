@@ -58,6 +58,10 @@ Drag onto the canvas from the library:
 
 ## Part 3 — Set each server's capacity (100,000 req/s)
 
+> **Classroom mode:** skip this part. The question supplies the 100,000 req/s
+> capacity, so a Server already shows it; you only choose how many servers (drop
+> 13, or set one server's **Copies** to 13).
+
 Each server must saturate at 100,000 req/s. For this authored exercise, use the
 given capacity directly:
 

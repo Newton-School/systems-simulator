@@ -1,6 +1,7 @@
 import type { Edge, Node } from 'reactflow'
 import type { TopologyJSON } from '../../../../engine/core/types'
 import {
+  resolveEffectiveProfile,
   canEditEdgesForQuestion,
   canEditResourcesForQuestion,
   resolveEdgeModel
@@ -152,7 +153,10 @@ function resolveNodeFields(nodeId: string): ResolvedNodeField[] {
     state.environmentProfile,
     state.activeQuestion
   )
-  const canEditExecutionProfile = state.environmentProfile.capabilities.canEditExecutionProfile
+  const canEditExecutionProfile = resolveEffectiveProfile(
+    state.environmentProfile,
+    state.activeQuestion
+  ).capabilities.canEditExecutionProfile
   const sections = getNodeConfigSections(formData)
   const entries = sections.flatMap((section) =>
     section.fields

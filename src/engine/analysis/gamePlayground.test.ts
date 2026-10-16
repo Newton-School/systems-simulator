@@ -197,12 +197,17 @@ describe('gamePlayground adapter', () => {
       passedTests: 1,
       allPassed: true
     })
+    attempt.predictions = { expectedServers: 13, routing: 'round-robin' }
 
     const payload = buildGamePlaygroundSubmitPayload(question, attempt, result, {
       submissionId: 'sub-1'
     })
 
     expect(parseGamePlaygroundSubmitPayload(payload, 'q1')).toEqual(payload)
+    expect(payload.classroomInsights).toEqual({
+      misconceptionIds: [],
+      predictions: { expectedServers: 13, routing: 'round-robin' }
+    })
     expect(
       parseGamePlaygroundSubmitPayload(
         {

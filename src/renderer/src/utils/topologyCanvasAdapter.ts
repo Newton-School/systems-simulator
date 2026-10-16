@@ -202,6 +202,9 @@ function overlaySimulationConfig(
   }
 
   const config = node.config ?? {}
+  if (isRecord(config['classroom'])) {
+    sim.classroom = structuredClone(config['classroom']) as NodeSimulationConfig['classroom']
+  }
   const resilience = node.resilience
   const scaling = node.scaling
 

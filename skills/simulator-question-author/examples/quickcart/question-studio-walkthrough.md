@@ -109,7 +109,10 @@ Build the backend architecture for QuickCart from the available components.
 ```
 
 Keep the capacity and 80% limit in the prompt. The scenario supplies the offered
-traffic, while the learner configures the server capacity in their design.
+traffic. In Architect mode the learner reaches the 100,000 req/s capacity through
+their server's configuration; in Classroom mode the question supplies it (see
+[Classroom mode](#classroom-mode) below), so the learner only decides structure
+and how many servers.
 
 ### Functional requirements
 
@@ -363,6 +366,38 @@ Also try these anti-gaming cases:
 - a disconnected extra server — connected-design grading must fail;
 - 13 servers with uneven load-balancer weights — the busiest server should fail
   the 80% invariant if its utilization crosses the limit.
+
+## Classroom mode
+
+The same question also runs in **Classroom mode**, where students work with concept
+cards instead of engine settings: they place Users, a Load Balancer and Servers,
+connect them, and choose how many servers. Every number comes from the question.
+Question Studio has no Classroom editor yet (it is planned), so add this block to
+the project's `question.setup` in the JSON; the compiler copies it into the
+package unchanged:
+
+```json
+"classroom": {
+  "givens": { "microservice": { "label": "Server", "capacityRps": 100000, "costPerHour": 0.192 } },
+  "targets": { "maxUtilization": 0.8, "maxErrorRate": 0.01 },
+  "checks": [
+    { "id": "through-lb", "template": "traffic-flows-through", "via": "load-balancer", "component": "microservice", "label": "All traffic reaches the servers through the load balancer" },
+    { "id": "serves-all", "template": "serves-all-traffic", "label": "Every request is served" },
+    { "id": "headroom", "template": "within-target-utilization", "component": "microservice", "label": "Every server stays at or below 80% utilization", "points": 2 },
+    { "id": "right-size", "template": "right-sized", "component": "microservice", "factor": 1.5, "severity": "feedback", "label": "The fleet isn't much bigger than it needs to be" }
+  ]
+}
+```
+
+In Classroom mode these checks replace the authored grading set, and the grader
+rebuilds every submission from the givens, so "13 servers" and "one server ×13"
+grade the same and hand-edited capacity never counts. After editing the project,
+re-run the Discrimination lab (or the skill's verification) so the stored proof
+matches the package. Check it with:
+
+```bash
+npm run sim -- evaluate question quickcart-flash-sale.question-package.json quickcart-flash-sale.solution-topology.json --abstraction classroom
+```
 
 ## Troubleshooting
 

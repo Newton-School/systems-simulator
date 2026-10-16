@@ -341,6 +341,10 @@ function buildRuntimeNode(
   const config: Record<string, unknown> = {}
   const resilience: NonNullable<ComponentNode['resilience']> = {}
 
+  if (data.sim?.classroom) {
+    config.classroom = structuredClone(data.sim.classroom)
+  }
+
   if (typeof data.sim?.nodeErrorRate === 'number' && Number.isFinite(data.sim.nodeErrorRate)) {
     config.nodeErrorRate = clamp(data.sim.nodeErrorRate, 0, 1)
   }

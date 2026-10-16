@@ -23,6 +23,7 @@ import { RequestDebugOverlay } from './RequestDebugOverlay'
 import { MetricLensSwitcher } from './MetricLensSwitcher'
 // Hooks & Config
 import useStore from '@renderer/store/useStore'
+import { useClassroomActive } from '@renderer/hooks/useClassroom'
 
 import { useCopyPaste } from './hooks/useCopyPaste'
 import { useFlowStore } from './hooks/useFlowStore'
@@ -113,6 +114,7 @@ const FlowCanvasInternal = ({
   onEdgeDoubleClick
 }: FlowCanvasProps) => {
   const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance | null>(null)
+  const classroomActive = useClassroomActive()
   const [selectedTool, setSelectedTool] = useState<CanvasTool>('pan')
   const [canvasViewport, setCanvasViewport] = useState<Viewport>({ x: 0, y: 0, zoom: 1 })
   const [tapConnectSourceId, setTapConnectSourceId] = useState<string | null>(null)
@@ -1135,7 +1137,7 @@ const FlowCanvasInternal = ({
           Tap a destination node
         </div>
       ) : null}
-      {!isEmpty && showMetricLens && <MetricLensSwitcher />}
+      {!isEmpty && showMetricLens && !classroomActive && <MetricLensSwitcher />}
       {!isEmpty && showMetricLens && <CanvasLegend />}
       <RequestTraceOverlay />
       <RequestDebugOverlay />

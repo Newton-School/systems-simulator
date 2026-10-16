@@ -42,5 +42,11 @@ jobs:
       - name: Run type check
         run: npm run typecheck
 
+      - name: Check Classroom skill shared files and example
+        run: npm run check:classroom-question-author-skill
+
+      - name: Check system-design concept registry
+        run: npm run check:system-design-concepts
+
       - name: Build web bundle
         run: npm run build:web

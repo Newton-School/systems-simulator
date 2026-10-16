@@ -14,6 +14,7 @@ import { SimulationControls } from '../simulation/SimulationControls'
 import type { ExperimentPreview } from '../simulation/chaosExperimentModel'
 import type { PlaybackSpeed } from '../../../../engine/worker/protocols'
 import type { FaultTargetOption, ScenarioState, SourceNodeOption } from '@renderer/types/ui'
+import { useClassroomActive } from '@renderer/hooks/useClassroom'
 
 interface HeaderProps {
   /**
@@ -127,6 +128,7 @@ export const Header = memo(
     canOpen = true,
     canSave = true
   }: HeaderProps) => {
+    const classroomActive = useClassroomActive()
     const headerRef = useRef<HTMLElement>(null)
     const leftGroupRef = useRef<HTMLDivElement>(null)
     const centerGroupRef = useRef<HTMLDivElement>(null)
@@ -186,7 +188,8 @@ export const Header = memo(
           />
           <div className="nss-desktop-only contents">
             <Divider />
-            <CostChip />
+            {/* Classroom mode prices designs from the givens (results card), not instances. */}
+            {!classroomActive && <CostChip />}
             <DesignChecksChip />
           </div>
           <Divider />

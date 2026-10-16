@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import type { AnyNodeData } from '@renderer/types/ui'
 import { resolveNodeConfig } from '@renderer/config/nodeRegistry'
 import { HEALTH_META, getHealthPreset, normalizeErrorRate } from './nodeHealth'
+import { useClassroomNodeView } from '@renderer/hooks/useClassroom'
 
 interface PropertiesHeaderProps {
   data: AnyNodeData
@@ -15,6 +16,8 @@ export const PropertiesHeader = ({ data, leadingAction }: PropertiesHeaderProps)
   const safeText = theme.text || safeColor.replace('bg-', 'text-')
   const healthPreset = getHealthPreset(normalizeErrorRate(data.sim?.nodeErrorRate))
   const healthMeta = HEALTH_META[healthPreset]
+  // Classroom mode: the lecture label, and none of the engine profile/health detail.
+  const classroomView = useClassroomNodeView(data)
 
   return (
     <div className="p-5 border-b border-nss-border bg-nss-panel">
@@ -38,23 +41,27 @@ export const PropertiesHeader = ({ data, leadingAction }: PropertiesHeaderProps)
             <h2
               className={`min-w-0 font-semibold text-sm leading-tight truncate ${isOverloaded ? 'text-nss-danger' : 'text-nss-text'}`}
             >
-              {data.label || label}
+              {classroomView?.label ?? (data.label || label)}
             </h2>
-            <span
-              className={`shrink-0 inline-flex items-center gap-1.5 rounded border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${healthMeta.className}`}
-            >
-              <span className={`h-1.5 w-1.5 rounded-full ${healthMeta.dotClassName}`} />
-              {healthMeta.label}
-            </span>
+            {!classroomView && (
+              <span
+                className={`shrink-0 inline-flex items-center gap-1.5 rounded border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${healthMeta.className}`}
+              >
+                <span className={`h-1.5 w-1.5 rounded-full ${healthMeta.dotClassName}`} />
+                {healthMeta.label}
+              </span>
+            )}
           </div>
-          <div className="mt-1 flex items-center gap-2">
-            <span className="text-[10px] text-nss-muted uppercase truncate">
-              {data.subLabel || subLabel}
-            </span>
-            <span className="text-[10px] px-1.5 py-0.5 rounded border border-nss-border bg-nss-surface text-nss-muted uppercase tracking-wide">
-              {data.profile}
-            </span>
-          </div>
+          {!classroomView && (
+            <div className="mt-1 flex items-center gap-2">
+              <span className="text-[10px] text-nss-muted uppercase truncate">
+                {data.subLabel || subLabel}
+              </span>
+              <span className="text-[10px] px-1.5 py-0.5 rounded border border-nss-border bg-nss-surface text-nss-muted uppercase tracking-wide">
+                {data.profile}
+              </span>
+            </div>
+          )}
         </div>
       </div>
     </div>

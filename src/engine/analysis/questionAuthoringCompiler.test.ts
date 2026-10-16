@@ -159,6 +159,134 @@ describe('Question Studio generated-output compiler', () => {
     )
   })
 
+  it('compiles objective-first Classroom intent without exporting the private solution', () => {
+    const project = completeProject()
+    project.question.setup = {
+      ...resolveQuestionAuthoringSetup(project.question.setup),
+      classroomIntent: {
+        version: '1',
+        outcome: 'classroom-structural',
+        conceptIds: ['NET-05'],
+        peakRps: 2_000,
+        allowedNodeTypes: ['api-endpoint', 'load-balancer', 'microservice'],
+        settings: {
+          givens: { microservice: { capacityRps: 200 } },
+          objectives: [
+            {
+              id: 'request-path',
+              statement: 'The student can place a load balancer on the request path.',
+              concept: 'NET-05'
+            }
+          ],
+          controls: [
+            {
+              id: 'connect-path',
+              kind: 'connect-components',
+              label: 'Connect the request path',
+              objectiveId: 'request-path'
+            }
+          ],
+          checks: [
+            {
+              id: 'through-load-balancer',
+              template: 'traffic-flows-through',
+              label: 'Traffic passes through the load balancer',
+              via: 'load-balancer',
+              component: 'microservice',
+              objectiveId: 'request-path'
+            }
+          ]
+        },
+        solution: {
+          nodes: [
+            { ref: 'users', component: 'api-endpoint' },
+            { ref: 'balancer', component: 'load-balancer' },
+            { ref: 'service', component: 'microservice' }
+          ],
+          edges: [
+            ['users', 'balancer'],
+            ['balancer', 'service']
+          ]
+        }
+      }
+    }
+
+    const preview = compileQuestionAuthoringPreview(project)
+    expect(preview.status).toBe('ready')
+    if (preview.status !== 'ready') return
+    expect(preview.questionPackage).toMatchObject({
+      constraints: {
+        allowedNodeTypes: ['api-endpoint', 'load-balancer', 'microservice']
+      },
+      concepts: ['NET-05'],
+      prompt: { scale: { peakRps: 2_000 } },
+      classroom: {
+        abstractions: ['classroom', 'guided', 'architect'],
+        controls: [{ objectiveId: 'request-path' }]
+      }
+    })
+    expect(preview.packageJson).not.toContain('"solution"')
+    expect(preview.packageJson).not.toContain('"balancer"')
+  })
+
+  it('turns complete visual Classroom fields into scenario and grading without duplicate rows', () => {
+    const project = createQuestionAuthoringProject({
+      projectId: 'visual-classroom',
+      updatedAt: FIXED_TIME,
+      title: 'Route Requests',
+      problemStatement: 'Build a request path through a load balancer.'
+    })
+    project.question.prompt.scale.peakRps = 1_000
+    project.question.setup = {
+      ...resolveQuestionAuthoringSetup(project.question.setup),
+      concepts: ['NET-05'],
+      constraints: {
+        ...resolveQuestionAuthoringSetup(project.question.setup).constraints,
+        allowedNodeTypes: ['api-endpoint', 'load-balancer', 'microservice']
+      },
+      classroom: {
+        abstractions: ['classroom', 'architect'],
+        givens: { microservice: { capacityRps: 100 } },
+        objectives: [
+          {
+            id: 'request-path',
+            statement: 'The student can route traffic through a load balancer.',
+            concept: 'NET-05'
+          }
+        ],
+        controls: [
+          {
+            id: 'connect-path',
+            kind: 'connect-components',
+            label: 'Connect the request path',
+            objectiveId: 'request-path'
+          }
+        ],
+        checks: [
+          {
+            id: 'through-load-balancer',
+            template: 'traffic-flows-through',
+            label: 'Traffic passes through the load balancer',
+            via: 'load-balancer',
+            component: 'microservice',
+            objectiveId: 'request-path'
+          }
+        ]
+      }
+    }
+
+    const preview = compileQuestionAuthoringPreview(project)
+    expect(preview.status).toBe('ready')
+    if (preview.status !== 'ready') return
+    expect(project.question.scenarios).toEqual([])
+    expect(project.question.metricRules).toEqual([])
+    expect(preview.questionPackage.suite.cases).toMatchObject([
+      { id: 'classroom-baseline', workload: { baseRps: 1_000 } }
+    ])
+    expect(preview.questionPackage.rubric.checks).toEqual([])
+    expect(preview.questionPackage.classroom?.checks).toHaveLength(1)
+  })
+
   it('round-trips learner-facing descriptions through project, package, and Django rows', () => {
     const project = completeProject()
     project.question.structuralRules[0].description = 'Include exactly one Users traffic source.'

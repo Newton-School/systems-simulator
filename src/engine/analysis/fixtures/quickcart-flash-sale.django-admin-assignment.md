@@ -33,10 +33,24 @@ Justification prompts are currently hidden in the Newton assignment UI and are n
 - `question_text`:
 
 ```html
-<p>You are the backend architect for an e-commerce website called <strong>QuickCart</strong>. You are designing the system architecture — placing, connecting, and sizing infrastructure components, not writing application code.</p>
-<p>QuickCart is running a major flash sale. During the sale, the website is expected to receive up to <strong>1,000,000 requests per second</strong>.</p>
-<p>Each backend server can handle a maximum of <strong>100,000 requests per second</strong>. To keep the servers stable, you should use a maximum of <strong>80% of their capacity</strong>.</p>
-<p>The Load Balancer distributes incoming requests evenly across all the servers you add. Drag and drop the required components — Users, a Load Balancer, and Servers — and size the server fleet so every server stays within its 80% budget while carrying the full load.</p>
+<p>
+  You are the backend architect for an e-commerce website called <strong>QuickCart</strong>. You are
+  designing the system architecture — placing, connecting, and sizing infrastructure components, not
+  writing application code.
+</p>
+<p>
+  QuickCart is running a major flash sale. During the sale, the website is expected to receive up to
+  <strong>1,000,000 requests per second</strong>.
+</p>
+<p>
+  Each backend server can handle a maximum of <strong>100,000 requests per second</strong>. To keep
+  the servers stable, you should use a maximum of <strong>80% of their capacity</strong>.
+</p>
+<p>
+  The Load Balancer distributes incoming requests evenly across all the servers you add. Drag and
+  drop the required components — Users, a Load Balancer, and Servers — and size the server fleet so
+  every server stays within its 80% budget while carrying the full load.
+</p>
 <h3>Functional Requirements</h3>
 <ul>
   <li>Accept incoming user traffic at the load balancer.</li>
@@ -52,7 +66,10 @@ Justification prompts are currently hidden in the Newton assignment UI and are n
 <ul>
   <li><strong>Peak RPS:</strong> 1,000,000</li>
   <li><strong>Per-server capacity:</strong> 100,000 req/s</li>
-  <li><strong>Headroom budget:</strong> 80% max utilization → usable 80,000 req/s per server → <strong>13 servers</strong> minimum.</li>
+  <li>
+    <strong>Headroom budget:</strong> 80% max utilization → usable 80,000 req/s per server →
+    <strong>13 servers</strong> minimum.
+  </li>
 </ul>
 ```
 
@@ -81,21 +98,11 @@ Justification prompts are currently hidden in the Newton assignment UI and are n
 {
   "type": "SIMULATOR_CONFIG",
   "questionId": "quickcart-flash-sale",
-  "domains": [
-    "compute"
-  ],
-  "concepts": [
-    "horizontal-scaling",
-    "capacity-headroom",
-    "load-balancing"
-  ],
+  "domains": ["compute"],
+  "concepts": ["horizontal-scaling", "capacity-headroom", "load-balancing"],
   "workloadCategory": "read-heavy",
   "constraints": {
-    "allowedNodeTypes": [
-      "api-endpoint",
-      "load-balancer",
-      "microservice"
-    ]
+    "allowedNodeTypes": ["api-endpoint", "load-balancer", "microservice"]
   },
   "suite": {
     "cases": [
@@ -257,12 +264,12 @@ Justification prompts are currently hidden in the Newton assignment UI and are n
 
 ## Grading summary
 
-| # | Check | Kind | Rule | Points |
-|---|---|---|---|---|
-| 3 | single-source | topology | `topology.sourceCount == 1` | 1 |
-| 4 | has-load-balancer | topology | `topology.componentCounts.load-balancer >= 1` | 1 |
-| 5 | has-servers | topology | `topology.componentCounts.microservice >= 1` | 1 |
-| 6 | no-dropped-requests | simulation | `summary.errorRate < 0.01` | 1 |
-| 7 | within-headroom | invariant | `invariantViolations.count == 0` (headroom-80) | 2 |
+| #   | Check               | Kind       | Rule                                           | Points |
+| --- | ------------------- | ---------- | ---------------------------------------------- | ------ |
+| 3   | single-source       | topology   | `topology.sourceCount == 1`                    | 1      |
+| 4   | has-load-balancer   | topology   | `topology.componentCounts.load-balancer >= 1`  | 1      |
+| 5   | has-servers         | topology   | `topology.componentCounts.microservice >= 1`   | 1      |
+| 6   | no-dropped-requests | simulation | `summary.errorRate < 0.01`                     | 1      |
+| 7   | within-headroom     | invariant  | `invariantViolations.count == 0` (headroom-80) | 2      |
 
 Total 6 points; `passThreshold` is a fraction (`1` = all points required). A 13-server fleet at 100k req/s each lands every server at 76.9% and passes all checks; 12 servers trips `within-headroom` (83.3% > 80%); fewer than 10 servers also trips `no-dropped-requests`.

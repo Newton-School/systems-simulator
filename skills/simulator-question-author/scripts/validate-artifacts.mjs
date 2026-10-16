@@ -93,6 +93,109 @@ if (dryRun) {
   check(!dryRun.experiment, 'Public dry run must not reveal a hidden experiment.')
 }
 
+// Classroom mode: the block must match the project and use only snapshot vocabulary.
+if (question.classroom) {
+  const snapshot = JSON.parse(
+    readFileSync(new URL('../references/capability-snapshot.json', import.meta.url), 'utf8')
+  ).classroom
+  const classroom = question.classroom
+  check(
+    JSON.stringify(project.question.setup.classroom) === JSON.stringify(classroom),
+    'Project setup.classroom and package classroom differ.'
+  )
+  for (const level of classroom.abstractions ?? []) {
+    check(snapshot.abstractions.includes(level), `Unknown classroom abstraction '${level}'.`)
+  }
+  const covered = snapshot.cards.flatMap((card) => card.covers)
+  for (const [type, givens] of Object.entries(classroom.givens ?? {})) {
+    check(
+      covered.some((entry) => accepted(entry, type) || entry === type),
+      `Classroom givens name '${type}', which has no concept card.`
+    )
+    for (const field of Object.keys(givens)) {
+      check(snapshot.givenFields.includes(field), `Unknown classroom given '${field}' on ${type}.`)
+    }
+  }
+  for (const field of Object.keys(classroom.targets ?? {})) {
+    check(snapshot.targetFields.includes(field), `Unknown classroom target '${field}'.`)
+  }
+  for (const entry of classroom.checks ?? []) {
+    check(
+      snapshot.checkTemplates.includes(entry.template),
+      `Classroom check ${entry.id} uses unknown template '${entry.template}'.`
+    )
+    check(
+      entry.severity !== 'feedback' || entry.template === 'right-sized',
+      `Classroom check ${entry.id}: only 'right-sized' can be feedback-only.`
+    )
+  }
+  const objectiveIds = new Set((classroom.objectives ?? []).map((objective) => objective.id))
+  for (const objective of classroom.objectives ?? []) {
+    check(
+      objective.statement.trim().toLowerCase().startsWith('the student can'),
+      `Classroom objective '${objective.id}' must be an observable “The student can…” statement.`
+    )
+    check(
+      (classroom.controls ?? []).some((control) => control.objectiveId === objective.id),
+      `Classroom objective '${objective.id}' has no student decision.`
+    )
+    const evidence = (classroom.checks ?? []).filter(
+      (entry) => entry.severity !== 'feedback' && entry.objectiveId === objective.id
+    )
+    check(evidence.length > 0, `Classroom objective '${objective.id}' has no scored evidence.`)
+    check(
+      evidence.length <= 2,
+      `Classroom objective '${objective.id}' has more than two scored checks; keep minimal evidence.`
+    )
+  }
+  for (const control of classroom.controls ?? []) {
+    check(
+      objectiveIds.has(control.objectiveId),
+      `Classroom control '${control.id}' points to an unknown objective.`
+    )
+  }
+  const evidenceKeys = new Set()
+  for (const entry of (classroom.checks ?? []).filter((check) => check.severity !== 'feedback')) {
+    check(
+      entry.objectiveId && objectiveIds.has(entry.objectiveId),
+      `Scored Classroom check '${entry.id}' must point to a known objective.`
+    )
+    const evidenceKey = [entry.objectiveId, entry.template, entry.via, entry.component].join('|')
+    check(
+      !evidenceKeys.has(evidenceKey),
+      `Classroom check '${entry.id}' duplicates scored evidence.`
+    )
+    evidenceKeys.add(evidenceKey)
+  }
+  const classroomEnabled =
+    classroom.abstractions === undefined || classroom.abstractions.includes('classroom')
+  if (classroomEnabled) {
+    check(allowed.length > 0, 'Classroom questions need an explicit allowedNodeTypes list.')
+    const cardFor = (type) =>
+      snapshot.cards.find((card) =>
+        card.covers.some(
+          (coveredType) => accepted(type, coveredType) || accepted(coveredType, type)
+        )
+      )
+    const givenFor = (type) =>
+      Object.entries(classroom.givens ?? {}).find(
+        ([givenType]) => accepted(type, givenType) || accepted(givenType, type)
+      )?.[1]
+    for (const type of allowed) {
+      const card = cardFor(type)
+      check(card, `Classroom allowed type '${type}' has no concept card; use Architect mode.`)
+      if (card?.role === 'compute') {
+        check(
+          Number.isFinite(givenFor(type)?.capacityRps),
+          `Classroom capacity card '${type}' needs an explicit capacityRps given.`
+        )
+      }
+    }
+    const peak = question.suite.dryRunCase?.workload?.baseRps ?? question.prompt?.scale?.peakRps
+    check(Number.isFinite(peak) && peak > 0, 'Classroom questions must state peak traffic.')
+  }
+}
+
 if (existsSync(resolve(directory, names.student))) {
   const student = load(names.student)
   for (const key of ['suite', 'rubric', 'structuralRules', 'semanticCriteria', 'graderHints']) {

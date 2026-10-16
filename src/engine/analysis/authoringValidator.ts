@@ -585,11 +585,13 @@ export function validateAuthoredQuestion(
   if (!pkg.suite || pkg.suite.cases.length === 0) {
     out.push(err('suite.empty', 'The grading suite has no cases — nothing is run.', 'suite.cases'))
   }
-  if (!pkg.rubric || pkg.rubric.checks.length === 0) {
+  const hasScoredClassroomCheck =
+    pkg.classroom?.checks?.some((check) => check.severity !== 'feedback') ?? false
+  if ((!pkg.rubric || pkg.rubric.checks.length === 0) && !hasScoredClassroomCheck) {
     out.push(
       warn(
         'rubric.empty',
-        'The rubric has no checks — the design is never scored on metrics.',
+        'The rubric has no checks and there are no scored Classroom checks.',
         'rubric.checks'
       )
     )

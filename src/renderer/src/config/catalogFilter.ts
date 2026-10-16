@@ -3,6 +3,10 @@ import { PALETTE_TEMPLATES } from '../../../engine/catalog/paletteTemplates'
 import { CANONICAL_TEMPLATE_ID_BY_COMPONENT_TYPE } from '../../../engine/analysis/authoringCapabilities'
 import { isComponentLibraryItemVisible } from './componentLibraryVisibility'
 import { expandComponentTypeFamilies } from '../../../engine/catalog/componentFamilies'
+import { conceptCardForTemplate } from '../../../engine/classroom/conceptCards'
+import { resolveClassroomGivens } from '../../../engine/classroom/compileClassroom'
+import { givensChips } from '../../../engine/classroom/givensTable'
+import type { ClassroomSettings } from '../../../engine/classroom/types'
 
 export type ComponentLibraryFilter = 'all' | 'common'
 
@@ -45,6 +49,29 @@ export interface CatalogFilterOptions {
    * to hidden ids, the palette, and question allow/deny lists.
    */
   ignoreLibraryModeFor?: (item: CatalogItem) => boolean
+  /**
+   * Classroom mode: one tile per concept card (its first palette template), named
+   * in lecture language and described by the question's givens. Still subject to
+   * the question allow/deny lists and the item predicate.
+   */
+  classroom?: { settings: ClassroomSettings | undefined }
+}
+
+/** A palette tile as Classroom mode shows it: lecture label, card summary, givens chips. */
+function classroomCatalogItem(
+  item: CatalogItem,
+  settings: ClassroomSettings | undefined
+): CatalogItem | null {
+  const card = conceptCardForTemplate(item.id)
+  const componentType = PALETTE_TEMPLATES[item.id]?.componentType
+  if (!card || !componentType || card.templateIds[0] !== item.id) return null
+  const chips = givensChips(card, componentType, settings)
+  return {
+    ...item,
+    label: resolveClassroomGivens(card, componentType, settings).label,
+    subLabel: chips[0] ?? card.summary,
+    info: { represents: card.summary, realWorld: item.info.realWorld, config: chips }
+  }
 }
 
 export function matchesCatalogSearch(item: CatalogItem, query: string): boolean {
@@ -77,6 +104,28 @@ export function filterCatalogCategories(
   // A question allow-list turns the palette into a strict, curated set: only the
   // author's chosen types, one canonical item each, and no Common/All scoping.
   const hasQuestionAllowlist = allowed !== null
+
+  if (options.classroom) {
+    const settings = options.classroom.settings
+    return categories
+      .map((category) => ({
+        ...category,
+        items: category.items
+          .map((item) => classroomCatalogItem(item, settings))
+          .filter((item): item is CatalogItem => {
+            if (!item) return false
+            const componentType = PALETTE_TEMPLATES[item.id]?.componentType
+            return (
+              componentType !== undefined &&
+              matchesCatalogSearch(item, options.query) &&
+              (allowed === null || allowed.has(componentType)) &&
+              (forbidden === null || !forbidden.has(componentType)) &&
+              (options.include?.(item) ?? true)
+            )
+          })
+      }))
+      .filter((category) => category.items.length > 0)
+  }
 
   return categories
     .map((category) => ({

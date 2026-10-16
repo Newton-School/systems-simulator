@@ -10,9 +10,10 @@ generated ZIP files.
 
 ## Available skills
 
-| Skill                     | Purpose                                                                                                                                                      | Entry point                                                                |
-| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| Simulator Question Author | Converts one system-design question into three openable JSON files — a Question Studio project, a compiled question package, and a passing solution topology (Markdown walkthroughs optional). | [`simulator-question-author/SKILL.md`](simulator-question-author/SKILL.md) |
+| Skill                     | Purpose                                                                                                            | Entry point                                                                |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------- |
+| Simulator Question Author | Converts a full-fidelity system-design question into validated private authoring artifacts and a passing solution. | [`simulator-question-author/SKILL.md`](simulator-question-author/SKILL.md) |
+| Classroom Question Author | Converts a lecture objective into concept-first Classroom artifacts, probes, an answer key, and a lecturer sheet.  | [`classroom-question-author/SKILL.md`](classroom-question-author/SKILL.md) |
 
 ## Package a skill
 
@@ -20,6 +21,7 @@ From the repository root:
 
 ```bash
 npm run package:simulator-question-author
+npm run package:classroom-question-author
 ```
 
 This creates the following ignored build artifacts:
@@ -27,6 +29,8 @@ This creates the following ignored build artifacts:
 ```text
 dist/skills/simulator-question-author.zip
 dist/skills/simulator-question-author.zip.sha256
+dist/skills/classroom-question-author.zip
+dist/skills/classroom-question-author.zip.sha256
 ```
 
 Share the ZIP through the team-approved Drive, Slack, SharePoint, or other file

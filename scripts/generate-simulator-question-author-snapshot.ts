@@ -12,6 +12,8 @@ import {
   RUNTIME_TEMPLATE_IDS,
   TRAIT_PACK_IDS
 } from '../src/engine/analysis/builderPolicy'
+import { CONCEPT_CARDS } from '../src/engine/classroom/conceptCards'
+import { ABSTRACTIONS, CLASSROOM_CHECK_TEMPLATES } from '../src/engine/classroom/types'
 
 const output = resolve(
   process.cwd(),
@@ -19,11 +21,13 @@ const output = resolve(
 )
 
 const capabilityData = {
-  snapshotVersion: '2026-10-13',
+  snapshotVersion: '2026-10-15',
   sources: [
     'src/engine/analysis/authoringCapabilities.ts',
     'src/engine/analysis/builderPolicy.ts',
-    'src/engine/catalog/paletteTemplates.ts'
+    'src/engine/catalog/paletteTemplates.ts',
+    'src/engine/classroom/conceptCards.ts',
+    'src/engine/classroom/types.ts'
   ],
   componentFamilies: {
     'load-balancer': ['load-balancer-l4', 'load-balancer-l7']
@@ -52,6 +56,23 @@ const capabilityData = {
     nodeClasses: BUILDER_NODE_CLASS_IDS,
     runtimeTemplates: RUNTIME_TEMPLATE_IDS,
     traitPacks: TRAIT_PACK_IDS
+  },
+  // Classroom mode (classroom-mode-environment.md): the concept cards a question's
+  // `classroom.givens` can describe, and the checks `classroom.checks` can use.
+  classroom: {
+    abstractions: ABSTRACTIONS,
+    givenFields: ['label', 'capacityRps', 'costPerHour'],
+    targetFields: ['maxUtilization', 'maxErrorRate'],
+    // Top-level switches; designChecks shows "single point of failure" etc. (off by default).
+    options: ['designChecks'],
+    checkTemplates: CLASSROOM_CHECK_TEMPLATES,
+    cards: CONCEPT_CARDS.map((card) => ({
+      id: card.id,
+      label: card.label,
+      role: card.role,
+      covers: card.covers,
+      ...(card.copies ? { copies: card.copies } : {})
+    }))
   }
 }
 

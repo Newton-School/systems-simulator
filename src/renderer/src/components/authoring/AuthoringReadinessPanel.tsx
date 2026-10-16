@@ -6,22 +6,36 @@ const FOUNDATION_ITEMS = [
   'Engine-owned capability registry'
 ] as const
 
-const DRAFT_ITEMS = ['Question identity', 'Learner brief', 'Scenario', 'Grading contract'] as const
+const ADVANCED_DRAFT_ITEMS = [
+  'Question identity',
+  'Learner brief',
+  'Scenario',
+  'Grading contract'
+] as const
+const CLASSROOM_DRAFT_ITEMS = [
+  'Question identity',
+  'Learner brief',
+  'Generated baseline',
+  'Objective-backed checks'
+] as const
 
 interface AuthoringReadinessPanelProps {
   hasQuestionIdentity: boolean
   hasLearnerBrief: boolean
   hasScenario: boolean
   hasGrading: boolean
+  classroomFlow?: boolean
 }
 
 export function AuthoringReadinessPanel({
   hasQuestionIdentity,
   hasLearnerBrief,
   hasScenario,
-  hasGrading
+  hasGrading,
+  classroomFlow = false
 }: AuthoringReadinessPanelProps): React.JSX.Element {
   const completion = [hasQuestionIdentity, hasLearnerBrief, hasScenario, hasGrading]
+  const draftItems = classroomFlow ? CLASSROOM_DRAFT_ITEMS : ADVANCED_DRAFT_ITEMS
   const readyCount = completion.filter(Boolean).length
 
   return (
@@ -75,7 +89,7 @@ export function AuthoringReadinessPanel({
           <span className="text-[10px] font-medium text-nss-muted">{readyCount} / 4</span>
         </div>
         <ul className="mt-3 space-y-2.5">
-          {DRAFT_ITEMS.map((item, index) => {
+          {draftItems.map((item, index) => {
             const complete = completion[index]
             const Icon = complete ? CheckCircle2 : Circle
             return (
