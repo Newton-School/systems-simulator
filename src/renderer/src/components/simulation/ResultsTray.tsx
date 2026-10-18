@@ -31,6 +31,7 @@ import {
 import { describeRequestOperation } from '../../../../engine/core/requestSemantics'
 import type { SimulationStatus } from '../../hooks/useSimulation'
 import useStore, { type EdgeFlowRenderEvent, type EdgeFlowState } from '../../store/useStore'
+import { useClassroomActive, useDesignChecksHidden } from '@renderer/hooks/useClassroom'
 import { HoverTooltip, TooltipInfo } from '@renderer/components/ui/Tooltip'
 import {
   RESULTS_CONTEXTUAL_TOOLTIPS,
@@ -88,6 +89,8 @@ interface ResultsTrayProps {
   topologyEdited?: boolean
   /** Chaos experiment verdict for this run, shown at the top of the overview. */
   experimentPanel?: React.ReactNode
+  /** Classroom results card, shown first in the overview in Classroom mode. */
+  classroomPanel?: React.ReactNode
   onClose?: () => void
 }
 
@@ -4146,7 +4149,9 @@ function ConsistencyHealthCheck({ report }: { report: ConsistencyReport }) {
 
 function SimulationHealth({ output }: { output: SimulationOutput }) {
   const selectGraphElements = useStore((state) => state.selectGraphElements)
-  const spofs = output.singlePointsOfFailure
+  // Classroom mode hides design checks (SPOF included) unless the question turns them on.
+  const designChecksHidden = useDesignChecksHidden()
+  const spofs = designChecksHidden ? [] : output.singlePointsOfFailure
   const spofLevel: HealthLevel = spofs.length === 0 ? 'healthy' : 'breaches'
 
   const sloLevel: HealthLevel =
@@ -5060,9 +5065,13 @@ export function ResultsTray({
   runContext,
   topologyEdited = false,
   experimentPanel,
+  classroomPanel,
   onClose
 }: ResultsTrayProps) {
   const defaultResultsTab = useStore((state) => state.displaySettings.defaultResultsTab)
+  const classroomActive = useClassroomActive()
+  const assignmentMode = useStore((state) => state.environmentProfile.mode === 'ASSIGNMENT')
+  const classroomAssignment = classroomActive && assignmentMode
   const [activeTab, setActiveTabState] = useState<ResultsTab>(
     () => (results && trayViewMemory.get(results)?.tab) || defaultResultsTab
   )
@@ -5193,7 +5202,8 @@ export function ResultsTray({
   const retainedReplayEventCount = results ? results.eventStream.length : 0
   const totalCapturedReplayEvents = results ? totalReplayEventCount(results) : 0
   const replayEventsTruncated = retainedReplayEventCount < totalCapturedReplayEvents
-  const visibleTabs = results !== null ? RESULTS_TABS : []
+  const visibleTabs =
+    results !== null ? (classroomAssignment ? RESULTS_TABS.slice(0, 1) : RESULTS_TABS) : []
   const progressLabel =
     stopped && status === 'paused'
       ? `Stopping at ${progress.toFixed(1)}% complete...`
@@ -5298,16 +5308,21 @@ export function ResultsTray({
 
             {activeTab === 'overview' && (
               <>
-                {experimentPanel}
-                {runContext && <RunContextPanel runContext={runContext} />}
-                <SummaryPanel output={results} runContext={runContext} />
-                <OriginMetricsPanel output={results} />
-                <LocationRollupsPanel
-                  nodeRollups={nodeLocationRollups}
-                  edgeRollups={edgeLocalityRollups}
-                  title="Deployment & Locality"
-                />
-                <SystemWindowCharts output={results} />
+                {classroomPanel}
+                {!classroomAssignment && (
+                  <>
+                    {experimentPanel}
+                    {runContext && <RunContextPanel runContext={runContext} />}
+                    <SummaryPanel output={results} runContext={runContext} />
+                    <OriginMetricsPanel output={results} />
+                    <LocationRollupsPanel
+                      nodeRollups={nodeLocationRollups}
+                      edgeRollups={edgeLocalityRollups}
+                      title="Deployment & Locality"
+                    />
+                    <SystemWindowCharts output={results} />
+                  </>
+                )}
               </>
             )}
 

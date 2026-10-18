@@ -24,6 +24,48 @@
         "allowedNodeTypes": ["microservice", "api-endpoint", "load-balancer"],
         "canModifyScaffold": true,
         "canRemoveScaffoldNodes": true
+      },
+      "classroom": {
+        "givens": {
+          "microservice": {
+            "label": "Server",
+            "capacityRps": 100000,
+            "costPerHour": 0.192
+          }
+        },
+        "targets": {
+          "maxUtilization": 0.8,
+          "maxErrorRate": 0.01
+        },
+        "checks": [
+          {
+            "id": "through-lb",
+            "template": "traffic-flows-through",
+            "via": "load-balancer",
+            "component": "microservice",
+            "label": "All traffic reaches the servers through the load balancer"
+          },
+          {
+            "id": "serves-all",
+            "template": "serves-all-traffic",
+            "label": "Every request is served"
+          },
+          {
+            "id": "headroom",
+            "template": "within-target-utilization",
+            "component": "microservice",
+            "label": "Every server stays at or below 80% utilization",
+            "points": 2
+          },
+          {
+            "id": "right-size",
+            "template": "right-sized",
+            "component": "microservice",
+            "factor": 1.5,
+            "severity": "feedback",
+            "label": "The fleet isn't much bigger than it needs to be"
+          }
+        ]
       }
     },
     "prompt": {
@@ -1176,9 +1218,9 @@
     "activeStage": "export"
   },
   "verification": {
-    "signature": "86558abaa4c736277b325c26fd4a4f27",
+    "signature": "c0c662eafb0d2ec6b220db7890709020",
     "ready": true,
     "blockers": [],
-    "generatedAt": "2026-10-14T13:24:42.092Z"
+    "generatedAt": "2026-10-15T09:17:11.815Z"
   }
 }

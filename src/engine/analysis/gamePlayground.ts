@@ -40,6 +40,11 @@ export interface GamePlaygroundSubmitPayload {
   submissionId?: string
   result: GamePlaygroundResult
   attemptState: AttemptState
+  /** Per-attempt teaching signals; the host groups these by question/cohort. */
+  classroomInsights?: {
+    misconceptionIds: string[]
+    predictions: Record<string, number | string>
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -181,7 +186,16 @@ export function buildGamePlaygroundSubmitPayload(
     attemptId: attemptState.attemptId,
     ...(options.submissionId ? { submissionId: options.submissionId } : {}),
     result,
-    attemptState
+    attemptState,
+    ...(attemptState.grade?.result.classroom || attemptState.predictions
+      ? {
+          classroomInsights: {
+            misconceptionIds:
+              attemptState.grade?.result.classroom?.misconceptions.map((item) => item.id) ?? [],
+            predictions: { ...(attemptState.predictions ?? {}) }
+          }
+        }
+      : {})
   }
 }
 
@@ -237,6 +251,23 @@ export function parseGamePlaygroundSubmitPayload(
     typeof raw.submissionId === 'string' && raw.submissionId.length > 0
       ? raw.submissionId
       : undefined
+  const classroomInsights = isRecord(raw.classroomInsights)
+    ? {
+        misconceptionIds: Array.isArray(raw.classroomInsights.misconceptionIds)
+          ? raw.classroomInsights.misconceptionIds.filter(
+              (id): id is string => typeof id === 'string'
+            )
+          : [],
+        predictions: isRecord(raw.classroomInsights.predictions)
+          ? Object.fromEntries(
+              Object.entries(raw.classroomInsights.predictions).filter(
+                (entry): entry is [string, number | string] =>
+                  typeof entry[1] === 'number' || typeof entry[1] === 'string'
+              )
+            )
+          : {}
+      }
+    : undefined
 
   return {
     version: GAME_PLAYGROUND_PAYLOAD_VERSION,
@@ -244,6 +275,7 @@ export function parseGamePlaygroundSubmitPayload(
     questionVersion,
     attemptId,
     ...(submissionId ? { submissionId } : {}),
+    ...(classroomInsights ? { classroomInsights } : {}),
     result,
     attemptState
   }

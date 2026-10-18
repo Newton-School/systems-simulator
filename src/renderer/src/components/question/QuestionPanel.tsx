@@ -31,6 +31,7 @@ import { buildQuestionEvaluationContract } from '../../../../engine/analysis/eva
 import { buildEvaluationEnvelope } from '../../../../engine/analysis/evaluationEnvelope'
 import {
   canTriggerTestRun,
+  classroomUnavailableReason,
   ENFORCE_TEST_RUN_LIMIT,
   shouldShowRubricResults
 } from '../../../../engine/analysis/environmentProfile'
@@ -63,7 +64,14 @@ import type {
 } from '../../../../engine/analysis/question'
 import type { TopologyJSON } from '../../../../engine/core/types'
 import { BudgetMeter } from './BudgetMeter'
+import {
+  ClassroomFeedbackList,
+  ClassroomGivensTable,
+  ClassroomMisconceptionCard
+} from './ClassroomBrief'
+import { useClassroomActive, useGradingQuestion } from '@renderer/hooks/useClassroom'
 import { shouldShowQuestionSupportDetails } from './supportDetailsVisibility'
+import { ClassroomLecturePanel } from './ClassroomLecturePanel'
 
 const SECTION_TITLE = 'text-[10px] font-bold uppercase tracking-widest text-nss-muted'
 
@@ -269,6 +277,11 @@ export const QuestionPanel = () => {
   const environmentProfile = useStore((s) => s.environmentProfile)
   const resultsRevealed = useStore((s) => s.resultsRevealed)
   const { serialize } = useTopologySerializer()
+  const classroomActive = useClassroomActive()
+  const classroomUnavailable = useStore((s) =>
+    classroomUnavailableReason(s.environmentProfile, s.activeQuestion)
+  )
+  const gradingQuestion = useGradingQuestion()
   const grader = useQuestionGrader()
   const {
     status: graderStatus,
@@ -667,7 +680,8 @@ export const QuestionPanel = () => {
     gradeQuestion(
       question,
       topology,
-      Object.entries(justificationAnswers).map(([promptId, text]) => ({ promptId, text }))
+      Object.entries(justificationAnswers).map(([promptId, text]) => ({ promptId, text })),
+      classroomActive ? environmentProfile.abstraction : undefined
     )
   }
 
@@ -684,6 +698,18 @@ export const QuestionPanel = () => {
     )
 
   const currentTopology = serialize().topology
+  const predictions = activeQuestion.classroom?.predictions ?? []
+  const setPrediction = (id: string, value: number | string): void => {
+    const now = new Date().toISOString()
+    const base =
+      attemptState ??
+      createAttemptState({ questionId: activeQuestion.id, topology: currentTopology, now })
+    setAttemptState({
+      ...base,
+      predictions: { ...(base.predictions ?? {}), [id]: value },
+      lastSavedAt: now
+    })
+  }
   const hasStaleAttempt = Boolean(
     attemptState && !isAttemptCurrentForTopology(attemptState, currentTopology)
   )
@@ -694,7 +720,20 @@ export const QuestionPanel = () => {
   const latestGrade: AttemptGrade | null =
     graderGrade ?? resolveVisibleAttemptGrade(attemptState, currentTopology)
   const testRunCount = attemptState?.testRunCount ?? 0
-  const testRows = buildQuestionTestRows(activeQuestion, latestGrade)
+  // Classroom mode grades the compiled Classroom checks, so rows come from that set.
+  // After a test run, Classroom rows also come from the public dry-run case that was
+  // graded, so a correct design reads as passing instead of "pending" on the private
+  // cases. (Architect mode keeps today's rows.)
+  const dryRunCase = gradingQuestion?.suite.dryRunCase
+  const gradedDryRun =
+    classroomActive &&
+    dryRunCase !== undefined &&
+    latestGrade?.graded.cases.some((entry) => entry.id === dryRunCase.id) === true
+  const rowsQuestion =
+    gradingQuestion && gradedDryRun && dryRunCase
+      ? { ...gradingQuestion, suite: { ...gradingQuestion.suite, cases: [dryRunCase] } }
+      : (gradingQuestion ?? activeQuestion)
+  const testRows = buildQuestionTestRows(rowsQuestion, latestGrade)
   const isBaselineOptimizeQuestion =
     resolveQuestionEntryFormat(activeQuestion) === 'baseline-optimize'
   const baselineComparison = latestGrade?.baselineComparison
@@ -717,17 +756,17 @@ export const QuestionPanel = () => {
     environmentProfile.capabilities.canTriggerTestRuns &&
     maxTestRuns !== undefined &&
     testRunCount >= maxTestRuns
-  const rawTestRows = showRubricResults ? testRows : buildQuestionTestRows(activeQuestion)
+  const rawTestRows = showRubricResults ? testRows : buildQuestionTestRows(rowsQuestion)
   // The auto-injected placeholder rubric check (present only when the author wrote
   // no RUBRIC_CHECK rows) exists solely to satisfy the "≥1 check" schema rule; it is
   // an always-passing no-op, so never surface it as an authored check.
   const placeholderRowIds = new Set<string>()
-  const placeholderCheck = activeQuestion.rubric.checks.find(
+  const placeholderCheck = rowsQuestion.rubric.checks.find(
     (check) => check.id === AUTO_PLACEHOLDER_RUBRIC_CHECK_ID
   )
   if (placeholderCheck) {
     placeholderRowIds.add(topologyRubricTestId(placeholderCheck.id))
-    for (const testCase of activeQuestion.suite.cases) {
+    for (const testCase of rowsQuestion.suite.cases) {
       placeholderRowIds.add(caseRubricTestId(testCase.id, 'invariant', placeholderCheck.id))
     }
   }
@@ -765,6 +804,7 @@ export const QuestionPanel = () => {
               {activeQuestion.type} · {activeQuestion.difficulty} ·{' '}
               {formatQuestionEntryFormat(resolveQuestionEntryFormat(activeQuestion))} ·{' '}
               {experience.label}
+              {classroomActive ? ' · Classroom' : ''}
             </p>
             <h3 className="truncate text-sm font-semibold">{activeQuestion.title}</h3>
           </div>
@@ -838,6 +878,18 @@ export const QuestionPanel = () => {
             <p className="mt-1 whitespace-pre-line">{authoringWarning}</p>
           </div>
         )}
+        {classroomUnavailable && (
+          <div
+            role="status"
+            className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-[11px] leading-relaxed text-amber-700 dark:text-amber-300"
+          >
+            <p className="font-semibold">Classroom mode isn&apos;t available for this question</p>
+            <p className="mt-1">
+              {classroomUnavailable} Showing the full simulator instead. The question author can add
+              a <code>classroom</code> section with the numbers the problem states.
+            </p>
+          </div>
+        )}
         {serializeError && <p className="text-xs text-nss-danger">{serializeError}</p>}
         {graderError && <p className="text-xs text-nss-danger">Grading error: {graderError}</p>}
         {hasStaleAttempt && (
@@ -849,6 +901,9 @@ export const QuestionPanel = () => {
 
         {effectivePanelView === 'brief' ? (
           <>
+            {classroomActive && environmentProfile.presenter && (
+              <ClassroomLecturePanel question={activeQuestion} />
+            )}
             {isLab && <LabQuickStart />}
 
             {sanitizedPromptHtml ? (
@@ -936,6 +991,63 @@ export const QuestionPanel = () => {
                   </section>
                 )}
               </>
+            )}
+
+            {classroomActive && <ClassroomGivensTable question={activeQuestion} />}
+
+            {classroomActive && predictions.length > 0 && (
+              <section className="space-y-2">
+                <h3 className={SECTION_TITLE}>Before you build: predict</h3>
+                {predictions.map((prediction) => {
+                  const answer = attemptState?.predictions?.[prediction.id]
+                  const actual = prediction.reveal?.copiesOf
+                    ? currentTopology.nodes
+                        .filter((node) => node.type === prediction.reveal?.copiesOf)
+                        .reduce((sum, node) => sum + (node.resources?.instanceCount ?? 1), 0)
+                    : undefined
+                  return (
+                    <label
+                      key={prediction.id}
+                      className="block rounded-md border border-nss-border bg-nss-surface p-3 text-xs"
+                    >
+                      <span className="font-semibold text-nss-text">{prediction.question}</span>
+                      {prediction.answer.kind === 'number' ? (
+                        <input
+                          type="number"
+                          value={typeof answer === 'number' ? answer : ''}
+                          disabled={testRunCount > 0}
+                          onChange={(event) =>
+                            setPrediction(prediction.id, event.currentTarget.valueAsNumber)
+                          }
+                          className="mt-2 block w-full rounded border border-nss-border bg-nss-input-bg px-2 py-1.5"
+                        />
+                      ) : (
+                        <select
+                          value={typeof answer === 'string' ? answer : ''}
+                          disabled={testRunCount > 0}
+                          onChange={(event) =>
+                            setPrediction(prediction.id, event.currentTarget.value)
+                          }
+                          className="mt-2 block w-full rounded border border-nss-border bg-nss-input-bg px-2 py-1.5"
+                        >
+                          <option value="">Choose…</option>
+                          {prediction.answer.options?.map((option) => (
+                            <option key={option}>{option}</option>
+                          ))}
+                        </select>
+                      )}
+                      {testRunCount > 0 && actual !== undefined && (
+                        <span className="mt-2 block text-nss-muted">
+                          Predicted: {String(answer ?? '—')} · Built: {actual}
+                        </span>
+                      )}
+                    </label>
+                  )
+                })}
+                <p className="text-[10px] text-nss-muted">
+                  Predictions are for reflection and are never scored.
+                </p>
+              </section>
             )}
 
             {(supportDetails.domains.length > 0 || supportDetails.concepts.length > 0) && (
@@ -1118,6 +1230,13 @@ export const QuestionPanel = () => {
                   {badgePassedTests}/{badgeTotalTests} passed
                 </span>
               </div>
+            )}
+
+            {showRubricResults && latestGrade?.classroom && (
+              <>
+                <ClassroomMisconceptionCard misconceptions={latestGrade.classroom.misconceptions} />
+                <ClassroomFeedbackList feedback={latestGrade.classroom.feedback} />
+              </>
             )}
 
             {showRubricResults &&

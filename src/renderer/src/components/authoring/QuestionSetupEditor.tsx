@@ -2,9 +2,11 @@ import { Plus, Settings2, X } from 'lucide-react'
 import { useState } from 'react'
 import type { QuestionAuthoringSetupDraft } from '../../../../engine/analysis/questionAuthoringProject'
 import { RequiredIndicator } from './RequiredIndicator'
+import { ClassroomAuthoringEditor } from './ClassroomAuthoringEditor'
 
 interface QuestionSetupEditorProps {
   setup: QuestionAuthoringSetupDraft
+  peakRps?: number
   hasScaffold: boolean
   onChange: (setup: QuestionAuthoringSetupDraft) => void
 }
@@ -28,6 +30,17 @@ const DOMAINS: Array<[QuestionAuthoringSetupDraft['domains'][number], string]> =
   ['cost', 'Cost']
 ]
 
+/** Set or clear `classroom.designChecks`, dropping an emptied classroom block. */
+function withDesignChecks(
+  classroom: QuestionAuthoringSetupDraft['classroom'],
+  enabled: boolean
+): QuestionAuthoringSetupDraft['classroom'] {
+  const { designChecks: _previous, ...rest } = classroom ?? {}
+  void _previous
+  const next = enabled ? { ...rest, designChecks: true } : rest
+  return Object.keys(next).length > 0 ? next : undefined
+}
+
 function optionalPositiveNumber(value: string): number | undefined {
   const parsed = Number(value)
   return value !== '' && Number.isFinite(parsed) && parsed > 0 ? parsed : undefined
@@ -35,6 +48,7 @@ function optionalPositiveNumber(value: string): number | undefined {
 
 export function QuestionSetupEditor({
   setup,
+  peakRps,
   hasScaffold,
   onChange
 }: QuestionSetupEditorProps): React.JSX.Element {
@@ -370,6 +384,29 @@ export function QuestionSetupEditor({
         />
         Let learners see grading scenarios
       </label>
+
+      <label className="mt-3 flex items-start gap-2 text-[11px] font-semibold text-nss-text">
+        <input
+          type="checkbox"
+          className="mt-0.5"
+          checked={setup.classroom?.designChecks === true}
+          onChange={(event) =>
+            onChange({
+              ...setup,
+              classroom: withDesignChecks(setup.classroom, event.currentTarget.checked)
+            })
+          }
+        />
+        <span>
+          Show design checks in Classroom mode
+          <span className="mt-0.5 block font-normal text-nss-muted">
+            Warnings such as &quot;single point of failure&quot;. Hidden by default in Classroom
+            mode; turn on for a question that teaches redundancy.
+          </span>
+        </span>
+      </label>
+
+      <ClassroomAuthoringEditor setup={setup} peakRps={peakRps} onChange={onChange} />
     </section>
   )
 }

@@ -88,6 +88,7 @@ describe('QuestionStudioShell', () => {
 
     expect(view.textContent).toContain('Question Studio')
     expect(view.textContent).toContain('Frame the lesson')
+    expect(view.textContent).toContain('guided')
     expect(stageNavigation?.querySelectorAll('button')).toHaveLength(7)
     expect(view.textContent).toContain('14 / 14 package round-trips')
   })

@@ -19,6 +19,7 @@ import {
   type ScaleParameters
 } from './question'
 import type { BuilderPolicy } from './builderPolicy'
+import type { ClassroomSettings } from '../classroom/types'
 import type { RubricCheck } from './rubric'
 import type { StructuralRule } from './structural'
 import { deriveQuestionIdFromTitle } from './questionAuthoringDraft'
@@ -65,6 +66,7 @@ export interface SimulatorConfigRow {
   author?: string
   createdAt?: string
   environmentProfile?: EnvironmentProfileInput
+  classroom?: ClassroomSettings
 }
 
 export type StructuralRuleRow = { type: 'STRUCTURAL_RULE' } & StructuralRule
@@ -487,6 +489,7 @@ export function parseNewtonRowsToQuestionPackage(
     ...(Array.isArray(config.justify) ? { justify: config.justify } : {}),
     ...(isRecord(config.budget) ? { budget: config.budget } : {}),
     ...(config.workloadCategory ? { workloadCategory: config.workloadCategory } : {}),
+    ...(isRecord(config.classroom) ? { classroom: config.classroom } : {}),
     suite: normalizeSuite(config.suite, questionId),
     rubric: {
       ...(isRecord(config.rubric) && asNonEmptyString(config.rubric.version)
@@ -563,6 +566,7 @@ function configRow(
     ...(question.justify ? { justify: question.justify } : {}),
     ...(question.author ? { author: question.author } : {}),
     ...(question.createdAt ? { createdAt: question.createdAt } : {}),
+    ...(question.classroom ? { classroom: question.classroom } : {}),
     ...(options.environmentProfile ? { environmentProfile: options.environmentProfile } : {})
   }
 }

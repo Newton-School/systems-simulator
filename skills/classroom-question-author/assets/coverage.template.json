@@ -1,0 +1,49 @@
+{
+  "artifact": "simulator-question-coverage",
+  "version": "1.0",
+  "questionId": "{{SLUG}}",
+  "source": {
+    "document": "{{SOURCE_DOCUMENT}}",
+    "section": "{{SOURCE_SECTION}}"
+  },
+  "series": {
+    "buildsOn": "{{PREVIOUS_SLUG_OR_REMOVE_SERIES}}"
+  },
+  "requirements": [
+    {
+      "id": "r-{{BULLET}}",
+      "kind": "requirement",
+      "text": "{{VERBATIM_SOURCE_BULLET}}",
+      "status": "graded",
+      "checks": ["{{ONE_CORE_CHECK_ID}}"]
+    },
+    {
+      "id": "c-{{CONCEPT}}",
+      "kind": "concept",
+      "text": "{{VERBATIM_CONCEPT}}",
+      "status": "covered",
+      "checks": ["{{EXISTING_CHECK_ID}}"]
+    },
+    {
+      "id": "r-{{CONTEXT}}",
+      "kind": "requirement",
+      "text": "{{VERBATIM_CONTEXT_BULLET}}",
+      "status": "explained",
+      "reason": "{{WHY_THIS_IS_NOT_GRADED}}"
+    }
+  ],
+  "sanity": ["single-source", "connected-graph"],
+  "carriedForward": [
+    {
+      "check": "{{PRESENCE_RULE_ID}}",
+      "from": "{{PREVIOUS_SLUG}}"
+    }
+  ],
+  "advisories": [
+    {
+      "code": "{{STUDIO_ADVISORY_CODE}}",
+      "path": "{{STUDIO_ADVISORY_PATH}}",
+      "reason": "{{WHY_THE_ADVISORY_DOES_NOT_APPLY}}"
+    }
+  ]
+}

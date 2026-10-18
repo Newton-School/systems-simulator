@@ -31,6 +31,7 @@ import { buildCostReport, formatCostReport } from './commands/cost'
 import { defaultDesignRunner, formatCompareReport, runCompare } from './commands/compare'
 import { createShellSession, execShellLines, runInteractiveShell } from './commands/shell'
 import type { TopologyJSON } from '../engine/core/types'
+import { ABSTRACTIONS, type Abstraction } from '../engine/classroom/types'
 import {
   CLI_EXIT_CHECK_FAILED,
   CLI_EXIT_EVALUATION_ERROR,
@@ -1016,6 +1017,10 @@ function runQuestionEvaluate(args: string[], usagePrefix = 'evaluate question'):
   const attemptId = parseOptionalFlagValue(args, '--attempt-id')
   const submissionId = parseOptionalFlagValue(args, '--submission-id')
   const evaluatedAt = parseOptionalFlagValue(args, '--evaluated-at')
+  const abstraction = parseOptionalFlagValue(args, '--abstraction')
+  if (abstraction !== undefined && !ABSTRACTIONS.includes(abstraction as Abstraction)) {
+    die(`--abstraction must be one of: ${ABSTRACTIONS.join(', ')}.`)
+  }
   const sharedOptions = {
     simulatorVersion: packageJson.version,
     ...(attemptId ? { attemptId } : {}),
@@ -1092,7 +1097,10 @@ function runQuestionEvaluate(args: string[], usagePrefix = 'evaluate question'):
 
   let result: QuestionEvaluationContract
   try {
-    result = evaluateQuestionSubmission(pkg, topologyValidation.data, sharedOptions)
+    result = evaluateQuestionSubmission(pkg, topologyValidation.data, {
+      ...sharedOptions,
+      ...(abstraction ? { abstraction: abstraction as Abstraction } : {})
+    })
   } catch (err) {
     result = buildQuestionEvaluationErrorContract({
       questionId: pkg.id,

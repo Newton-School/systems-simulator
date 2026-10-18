@@ -9,6 +9,7 @@ import {
   type WorkerOutboundMessage
 } from '../../../engine/worker/protocols'
 import useStore from '@renderer/store/useStore'
+import { prepareRunTopology } from './useClassroom'
 
 export type { PlaybackSpeed }
 
@@ -193,7 +194,9 @@ export function useSimulation(): SimulationState & SimulationControls {
 
   // ─── Controls ───────────────────────────────────────────────────────────────
 
-  const run = useCallback((topology: TopologyJSON, options?: { speed?: PlaybackSpeed }) => {
+  const run = useCallback((rawTopology: TopologyJSON, options?: { speed?: PlaybackSpeed }) => {
+    // Classroom mode rebuilds the design from the question's givens before it runs.
+    const topology = prepareRunTopology(rawTopology)
     const speed =
       options?.speed !== undefined && isValidPlaybackSpeed(options.speed)
         ? options.speed

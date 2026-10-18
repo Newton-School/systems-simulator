@@ -229,3 +229,26 @@ describe('student experience contract: question layout', () => {
     expect(offenders).toEqual([])
   })
 })
+
+describe('student experience contract: Classroom mode', () => {
+  it('opens the standalone and deployed simulator in Classroom mode', () => {
+    // Approved 2026-10-15 (Classroom mode Phase 0). Classroom only takes effect for a
+    // question that states its numbers; otherwise the full simulator shows.
+    expect(resolveEnvironmentProfile().abstraction).toBe('classroom')
+  })
+
+  it('keeps graded Newton assignments in Architect mode unless the host asks for Classroom', () => {
+    // The backend grader must grade at the abstraction the student saw.
+    expect(resolveEnvironmentProfile('ASSIGNMENT').abstraction).toBe('architect')
+  })
+
+  it('hides design checks in Classroom mode unless the question turns them on', () => {
+    const sources = import.meta.glob<string>('../../hooks/useClassroom.ts', {
+      query: '?raw',
+      import: 'default',
+      eager: true
+    })
+    const source = Object.values(sources)[0] ?? ''
+    expect(source).toContain('classroom?.designChecks === true')
+  })
+})

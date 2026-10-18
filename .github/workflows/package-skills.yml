@@ -9,6 +9,7 @@ on:
       - 'skills/**'
       - 'scripts/package-skill.sh'
       - 'scripts/generate-simulator-question-author-snapshot.ts'
+      - 'scripts/sync-classroom-question-author.mjs'
       - 'scripts/validate-simulator-question-author.ts'
       - 'src/engine/analysis/authoringCapabilities.ts'
       - 'src/engine/analysis/builderPolicy.ts'
@@ -21,9 +22,14 @@ permissions:
   contents: read
 
 jobs:
-  package-simulator-question-author:
-    name: Package simulator-question-author
+  package-skill:
+    name: Package ${{ matrix.skill }}
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        skill:
+          - simulator-question-author
+          - classroom-question-author
 
     steps:
       - name: Checkout repository
@@ -39,14 +45,14 @@ jobs:
         run: npm ci
 
       - name: Package standalone skill
-        run: bash scripts/package-skill.sh simulator-question-author
+        run: bash scripts/package-skill.sh ${{ matrix.skill }}
 
       - name: Upload ZIP and checksum
         uses: actions/upload-artifact@v4
         with:
-          name: simulator-question-author
+          name: ${{ matrix.skill }}
           path: |
-            dist/skills/simulator-question-author.zip
-            dist/skills/simulator-question-author.zip.sha256
+            dist/skills/${{ matrix.skill }}.zip
+            dist/skills/${{ matrix.skill }}.zip.sha256
           if-no-files-found: error
           retention-days: 30

@@ -364,7 +364,8 @@ export function createWorkerController(deps: WorkerControllerDeps): WorkerContro
             msg.payload.question,
             msg.payload.topology,
             (topology) => runSimulation(topology),
-            msg.payload.justificationAnswers ?? []
+            msg.payload.justificationAnswers ?? [],
+            { abstraction: msg.payload.abstraction }
           )
           post({ type: 'grade-complete', payload: { grade, cases } })
         } catch (err) {

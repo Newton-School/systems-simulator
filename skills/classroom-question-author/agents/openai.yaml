@@ -1,0 +1,4 @@
+interface:
+  display_name: 'Classroom Question Author'
+  short_description: 'Create concept-first classroom design questions'
+  default_prompt: 'Use $classroom-question-author to turn this system-design lesson into a validated Classroom question and lecture sheet.'

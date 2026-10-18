@@ -7,10 +7,7 @@
   "type": "open-build",
   "prompt": {
     "text": "Build a simple request path that stays healthy under baseline and peak load.",
-    "functionalRequirements": [
-      "Accept client requests",
-      "Route traffic to an application service"
-    ],
+    "functionalRequirements": ["Accept client requests", "Route traffic to an application service"],
     "nonFunctionalRequirements": [
       {
         "metric": "error_rate",

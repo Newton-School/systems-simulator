@@ -8,8 +8,12 @@ import {
   canEditEdgesForQuestion,
   canEditResourcesForQuestion,
   canTriggerTestRun,
+  classroomUnavailableReason,
   ENFORCE_TEST_RUN_LIMIT,
+  isClassroomActive,
+  resolveAbstraction,
   resolveEdgeModel,
+  resolveEffectiveProfile,
   resolveEnvironmentProfile,
   shouldShowRubricResults
 } from './environmentProfile'
@@ -268,5 +272,175 @@ describe('canEditResourcesForQuestion', () => {
       true
     )
     expect(canEditResourcesForQuestion(PRACTICE_ENVIRONMENT_PROFILE, null)).toBe(true)
+  })
+})
+
+/** A Classroom-ready question: states its peak and its server capacity. */
+function classroomQuestion(overrides: Record<string, unknown> = {}) {
+  return {
+    constraints: {
+      allowedNodeTypes: ['api-endpoint', 'load-balancer', 'microservice'],
+      canModifyScaffold: true,
+      canRemoveScaffoldNodes: true
+    },
+    suite: {
+      name: 's',
+      visibleToStudent: false,
+      cases: [{ id: 'peak', workload: { pattern: 'constant' as const, baseRps: 1_000_000 } }]
+    },
+    prompt: {
+      text: '',
+      functionalRequirements: [],
+      nonFunctionalRequirements: [],
+      scale: { peakRps: 1_000_000 }
+    },
+    classroom: {
+      givens: { microservice: { capacityRps: 100_000 } },
+      targets: { maxUtilization: 0.8 }
+    },
+    ...overrides
+  }
+}
+
+describe('abstraction (Classroom mode)', () => {
+  const question = { ...classroomQuestion(), domains: ['network' as const, 'cost' as const] }
+  const classroom = resolveEnvironmentProfile({ mode: 'PRACTICE', abstraction: 'classroom' })
+
+  it('defaults the standalone and author workbench to Classroom, graded launches to Architect', () => {
+    for (const input of [undefined, 'AUTHOR', 'PRACTICE', { mode: 'PRACTICE' }, 42]) {
+      expect(resolveEnvironmentProfile(input).abstraction).toBe('classroom')
+    }
+    expect(resolveEnvironmentProfile('ASSIGNMENT').abstraction).toBe('architect')
+    expect(
+      resolveEnvironmentProfile({ mode: 'ASSIGNMENT', abstraction: 'classroom' }).abstraction
+    ).toBe('classroom')
+  })
+
+  it('leaves the workbench unlocked in Classroom mode while no question is loaded', () => {
+    expect(classroom.abstraction).toBe('classroom')
+    expect(resolveEffectiveProfile(classroom, null).capabilities).toEqual(
+      PRACTICE_ENVIRONMENT_PROFILE.capabilities
+    )
+    expect(canEditResourcesForQuestion(classroom, null)).toBe(true)
+  })
+
+  it('locks engine knobs in Classroom mode even when the host asks for them', () => {
+    const requested = resolveEnvironmentProfile({
+      mode: 'PRACTICE',
+      abstraction: 'classroom',
+      capabilities: {
+        edgeModel: 'network',
+        canEditEdges: true,
+        canEditResources: true,
+        canEditExecutionProfile: true,
+        canUseTerminal: true,
+        canViewTopologyJson: true
+      }
+    })
+    const profile = resolveEffectiveProfile(requested, classroomQuestion())
+    expect(profile.abstraction).toBe('classroom')
+    expect(profile.capabilities).toMatchObject({
+      edgeModel: 'connector',
+      canEditEdges: false,
+      canEditResources: false,
+      canEditExecutionProfile: false,
+      canUseTerminal: false,
+      canViewTopologyJson: false
+    })
+  })
+
+  it('uses the same safe surface for Guided and preserves the Guided identity', () => {
+    const guidedQuestion = classroomQuestion({
+      classroom: {
+        abstractions: ['guided', 'architect'],
+        givens: { microservice: { capacityRps: 100_000 } },
+        guidedKnobs: [
+          { path: 'queue.workers', label: 'Worker concurrency', objectiveId: 'concurrency' }
+        ],
+        objectives: [
+          {
+            id: 'concurrency',
+            statement: 'Tune concurrency without exposing unrelated engine controls.',
+            concept: 'concurrency'
+          }
+        ]
+      }
+    })
+    const profile = resolveEffectiveProfile(
+      resolveEnvironmentProfile({ mode: 'PRACTICE', abstraction: 'guided' }),
+      guidedQuestion
+    )
+    expect(resolveAbstraction(profile, guidedQuestion)).toBe('guided')
+    expect(profile.abstraction).toBe('guided')
+    expect(profile.capabilities).toMatchObject({
+      edgeModel: 'connector',
+      canEditEdges: false,
+      canEditResources: false,
+      canEditExecutionProfile: false,
+      canUseTerminal: false,
+      canViewTopologyJson: false
+    })
+  })
+
+  it('keeps AUTHOR debug views in Classroom mode', () => {
+    const profile = resolveEffectiveProfile(
+      resolveEnvironmentProfile({ mode: 'AUTHOR', abstraction: 'classroom' }),
+      classroomQuestion()
+    )
+    expect(profile.capabilities.canUseTerminal).toBe(true)
+    expect(profile.capabilities.canViewTopologyJson).toBe(true)
+    expect(profile.capabilities.canEditResources).toBe(false)
+  })
+
+  it('needs a question, and respects the levels a question allows', () => {
+    expect(resolveAbstraction(classroom, null)).toBe('architect')
+    expect(resolveAbstraction(classroom, classroomQuestion())).toBe('classroom')
+    const architectOnly = classroomQuestion({
+      classroom: { abstractions: ['architect'], givens: { microservice: { capacityRps: 100_000 } } }
+    })
+    expect(resolveAbstraction(classroom, architectOnly)).toBe('architect')
+    const classroomOnly = classroomQuestion({
+      classroom: { abstractions: ['classroom'], givens: { microservice: { capacityRps: 100_000 } } }
+    })
+    expect(resolveAbstraction(PRACTICE_ENVIRONMENT_PROFILE, classroomOnly)).toBe('classroom')
+  })
+
+  it("stays in Architect mode when the question doesn't state a component's capacity", () => {
+    const unstated = classroomQuestion({ classroom: undefined })
+    expect(resolveAbstraction(classroom, unstated)).toBe('architect')
+    expect(classroomUnavailableReason(classroom, unstated)).toBe(
+      "The question doesn't state how many requests per second a Server handles."
+    )
+    expect(canEditResourcesForQuestion(classroom, unstated)).toBe(true)
+  })
+
+  it('stays in Architect mode when the question cannot be solved within the copy limit', () => {
+    const unsolvable = classroomQuestion({
+      classroom: {
+        givens: { microservice: { capacityRps: 18_000 } },
+        targets: { maxUtilization: 0.8 }
+      }
+    })
+    expect(resolveAbstraction(classroom, unsolvable)).toBe('architect')
+    const reason = classroomUnavailableReason(classroom, unsolvable) ?? ''
+    expect(reason).toContain("can't be solved with 50 or fewer Server copies")
+    // Never names the smallest passing fleet.
+    expect(reason).not.toMatch(/70/)
+  })
+
+  it('reports no reason when Classroom is in effect or not requested', () => {
+    expect(classroomUnavailableReason(classroom, classroomQuestion())).toBeNull()
+    expect(
+      classroomUnavailableReason(ASSIGNMENT_ENVIRONMENT_PROFILE, classroomQuestion())
+    ).toBeNull()
+  })
+
+  it('overrides question domains that would unlock edges or resources', () => {
+    expect(isClassroomActive(classroom, question)).toBe(true)
+    expect(resolveEdgeModel(classroom, question)).toBe('connector')
+    expect(canEditEdgesForQuestion(classroom, question)).toBe(false)
+    expect(canEditResourcesForQuestion(classroom, question)).toBe(false)
+    const architect = resolveEnvironmentProfile({ mode: 'PRACTICE', abstraction: 'architect' })
+    expect(resolveEdgeModel(architect, question)).toBe('network')
   })
 })

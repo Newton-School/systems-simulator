@@ -1,0 +1,1226 @@
+{
+  "artifact": "dsds-question-project",
+  "artifactVersion": "1.0",
+  "projectId": "8c2b7fd5-464e-4bea-970f-1916d4f382a9",
+  "updatedAt": "2026-09-21T13:00:06.813Z",
+  "question": {
+    "id": "quickcart-flash-sale",
+    "title": "QuickCart Flash Sale",
+    "description": "Scale a stateless request tier behind a load balancer to carry a 1,000,000 req/s flash sale while  keeping every server within an 80% capacity headroom budget.",
+    "tags": [],
+    "author": "Hritvik Mohan",
+    "createdAt": "2026-09-21T00:00:00.000Z",
+    "setup": {
+      "difficulty": "beginner",
+      "type": "scaling",
+      "entryFormat": "blank-canvas",
+      "domains": ["compute"],
+      "concepts": ["horizontal-scaling", "capacity-headroom", "load-balancing"],
+      "workloadCategory": "read-heavy",
+      "estimatedTimeMinutes": 10,
+      "passThreshold": 1,
+      "suiteVisibleToStudent": false,
+      "constraints": {
+        "allowedNodeTypes": ["microservice", "api-endpoint", "load-balancer"],
+        "canModifyScaffold": true,
+        "canRemoveScaffoldNodes": true
+      },
+      "classroom": {
+        "givens": {
+          "microservice": {
+            "label": "Server",
+            "capacityRps": 100000,
+            "costPerHour": 0.192
+          }
+        },
+        "targets": {
+          "maxUtilization": 0.8,
+          "maxErrorRate": 0.01
+        },
+        "checks": [
+          {
+            "id": "through-lb",
+            "template": "traffic-flows-through",
+            "via": "load-balancer",
+            "component": "microservice",
+            "label": "All traffic reaches the servers through the load balancer"
+          },
+          {
+            "id": "serves-all",
+            "template": "serves-all-traffic",
+            "label": "Every request is served"
+          },
+          {
+            "id": "headroom",
+            "template": "within-target-utilization",
+            "component": "microservice",
+            "label": "Every server stays at or below 80% utilization",
+            "points": 2
+          },
+          {
+            "id": "right-size",
+            "template": "right-sized",
+            "component": "microservice",
+            "factor": 1.5,
+            "severity": "feedback",
+            "label": "The fleet isn't much bigger than it needs to be"
+          }
+        ]
+      }
+    },
+    "prompt": {
+      "text": "You are the backend architect for an e-commerce website called QuickCart.\n\nQuickCart is running a major flash sale. During the sale, the website is expected to receive up to 1,000,000 requests per second.\n\nEach backend server can handle a maximum of 100,000 requests per second. To keep the servers stable, use no more than 80% of each server's capacity.\n\nThe load balancer distributes incoming requests evenly across every backend server you add.\n\nBuild the backend architecture for QuickCart from available components.",
+      "scale": {
+        "peakRps": 1000000,
+        "readWriteRatio": 100
+      },
+      "functionalRequirements": [
+        {
+          "id": "fr-fee0ae1e-7078-4eea-854a-10492fc52362",
+          "text": "Accept incoming user traffic through a load balancer."
+        },
+        {
+          "id": "fr-641fe22d-4023-4453-b1b4-e30ea24b5aa6",
+          "text": "Distribute traffic evenly across a pool of backend servers."
+        },
+        {
+          "id": "fr-c7b07710-7e6f-4986-9175-e2a3e1404d01",
+          "text": "Serve the full offered load without dropping requests."
+        }
+      ],
+      "nonFunctionalRequirements": [
+        {
+          "id": "nfr-d3998a98-c959-4b7b-9e14-48162c425f02",
+          "metric": "throughput",
+          "operator": ">=",
+          "value": 1000000,
+          "unit": "req_per_sec"
+        },
+        {
+          "id": "nfr-f46e38fa-1ed7-46ba-9f9f-42d4e3b6d03c",
+          "metric": "error_rate",
+          "operator": "<",
+          "value": 1,
+          "unit": "percent"
+        }
+      ]
+    },
+    "dryRunCase": {
+      "id": "public-dry-run",
+      "description": "Try the public flash-sale workload before submitting; hidden grading thresholds are evaluated separately.",
+      "global": {
+        "simulationDuration": 5000,
+        "seed": "quickcart-flash-sale-v1",
+        "warmupDuration": 0
+      },
+      "workload": {
+        "pattern": "constant",
+        "baseRps": 1000000,
+        "requestDistribution": [
+          {
+            "type": "read",
+            "weight": 1,
+            "sizeBytes": 100
+          },
+          {
+            "type": "write",
+            "weight": 0,
+            "sizeBytes": 100
+          }
+        ]
+      }
+    },
+    "justify": [],
+    "scenarios": [
+      {
+        "id": "baseline",
+        "description": "Sustain the 1,000,000 req/s flash-sale peak within the 80% server headroom budget.",
+        "seed": "quickcart-flash-sale-v1",
+        "pattern": "constant",
+        "durationSeconds": 5,
+        "warmupSeconds": 0,
+        "baseRps": 1000000,
+        "readPercent": 100,
+        "requestSizeBytes": 100,
+        "sourceNodeId": "",
+        "burstRps": 2500,
+        "burstDurationSeconds": 10,
+        "normalDurationSeconds": 20,
+        "spikeTimeSeconds": 20,
+        "spikeRps": 5000,
+        "spikeDurationSeconds": 10,
+        "sawtoothPeakRps": 3000,
+        "rampDurationSeconds": 20,
+        "diurnalPeakMultiplier": 2,
+        "keyspaceField": "",
+        "keyspaceSize": null,
+        "keyspaceSkew": null,
+        "faults": [],
+        "invariants": [
+          {
+            "id": "headroom-80",
+            "description": "No server may exceed 80% of its capacity during the sale",
+            "condition": "perNode.maxUtilization <= 0.8"
+          }
+        ]
+      }
+    ],
+    "structuralRules": [
+      {
+        "id": "requires-load-balancer",
+        "description": "Include a load balancer; either the L4 or L7 subtype is accepted.",
+        "kind": "requires_component",
+        "componentType": "load-balancer",
+        "minCount": 1
+      },
+      {
+        "id": "requires-api-server",
+        "description": "Include at least one backend API server.",
+        "kind": "requires_component",
+        "componentType": "microservice",
+        "minCount": 1
+      },
+      {
+        "id": "requires-single-source",
+        "description": "Use exactly one traffic source.",
+        "kind": "requires_single_source"
+      },
+      {
+        "id": "requires-source-to-balancer",
+        "description": "Connect the traffic source directly to the load balancer.",
+        "kind": "requires_edge",
+        "fromType": "api-endpoint",
+        "toType": "load-balancer"
+      },
+      {
+        "id": "requires-balancer-to-server",
+        "description": "Connect the load balancer directly to the backend server pool.",
+        "kind": "requires_edge",
+        "fromType": "load-balancer",
+        "toType": "microservice"
+      },
+      {
+        "id": "requires-connected-design",
+        "description": "Every node must be reachable (no orphans).",
+        "kind": "requires_connected_graph"
+      }
+    ],
+    "semanticRules": [],
+    "metricRules": [
+      {
+        "id": "metric-target",
+        "description": "Keep errors under 1%: drop virtually no requests during the sale.",
+        "metric": "error_rate",
+        "operator": "<",
+        "value": 1,
+        "unit": "percent"
+      }
+    ],
+    "rubricChecks": [
+      {
+        "id": "rubric-check-1",
+        "description": "Serve the full flash-sale load: total throughput reaches 1,000,000 req/s.",
+        "metric": "summary.throughput",
+        "op": ">=",
+        "value": 1000000,
+        "points": 1
+      },
+      {
+        "id": "rubric-check-2",
+        "description": "Stay within the headroom budget: no server runs above 80% of its capacity.",
+        "metric": "invariantViolations.count",
+        "op": "==",
+        "value": 0,
+        "points": 2
+      }
+    ]
+  },
+  "assets": {
+    "gamedTopologies": [
+      {
+        "id": "twelve-servers",
+        "label": "12 servers at 83% utilization",
+        "misconception": "Twelve 100K servers carry 1M req/s, so the 80% headroom limit does not matter.",
+        "expectedObligationId": "rubric-check-2",
+        "topology": {
+          "id": "quickcart-flash-sale-solution",
+          "name": "QuickCart Flash Sale — Reference Solution",
+          "version": "2.1.0",
+          "global": {
+            "simulationDuration": 5000,
+            "warmupDuration": 0,
+            "seed": "quickcart-flash-sale-v1",
+            "timeResolution": "microsecond",
+            "defaultTimeout": 30000,
+            "traceSampleRate": 0.01
+          },
+          "nodes": [
+            {
+              "id": "src",
+              "type": "api-endpoint",
+              "category": "compute",
+              "role": "source",
+              "label": "Traffic Source",
+              "position": {
+                "x": 80,
+                "y": 360
+              }
+            },
+            {
+              "id": "lb",
+              "type": "load-balancer-l7",
+              "category": "network-and-edge",
+              "role": "router",
+              "label": "Load Balancer L7",
+              "position": {
+                "x": 440,
+                "y": 360
+              },
+              "config": {
+                "routingStrategy": "round-robin"
+              }
+            },
+            {
+              "id": "srv-01",
+              "type": "microservice",
+              "category": "compute",
+              "role": "processor",
+              "label": "API Server 1",
+              "position": {
+                "x": 820,
+                "y": 0
+              },
+              "config": {
+                "capacityRps": 100000,
+                "capacityAuthored": true
+              }
+            },
+            {
+              "id": "srv-02",
+              "type": "microservice",
+              "category": "compute",
+              "role": "processor",
+              "label": "API Server 2",
+              "position": {
+                "x": 1080,
+                "y": 0
+              },
+              "config": {
+                "capacityRps": 100000,
+                "capacityAuthored": true
+              }
+            },
+            {
+              "id": "srv-03",
+              "type": "microservice",
+              "category": "compute",
+              "role": "processor",
+              "label": "API Server 3",
+              "position": {
+                "x": 1340,
+                "y": 0
+              },
+              "config": {
+                "capacityRps": 100000,
+                "capacityAuthored": true
+              }
+            },
+            {
+              "id": "srv-04",
+              "type": "microservice",
+              "category": "compute",
+              "role": "processor",
+              "label": "API Server 4",
+              "position": {
+                "x": 820,
+                "y": 180
+              },
+              "config": {
+                "capacityRps": 100000,
+                "capacityAuthored": true
+              }
+            },
+            {
+              "id": "srv-05",
+              "type": "microservice",
+              "category": "compute",
+              "role": "processor",
+              "label": "API Server 5",
+              "position": {
+                "x": 1080,
+                "y": 180
+              },
+              "config": {
+                "capacityRps": 100000,
+                "capacityAuthored": true
+              }
+            },
+            {
+              "id": "srv-06",
+              "type": "microservice",
+              "category": "compute",
+              "role": "processor",
+              "label": "API Server 6",
+              "position": {
+                "x": 1340,
+                "y": 180
+              },
+              "config": {
+                "capacityRps": 100000,
+                "capacityAuthored": true
+              }
+            },
+            {
+              "id": "srv-07",
+              "type": "microservice",
+              "category": "compute",
+              "role": "processor",
+              "label": "API Server 7",
+              "position": {
+                "x": 820,
+                "y": 360
+              },
+              "config": {
+                "capacityRps": 100000,
+                "capacityAuthored": true
+              }
+            },
+            {
+              "id": "srv-08",
+              "type": "microservice",
+              "category": "compute",
+              "role": "processor",
+              "label": "API Server 8",
+              "position": {
+                "x": 1080,
+                "y": 360
+              },
+              "config": {
+                "capacityRps": 100000,
+                "capacityAuthored": true
+              }
+            },
+            {
+              "id": "srv-09",
+              "type": "microservice",
+              "category": "compute",
+              "role": "processor",
+              "label": "API Server 9",
+              "position": {
+                "x": 1340,
+                "y": 360
+              },
+              "config": {
+                "capacityRps": 100000,
+                "capacityAuthored": true
+              }
+            },
+            {
+              "id": "srv-10",
+              "type": "microservice",
+              "category": "compute",
+              "role": "processor",
+              "label": "API Server 10",
+              "position": {
+                "x": 820,
+                "y": 540
+              },
+              "config": {
+                "capacityRps": 100000,
+                "capacityAuthored": true
+              }
+            },
+            {
+              "id": "srv-11",
+              "type": "microservice",
+              "category": "compute",
+              "role": "processor",
+              "label": "API Server 11",
+              "position": {
+                "x": 1080,
+                "y": 540
+              },
+              "config": {
+                "capacityRps": 100000,
+                "capacityAuthored": true
+              }
+            },
+            {
+              "id": "srv-12",
+              "type": "microservice",
+              "category": "compute",
+              "role": "processor",
+              "label": "API Server 12",
+              "position": {
+                "x": 1340,
+                "y": 540
+              },
+              "config": {
+                "capacityRps": 100000,
+                "capacityAuthored": true
+              }
+            }
+          ],
+          "edges": [
+            {
+              "id": "src-to-lb",
+              "source": "src",
+              "target": "lb",
+              "mode": "synchronous",
+              "protocol": "https",
+              "latency": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 1
+                },
+                "pathType": "same-dc"
+              },
+              "bandwidth": 100000,
+              "maxConcurrentRequests": 2000000,
+              "packetLossRate": 0,
+              "errorRate": 0
+            },
+            {
+              "id": "lb-to-srv-01",
+              "source": "lb",
+              "target": "srv-01",
+              "mode": "synchronous",
+              "protocol": "https",
+              "latency": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 1
+                },
+                "pathType": "same-dc"
+              },
+              "bandwidth": 100000,
+              "maxConcurrentRequests": 2000000,
+              "packetLossRate": 0,
+              "errorRate": 0
+            },
+            {
+              "id": "lb-to-srv-02",
+              "source": "lb",
+              "target": "srv-02",
+              "mode": "synchronous",
+              "protocol": "https",
+              "latency": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 1
+                },
+                "pathType": "same-dc"
+              },
+              "bandwidth": 100000,
+              "maxConcurrentRequests": 2000000,
+              "packetLossRate": 0,
+              "errorRate": 0
+            },
+            {
+              "id": "lb-to-srv-03",
+              "source": "lb",
+              "target": "srv-03",
+              "mode": "synchronous",
+              "protocol": "https",
+              "latency": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 1
+                },
+                "pathType": "same-dc"
+              },
+              "bandwidth": 100000,
+              "maxConcurrentRequests": 2000000,
+              "packetLossRate": 0,
+              "errorRate": 0
+            },
+            {
+              "id": "lb-to-srv-04",
+              "source": "lb",
+              "target": "srv-04",
+              "mode": "synchronous",
+              "protocol": "https",
+              "latency": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 1
+                },
+                "pathType": "same-dc"
+              },
+              "bandwidth": 100000,
+              "maxConcurrentRequests": 2000000,
+              "packetLossRate": 0,
+              "errorRate": 0
+            },
+            {
+              "id": "lb-to-srv-05",
+              "source": "lb",
+              "target": "srv-05",
+              "mode": "synchronous",
+              "protocol": "https",
+              "latency": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 1
+                },
+                "pathType": "same-dc"
+              },
+              "bandwidth": 100000,
+              "maxConcurrentRequests": 2000000,
+              "packetLossRate": 0,
+              "errorRate": 0
+            },
+            {
+              "id": "lb-to-srv-06",
+              "source": "lb",
+              "target": "srv-06",
+              "mode": "synchronous",
+              "protocol": "https",
+              "latency": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 1
+                },
+                "pathType": "same-dc"
+              },
+              "bandwidth": 100000,
+              "maxConcurrentRequests": 2000000,
+              "packetLossRate": 0,
+              "errorRate": 0
+            },
+            {
+              "id": "lb-to-srv-07",
+              "source": "lb",
+              "target": "srv-07",
+              "mode": "synchronous",
+              "protocol": "https",
+              "latency": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 1
+                },
+                "pathType": "same-dc"
+              },
+              "bandwidth": 100000,
+              "maxConcurrentRequests": 2000000,
+              "packetLossRate": 0,
+              "errorRate": 0
+            },
+            {
+              "id": "lb-to-srv-08",
+              "source": "lb",
+              "target": "srv-08",
+              "mode": "synchronous",
+              "protocol": "https",
+              "latency": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 1
+                },
+                "pathType": "same-dc"
+              },
+              "bandwidth": 100000,
+              "maxConcurrentRequests": 2000000,
+              "packetLossRate": 0,
+              "errorRate": 0
+            },
+            {
+              "id": "lb-to-srv-09",
+              "source": "lb",
+              "target": "srv-09",
+              "mode": "synchronous",
+              "protocol": "https",
+              "latency": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 1
+                },
+                "pathType": "same-dc"
+              },
+              "bandwidth": 100000,
+              "maxConcurrentRequests": 2000000,
+              "packetLossRate": 0,
+              "errorRate": 0
+            },
+            {
+              "id": "lb-to-srv-10",
+              "source": "lb",
+              "target": "srv-10",
+              "mode": "synchronous",
+              "protocol": "https",
+              "latency": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 1
+                },
+                "pathType": "same-dc"
+              },
+              "bandwidth": 100000,
+              "maxConcurrentRequests": 2000000,
+              "packetLossRate": 0,
+              "errorRate": 0
+            },
+            {
+              "id": "lb-to-srv-11",
+              "source": "lb",
+              "target": "srv-11",
+              "mode": "synchronous",
+              "protocol": "https",
+              "latency": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 1
+                },
+                "pathType": "same-dc"
+              },
+              "bandwidth": 100000,
+              "maxConcurrentRequests": 2000000,
+              "packetLossRate": 0,
+              "errorRate": 0
+            },
+            {
+              "id": "lb-to-srv-12",
+              "source": "lb",
+              "target": "srv-12",
+              "mode": "synchronous",
+              "protocol": "https",
+              "latency": {
+                "distribution": {
+                  "type": "constant",
+                  "value": 1
+                },
+                "pathType": "same-dc"
+              },
+              "bandwidth": 100000,
+              "maxConcurrentRequests": 2000000,
+              "packetLossRate": 0,
+              "errorRate": 0
+            }
+          ],
+          "workload": {
+            "sourceNodeId": "src",
+            "pattern": "constant",
+            "baseRps": 1000000,
+            "requestDistribution": [
+              {
+                "type": "read",
+                "weight": 1,
+                "sizeBytes": 100
+              }
+            ]
+          }
+        }
+      }
+    ],
+    "referenceTopology": {
+      "id": "quickcart-flash-sale-solution",
+      "name": "QuickCart Flash Sale — Reference Solution",
+      "version": "2.1.0",
+      "global": {
+        "simulationDuration": 5000,
+        "warmupDuration": 0,
+        "seed": "quickcart-flash-sale-v1",
+        "timeResolution": "microsecond",
+        "defaultTimeout": 30000,
+        "traceSampleRate": 0.01
+      },
+      "nodes": [
+        {
+          "id": "src",
+          "type": "api-endpoint",
+          "category": "compute",
+          "role": "source",
+          "label": "Traffic Source",
+          "position": {
+            "x": 80,
+            "y": 360
+          }
+        },
+        {
+          "id": "lb",
+          "type": "load-balancer-l7",
+          "category": "network-and-edge",
+          "role": "router",
+          "label": "Load Balancer L7",
+          "position": {
+            "x": 440,
+            "y": 360
+          },
+          "config": {
+            "routingStrategy": "round-robin"
+          }
+        },
+        {
+          "id": "srv-01",
+          "type": "microservice",
+          "category": "compute",
+          "role": "processor",
+          "label": "API Server 1",
+          "position": {
+            "x": 820,
+            "y": 0
+          },
+          "config": {
+            "capacityRps": 100000,
+            "capacityAuthored": true
+          }
+        },
+        {
+          "id": "srv-02",
+          "type": "microservice",
+          "category": "compute",
+          "role": "processor",
+          "label": "API Server 2",
+          "position": {
+            "x": 1080,
+            "y": 0
+          },
+          "config": {
+            "capacityRps": 100000,
+            "capacityAuthored": true
+          }
+        },
+        {
+          "id": "srv-03",
+          "type": "microservice",
+          "category": "compute",
+          "role": "processor",
+          "label": "API Server 3",
+          "position": {
+            "x": 1340,
+            "y": 0
+          },
+          "config": {
+            "capacityRps": 100000,
+            "capacityAuthored": true
+          }
+        },
+        {
+          "id": "srv-04",
+          "type": "microservice",
+          "category": "compute",
+          "role": "processor",
+          "label": "API Server 4",
+          "position": {
+            "x": 820,
+            "y": 180
+          },
+          "config": {
+            "capacityRps": 100000,
+            "capacityAuthored": true
+          }
+        },
+        {
+          "id": "srv-05",
+          "type": "microservice",
+          "category": "compute",
+          "role": "processor",
+          "label": "API Server 5",
+          "position": {
+            "x": 1080,
+            "y": 180
+          },
+          "config": {
+            "capacityRps": 100000,
+            "capacityAuthored": true
+          }
+        },
+        {
+          "id": "srv-06",
+          "type": "microservice",
+          "category": "compute",
+          "role": "processor",
+          "label": "API Server 6",
+          "position": {
+            "x": 1340,
+            "y": 180
+          },
+          "config": {
+            "capacityRps": 100000,
+            "capacityAuthored": true
+          }
+        },
+        {
+          "id": "srv-07",
+          "type": "microservice",
+          "category": "compute",
+          "role": "processor",
+          "label": "API Server 7",
+          "position": {
+            "x": 820,
+            "y": 360
+          },
+          "config": {
+            "capacityRps": 100000,
+            "capacityAuthored": true
+          }
+        },
+        {
+          "id": "srv-08",
+          "type": "microservice",
+          "category": "compute",
+          "role": "processor",
+          "label": "API Server 8",
+          "position": {
+            "x": 1080,
+            "y": 360
+          },
+          "config": {
+            "capacityRps": 100000,
+            "capacityAuthored": true
+          }
+        },
+        {
+          "id": "srv-09",
+          "type": "microservice",
+          "category": "compute",
+          "role": "processor",
+          "label": "API Server 9",
+          "position": {
+            "x": 1340,
+            "y": 360
+          },
+          "config": {
+            "capacityRps": 100000,
+            "capacityAuthored": true
+          }
+        },
+        {
+          "id": "srv-10",
+          "type": "microservice",
+          "category": "compute",
+          "role": "processor",
+          "label": "API Server 10",
+          "position": {
+            "x": 820,
+            "y": 540
+          },
+          "config": {
+            "capacityRps": 100000,
+            "capacityAuthored": true
+          }
+        },
+        {
+          "id": "srv-11",
+          "type": "microservice",
+          "category": "compute",
+          "role": "processor",
+          "label": "API Server 11",
+          "position": {
+            "x": 1080,
+            "y": 540
+          },
+          "config": {
+            "capacityRps": 100000,
+            "capacityAuthored": true
+          }
+        },
+        {
+          "id": "srv-12",
+          "type": "microservice",
+          "category": "compute",
+          "role": "processor",
+          "label": "API Server 12",
+          "position": {
+            "x": 1340,
+            "y": 540
+          },
+          "config": {
+            "capacityRps": 100000,
+            "capacityAuthored": true
+          }
+        },
+        {
+          "id": "srv-13",
+          "type": "microservice",
+          "category": "compute",
+          "role": "processor",
+          "label": "API Server 13",
+          "position": {
+            "x": 1080,
+            "y": 720
+          },
+          "config": {
+            "capacityRps": 100000,
+            "capacityAuthored": true
+          }
+        }
+      ],
+      "edges": [
+        {
+          "id": "src-to-lb",
+          "source": "src",
+          "target": "lb",
+          "mode": "synchronous",
+          "protocol": "https",
+          "latency": {
+            "distribution": {
+              "type": "constant",
+              "value": 1
+            },
+            "pathType": "same-dc"
+          },
+          "bandwidth": 100000,
+          "maxConcurrentRequests": 2000000,
+          "packetLossRate": 0,
+          "errorRate": 0
+        },
+        {
+          "id": "lb-to-srv-01",
+          "source": "lb",
+          "target": "srv-01",
+          "mode": "synchronous",
+          "protocol": "https",
+          "latency": {
+            "distribution": {
+              "type": "constant",
+              "value": 1
+            },
+            "pathType": "same-dc"
+          },
+          "bandwidth": 100000,
+          "maxConcurrentRequests": 2000000,
+          "packetLossRate": 0,
+          "errorRate": 0
+        },
+        {
+          "id": "lb-to-srv-02",
+          "source": "lb",
+          "target": "srv-02",
+          "mode": "synchronous",
+          "protocol": "https",
+          "latency": {
+            "distribution": {
+              "type": "constant",
+              "value": 1
+            },
+            "pathType": "same-dc"
+          },
+          "bandwidth": 100000,
+          "maxConcurrentRequests": 2000000,
+          "packetLossRate": 0,
+          "errorRate": 0
+        },
+        {
+          "id": "lb-to-srv-03",
+          "source": "lb",
+          "target": "srv-03",
+          "mode": "synchronous",
+          "protocol": "https",
+          "latency": {
+            "distribution": {
+              "type": "constant",
+              "value": 1
+            },
+            "pathType": "same-dc"
+          },
+          "bandwidth": 100000,
+          "maxConcurrentRequests": 2000000,
+          "packetLossRate": 0,
+          "errorRate": 0
+        },
+        {
+          "id": "lb-to-srv-04",
+          "source": "lb",
+          "target": "srv-04",
+          "mode": "synchronous",
+          "protocol": "https",
+          "latency": {
+            "distribution": {
+              "type": "constant",
+              "value": 1
+            },
+            "pathType": "same-dc"
+          },
+          "bandwidth": 100000,
+          "maxConcurrentRequests": 2000000,
+          "packetLossRate": 0,
+          "errorRate": 0
+        },
+        {
+          "id": "lb-to-srv-05",
+          "source": "lb",
+          "target": "srv-05",
+          "mode": "synchronous",
+          "protocol": "https",
+          "latency": {
+            "distribution": {
+              "type": "constant",
+              "value": 1
+            },
+            "pathType": "same-dc"
+          },
+          "bandwidth": 100000,
+          "maxConcurrentRequests": 2000000,
+          "packetLossRate": 0,
+          "errorRate": 0
+        },
+        {
+          "id": "lb-to-srv-06",
+          "source": "lb",
+          "target": "srv-06",
+          "mode": "synchronous",
+          "protocol": "https",
+          "latency": {
+            "distribution": {
+              "type": "constant",
+              "value": 1
+            },
+            "pathType": "same-dc"
+          },
+          "bandwidth": 100000,
+          "maxConcurrentRequests": 2000000,
+          "packetLossRate": 0,
+          "errorRate": 0
+        },
+        {
+          "id": "lb-to-srv-07",
+          "source": "lb",
+          "target": "srv-07",
+          "mode": "synchronous",
+          "protocol": "https",
+          "latency": {
+            "distribution": {
+              "type": "constant",
+              "value": 1
+            },
+            "pathType": "same-dc"
+          },
+          "bandwidth": 100000,
+          "maxConcurrentRequests": 2000000,
+          "packetLossRate": 0,
+          "errorRate": 0
+        },
+        {
+          "id": "lb-to-srv-08",
+          "source": "lb",
+          "target": "srv-08",
+          "mode": "synchronous",
+          "protocol": "https",
+          "latency": {
+            "distribution": {
+              "type": "constant",
+              "value": 1
+            },
+            "pathType": "same-dc"
+          },
+          "bandwidth": 100000,
+          "maxConcurrentRequests": 2000000,
+          "packetLossRate": 0,
+          "errorRate": 0
+        },
+        {
+          "id": "lb-to-srv-09",
+          "source": "lb",
+          "target": "srv-09",
+          "mode": "synchronous",
+          "protocol": "https",
+          "latency": {
+            "distribution": {
+              "type": "constant",
+              "value": 1
+            },
+            "pathType": "same-dc"
+          },
+          "bandwidth": 100000,
+          "maxConcurrentRequests": 2000000,
+          "packetLossRate": 0,
+          "errorRate": 0
+        },
+        {
+          "id": "lb-to-srv-10",
+          "source": "lb",
+          "target": "srv-10",
+          "mode": "synchronous",
+          "protocol": "https",
+          "latency": {
+            "distribution": {
+              "type": "constant",
+              "value": 1
+            },
+            "pathType": "same-dc"
+          },
+          "bandwidth": 100000,
+          "maxConcurrentRequests": 2000000,
+          "packetLossRate": 0,
+          "errorRate": 0
+        },
+        {
+          "id": "lb-to-srv-11",
+          "source": "lb",
+          "target": "srv-11",
+          "mode": "synchronous",
+          "protocol": "https",
+          "latency": {
+            "distribution": {
+              "type": "constant",
+              "value": 1
+            },
+            "pathType": "same-dc"
+          },
+          "bandwidth": 100000,
+          "maxConcurrentRequests": 2000000,
+          "packetLossRate": 0,
+          "errorRate": 0
+        },
+        {
+          "id": "lb-to-srv-12",
+          "source": "lb",
+          "target": "srv-12",
+          "mode": "synchronous",
+          "protocol": "https",
+          "latency": {
+            "distribution": {
+              "type": "constant",
+              "value": 1
+            },
+            "pathType": "same-dc"
+          },
+          "bandwidth": 100000,
+          "maxConcurrentRequests": 2000000,
+          "packetLossRate": 0,
+          "errorRate": 0
+        },
+        {
+          "id": "lb-to-srv-13",
+          "source": "lb",
+          "target": "srv-13",
+          "mode": "synchronous",
+          "protocol": "https",
+          "latency": {
+            "distribution": {
+              "type": "constant",
+              "value": 1
+            },
+            "pathType": "same-dc"
+          },
+          "bandwidth": 100000,
+          "maxConcurrentRequests": 2000000,
+          "packetLossRate": 0,
+          "errorRate": 0
+        }
+      ],
+      "workload": {
+        "sourceNodeId": "src",
+        "pattern": "constant",
+        "baseRps": 1000000,
+        "requestDistribution": [
+          {
+            "type": "read",
+            "weight": 1,
+            "sizeBytes": 100
+          }
+        ]
+      }
+    }
+  },
+  "ui": {
+    "activeStage": "export"
+  },
+  "verification": {
+    "signature": "c0c662eafb0d2ec6b220db7890709020",
+    "ready": true,
+    "blockers": [],
+    "generatedAt": "2026-10-15T09:17:11.815Z"
+  }
+}

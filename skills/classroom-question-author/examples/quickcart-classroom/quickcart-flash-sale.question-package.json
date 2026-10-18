@@ -1,0 +1,229 @@
+{
+  "version": "1.0",
+  "id": "quickcart-flash-sale",
+  "title": "QuickCart Flash Sale",
+  "description": "Scale a stateless request tier behind a load balancer to carry a 1,000,000 req/s flash sale while  keeping every server within an 80% capacity headroom budget.",
+  "difficulty": "beginner",
+  "estimatedTimeMinutes": 10,
+  "type": "scaling",
+  "entryFormat": "blank-canvas",
+  "prompt": {
+    "text": "You are the backend architect for an e-commerce website called QuickCart.\n\nQuickCart is running a major flash sale. During the sale, the website is expected to receive up to 1,000,000 requests per second.\n\nEach backend server can handle a maximum of 100,000 requests per second. To keep the servers stable, use no more than 80% of each server's capacity.\n\nThe load balancer distributes incoming requests evenly across every backend server you add.\n\nBuild the backend architecture for QuickCart from available components.",
+    "functionalRequirements": [
+      "Accept incoming user traffic through a load balancer.",
+      "Distribute traffic evenly across a pool of backend servers.",
+      "Serve the full offered load without dropping requests."
+    ],
+    "nonFunctionalRequirements": [
+      {
+        "metric": "throughput",
+        "operator": ">=",
+        "value": 1000000,
+        "unit": "req_per_sec",
+        "description": "Throughput must be at least 1,000,000 req/s."
+      },
+      {
+        "metric": "error_rate",
+        "operator": "<",
+        "value": 1,
+        "unit": "percent",
+        "description": "Error rate must be below 1%."
+      }
+    ],
+    "scale": {
+      "peakRps": 1000000,
+      "readWriteRatio": 100
+    }
+  },
+  "scaffold": {
+    "type": "empty"
+  },
+  "constraints": {
+    "allowedNodeTypes": ["microservice", "api-endpoint", "load-balancer"],
+    "canModifyScaffold": true,
+    "canRemoveScaffoldNodes": true
+  },
+  "structuralRules": [
+    {
+      "id": "requires-load-balancer",
+      "description": "Include a load balancer; either the L4 or L7 subtype is accepted.",
+      "kind": "requires_component",
+      "componentType": "load-balancer",
+      "minCount": 1
+    },
+    {
+      "id": "requires-api-server",
+      "description": "Include at least one backend API server.",
+      "kind": "requires_component",
+      "componentType": "microservice",
+      "minCount": 1
+    },
+    {
+      "id": "requires-single-source",
+      "description": "Use exactly one traffic source.",
+      "kind": "requires_single_source"
+    },
+    {
+      "id": "requires-source-to-balancer",
+      "description": "Connect the traffic source directly to the load balancer.",
+      "kind": "requires_edge",
+      "fromType": "api-endpoint",
+      "toType": "load-balancer"
+    },
+    {
+      "id": "requires-balancer-to-server",
+      "description": "Connect the load balancer directly to the backend server pool.",
+      "kind": "requires_edge",
+      "fromType": "load-balancer",
+      "toType": "microservice"
+    },
+    {
+      "id": "requires-connected-design",
+      "description": "Every node must be reachable (no orphans).",
+      "kind": "requires_connected_graph"
+    }
+  ],
+  "workloadCategory": "read-heavy",
+  "domains": ["compute"],
+  "concepts": ["horizontal-scaling", "capacity-headroom", "load-balancing"],
+  "suite": {
+    "name": "quickcart-flash-sale-suite",
+    "cases": [
+      {
+        "id": "baseline",
+        "description": "Sustain the 1,000,000 req/s flash-sale peak within the 80% server headroom budget.",
+        "global": {
+          "simulationDuration": 5000,
+          "seed": "quickcart-flash-sale-v1",
+          "warmupDuration": 0
+        },
+        "workload": {
+          "pattern": "constant",
+          "baseRps": 1000000,
+          "requestDistribution": [
+            {
+              "type": "read",
+              "weight": 1,
+              "sizeBytes": 100
+            },
+            {
+              "type": "write",
+              "weight": 0,
+              "sizeBytes": 100
+            }
+          ]
+        },
+        "invariants": [
+          {
+            "id": "headroom-80",
+            "description": "No server may exceed 80% of its capacity during the sale",
+            "condition": "perNode.maxUtilization <= 0.8"
+          }
+        ]
+      }
+    ],
+    "visibleToStudent": false,
+    "dryRunCase": {
+      "id": "public-dry-run",
+      "description": "Try the public flash-sale workload before submitting; hidden grading thresholds are evaluated separately.",
+      "global": {
+        "simulationDuration": 5000,
+        "seed": "quickcart-flash-sale-v1",
+        "warmupDuration": 0
+      },
+      "workload": {
+        "pattern": "constant",
+        "baseRps": 1000000,
+        "requestDistribution": [
+          {
+            "type": "read",
+            "weight": 1,
+            "sizeBytes": 100
+          },
+          {
+            "type": "write",
+            "weight": 0,
+            "sizeBytes": 100
+          }
+        ]
+      }
+    }
+  },
+  "rubric": {
+    "version": "1.0",
+    "id": "quickcart-flash-sale-rubric",
+    "passThreshold": 1,
+    "checks": [
+      {
+        "id": "metric-target",
+        "description": "Keep errors under 1%: drop virtually no requests during the sale.",
+        "kind": "simulation",
+        "metric": "summary.errorRate",
+        "op": "<",
+        "value": 0.01
+      },
+      {
+        "id": "rubric-check-1",
+        "description": "Serve the full flash-sale load: total throughput reaches 1,000,000 req/s.",
+        "kind": "simulation",
+        "metric": "summary.throughput",
+        "op": ">=",
+        "value": 1000000,
+        "points": 1
+      },
+      {
+        "id": "rubric-check-2",
+        "description": "Stay within the headroom budget: no server runs above 80% of its capacity.",
+        "kind": "invariant",
+        "metric": "invariantViolations.count",
+        "op": "==",
+        "value": 0,
+        "points": 2
+      }
+    ]
+  },
+  "classroom": {
+    "givens": {
+      "microservice": {
+        "label": "Server",
+        "capacityRps": 100000,
+        "costPerHour": 0.192
+      }
+    },
+    "targets": {
+      "maxUtilization": 0.8,
+      "maxErrorRate": 0.01
+    },
+    "checks": [
+      {
+        "id": "through-lb",
+        "template": "traffic-flows-through",
+        "via": "load-balancer",
+        "component": "microservice",
+        "label": "All traffic reaches the servers through the load balancer"
+      },
+      {
+        "id": "serves-all",
+        "template": "serves-all-traffic",
+        "label": "Every request is served"
+      },
+      {
+        "id": "headroom",
+        "template": "within-target-utilization",
+        "component": "microservice",
+        "label": "Every server stays at or below 80% utilization",
+        "points": 2
+      },
+      {
+        "id": "right-size",
+        "template": "right-sized",
+        "component": "microservice",
+        "factor": 1.5,
+        "severity": "feedback",
+        "label": "The fleet isn't much bigger than it needs to be"
+      }
+    ]
+  },
+  "author": "Hritvik Mohan",
+  "createdAt": "2026-09-21T00:00:00.000Z"
+}

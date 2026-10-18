@@ -62,6 +62,9 @@ import {
 } from '../../../../engine/analysis/questionAuthoringRubricChecks'
 import { getRubricMetricCapability } from '../../../../engine/analysis/authoringCapabilities'
 import type { TopologyJSON } from '../../../../engine/core/types'
+import { resolveEnvironmentProfile } from '../../../../engine/analysis/environmentProfile'
+import type { Abstraction } from '../../../../engine/classroom/types'
+import useStore from '../../store/useStore'
 import { useConfirmDialog } from '../../hooks/useConfirmDialog'
 import { FileService } from '../../services/FileService'
 import type { IFileService } from '../../services/FileService.types'
@@ -80,6 +83,7 @@ import { LearnerStartEditor } from './LearnerStartEditor'
 import { LearnerExperiencePreview } from './LearnerExperiencePreview'
 import { MetricGradingEditor } from './MetricGradingEditor'
 import { DiscriminationLab, type ObligationOption } from './DiscriminationLab'
+import { ClassroomProbeRunner } from './ClassroomProbeRunner'
 import { QuestionBriefEditor } from './QuestionBriefEditor'
 import { QuestionConstraintsEditor } from './QuestionConstraintsEditor'
 import { BuilderPolicyEditor } from './BuilderPolicyEditor'
@@ -137,7 +141,14 @@ export function QuestionStudioShell({
   const [fileError, setFileError] = useState(false)
   const [notice, setNotice] = useState<{ tone: 'success' | 'error'; message: string } | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [previewAbstraction, setPreviewAbstraction] = useState<Abstraction>('classroom')
   const editRevisionRef = useRef(0)
+  const changePreviewAbstraction = (abstraction: Abstraction): void => {
+    setPreviewAbstraction(abstraction)
+    useStore
+      .getState()
+      .setEnvironmentProfile(resolveEnvironmentProfile({ mode: 'AUTHOR', abstraction }))
+  }
   const { confirm, dialog } = useConfirmDialog()
   const activeStage = project.ui.activeStage
   const questionTitle = project.question.title
@@ -669,9 +680,26 @@ export function QuestionStudioShell({
                                 : `${stage.shortDescription} is visible in the navigation shell and will be enabled incrementally.`}
                 </p>
               </div>
-              <span className="hidden rounded-full border border-nss-border bg-nss-panel px-3 py-1 text-[11px] font-medium text-nss-muted md:inline-flex">
-                Project file ready
-              </span>
+              <div
+                className="hidden rounded-md border border-nss-border bg-nss-panel p-1 md:flex"
+                aria-label="Learner preview abstraction"
+              >
+                {(['classroom', 'guided', 'architect'] as const).map((abstraction) => (
+                  <button
+                    key={abstraction}
+                    type="button"
+                    aria-pressed={previewAbstraction === abstraction}
+                    onClick={() => changePreviewAbstraction(abstraction)}
+                    className={`rounded px-3 py-1 text-[11px] font-semibold capitalize ${
+                      previewAbstraction === abstraction
+                        ? 'bg-nss-primary text-white'
+                        : 'text-nss-muted hover:text-nss-text'
+                    }`}
+                  >
+                    {abstraction}
+                  </button>
+                ))}
+              </div>
             </div>
 
             {stage.id === 'frame' ? (
@@ -680,6 +708,7 @@ export function QuestionStudioShell({
                 <div className="mt-4">
                   <QuestionSetupEditor
                     setup={setup}
+                    peakRps={project.question.prompt.scale.peakRps}
                     hasScaffold={Boolean(scaffoldTopology?.nodes.length)}
                     onChange={handleSetupChange}
                   />
@@ -795,6 +824,9 @@ export function QuestionStudioShell({
               </div>
             ) : stage.id === 'prove' ? (
               <div className="mt-8">
+                {generatedPreview.status === 'ready' && (
+                  <ClassroomProbeRunner question={generatedPreview.questionPackage} />
+                )}
                 <DiscriminationLab
                   questionId={project.question.id}
                   preview={generatedPreview}

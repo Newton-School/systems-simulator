@@ -6,6 +6,7 @@ import type {
   QuestionPackage
 } from '../../../engine/analysis/question'
 import type { JustificationAnswer } from '../../../engine/analysis/justification'
+import type { Abstraction } from '../../../engine/classroom/types'
 import type { WorkerInboundMessage, WorkerOutboundMessage } from '../../../engine/worker/protocols'
 
 export type GraderStatus = 'idle' | 'grading' | 'graded' | 'error'
@@ -20,7 +21,8 @@ export interface QuestionGraderState {
   grade_: (
     question: QuestionPackage,
     topology: TopologyJSON,
-    justificationAnswers?: JustificationAnswer[]
+    justificationAnswers?: JustificationAnswer[],
+    abstraction?: Abstraction
   ) => void
   reset: () => void
 }
@@ -47,7 +49,8 @@ export function useQuestionGrader(): QuestionGraderState {
     (
       question: QuestionPackage,
       topology: TopologyJSON,
-      justificationAnswers: JustificationAnswer[] = []
+      justificationAnswers: JustificationAnswer[] = [],
+      abstraction?: Abstraction
     ) => {
       workerRef.current?.terminate()
       const worker = new Worker(
@@ -84,7 +87,7 @@ export function useQuestionGrader(): QuestionGraderState {
       setError(null)
       worker.postMessage({
         type: 'grade',
-        payload: { question, topology, justificationAnswers }
+        payload: { question, topology, justificationAnswers, abstraction }
       } satisfies WorkerInboundMessage)
     },
     []

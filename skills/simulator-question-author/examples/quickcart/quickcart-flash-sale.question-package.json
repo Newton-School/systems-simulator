@@ -182,6 +182,48 @@
       }
     ]
   },
+  "classroom": {
+    "givens": {
+      "microservice": {
+        "label": "Server",
+        "capacityRps": 100000,
+        "costPerHour": 0.192
+      }
+    },
+    "targets": {
+      "maxUtilization": 0.8,
+      "maxErrorRate": 0.01
+    },
+    "checks": [
+      {
+        "id": "through-lb",
+        "template": "traffic-flows-through",
+        "via": "load-balancer",
+        "component": "microservice",
+        "label": "All traffic reaches the servers through the load balancer"
+      },
+      {
+        "id": "serves-all",
+        "template": "serves-all-traffic",
+        "label": "Every request is served"
+      },
+      {
+        "id": "headroom",
+        "template": "within-target-utilization",
+        "component": "microservice",
+        "label": "Every server stays at or below 80% utilization",
+        "points": 2
+      },
+      {
+        "id": "right-size",
+        "template": "right-sized",
+        "component": "microservice",
+        "factor": 1.5,
+        "severity": "feedback",
+        "label": "The fleet isn't much bigger than it needs to be"
+      }
+    ]
+  },
   "author": "Hritvik Mohan",
   "createdAt": "2026-09-21T00:00:00.000Z"
 }

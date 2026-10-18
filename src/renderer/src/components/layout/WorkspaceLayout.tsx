@@ -52,6 +52,7 @@ import {
   type QuestionPackage
 } from '../../../../engine/analysis/question'
 import {
+  resolveEffectiveProfile,
   resolveEdgeModel,
   resolveEnvironmentProfile
 } from '../../../../engine/analysis/environmentProfile'
@@ -99,6 +100,9 @@ import {
   type ExperimentPreview
 } from '@renderer/components/simulation/chaosExperimentModel'
 import { ExperimentResultPanel } from '@renderer/components/simulation/ChaosExperimentPanel'
+import { ClassroomResultsCard } from '@renderer/components/simulation/ClassroomResultsCard'
+import { compileClassroomRun, useClassroomActive } from '@renderer/hooks/useClassroom'
+import { summarizeClassroomRun } from '../../../../engine/classroom/runSummary'
 import { evaluateExperiment, type ExperimentPlan } from '../../../../engine/scenarios'
 import {
   compareRunGraph,
@@ -392,8 +396,13 @@ export const WorkspaceLayout = () => {
   const isNewtonAssignmentHost = isNewtonHostMode()
   const canUseTopologyFiles =
     !isNewtonAssignmentHost && environmentProfile.capabilities.canUseTopologyFiles
-  const canViewTopologyJson = environmentProfile.capabilities.canViewTopologyJson
-  const canUseTerminal = environmentProfile.capabilities.canUseTerminal
+  // Classroom locks apply only while Classroom mode is in effect for the loaded question.
+  const effectiveCapabilities = resolveEffectiveProfile(
+    environmentProfile,
+    activeQuestion
+  ).capabilities
+  const canViewTopologyJson = effectiveCapabilities.canViewTopologyJson
+  const canUseTerminal = effectiveCapabilities.canUseTerminal
   const { confirm, dialog } = useConfirmDialog()
   const confirmDiscardChanges = useCallback(
     () =>
@@ -1014,15 +1023,35 @@ export const WorkspaceLayout = () => {
       updateScenario(() => scenarioForRun)
     }
 
-    const { topology, errors, runContext } = serialize(scenarioForRun)
+    const { topology: rawTopology, errors, runContext: rawRunContext } = serialize(scenarioForRun)
 
-    if (!topology || !runContext || errors.length > 0) {
+    if (!rawTopology || !rawRunContext || errors.length > 0) {
       setRunIssues({
         messages: errors.length > 0 ? errors : ['Unable to serialize topology.'],
         tone: 'error'
       })
       return
     }
+
+    // Classroom mode runs the design rebuilt from the question's givens, against the
+    // question's traffic, so validation and the run context describe that design.
+    const classroomRun = compileClassroomRun(rawTopology)
+    if (classroomRun && classroomRun.issues.length > 0) {
+      setRunIssues({ messages: classroomRun.issues.map((issue) => issue.message), tone: 'error' })
+      return
+    }
+    const topology = classroomRun?.topology ?? rawTopology
+    const runContext = classroomRun
+      ? {
+          ...rawRunContext,
+          global: {
+            ...rawRunContext.global,
+            simulationDuration: topology.global.simulationDuration,
+            warmupDuration: topology.global.warmupDuration
+          },
+          workload: topology.workload ?? rawRunContext.workload
+        }
+      : rawRunContext
 
     const validation = validateTopology(topology, {
       edgeModel: resolveEdgeModel(environmentProfile, activeQuestion)
@@ -1039,7 +1068,8 @@ export const WorkspaceLayout = () => {
 
     let topologyToRun = topology
     let contextForRun = runContext
-    const experimentEntries = scenarioForRun.experiment ?? []
+    // Chaos experiments are an Architect tool; Classroom runs ignore them.
+    const experimentEntries = classroomRun ? [] : (scenarioForRun.experiment ?? [])
     if (experimentEntries.length > 0) {
       const experiment = buildExperimentForTopology(topology, experimentEntries)
       if (experiment.ok === false) {
@@ -1234,6 +1264,14 @@ export const WorkspaceLayout = () => {
       ...(sim.stopped ? { stoppedAtMs: sim.results.stoppedAtMs ?? 0 } : {})
     })
   }, [experimentNodeLabel, lastExperimentPlan, sim.results, sim.status, sim.stopped])
+
+  // Classroom mode: the run already simulated the compiled design, so its nodes
+  // carry their givens; summarize them for the results card.
+  const classroomActive = useClassroomActive()
+  const classroomSummary = useMemo(() => {
+    if (!classroomActive || !sim.results || !sim.topology || sim.status !== 'complete') return null
+    return summarizeClassroomRun(sim.topology, sim.results, activeQuestion?.classroom)
+  }, [activeQuestion, classroomActive, sim.results, sim.status, sim.topology])
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -1564,6 +1602,9 @@ export const WorkspaceLayout = () => {
           error={sim.error}
           runContext={lastRunContext}
           topologyEdited={resultsTopologyRelation === 'edited'}
+          classroomPanel={
+            classroomSummary ? <ClassroomResultsCard summary={classroomSummary} /> : null
+          }
           experimentPanel={
             experimentResult ? (
               <ExperimentResultPanel result={experimentResult} nodeLabel={experimentNodeLabel} />
@@ -1607,7 +1648,12 @@ export const WorkspaceLayout = () => {
   }
 
   return (
-    <div className="nss-app-shell flex w-screen min-h-0 flex-col overflow-hidden bg-nss-bg text-nss-text">
+    <div
+      className={`nss-app-shell flex w-screen min-h-0 flex-col overflow-hidden bg-nss-bg text-nss-text ${
+        environmentProfile.presenter ? 'text-[115%] [&_.nss-app-shell]:text-base' : ''
+      }`}
+      data-presenter={environmentProfile.presenter || undefined}
+    >
       {/* Header */}
       <Header
         showBackButton={showHostBackButton}

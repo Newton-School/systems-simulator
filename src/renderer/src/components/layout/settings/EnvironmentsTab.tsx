@@ -1,9 +1,11 @@
 import useStore from '@renderer/store/useStore'
 import {
   ENFORCE_TEST_RUN_LIMIT,
+  isClassroomActive,
   resolveEnvironmentProfile,
   type EnvironmentProfileMode
 } from '../../../../../engine/analysis/environmentProfile'
+import type { Abstraction } from '../../../../../engine/classroom/types'
 import { OptionalNumber, SectionLabel, Segmented, SettingRow, Toggle } from './SettingsControls'
 import { patchCapabilities, patchVisibility } from './settingsTypes'
 
@@ -21,11 +23,22 @@ const MODE_OPTIONS: Array<{ value: EnvironmentProfileMode; label: string }> = [
   { value: 'PRACTICE', label: 'Practice' }
 ]
 
+const ABSTRACTION_OPTIONS: Array<{ value: Abstraction; label: string }> = [
+  { value: 'architect', label: 'Architect' },
+  { value: 'guided', label: 'Guided' },
+  { value: 'classroom', label: 'Classroom' }
+]
+
+const CLASSROOM_LOCKED_HINT = 'Locked in Classroom mode: the question supplies these.'
+
 export function EnvironmentsTab(): React.JSX.Element {
   const profile = useStore((s) => s.environmentProfile)
   const setProfile = useStore((s) => s.setEnvironmentProfile)
   const caps = profile.capabilities
   const isConnector = caps.edgeModel === 'connector'
+  // Locks show only while Classroom mode is in effect, i.e. with a question loaded.
+  const activeQuestion = useStore((s) => s.activeQuestion)
+  const isClassroom = isClassroomActive(profile, activeQuestion)
 
   return (
     <div className="space-y-1">
@@ -37,7 +50,36 @@ export function EnvironmentsTab(): React.JSX.Element {
         <Segmented
           value={profile.mode}
           options={MODE_OPTIONS}
-          onChange={(mode) => setProfile(resolveEnvironmentProfile(mode))}
+          onChange={(mode) =>
+            setProfile(resolveEnvironmentProfile({ mode, abstraction: profile.abstraction }))
+          }
+        />
+      </SettingRow>
+
+      <SettingRow
+        id="settings-environment-presenter"
+        label="Presenter view"
+        hint="Projector layout with larger content and lecture controls. Available in Author and Practice."
+        disabled={profile.mode === 'ASSIGNMENT'}
+      >
+        <Toggle
+          checked={profile.presenter}
+          disabled={profile.mode === 'ASSIGNMENT'}
+          onChange={(presenter) => setProfile({ ...profile, presenter })}
+        />
+      </SettingRow>
+
+      <SettingRow
+        id="settings-environment-abstraction"
+        label="Abstraction"
+        hint="Classroom = concept cards: students place components, connect them and choose how many copies; the question supplies every number. Architect = the full simulator with every engine setting. Classroom needs a loaded question. Switching resets the options below."
+      >
+        <Segmented
+          value={profile.abstraction}
+          options={ABSTRACTION_OPTIONS}
+          onChange={(abstraction) =>
+            setProfile(resolveEnvironmentProfile({ mode: profile.mode, abstraction }))
+          }
         />
       </SettingRow>
 
@@ -46,9 +88,15 @@ export function EnvironmentsTab(): React.JSX.Element {
       <SettingRow
         id="settings-environment-edge-model"
         label="Edge model"
-        hint="Network = edges carry latency/bandwidth and can be inspected. Connector = dumb wires that only show how components connect (no physics, no cost, no properties) so the focus stays on the high-level design."
+        hint={
+          isClassroom
+            ? CLASSROOM_LOCKED_HINT
+            : 'Network = edges carry latency/bandwidth and can be inspected. Connector = dumb wires that only show how components connect (no physics, no cost, no properties) so the focus stays on the high-level design.'
+        }
+        disabled={isClassroom}
       >
         <Segmented
+          disabled={isClassroom}
           value={caps.edgeModel}
           options={[
             { value: 'network', label: 'Network' },
@@ -80,9 +128,15 @@ export function EnvironmentsTab(): React.JSX.Element {
       <SettingRow
         id="settings-environment-resources"
         label="Change resource allocation"
-        hint="Instance type and count. Off in graded assignments unless the lesson is allocation itself."
+        hint={
+          isClassroom
+            ? CLASSROOM_LOCKED_HINT
+            : 'Instance type and count. Off in graded assignments unless the lesson is allocation itself.'
+        }
+        disabled={isClassroom}
       >
         <Toggle
+          disabled={isClassroom}
           checked={caps.canEditResources}
           onChange={(canEditResources) =>
             setProfile(patchCapabilities(profile, { canEditResources }))
@@ -93,9 +147,15 @@ export function EnvironmentsTab(): React.JSX.Element {
       <SettingRow
         id="settings-environment-execution-profile"
         label="Change execution profile"
-        hint="Expose the advanced CPU-bound / IO-bound behavior knob. Best left off in introductory HLD so the focus stays on architecture rather than gaming concurrency assumptions."
+        hint={
+          isClassroom
+            ? CLASSROOM_LOCKED_HINT
+            : 'Expose the advanced CPU-bound / IO-bound behavior knob. Best left off in introductory HLD so the focus stays on architecture rather than gaming concurrency assumptions.'
+        }
+        disabled={isClassroom}
       >
         <Toggle
+          disabled={isClassroom}
           checked={caps.canEditExecutionProfile}
           onChange={(canEditExecutionProfile) =>
             setProfile(patchCapabilities(profile, { canEditExecutionProfile }))
