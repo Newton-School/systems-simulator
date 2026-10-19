@@ -1,5 +1,7 @@
 import { Fragment, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { consistencyLevel } from './consistencyHealth'
+import { InspectorDisclosure } from '../properties/InspectorDisclosure'
+import { MEMBER_TITLES, RESULTS_TAB_GROUPS, groupForTab } from './resultsTabGroups'
 import type { ButtonHTMLAttributes, CSSProperties, HTMLAttributes } from 'react'
 import { clsx } from 'clsx'
 import {
@@ -5027,13 +5029,16 @@ function StatusBadge({ status }: { status: SimulationStatus }) {
 function TabButton({
   tab,
   activeTab,
-  onSelect
+  onSelect,
+  active
 }: {
   tab: (typeof RESULTS_TABS)[number]
   activeTab: ResultsTab
   onSelect: (tab: ResultsTab) => void
+  /** Overrides the id match, for a group button that stands for several tabs. */
+  active?: boolean
 }) {
-  const isActive = activeTab === tab.id
+  const isActive = active ?? activeTab === tab.id
 
   return (
     <button
@@ -5072,6 +5077,7 @@ export function ResultsTray({
   const classroomActive = useClassroomActive()
   const assignmentMode = useStore((state) => state.environmentProfile.mode === 'ASSIGNMENT')
   const classroomAssignment = classroomActive && assignmentMode
+  const simpleShell = useStore((state) => state.displaySettings.simpleShell)
   const [activeTab, setActiveTabState] = useState<ResultsTab>(
     () => (results && trayViewMemory.get(results)?.tab) || defaultResultsTab
   )
@@ -5209,6 +5215,24 @@ export function ResultsTray({
       ? `Stopping at ${progress.toFixed(1)}% complete...`
       : `${progress.toFixed(1)}% complete`
 
+  // Simple shell shows four grouped tabs; each group stacks its members, folding the heavy ones.
+  const groupMode = simpleShell && !classroomAssignment
+  const activeGroup = groupForTab(activeTab)
+  const shows = (tab: ResultsTab): boolean =>
+    groupMode ? activeGroup.members.includes(tab) : activeTab === tab
+  const section = (tab: ResultsTab, content: React.ReactNode): React.ReactNode =>
+    groupMode && activeGroup.members.length > 1 ? (
+      <InspectorDisclosure
+        key={`${tab}:${activeTab === tab}`}
+        title={MEMBER_TITLES[tab]}
+        defaultOpen={activeGroup.openByDefault.includes(tab) || activeTab === tab}
+      >
+        {content}
+      </InspectorDisclosure>
+    ) : (
+      content
+    )
+
   if (status === 'idle') return null
 
   return (
@@ -5270,14 +5294,24 @@ export function ResultsTray({
             <div className="shrink-0 border-b border-nss-border px-4 py-2">
               <div className="nss-results-tabs-bar flex w-full items-center gap-2">
                 <div className="flex items-center gap-2 overflow-x-auto">
-                  {visibleTabs.map((tab) => (
-                    <TabButton
-                      key={tab.id}
-                      tab={tab}
-                      activeTab={activeTab}
-                      onSelect={setActiveTab}
-                    />
-                  ))}
+                  {groupMode
+                    ? RESULTS_TAB_GROUPS.map((group) => (
+                        <TabButton
+                          key={group.id}
+                          tab={{ id: group.members[0], label: group.label }}
+                          activeTab={activeTab}
+                          active={activeGroup.id === group.id}
+                          onSelect={setActiveTab}
+                        />
+                      ))
+                    : visibleTabs.map((tab) => (
+                        <TabButton
+                          key={tab.id}
+                          tab={tab}
+                          activeTab={activeTab}
+                          onSelect={setActiveTab}
+                        />
+                      ))}
                 </div>
                 <button
                   type="button"
@@ -5306,75 +5340,87 @@ export function ResultsTray({
               </div>
             )}
 
-            {activeTab === 'overview' && (
-              <>
-                {classroomPanel}
-                {!classroomAssignment && (
-                  <>
-                    {experimentPanel}
-                    {runContext && <RunContextPanel runContext={runContext} />}
-                    <SummaryPanel output={results} runContext={runContext} />
-                    <OriginMetricsPanel output={results} />
-                    <LocationRollupsPanel
-                      nodeRollups={nodeLocationRollups}
-                      edgeRollups={edgeLocalityRollups}
-                      title="Deployment & Locality"
-                    />
-                    <SystemWindowCharts output={results} />
-                  </>
-                )}
-              </>
-            )}
+            {shows('overview') &&
+              section(
+                'overview',
+                <>
+                  {classroomPanel}
+                  {!classroomAssignment && (
+                    <>
+                      {experimentPanel}
+                      {runContext && <RunContextPanel runContext={runContext} />}
+                      <SummaryPanel output={results} runContext={runContext} />
+                      <OriginMetricsPanel output={results} />
+                      <LocationRollupsPanel
+                        nodeRollups={nodeLocationRollups}
+                        edgeRollups={edgeLocalityRollups}
+                        title="Deployment & Locality"
+                      />
+                      <SystemWindowCharts output={results} />
+                    </>
+                  )}
+                </>
+              )}
 
-            {activeTab === 'bottlenecks' && (
-              <div className="space-y-4">
-                <BottleneckVerdicts
-                  output={results}
-                  onSelectComponent={(selection) => setSelectedComponent(selection)}
-                />
-                <StatusTimelineStrip output={results} />
-                <ComponentDrilldown
-                  output={results}
-                  selected={selectedComponent}
-                  onSelect={(selection) => setSelectedComponent(selection)}
-                />
-                <SimulationHealth output={results} />
-              </div>
-            )}
+            {shows('bottlenecks') &&
+              section(
+                'bottlenecks',
+                <div className="space-y-4">
+                  <BottleneckVerdicts
+                    output={results}
+                    onSelectComponent={(selection) => setSelectedComponent(selection)}
+                  />
+                  <StatusTimelineStrip output={results} />
+                  <ComponentDrilldown
+                    output={results}
+                    selected={selectedComponent}
+                    onSelect={(selection) => setSelectedComponent(selection)}
+                  />
+                  <SimulationHealth output={results} />
+                </div>
+              )}
 
-            {activeTab === 'nodes' && (
-              <div className="space-y-4">
-                <PerNodeTable
+            {shows('nodes') &&
+              section(
+                'nodes',
+                <div className="space-y-4">
+                  <PerNodeTable
+                    output={results}
+                    locationTopology={locationTopology}
+                    runContext={runContext}
+                  />
+                </div>
+              )}
+
+            {shows('events') &&
+              section(
+                'events',
+                <EventLogPanel output={results} onDebugRequest={debugRequestFromEventLog} />
+              )}
+
+            {shows('failures') && section('failures', <FailureCascadePanel output={results} />)}
+
+            {shows('traces') &&
+              section(
+                'traces',
+                <TraceWaterfallPanel
                   output={results}
-                  locationTopology={locationTopology}
+                  traceSampleRate={runContext?.global.traceSampleRate ?? null}
+                  topologyEdited={topologyEdited}
+                  debugRequestId={pendingDebugRequestId}
+                  onDebugRequestHandled={clearPendingDebugRequest}
+                />
+              )}
+
+            {shows('traffic') &&
+              section(
+                'traffic',
+                <ReplayMonitorPanel
+                  output={results}
                   runContext={runContext}
+                  graphLookup={graphLookup}
                 />
-              </div>
-            )}
-
-            {activeTab === 'events' && (
-              <EventLogPanel output={results} onDebugRequest={debugRequestFromEventLog} />
-            )}
-
-            {activeTab === 'failures' && <FailureCascadePanel output={results} />}
-
-            {activeTab === 'traces' && (
-              <TraceWaterfallPanel
-                output={results}
-                traceSampleRate={runContext?.global.traceSampleRate ?? null}
-                topologyEdited={topologyEdited}
-                debugRequestId={pendingDebugRequestId}
-                onDebugRequestHandled={clearPendingDebugRequest}
-              />
-            )}
-
-            {activeTab === 'traffic' && (
-              <ReplayMonitorPanel
-                output={results}
-                runContext={runContext}
-                graphLookup={graphLookup}
-              />
-            )}
+              )}
 
             <div className="flex flex-wrap gap-x-3 gap-y-1 pb-2 text-[10px] text-nss-muted">
               <span>Seed: {results.seed}</span>
