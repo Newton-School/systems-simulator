@@ -15,6 +15,8 @@ import type { ExperimentPreview } from '../simulation/chaosExperimentModel'
 import type { PlaybackSpeed } from '../../../../engine/worker/protocols'
 import type { FaultTargetOption, ScenarioState, SourceNodeOption } from '@renderer/types/ui'
 import { useClassroomActive } from '@renderer/hooks/useClassroom'
+import useStore from '@renderer/store/useStore'
+import { HeaderMenu } from './HeaderMenu'
 
 interface HeaderProps {
   /**
@@ -129,6 +131,7 @@ export const Header = memo(
     canSave = true
   }: HeaderProps) => {
     const classroomActive = useClassroomActive()
+    const simpleShell = useStore((state) => state.displaySettings.simpleShell)
     const headerRef = useRef<HTMLElement>(null)
     const leftGroupRef = useRef<HTMLDivElement>(null)
     const centerGroupRef = useRef<HTMLDivElement>(null)
@@ -186,14 +189,18 @@ export const Header = memo(
             label="Toggle left sidebar"
             icon={<Sidebar size={18} />}
           />
-          <div className="nss-desktop-only contents">
-            <Divider />
-            {/* Classroom mode prices designs from the givens (results card), not instances. */}
-            {!classroomActive && <CostChip />}
-            <DesignChecksChip />
-          </div>
-          <Divider />
-          <ModeBadge />
+          {!simpleShell && (
+            <>
+              <div className="nss-desktop-only contents">
+                <Divider />
+                {/* Classroom mode prices designs from the givens (results card), not instances. */}
+                {!classroomActive && <CostChip />}
+                <DesignChecksChip />
+              </div>
+              <Divider />
+              <ModeBadge />
+            </>
+          )}
         </div>
 
         {/* CENTER: File status + simulation controls */}
@@ -205,26 +212,38 @@ export const Header = memo(
               : 'flex items-center gap-2'
           }
         >
-          {!minimal && (
-            <div className="nss-desktop-only">
-              <FileStatus fileName={fileName} isUnsaved={isUnsaved} />
-            </div>
+          {!simpleShell && (
+            <>
+              {!minimal && (
+                <div className="nss-desktop-only">
+                  <FileStatus fileName={fileName} isUnsaved={isUnsaved} />
+                </div>
+              )}
+
+              <div className="flex items-center gap-1">
+                {canOpen && (
+                  <IconButton
+                    onClick={onOpen}
+                    icon={<FolderOpen size={18} />}
+                    label="Open (Ctrl+O)"
+                  />
+                )}
+                {canSave && (
+                  <IconButton onClick={onSave} icon={<Save size={18} />} label="Save (Ctrl+S)" />
+                )}
+                <IconButton
+                  onClick={onAutoLayout}
+                  icon={<Workflow size={18} />}
+                  label="Auto Layout"
+                />
+                {topologyJsonControls}
+              </div>
+
+              <div className="nss-desktop-only">
+                <Divider />
+              </div>
+            </>
           )}
-
-          <div className="flex items-center gap-1">
-            {canOpen && (
-              <IconButton onClick={onOpen} icon={<FolderOpen size={18} />} label="Open (Ctrl+O)" />
-            )}
-            {canSave && (
-              <IconButton onClick={onSave} icon={<Save size={18} />} label="Save (Ctrl+S)" />
-            )}
-            <IconButton onClick={onAutoLayout} icon={<Workflow size={18} />} label="Auto Layout" />
-            {topologyJsonControls}
-          </div>
-
-          <div className="nss-desktop-only">
-            <Divider />
-          </div>
 
           <SimulationControls
             onRun={onRun}
@@ -244,11 +263,26 @@ export const Header = memo(
             onScenarioChange={onScenarioChange}
             previewExperiment={previewExperiment}
             disabled={simulationDisabled}
+            separateRun={simpleShell}
           />
         </div>
 
         {/* RIGHT: Theme & right sidebar toggle */}
         <div ref={rightGroupRef} className="flex shrink-0 items-center gap-1">
+          {simpleShell && (
+            <HeaderMenu
+              onOpen={onOpen}
+              onSave={onSave}
+              onAutoLayout={onAutoLayout}
+              canOpen={canOpen}
+              canSave={canSave}
+              fileName={fileName}
+              isUnsaved={isUnsaved}
+              showCost={!classroomActive}
+              topologyJsonControls={topologyJsonControls}
+            />
+          )}
+          {/* Stays mounted: it also applies the saved theme to the document. */}
           <ThemeToggle />
           <Divider />
           <ToggleButton

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Pause, Play, RotateCcw, SkipForward, Square, X } from 'lucide-react'
+import { Pause, Play, RotateCcw, SkipForward, SlidersHorizontal, Square, X } from 'lucide-react'
 import type { FaultTargetOption, ScenarioState, SourceNodeOption } from '@renderer/types/ui'
 import type { WorkloadStopCondition } from '../../../../engine/core/types'
 import { EditableNumberInput } from '@renderer/components/ui/EditableNumberInput'
@@ -65,6 +65,11 @@ interface SimulationControlsProps {
   /** Resolve the selected experiment preset(s) against the current topology. */
   previewExperiment?: (entries: NonNullable<ScenarioState['experiment']>) => ExperimentPreview
   disabled?: boolean
+  /**
+   * Simple shell: Run starts the run directly and the workload panel is its own Workload
+   * button beside it. Off keeps the original Run button that opens the workload panel.
+   */
+  separateRun?: boolean
 }
 
 function updateWorkloadOverride(
@@ -94,7 +99,8 @@ export function SimulationControls({
   scenario,
   onScenarioChange,
   previewExperiment,
-  disabled = false
+  disabled = false,
+  separateRun = false
 }: SimulationControlsProps) {
   const [isOpen, setIsOpen] = useState(false)
   const wrapperRef = useRef<HTMLDivElement>(null)
@@ -227,14 +233,28 @@ export function SimulationControls({
   }
 
   const hasSourceNodes = sourceNodes.length > 0
+  const workloadSummary = useMemo(() => {
+    if (classroomActive) return classroomPeak !== undefined ? formatRps(classroomPeak) : null
+    if (!effectiveWorkload) return null
+    const baseRps = effectiveWorkload.baseRps
+    const durationS = Math.round(scenario.global.simulationDuration / 1000)
+    return [
+      typeof baseRps === 'number' ? formatRps(baseRps) : null,
+      typeof durationS === 'number' ? `${durationS}s` : null
+    ]
+      .filter(Boolean)
+      .join(' · ')
+  }, [classroomActive, classroomPeak, effectiveWorkload, scenario.global.simulationDuration])
   const experimentEntries = useMemo(() => scenario.experiment ?? [], [scenario.experiment])
   // Classroom runs ignore chaos experiments (an Architect tool).
   const experimentActive = !classroomActive && experimentEntries.length > 0
   const experimentPreview = useMemo(
     () =>
-      isOpen && experimentActive && previewExperiment ? previewExperiment(experimentEntries) : null,
+      (isOpen || separateRun) && experimentActive && previewExperiment
+        ? previewExperiment(experimentEntries)
+        : null,
     // previewExperiment reads the live topology and scenario, so it changes with them.
-    [isOpen, experimentActive, previewExperiment, experimentEntries]
+    [isOpen, separateRun, experimentActive, previewExperiment, experimentEntries]
   )
   const experimentBlocked = experimentActive && experimentPreview !== null && !experimentPreview.ok
 
@@ -305,7 +325,7 @@ export function SimulationControls({
 
   return (
     <div ref={wrapperRef} className="relative flex items-center gap-1.5">
-      {onPlaybackSpeedChange && (
+      {onPlaybackSpeedChange && (!separateRun || isRunning || isPaused) && (
         <label className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-nss-muted">
           <span className="nss-desktop-only">Speed</span>
           <select
@@ -339,14 +359,44 @@ export function SimulationControls({
               Reset
             </button>
           )}
-          <button
-            onClick={() => setIsOpen((prev) => !prev)}
-            disabled={disabled}
-            className={`${ACTION_BUTTON_BASE} flex items-center gap-1.5 bg-nss-primary text-white border-transparent hover:bg-nss-primary-hover`}
-          >
-            <Play size={12} className="fill-white" />
-            {isPostRun ? 'Run again' : 'Run'}
-          </button>
+          {separateRun ? (
+            <>
+              <button
+                type="button"
+                onClick={() => setIsOpen((prev) => !prev)}
+                disabled={disabled}
+                aria-expanded={isOpen}
+                title={workloadSummary ?? 'Workload'}
+                className={`${ACTION_BUTTON_BASE} flex items-center gap-1.5 bg-nss-surface text-nss-text border-nss-border hover:bg-nss-bg`}
+              >
+                <SlidersHorizontal size={12} />
+                Workload
+                {workloadSummary && (
+                  <span className="nss-desktop-only font-normal text-nss-muted">
+                    {workloadSummary}
+                  </span>
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={onRun}
+                disabled={disabled || !hasSourceNodes || experimentBlocked}
+                className={`${ACTION_BUTTON_BASE} flex items-center gap-1.5 bg-nss-primary text-white border-transparent hover:bg-nss-primary-hover`}
+              >
+                <Play size={12} className="fill-white" />
+                {isPostRun ? 'Run again' : 'Run'}
+              </button>
+            </>
+          ) : (
+            <button
+              onClick={() => setIsOpen((prev) => !prev)}
+              disabled={disabled}
+              className={`${ACTION_BUTTON_BASE} flex items-center gap-1.5 bg-nss-primary text-white border-transparent hover:bg-nss-primary-hover`}
+            >
+              <Play size={12} className="fill-white" />
+              {isPostRun ? 'Run again' : 'Run'}
+            </button>
+          )}
         </>
       )}
 
@@ -763,16 +813,26 @@ export function SimulationControls({
               </>
             )}
 
-            <button
-              onClick={() => {
-                setIsOpen(false)
-                onRun()
-              }}
-              disabled={disabled || !hasSourceNodes || experimentBlocked}
-              className="w-full h-8 rounded-md bg-nss-primary text-white text-xs font-semibold hover:bg-nss-primary-hover disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              {experimentActive ? 'Start Experiment' : 'Start Simulation'}
-            </button>
+            {separateRun ? (
+              <button
+                type="button"
+                onClick={() => setIsOpen(false)}
+                className="w-full h-8 rounded-md border border-nss-border bg-nss-surface text-nss-text text-xs font-semibold hover:bg-nss-bg"
+              >
+                Done
+              </button>
+            ) : (
+              <button
+                onClick={() => {
+                  setIsOpen(false)
+                  onRun()
+                }}
+                disabled={disabled || !hasSourceNodes || experimentBlocked}
+                className="w-full h-8 rounded-md bg-nss-primary text-white text-xs font-semibold hover:bg-nss-primary-hover disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {experimentActive ? 'Start Experiment' : 'Start Simulation'}
+              </button>
+            )}
           </div>,
           document.body
         )}
