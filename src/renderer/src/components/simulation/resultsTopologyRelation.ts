@@ -2,7 +2,7 @@
  * Which canvas a set of results belongs to (issue #184). The results tray must
  * only show results for the design they were run on: when the canvas is
  * emptied or replaced by a different graph the results are discarded, and when
- * nodes, connections or any node's settings change they are flagged as
+ * nodes, connections, or any node's or link's settings change they are flagged as
  * describing the earlier design.
  */
 
@@ -11,6 +11,8 @@ export interface RunGraphSnapshot {
   edgeKeys: string[]
   /** `id:settings` for every node, so editing any node's configuration makes the results stale. */
   configKeys: string[]
+  /** `source->target:settings` for every link, so editing a link's protocol, latency or error rate does too. */
+  edgeConfigKeys: string[]
   /** The workload, failure injection and timing the run used, serialized. */
   scenarioKey: string
 }
@@ -25,6 +27,7 @@ interface GraphNodeLike {
 interface GraphEdgeLike {
   source: string
   target: string
+  data?: unknown
 }
 
 function edgeKey(edge: GraphEdgeLike): string {
@@ -51,6 +54,35 @@ function nodeSettings(node: GraphNodeLike): string {
   return serialized
 }
 
+/** Edge data that only changes how a link is drawn, never what a run does. */
+const VISUAL_EDGE_DATA_KEYS: ReadonlySet<string> = new Set([
+  'layoutRoute',
+  'routingStyle',
+  'displayProtocol',
+  'displayMode'
+])
+
+const edgeSettingsCache = new WeakMap<object, string>()
+
+function edgeSettings(edge: GraphEdgeLike): string {
+  const data = edge.data
+  if (typeof data !== 'object' || data === null) return ''
+  const cached = edgeSettingsCache.get(data)
+  if (cached !== undefined) return cached
+  const simulated: Record<string, unknown> = {}
+  for (const key of Object.keys(data).sort()) {
+    if (!VISUAL_EDGE_DATA_KEYS.has(key)) simulated[key] = (data as Record<string, unknown>)[key]
+  }
+  let serialized = ''
+  try {
+    serialized = JSON.stringify(simulated)
+  } catch {
+    serialized = ''
+  }
+  edgeSettingsCache.set(data, serialized)
+  return serialized
+}
+
 function scenarioKeyOf(scenario: unknown): string {
   if (scenario === undefined) return ''
   try {
@@ -69,6 +101,7 @@ export function snapshotRunGraph(
     nodeIds: nodes.map((node) => node.id).sort(),
     edgeKeys: edges.map(edgeKey).sort(),
     configKeys: nodes.map((node) => `${node.id}:${nodeSettings(node)}`).sort(),
+    edgeConfigKeys: edges.map((edge) => `${edgeKey(edge)}:${edgeSettings(edge)}`).sort(),
     scenarioKey: scenarioKeyOf(scenario)
   }
 }
@@ -94,6 +127,8 @@ export function compareRunGraph(
     current.edgeKeys.every((key, i) => key === run.edgeKeys[i]) &&
     current.configKeys.length === run.configKeys.length &&
     current.configKeys.every((key, i) => key === run.configKeys[i]) &&
+    current.edgeConfigKeys.length === run.edgeConfigKeys.length &&
+    current.edgeConfigKeys.every((key, i) => key === run.edgeConfigKeys[i]) &&
     current.scenarioKey === run.scenarioKey
   return same ? 'same' : 'edited'
 }
