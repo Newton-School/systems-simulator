@@ -139,7 +139,7 @@ unaffected.
 
 ## 5. Suggested order, and decisions needed
 
-1. **Bug fix first, separate PR:** a Down or faulted trait cache must not serve hits. This changes
+1. **Bug fix first (done, see `docs/engine-probe-findings.md` section 3b):** a Down or faulted trait cache must not serve hits. This changes
    results for any design that sets a failure on a trait cache (none in the bank).
 2. **Opt-in edge fallback** (`fail-closed` default), engine only, with the tests above.
 3. **Editor support:** the "If this call fails" control on edges into a cache, a Down/Degraded node

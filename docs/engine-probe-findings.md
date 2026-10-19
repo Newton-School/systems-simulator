@@ -25,10 +25,10 @@ viewer or the terminal, and those edits used to leave old results looking curren
 check now includes that data and excludes the visual keys, so re-running auto layout never flags
 results. Shipped with tests in `resultsTopologyRelation.test.ts`.
 
-## 2. Little's Law check (engine, not fixed)
+## 2. Little's Law check (engine, fixed)
 
-Both bugs are pinned by `src/engine/analysis/littlesLawKnownIssues.test.ts` with `it.fails`: the
-file passes today, and each test turns red when its bug is fixed (remove the marker then).
+Both bugs are fixed and covered by `src/engine/analysis/littlesLaw.test.ts` (they were first pinned
+with `it.fails`, which is how the fix was confirmed). What was wrong is kept below for the record.
 
 **2a. Rejected arrivals are counted in lambda.** `calculateLittlesLaw` (`analysis/output.ts`) uses
 `lambda = postWarmupArrived / window`, but `W` is the time in system of _admitted_ requests.
@@ -50,12 +50,16 @@ the true time average is 0.5. The check still passes only because of the
 was moved off point sampling to a time-weighted integral for the same reason (comment in
 `recordNodeSnapshot`).
 
-Suggested fixes (engine change, needs a decision):
+What changed:
 
-- 2a: take `lambda` from admitted requests, or avoid lambda and compare L with
-  `sum(time in system of admitted requests) / window`, which is the identity Little's Law states.
-- 2b: accumulate the time integral of the number in system between events, as the busy-area
-  integral does for utilization; then drop the absolute-error guard.
+- 2a: `lambda` now counts admitted arrivals only (arrivals minus rejections at admission; failures
+  after service were admitted, so they stay in).
+- 2b: each node integrates the number in system over time (`GGcKNode`, alongside the busy-area
+  integral), clipped to the post-warmup window, and `PerNodeMetrics.postWarmupAvgInSystem` reports
+  that. The periodic-snapshot average is now only a fallback. The absolute-error guard shrank from
+  0.5 to 0.05, so a nearly empty node's noise does not fail the check but a real error cannot hide.
+
+The full engine suite (269 files, 2,104 tests) passed with this change.
 
 ## 3. Message `queue` and `stream` counters (to confirm)
 
@@ -66,6 +70,22 @@ separate arrivals, one with no service. A `stream` node likewise shows 400 arriv
 produced. This looks intentional (async-ack semantics) but is easy to misread in the node metrics
 and the results table. Question for the owner: should the metrics label these as "produced" and
 "delivered", or report producer-side arrivals only?
+
+## 3b. A Down cache served its hits (engine, fixed)
+
+Found in the cache investigation (`docs/cache-fallback-proposal.md`, section 2) and fixed here as
+that document's step 1. A node with arrival traits (cache hit, queue ack) that was Down
+(`nodeErrorRate = 1`) or under a scheduled reject / blackhole / hang fault still answered its hits,
+because the arrival trait ran before any failure check. Now:
+
+- a Down node with arrival traits refuses at the door, so no trait runs and no hit is counted;
+- a faulted node skips its arrival traits and falls through to its failure mode;
+- a partly failing node fails trait-answered requests at its error rate too (no extra random draws
+  for nodes with no failure set, so existing runs are unchanged).
+
+Covered by `src/engine/traits/cacheDown.test.ts` (5 of its 8 tests fail without the fix). Not part
+of this change: the opt-in fallback policy (misses still fail instead of falling back to the
+database) and any change to the default.
 
 ## 4. A Simple-layout bug found along the way (fixed)
 
