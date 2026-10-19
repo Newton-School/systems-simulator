@@ -1,13 +1,19 @@
-import { QUESTION_STUDIO_STAGES, type AuthoringStageId } from './questionStudioStages'
+import {
+  QUESTION_STUDIO_STAGES,
+  type AuthoringStageDefinition,
+  type AuthoringStageId
+} from './questionStudioStages'
 
 interface AuthoringStageRailProps {
   activeStage: AuthoringStageId
   onStageChange: (stage: AuthoringStageId) => void
+  stages?: readonly AuthoringStageDefinition[]
 }
 
 export function AuthoringStageRail({
   activeStage,
-  onStageChange
+  onStageChange,
+  stages = QUESTION_STUDIO_STAGES
 }: AuthoringStageRailProps): React.JSX.Element {
   return (
     <nav
@@ -22,7 +28,7 @@ export function AuthoringStageRail({
       </div>
 
       <ol className="min-h-0 flex-1 space-y-1 overflow-y-auto p-2">
-        {QUESTION_STUDIO_STAGES.map((stage) => {
+        {stages.map((stage) => {
           const active = stage.id === activeStage
           const Icon = stage.icon
           return (

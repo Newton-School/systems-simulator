@@ -8,6 +8,7 @@ import { useNodeMetrics } from '@renderer/hooks/useNodeMetrics'
 import { useEffectiveSourceWorkload } from '@renderer/hooks/useEffectiveSourceWorkload'
 import { useMetricLens } from '@renderer/hooks/useMetricLens'
 import useStore from '@renderer/store/useStore'
+import { useClassroomNodeView } from '@renderer/hooks/useClassroom'
 import BaseNode from '@renderer/components/nodes/BaseNode'
 import { useFlowStore } from '@renderer/components/canvas/hooks/useFlowStore'
 import { NodeMetricContent } from './NodeMetricContent'
@@ -27,7 +28,11 @@ const StandardNode = ({ id, data, selected }: NodeProps<StandardNodeData>) => {
   const { updateNodeData } = useFlowStore()
   const { icon: IconComponent, theme } = resolveNodeConfig(data.templateId || data.iconKey)
   const effectiveSourceWorkload = useEffectiveSourceWorkload(id, data)
-  const identityChip = getIdentityChip(data, effectiveSourceWorkload)
+  // Classroom mode: the lecture label and the givens instead of engine details.
+  const classroomView = useClassroomNodeView(data)
+  const identityChip = classroomView
+    ? classroomView.identityChip
+    : getIdentityChip(data, effectiveSourceWorkload)
 
   const handleLabelChange = useCallback(
     (newLabel: string) => {
@@ -98,7 +103,7 @@ const StandardNode = ({ id, data, selected }: NodeProps<StandardNodeData>) => {
       {({ isMenuOpen, onMenuClose, onMenuToggle }) => (
         <div className={isInactive ? 'opacity-40 grayscale' : undefined}>
           <NodeHeader
-            label={data.label || 'Service'}
+            label={classroomView?.label ?? (data.label || 'Service')}
             icon={IconComponent}
             status={reliabilityStatus}
             color={theme}

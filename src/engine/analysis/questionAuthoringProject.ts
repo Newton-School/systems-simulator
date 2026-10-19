@@ -47,6 +47,11 @@ import {
   type AuthoringStructuralRuleDraft
 } from './questionAuthoringStructuralRules'
 import { BuilderPolicySchema, type BuilderPolicy } from './builderPolicy'
+import { ClassroomSettingsSchema, type ClassroomSettings } from '../classroom/types'
+import {
+  ClassroomQuestionIntentSchema,
+  type ClassroomQuestionIntent
+} from '../classroom/questionIntent'
 import { QuestionCaseExperimentShapeSchema } from './questionExperiment'
 
 export const QUESTION_AUTHORING_PROJECT_ARTIFACT = 'dsds-question-project' as const
@@ -80,6 +85,10 @@ export interface QuestionAuthoringSetupDraft {
   constraints: QuestionConstraints
   /** Builder policy (spec §15). Omit for today's behaviour (both builders on). */
   builderPolicy?: BuilderPolicy
+  /** Classroom mode settings (givens, targets, checks). Passed through to the package. */
+  classroom?: ClassroomSettings
+  /** Objective-first authoring source. Its private solution is never exported to learners. */
+  classroomIntent?: ClassroomQuestionIntent
 }
 
 export const DEFAULT_QUESTION_AUTHORING_SETUP: QuestionAuthoringSetupDraft = {
@@ -475,7 +484,9 @@ const QuestionAuthoringSetupDraftSchema: z.ZodType<QuestionAuthoringSetupDraft> 
         canRemoveScaffoldNodes: z.boolean()
       })
       .strict(),
-    builderPolicy: BuilderPolicySchema.optional()
+    builderPolicy: BuilderPolicySchema.optional(),
+    classroom: ClassroomSettingsSchema.optional(),
+    classroomIntent: ClassroomQuestionIntentSchema.optional()
   })
   .strict()
 

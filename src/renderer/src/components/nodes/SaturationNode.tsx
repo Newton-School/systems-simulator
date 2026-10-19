@@ -6,6 +6,7 @@ import { useNodeMetrics } from '@renderer/hooks/useNodeMetrics'
 import { useEffectiveSourceWorkload } from '@renderer/hooks/useEffectiveSourceWorkload'
 import { useMetricLens } from '@renderer/hooks/useMetricLens'
 import useStore from '@renderer/store/useStore'
+import { useClassroomNodeView } from '@renderer/hooks/useClassroom'
 import BaseNode from '@renderer/components/nodes/BaseNode'
 import { InlineEditableLabel } from '@renderer/components/properties/InlineEditable'
 import { useFlowStore } from '@renderer/components/canvas/hooks/useFlowStore'
@@ -26,7 +27,11 @@ const SaturationNode = ({ id, data, selected }: NodeProps<SaturationNodeData>) =
   const { updateNodeData } = useFlowStore()
   const { icon: Icon, theme } = resolveNodeConfig(data.templateId || data.iconKey)
   const effectiveSourceWorkload = useEffectiveSourceWorkload(id, data)
-  const identityChip = getIdentityChip(data, effectiveSourceWorkload)
+  // Classroom mode: the lecture label and the givens instead of engine details.
+  const classroomView = useClassroomNodeView(data)
+  const identityChip = classroomView
+    ? classroomView.identityChip
+    : getIdentityChip(data, effectiveSourceWorkload)
 
   const handleLabelChange = useCallback(
     (newLabel: string) => {
@@ -104,13 +109,15 @@ const SaturationNode = ({ id, data, selected }: NodeProps<SaturationNodeData>) =
 
             <div className="flex flex-col overflow-hidden w-full">
               <InlineEditableLabel
-                value={data.label || 'Compute'}
+                value={classroomView?.label ?? (data.label || 'Compute')}
                 onSave={handleLabelChange}
                 wrapLines={2}
                 textClassName="text-xs font-bold tracking-wide w-full"
                 inputClassName="text-xs font-bold tracking-wide w-full"
               />
-              <span className="text-[10px] text-nss-muted px-1">{data.profile}</span>
+              {!classroomView && (
+                <span className="text-[10px] text-nss-muted px-1">{data.profile}</span>
+              )}
             </div>
             <div
               className={`w-2 h-2 rounded-full transition-colors duration-300 shrink-0 ${NODE_HEALTH_STYLES[reliabilityStatus].dot}`}

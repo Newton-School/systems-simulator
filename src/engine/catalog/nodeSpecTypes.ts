@@ -57,6 +57,8 @@ export type RoutingStrategy =
   | 'passthrough'
 
 export interface NodeSimulationConfig {
+  /** Classroom-only decisions that must survive canvas serialization. */
+  classroom?: { card?: string; copies?: number; choices?: Record<string, string> }
   /**
    * Authored physical resource allocation (AWS instance model). When present, it
    * drives serialized `resources` and thus effective concurrency/K and cost; when

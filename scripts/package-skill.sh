@@ -56,6 +56,17 @@ if [[ "$skill_name" == "simulator-question-author" ]]; then
         "$example_dir" "${project_file%.simulator-question-project.json}"
     done
   )
+elif [[ "$skill_name" == "classroom-question-author" ]]; then
+  (
+    cd "$repo_root"
+    node scripts/sync-classroom-question-author.mjs --check
+    node skills/classroom-question-author/scripts/validate-artifacts.mjs \
+      skills/classroom-question-author/examples/quickcart-classroom quickcart-flash-sale
+    npm run sim -- grade \
+      skills/classroom-question-author/examples/quickcart-classroom/quickcart-flash-sale.question-package.json \
+      skills/classroom-question-author/examples/quickcart-classroom/quickcart-flash-sale.solution-topology.json \
+      --abstraction classroom
+  )
 fi
 
 mkdir -p "$output_dir"

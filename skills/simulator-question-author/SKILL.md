@@ -8,6 +8,11 @@ description: 'Turn a system-design prompt into a validated Question Studio proje
 Create one coherent, testable question contract. Do not treat prose, JSON, and the
 reference design as separate deliverables.
 
+If the user is a lecturer/TA or asks for a lecture, in-class activity, or
+concept-first question, use `classroom-question-author` when it is available.
+This skill remains the full-fidelity path for Architect questions and the shared
+grading contract underneath both workflows.
+
 The bundled capability snapshot targets simulator commit `c33c557` plus the
 student-assignment privacy boundary introduced in October 2026. If the target
 simulator exposes a newer schema or capability registry, prefer it and report the
@@ -56,6 +61,9 @@ or state-transition fields. Read the [walkthrough contract](references/walkthrou
 only when walkthroughs are requested. Read [archetype patterns](references/archetype-patterns.md)
 when selecting a starting structure; choose the closest archetype and remove
 irrelevant parts rather than cloning the QuickCart example.
+Read [Classroom authoring](references/classroom-authoring.md) whenever the user
+wants a lecture/classroom question or when deciding whether Classroom mode is
+appropriate.
 
 The curated references and bundled capability evidence must agree. When they do
 not, use the newer engine-derived evidence, avoid inventing fields, and report the
@@ -164,6 +172,31 @@ Use identical learner-facing descriptions and stable IDs in project and compiled
 package. Keep private cases out of the public dry run. A dry run should teach the
 surface without revealing hidden thresholds, faults, or rubric structure.
 
+**Classroom mode.** Apply the prompt-general decision process in
+[Classroom authoring](references/classroom-authoring.md); do not start from the
+QuickCart topology. Students place registered concept cards and decide only
+visible structure and copy counts; the grader rebuilds every node from the
+question's givens. Classroom never invents numbers. Decide for every question:
+
+- For a lecture-style question, add `question.setup.classroom` to the project with
+  the numbers the prompt states as `givens` (e.g. `"microservice": { "capacityRps":
+100000 }`), keyed by component type, plus `targets` and, when the authored checks
+  read engine details, plain-language `checks`. The compiler copies the block into
+  the package unchanged. Use only fields and check templates listed in the
+  snapshot's `classroom` section.
+- Give every Classroom question an explicit `allowedNodeTypes` list. Every entry
+  must map to a card in the snapshot. State `capacityRps` for every capacity-bound
+  allowed card, and state peak traffic.
+- If passing depends on an engine setting (instance sizing is the lesson), a
+  component with no concept card, or behavior a card deliberately hides, set
+  `"abstractions": ["architect"]` or grade only the supported structural lesson.
+- Design checks (e.g. "single point of failure") are hidden in Classroom mode. Set
+  `"designChecks": true` in the block only when the lesson is redundancy.
+
+Do not tell learners to configure capacity for a lecture-style question; state it
+as a given. `examples/quickcart` demonstrates capacity arithmetic only, not a
+universal Classroom topology.
+
 ### 6. Validate
 
 Always run the bundled standalone validator:
@@ -178,6 +211,8 @@ In a simulator checkout, also run:
 npm run audit:simulator-question -- <output-directory> <slug>
 npm run sim -- validate <slug>.solution-topology.json
 npm run sim -- grade <slug>.question-package.json <slug>.solution-topology.json
+# When Classroom mode is allowed, the reference must also pass there:
+npm run sim -- grade <slug>.question-package.json <slug>.solution-topology.json --abstraction classroom
 ```
 
 The audit compiles the project exactly as the Question Studio does, requires

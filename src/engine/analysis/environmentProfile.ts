@@ -14,9 +14,24 @@
  * The profile never changes *what* a question is or *how* it is graded — only
  * how much of it is shown and what the student may do. It is resolved from a
  * host-supplied input (a mode string or a partial override) onto a preset.
+ *
+ * Independently of the mode, `abstraction` decides how much of the simulator the
+ * student works with: `architect` (today's full simulator, the default) or
+ * `classroom` (concept cards and copy counts; classroom-mode-environment.md).
  */
 import { z } from 'zod'
 import type { QuestionDomain } from './gradingCriteria'
+import {
+  ABSTRACTIONS,
+  DEFAULT_ABSTRACTION,
+  type Abstraction,
+  type ClassroomSettings
+} from '../classroom/types'
+import {
+  cachedClassroomReadiness,
+  type ClassroomReadiness,
+  type ReadinessQuestion
+} from '../classroom/readiness'
 
 export type EnvironmentProfileMode = 'AUTHOR' | 'ASSIGNMENT' | 'PRACTICE'
 
@@ -111,11 +126,15 @@ export interface EnvironmentCapabilities {
 
 export interface EnvironmentProfile {
   mode: EnvironmentProfileMode
+  /** How much of the simulator the student works with. See `resolveAbstraction`. */
+  abstraction: Abstraction
   visibility: EnvironmentVisibility
   capabilities: EnvironmentCapabilities
   /** Whether Submit produces a graded, archived submission. */
   graded: boolean
   chromeDensity: 'full' | 'minimal'
+  /** Projector-friendly Classroom layout; supplied by host or toggled in settings. */
+  presenter?: boolean
 }
 
 /**
@@ -126,6 +145,8 @@ export interface EnvironmentProfile {
  */
 export const AUTHOR_ENVIRONMENT_PROFILE: EnvironmentProfile = {
   mode: 'AUTHOR',
+  // Classroom by default; it only takes effect for a Classroom-ready question.
+  abstraction: 'classroom',
   visibility: {
     prompt: true,
     scaffoldSourceNodes: true,
@@ -148,11 +169,15 @@ export const AUTHOR_ENVIRONMENT_PROFILE: EnvironmentProfile = {
     canEditExecutionProfile: true
   },
   graded: true,
-  chromeDensity: 'full'
+  chromeDensity: 'full',
+  presenter: false
 }
 
 export const ASSIGNMENT_ENVIRONMENT_PROFILE: EnvironmentProfile = {
   mode: 'ASSIGNMENT',
+  // Graded launches stay Architect unless the host asks for Classroom: the backend
+  // grader must grade at the same abstraction the student saw (`--abstraction`).
+  abstraction: 'architect',
   visibility: {
     prompt: true,
     scaffoldSourceNodes: true,
@@ -185,11 +210,14 @@ export const ASSIGNMENT_ENVIRONMENT_PROFILE: EnvironmentProfile = {
     canEditExecutionProfile: true
   },
   graded: true,
-  chromeDensity: 'minimal'
+  chromeDensity: 'minimal',
+  presenter: false
 }
 
 export const PRACTICE_ENVIRONMENT_PROFILE: EnvironmentProfile = {
   mode: 'PRACTICE',
+  // The deployed / standalone default: Classroom for any Classroom-ready question.
+  abstraction: 'classroom',
   visibility: {
     prompt: true,
     scaffoldSourceNodes: true,
@@ -216,7 +244,8 @@ export const PRACTICE_ENVIRONMENT_PROFILE: EnvironmentProfile = {
     canEditExecutionProfile: true
   },
   graded: false,
-  chromeDensity: 'minimal'
+  chromeDensity: 'minimal',
+  presenter: false
 }
 
 export const ENVIRONMENT_PROFILE_PRESETS: Record<EnvironmentProfileMode, EnvironmentProfile> = {
@@ -240,6 +269,7 @@ const ModeSchema = z.enum(['AUTHOR', 'ASSIGNMENT', 'PRACTICE'])
 const InputObjectSchema = z
   .object({
     mode: ModeSchema.optional(),
+    abstraction: z.enum(ABSTRACTIONS).optional(),
     visibility: z
       .object({
         prompt: z.boolean().optional(),
@@ -267,7 +297,8 @@ const InputObjectSchema = z
       })
       .optional(),
     graded: z.boolean().optional(),
-    chromeDensity: z.enum(['full', 'minimal']).optional()
+    chromeDensity: z.enum(['full', 'minimal']).optional(),
+    presenter: z.boolean().optional()
   })
   // Ignore unknown keys rather than rejecting, so a richer host payload still resolves.
   .strip()
@@ -296,30 +327,136 @@ export function resolveEnvironmentProfile(input?: unknown): EnvironmentProfile {
   const base = ENVIRONMENT_PROFILE_PRESETS[value.mode ?? 'AUTHOR']
   const resolved: EnvironmentProfile = {
     mode: base.mode,
+    abstraction: value.abstraction ?? base.abstraction,
     visibility: { ...base.visibility, ...value.visibility },
     capabilities: { ...base.capabilities, ...value.capabilities },
     graded: value.graded ?? base.graded,
-    chromeDensity: value.chromeDensity ?? base.chromeDensity
+    chromeDensity: value.chromeDensity ?? base.chromeDensity,
+    presenter: value.presenter ?? base.presenter
   }
 
   // Sensitive Assignment surfaces fail closed. A host may tune pedagogical
   // controls (run count, resource editing, feedback timing), but it cannot turn
   // a graded launch into an import/export or inspection surface through payload
   // overrides. Backend authorization remains the real trust boundary.
-  if (resolved.mode === 'ASSIGNMENT') {
-    return {
-      ...resolved,
-      capabilities: {
-        ...resolved.capabilities,
-        canUseTopologyFiles: false,
-        canViewTopologyJson: false,
-        canUseTerminal: false,
-        canUseSettings: false
-      }
+  const locked: EnvironmentProfile =
+    resolved.mode === 'ASSIGNMENT'
+      ? {
+          ...resolved,
+          capabilities: {
+            ...resolved.capabilities,
+            canUseTopologyFiles: false,
+            canViewTopologyJson: false,
+            canUseTerminal: false,
+            canUseSettings: false
+          }
+        }
+      : resolved
+
+  // Classroom locks are not applied here: Classroom mode only takes effect once a
+  // question is loaded (see `resolveEffectiveProfile`), so with no question the
+  // workbench is the full Architect simulator, unlocked.
+  return locked
+}
+
+/**
+ * Classroom mode hides every engine knob. Applied by `resolveEffectiveProfile`
+ * after access resolution, so a host payload can't re-enable one. Edges become connectors; instance, execution
+ * profile and edge editing are off. Outside AUTHOR (which keeps its debug views)
+ * the terminal and raw JSON are hidden too: they expose the compiled engine config.
+ */
+export function withClassroomLocks(profile: EnvironmentProfile): EnvironmentProfile {
+  return {
+    ...profile,
+    abstraction: profile.abstraction === 'guided' ? 'guided' : 'classroom',
+    capabilities: {
+      ...profile.capabilities,
+      edgeModel: 'connector',
+      canEditEdges: false,
+      canEditResources: false,
+      canEditExecutionProfile: false,
+      ...(profile.mode === 'AUTHOR' ? {} : { canUseTerminal: false, canViewTopologyJson: false })
     }
   }
+}
 
-  return resolved
+/**
+ * A loaded question as the abstraction resolvers see it. Classroom needs the full
+ * question (traffic, allowed components, givens) to decide it can run; a partial
+ * object is treated as not Classroom-ready.
+ */
+type AbstractionQuestion =
+  | (Partial<ReadinessQuestion> & { classroom?: Pick<ClassroomSettings, 'abstractions'> })
+  | null
+
+function readinessFor(
+  question: NonNullable<AbstractionQuestion>,
+  abstraction: 'classroom' | 'guided' = 'classroom'
+): ClassroomReadiness {
+  if (!question.constraints || !question.suite || !question.prompt) {
+    return { ready: false, reason: 'No question details are loaded.' }
+  }
+  return cachedClassroomReadiness(question as ReadinessQuestion, abstraction)
+}
+
+/**
+ * The abstraction in effect for a loaded question. Classroom mode needs a
+ * question (its traffic and givens come from it), so with none loaded the
+ * workbench is always Architect. A question that doesn't allow the requested
+ * level launches at the first level it does allow.
+ */
+export function resolveAbstraction(
+  profile: Pick<EnvironmentProfile, 'abstraction'>,
+  question?: AbstractionQuestion
+): Abstraction {
+  if (!question) return 'architect'
+  const requested = profile.abstraction ?? DEFAULT_ABSTRACTION
+  const allowed = question.classroom?.abstractions
+  const level = allowed && !allowed.includes(requested) ? allowed[0] : requested
+  // Classroom never invents numbers: a question that doesn't state them (or can't
+  // be solved within the copy limits) stays in Architect mode.
+  return (level === 'classroom' || level === 'guided') && !readinessFor(question, level).ready
+    ? 'architect'
+    : level
+}
+
+/**
+ * Why Classroom mode was requested but isn't in effect for the loaded question,
+ * or null when it is in effect (or wasn't requested). Shown to the user.
+ */
+export function classroomUnavailableReason(
+  profile: Pick<EnvironmentProfile, 'abstraction'>,
+  question?: AbstractionQuestion
+): string | null {
+  if ((profile.abstraction !== 'classroom' && profile.abstraction !== 'guided') || !question)
+    return null
+  if (isClassroomActive(profile, question)) return null
+  const readiness = readinessFor(question, profile.abstraction)
+  return readiness.ready === false
+    ? readiness.reason
+    : 'The question is set to Architect mode only.'
+}
+
+/**
+ * The profile as it applies to the loaded question: Classroom locks on top of the
+ * access profile when Classroom mode is in effect, the profile unchanged
+ * otherwise (including when no question is loaded). Read capabilities through
+ * this, not straight off the profile.
+ */
+export function resolveEffectiveProfile(
+  profile: EnvironmentProfile,
+  question?: AbstractionQuestion
+): EnvironmentProfile {
+  return isClassroomActive(profile, question) ? withClassroomLocks(profile) : profile
+}
+
+/** Whether Classroom mode is in effect for this profile and question. */
+export function isClassroomActive(
+  profile: Pick<EnvironmentProfile, 'abstraction'>,
+  question?: AbstractionQuestion
+): boolean {
+  const abstraction = resolveAbstraction(profile, question)
+  return abstraction === 'classroom' || abstraction === 'guided'
 }
 
 /**
@@ -342,6 +479,12 @@ export function shouldShowRubricResults(
 
 export type EdgeModel = 'network' | 'connector'
 
+/** The parts of a loaded question the per-question capability resolvers read. */
+type QuestionLens = Partial<ReadinessQuestion> & {
+  domains?: readonly QuestionDomain[]
+  classroom?: Pick<ClassroomSettings, 'abstractions'>
+}
+
 /**
  * Effective edge model for the *loaded question* — the top-level "are edges a
  * modeled thing here?" switch, layering the question's `domains` over the profile's
@@ -360,8 +503,12 @@ export type EdgeModel = 'network' | 'connector'
  */
 export function resolveEdgeModel(
   profile: EnvironmentProfile,
-  question?: { domains?: readonly QuestionDomain[] } | null
+  question?: QuestionLens | null
 ): EdgeModel {
+  // Classroom mode: edges are always connectors, whatever the question's domains.
+  if (isClassroomActive(profile, question)) {
+    return 'connector'
+  }
   if (profile.capabilities.edgeModel === 'network') {
     return 'network'
   }
@@ -379,7 +526,7 @@ export function resolveEdgeModel(
  */
 export function canEditEdgesForQuestion(
   profile: EnvironmentProfile,
-  question?: { domains?: readonly QuestionDomain[] } | null
+  question?: QuestionLens | null
 ): boolean {
   if (resolveEdgeModel(profile, question) === 'connector') {
     return false
@@ -397,7 +544,7 @@ export function canEditEdgesForQuestion(
  */
 export function canEditEdgeLabelsForQuestion(
   profile: EnvironmentProfile,
-  question?: { domains?: readonly QuestionDomain[] } | null
+  question?: QuestionLens | null
 ): boolean {
   return profile.capabilities.canEditEdges || canEditEdgesForQuestion(profile, question)
 }
@@ -414,8 +561,12 @@ export function canEditEdgeLabelsForQuestion(
  */
 export function canEditResourcesForQuestion(
   profile: EnvironmentProfile,
-  question?: { domains?: readonly QuestionDomain[] } | null
+  question?: QuestionLens | null
 ): boolean {
+  // Classroom mode compiles resources from the question's givens; nothing to edit.
+  if (isClassroomActive(profile, question)) {
+    return false
+  }
   if (profile.capabilities.canEditResources) {
     return true
   }

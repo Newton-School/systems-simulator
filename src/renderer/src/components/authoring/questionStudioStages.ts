@@ -67,6 +67,35 @@ export const QUESTION_STUDIO_STAGES: readonly AuthoringStageDefinition[] = [
   }
 ]
 
+/**
+ * Objective-first Classroom authoring deliberately omits the low-level scaffold,
+ * scenario, and grading editors. The Lesson screen collects the complete
+ * teaching contract; the compiler derives the omitted runtime artifacts.
+ */
+export const CLASSROOM_QUESTION_STUDIO_STAGES: readonly AuthoringStageDefinition[] = [
+  {
+    id: 'frame',
+    number: 1,
+    label: 'Lesson',
+    shortDescription: 'Objective, brief, kit, and evidence',
+    icon: Flag
+  },
+  {
+    id: 'preview',
+    number: 2,
+    label: 'Preview',
+    shortDescription: 'Try the learner experience',
+    icon: Eye
+  },
+  {
+    id: 'export',
+    number: 3,
+    label: 'Export',
+    shortDescription: 'Validate and generate',
+    icon: FileOutput
+  }
+]
+
 export function getQuestionStudioStage(id: AuthoringStageId): AuthoringStageDefinition {
   return QUESTION_STUDIO_STAGES.find((stage) => stage.id === id) ?? QUESTION_STUDIO_STAGES[0]
 }

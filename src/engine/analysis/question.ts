@@ -43,6 +43,7 @@ import {
 import {
   evaluateStructuralRules,
   STRUCTURAL_RULES_VERSION,
+  type StructuralCheckResult,
   type StructuralEvaluation,
   type StructuralRule
 } from './structural'
@@ -91,6 +92,26 @@ import {
 import { buildReplayDigest, type ReplayDigest } from './replay'
 import { hostSafeToken, stableSerialize } from './stableHash'
 import { topologyCost } from './cost'
+import {
+  ClassroomSettingsSchema,
+  questionAllowsAbstraction,
+  type Abstraction,
+  type ClassroomSettings
+} from '../classroom/types'
+import {
+  classroomRunConditions,
+  compileClassroomQuestion,
+  compileClassroomTopology,
+  evaluateClassroomFeedback,
+  type ClassroomFeedbackResult,
+  type ClassroomIssue
+} from '../classroom/compileClassroom'
+import {
+  evaluateClassroomMisconceptions,
+  type ClassroomMisconceptionResult
+} from '../classroom/misconceptions'
+import { classroomFailureDetail } from '../classroom/checkDetails'
+import { classroomReadiness } from '../classroom/readiness'
 import {
   ComponentNodeSchema,
   EdgeDefinitionSchema,
@@ -269,6 +290,13 @@ export interface QuestionPackage {
   concepts?: string[]
   suite: QuestionSuite
   rubric: Rubric
+  /**
+   * How this question behaves in concept-first modes (classroom-mode-environment.md):
+   * the numbers the problem states, lecture labels, targets, controlled choices,
+   * guided knobs, and plain-language checks. Optional means Architect-only unless
+   * the readiness audit can prove the package is safe at the requested abstraction.
+   */
+  classroom?: ClassroomSettings
   author?: string
   createdAt?: string
 }
@@ -286,6 +314,8 @@ export interface AttemptState {
   lastSavedAt: string
   submittedAt?: string
   testRunCount: number
+  /** Pre-run prediction answers; completion-only teaching evidence, never scored. */
+  predictions?: Record<string, number | string>
   lastDryRun?: {
     timestamp: string
     grade: AttemptGrade
@@ -367,10 +397,27 @@ export interface AttemptGrade {
   baselineComparison?: BaselineComparisonEvaluation
   /** Chaos-experiment cases' verdicts and checks (absent when no case has an experiment). */
   experiments?: QuestionExperimentCaseResult[]
+  /** Present when the attempt was graded in Classroom mode. */
+  classroom?: ClassroomGradeInfo
   /** The full graded batch (rich data — stays inside the simulator). */
   graded: GradedEvaluationBatch
   /** The collapsed boolean contract sent across the iframe seam to the host. */
   contract: HostContract
+}
+
+export interface ClassroomGradeInfo {
+  abstraction: 'classroom' | 'guided'
+  /** Feedback-only checks: shown to the student, never part of the score or host contract. */
+  feedback: ClassroomFeedbackResult[]
+  /** Components Classroom mode couldn't model; any issue fails the structural gate. */
+  issues: ClassroomIssue[]
+  /** Teaching feedback matches, priority ordered; the learner UI presents the first. */
+  misconceptions: ClassroomMisconceptionResult[]
+}
+
+export interface GradeAttemptOptions {
+  /** The abstraction the attempt was launched at. Default 'architect' (today's grading). */
+  abstraction?: Abstraction
 }
 
 export type QuestionTestStatus = 'pending' | 'passed' | 'failed'
@@ -1075,7 +1122,11 @@ const RubricSchema: z.ZodType<Rubric> = z.object({
   version: z.string().optional(),
   id: z.string().min(1).optional(),
   passThreshold: z.number().min(0).max(1).optional(),
-  checks: z.array(RubricCheckSchema).min(1)
+  // Classroom questions may keep the engine rubric empty because their
+  // objective-backed checks compile into structural/invariant/rubric evidence
+  // at launch time. QuestionPackageSchema enforces that one of these two
+  // scoring contracts is present.
+  checks: z.array(RubricCheckSchema)
 })
 
 const QuestionSuiteSchema = z.object({
@@ -1353,9 +1404,32 @@ export const GradedEvaluationBatchSchema: z.ZodType<GradedEvaluationBatch> = z
     }
   })
 
+const ClassroomGradeInfoSchema: z.ZodType<ClassroomGradeInfo> = z.object({
+  abstraction: z.enum(['classroom', 'guided']),
+  feedback: z.array(
+    z.object({
+      id: z.string().min(1),
+      label: z.string().min(1),
+      passed: z.boolean(),
+      detail: z.string().min(1).optional()
+    })
+  ),
+  issues: z.array(z.object({ nodeId: z.string().min(1), message: z.string().min(1) })),
+  misconceptions: z.array(
+    z.object({
+      id: z.string().min(1),
+      title: z.string().min(1),
+      message: z.string().min(1),
+      nudge: z.string().min(1).optional(),
+      objectiveId: z.string().min(1).optional()
+    })
+  )
+})
+
 const AttemptGradeSchema: z.ZodType<AttemptGrade> = z.object({
   structural: StructuralEvaluationSchema,
   experiments: z.array(QuestionExperimentCaseResultSchema).optional(),
+  classroom: ClassroomGradeInfoSchema.optional(),
   graded: GradedEvaluationBatchSchema,
   contract: HostContractSchema
 })
@@ -1408,10 +1482,20 @@ export const QuestionPackageSchema: z.ZodType<QuestionPackage> = z
     concepts: z.array(z.string().min(1)).nonempty().optional(),
     suite: QuestionSuiteSchema,
     rubric: RubricSchema,
+    classroom: ClassroomSettingsSchema.optional(),
     author: z.string().min(1).optional(),
     createdAt: IsoTimestampSchema.optional()
   })
   .superRefine((pkg, ctx) => {
+    const hasScoredClassroomCheck =
+      pkg.classroom?.checks?.some((check) => check.severity !== 'feedback') ?? false
+    if (pkg.rubric.checks.length === 0 && !hasScoredClassroomCheck) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['rubric', 'checks'],
+        message: 'Add at least one rubric check or a scored Classroom check.'
+      })
+    }
     validateUniqueIds(pkg.suite.cases, ['suite', 'cases'], 'Question suite case', ctx)
     validateUniqueIds(pkg.rubric.checks, ['rubric', 'checks'], 'Rubric check', ctx)
     if (pkg.structuralRules) {
@@ -1436,6 +1520,7 @@ export const AttemptStateSchema: z.ZodType<AttemptState> = z
     lastSavedAt: IsoTimestampSchema,
     submittedAt: IsoTimestampSchema.optional(),
     testRunCount: z.number().int().nonnegative(),
+    predictions: z.record(z.string(), z.union([z.number().finite(), z.string()])).optional(),
     lastDryRun: LastDryRunSchema.optional(),
     grade: GradeSnapshotSchema.optional()
   })
@@ -2256,12 +2341,146 @@ export function gradeAttemptWithArtifacts(
   pkg: QuestionPackage,
   studentTopology: TopologyJSON,
   runTopology: (topology: TopologyJSON) => SimulationOutput,
-  justificationAnswers: readonly JustificationAnswer[] = []
+  justificationAnswers: readonly JustificationAnswer[] = [],
+  options: GradeAttemptOptions = {}
 ): GradedAttempt {
-  const structural =
+  if (options.abstraction === 'classroom' || options.abstraction === 'guided') {
+    return gradeClassroomAttempt(
+      pkg,
+      studentTopology,
+      runTopology,
+      justificationAnswers,
+      options.abstraction
+    )
+  }
+  return gradeCompiledAttempt(pkg, studentTopology, runTopology, justificationAnswers)
+}
+
+/** Structural row that fails a Classroom design containing a component it can't model. */
+export const CLASSROOM_COMPONENTS_CHECK_ID = 'classroom.supported-components'
+
+/**
+ * Classroom grading: compile the question's Classroom grading set, then rebuild
+ * the submission from the question's givens. Only the student's decisions
+ * (structure and copy counts) survive; any engine config in the submission is
+ * discarded before anything runs.
+ */
+function gradeClassroomAttempt(
+  pkg: QuestionPackage,
+  rawTopology: TopologyJSON,
+  runTopology: (topology: TopologyJSON) => SimulationOutput,
+  justificationAnswers: readonly JustificationAnswer[],
+  abstraction: 'classroom' | 'guided'
+): GradedAttempt {
+  if (!questionAllowsAbstraction(pkg.classroom, abstraction)) {
+    const label = abstraction === 'classroom' ? 'Classroom' : 'Guided'
+    throw new Error(`Question '${pkg.id}' can't be graded in ${label} mode.`)
+  }
+  const readiness = classroomReadiness(pkg)
+  if (readiness.ready === false) {
+    throw new Error(`Question '${pkg.id}' can't be graded in Classroom mode: ${readiness.reason}`)
+  }
+  const compiledPackage = compileClassroomQuestion(pkg)
+  const { topology, issues } = compileClassroomTopology(rawTopology, {
+    settings: pkg.classroom,
+    abstraction,
+    ...classroomRunConditions(pkg)
+  })
+  const unsupported: StructuralCheckResult[] =
+    issues.length > 0
+      ? [
+          {
+            id: CLASSROOM_COMPONENTS_CHECK_ID,
+            description: 'Use only components available in Classroom mode',
+            passed: false,
+            detail: issues.map((issue) => issue.message).join(' ')
+          }
+        ]
+      : []
+  const graded = gradeCompiledAttempt(
+    compiledPackage,
+    topology,
+    runTopology,
+    justificationAnswers,
+    unsupported
+  )
+  const withDetails = withClassroomFailureDetails(pkg, graded, topology)
+  const misconceptions = evaluateClassroomMisconceptions(
+    pkg.classroom?.misconceptions ?? [],
+    withDetails.grade,
+    topology
+  )
+  return {
+    ...withDetails,
+    grade: {
+      ...withDetails.grade,
+      classroom: {
+        abstraction,
+        feedback: evaluateClassroomFeedback(pkg, topology),
+        issues,
+        misconceptions
+      }
+    }
+  }
+}
+
+/**
+ * Replace the rubric's engine wording on failed Classroom checks with the
+ * component and the number ("Server ×12: 83.3% (target 80%)"), in both the
+ * graded batch and the host contract.
+ */
+function withClassroomFailureDetails(
+  pkg: QuestionPackage,
+  graded: GradedAttempt,
+  topology: TopologyJSON
+): GradedAttempt {
+  const checks = new Map((pkg.classroom?.checks ?? []).map((check) => [check.id, check]))
+  if (checks.size === 0) return graded
+  const verdicts = new Map(
+    graded.cases.flatMap((entry) => (entry.verdict ? [[entry.caseId, entry.verdict] as const] : []))
+  )
+  const details = new Map<string, string>()
+  const cases = graded.grade.graded.cases.map((entry) => {
+    const verdict = verdicts.get(entry.id)
+    if (!entry.rubric || !verdict) return entry
+    const rubricChecks = entry.rubric.checks.map((result) => {
+      const check = checks.get(result.id)
+      if (result.passed || !check) return result
+      const detail = classroomFailureDetail(check, verdict, topology, pkg.classroom)
+      if (!detail) return result
+      details.set(caseRubricTestId(entry.id, result.kind, result.id), detail)
+      return { ...result, detail }
+    })
+    return { ...entry, rubric: { ...entry.rubric, checks: rubricChecks } }
+  })
+  const tests = graded.grade.contract.tests.map((test) =>
+    details.has(test.id) ? { ...test, detail: details.get(test.id) } : test
+  )
+  return {
+    ...graded,
+    grade: {
+      ...graded.grade,
+      graded: { ...graded.grade.graded, cases },
+      contract: { ...graded.grade.contract, tests }
+    }
+  }
+}
+
+function gradeCompiledAttempt(
+  pkg: QuestionPackage,
+  studentTopology: TopologyJSON,
+  runTopology: (topology: TopologyJSON) => SimulationOutput,
+  justificationAnswers: readonly JustificationAnswer[] = [],
+  failedPreChecks: readonly StructuralCheckResult[] = []
+): GradedAttempt {
+  const evaluated: StructuralEvaluation =
     pkg.structuralRules && pkg.structuralRules.length > 0
       ? evaluateStructuralRules(studentTopology, pkg.structuralRules)
       : { version: STRUCTURAL_RULES_VERSION, checks: [], passed: true }
+  const structural: StructuralEvaluation =
+    failedPreChecks.length > 0
+      ? { ...evaluated, checks: [...failedPreChecks, ...evaluated.checks], passed: false }
+      : evaluated
 
   if (!structural.passed) {
     const graded = buildSkippedGradedBatch(
@@ -2440,7 +2659,9 @@ export function gradeAttempt(
   pkg: QuestionPackage,
   studentTopology: TopologyJSON,
   runTopology: (topology: TopologyJSON) => SimulationOutput,
-  justificationAnswers: readonly JustificationAnswer[] = []
+  justificationAnswers: readonly JustificationAnswer[] = [],
+  options: GradeAttemptOptions = {}
 ): AttemptGrade {
-  return gradeAttemptWithArtifacts(pkg, studentTopology, runTopology, justificationAnswers).grade
+  return gradeAttemptWithArtifacts(pkg, studentTopology, runTopology, justificationAnswers, options)
+    .grade
 }

@@ -4,6 +4,7 @@ import { ArrowRightFromLine, SquarePlus, X } from 'lucide-react'
 import useStore from '@renderer/store/useStore'
 import { CATALOG_CONFIG } from '@renderer/config/catalogConfig'
 import { BUILDER_TEMPLATE_IDS, filterCatalogCategories } from '@renderer/config/catalogFilter'
+import { useClassroomActive } from '@renderer/hooks/useClassroom'
 import type { CatalogItem } from '@renderer/types/ui'
 import { isTemplateOfferedFor, type ContextualAddRequest } from './utils/contextualAdd'
 import { nodeDisplayLabel } from './utils/connectionRules'
@@ -40,6 +41,7 @@ export function ContextualAddPicker({
   const listId = useId()
   const editPaletteList = useStore((state) => state.environmentProfile.capabilities.editPaletteList)
   const activeQuestion = useStore((state) => state.activeQuestion)
+  const classroomActive = useClassroomActive()
   const componentLibraryMode = useStore((state) => state.displaySettings.componentLibraryMode)
   const hiddenTemplateIds = useStore(
     (state) => state.displaySettings.hiddenComponentLibraryTemplateIds
@@ -60,10 +62,12 @@ export function ContextualAddPicker({
           isTemplateOfferedFor(request.mode, anchor, item.templateId),
         // Nesting is the point of "Add inside": offer the valid Region / Zone /
         // Subnet children even when the curated library leaves them out.
-        ignoreLibraryModeFor: (item) => request.mode === 'child' && item.type === 'containerNode'
+        ignoreLibraryModeFor: (item) => request.mode === 'child' && item.type === 'containerNode',
+        ...(classroomActive ? { classroom: { settings: activeQuestion?.classroom } } : {})
       }),
     [
       activeQuestion,
+      classroomActive,
       anchor,
       componentLibraryMode,
       editPaletteList,

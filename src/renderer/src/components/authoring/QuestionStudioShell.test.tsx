@@ -30,11 +30,19 @@ afterEach(() => {
   container = null
 })
 
-function renderShell(fileService?: IFileService): HTMLDivElement {
+function renderShell(
+  fileService?: IFileService,
+  abstraction: 'classroom' | 'guided' | 'architect' = 'architect'
+): HTMLDivElement {
   container = document.createElement('div')
   document.body.append(container)
   root = createRoot(container)
   act(() => root?.render(<QuestionStudioShell simulatorHref="/" fileService={fileService} />))
+  if (abstraction !== 'classroom') {
+    act(() =>
+      buttonNamed(container!, abstraction).dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    )
+  }
   return container
 }
 
@@ -82,12 +90,77 @@ async function clickAndFlush(button: HTMLButtonElement): Promise<void> {
 }
 
 describe('QuestionStudioShell', () => {
+  it('collapses Classroom authoring into Lesson, Preview, and Export', () => {
+    const view = renderShell(undefined, 'classroom')
+    const stageNavigation = view.querySelector('nav[aria-label="Question authoring stages"]')
+
+    expect(stageNavigation?.querySelectorAll('button')).toHaveLength(3)
+    expect(view.textContent).toContain('Stage 1 of 3')
+    expect(view.textContent).toContain('Build the Classroom lesson')
+    expect(view.textContent).toContain('Describe the problem')
+    expect(view.textContent).toContain('Runtime question setup')
+    expect(view.textContent).not.toContain('4. Scenarios')
+    expect(view.textContent).not.toContain('5. Grading')
+
+    const classroomToggle = [...view.querySelectorAll('label')]
+      .find((label) => label.textContent?.includes('Allow Classroom launches'))
+      ?.querySelector('input') as HTMLInputElement
+    act(() => classroomToggle.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+    expect(view.textContent).toContain('Component kit')
+    expect(view.textContent).toContain('Choose only the cards learners need for this objective')
+  })
+
+  it('applies the concept recipe when a concept is added in Classroom authoring', () => {
+    const view = renderShell(undefined, 'classroom')
+    const conceptInput = view.querySelector('#question-concept') as HTMLInputElement
+    enter(conceptInput, 'NET-05')
+    const addButton = conceptInput.parentElement?.querySelector('button') as HTMLButtonElement
+    act(() => addButton.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+
+    expect(view.textContent).toContain('Adaptive recipe · place · classroom structural')
+    expect(view.textContent).toContain('Component kit')
+    expect(view.textContent).toContain(
+      'The student can apply load balancing to a visible system-design decision.'
+    )
+    const utilization = [...view.querySelectorAll('label')]
+      .find((label) => label.textContent?.includes('Stay within the utilization target'))
+      ?.querySelector('input') as HTMLInputElement
+    expect(utilization.disabled).toBe(true)
+  })
+
+  it('routes a non-Classroom concept to its recommended authoring depth', () => {
+    const view = renderShell(undefined, 'classroom')
+    const conceptInput = view.querySelector('#question-concept') as HTMLInputElement
+    enter(conceptInput, 'COORD-06')
+    const addButton = conceptInput.parentElement?.querySelector('button') as HTMLButtonElement
+    act(() => addButton.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+
+    expect(view.textContent).toContain('Stage 1 of 7')
+    expect(buttonNamed(view, 'architect').getAttribute('aria-pressed')).toBe('true')
+    expect(view.textContent).toContain('Use full scenarios and engine evidence in Architect mode.')
+  })
+
+  it('returns to the three-step Lesson flow when switching from an advanced-only stage', () => {
+    const view = renderShell()
+    act(() =>
+      buttonNamed(view, '5. Grading').dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    )
+    expect(view.textContent).toContain('Stage 5 of 7')
+
+    act(() =>
+      buttonNamed(view, 'classroom').dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    )
+    expect(view.textContent).toContain('Stage 1 of 3')
+    expect(view.textContent).toContain('Build the Classroom lesson')
+  })
+
   it('renders the seven-stage shell and foundation readiness', () => {
     const view = renderShell()
     const stageNavigation = view.querySelector('nav[aria-label="Question authoring stages"]')
 
     expect(view.textContent).toContain('Question Studio')
     expect(view.textContent).toContain('Frame the lesson')
+    expect(view.textContent).toContain('guided')
     expect(stageNavigation?.querySelectorAll('button')).toHaveLength(7)
     expect(view.textContent).toContain('14 / 14 package round-trips')
   })

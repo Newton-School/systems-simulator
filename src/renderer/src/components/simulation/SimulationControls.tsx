@@ -18,6 +18,10 @@ import { ExperimentSetupSection } from './ChaosExperimentPanel'
 import type { ExperimentPreview } from './chaosExperimentModel'
 import type { PlaybackSpeed } from '../../../../engine/worker/protocols'
 import { PLAYBACK_SPEED_OPTIONS } from './simulationControlModel'
+import useStore from '@renderer/store/useStore'
+import { useClassroomActive } from '@renderer/hooks/useClassroom'
+import { classroomRunConditions } from '../../../../engine/classroom/compileClassroom'
+import { formatRps } from '../../../../engine/classroom/givensTable'
 
 const PLAYBACK_SPEED_TITLE =
   'Playback speed. 1x runs simulated time in real time; Max runs as fast as possible (default). Speed changes pacing only, never the results.'
@@ -100,6 +104,19 @@ export function SimulationControls({
   const selectedSource =
     sourceNodes.find((node) => node.id === scenario.selectedSourceNodeId) ?? sourceNodes[0]
 
+  // Classroom mode: traffic and timing come from the question, so there is
+  // nothing to configure here — just say where the traffic comes from.
+  const classroomActive = useClassroomActive()
+  const activeQuestion = useStore((state) => state.activeQuestion)
+  const classroomPeak =
+    classroomActive && activeQuestion
+      ? classroomRunConditions(activeQuestion).workload?.baseRps
+      : undefined
+  const classroomRunNote = classroomActive
+    ? classroomPeak !== undefined
+      ? `Traffic comes from the problem: ${formatRps(classroomPeak)} at peak. Everything else is set by the question.`
+      : 'Traffic and timing come from the problem.'
+    : null
   const effectiveWorkload = useMemo(
     () =>
       selectedSource?.workload
@@ -211,7 +228,8 @@ export function SimulationControls({
 
   const hasSourceNodes = sourceNodes.length > 0
   const experimentEntries = useMemo(() => scenario.experiment ?? [], [scenario.experiment])
-  const experimentActive = experimentEntries.length > 0
+  // Classroom runs ignore chaos experiments (an Architect tool).
+  const experimentActive = !classroomActive && experimentEntries.length > 0
   const experimentPreview = useMemo(
     () =>
       isOpen && experimentActive && previewExperiment ? previewExperiment(experimentEntries) : null,
@@ -409,323 +427,338 @@ export function SimulationControls({
               </button>
             </div>
 
-            <Field label="Source" className="mb-2">
-              <select
-                value={scenario.selectedSourceNodeId ?? ''}
-                onChange={(event) =>
-                  onScenarioChange((current) => ({
-                    ...current,
-                    selectedSourceNodeId: event.target.value || undefined
-                  }))
-                }
-                className={CONTROL_BASE}
+            {classroomRunNote ? (
+              <p
+                className="mb-3 text-[11px] leading-relaxed text-nss-muted"
+                data-testid="classroom-run-note"
               >
-                <option value="">Auto (first source)</option>
-                {sourceNodes.map((node) => (
-                  <option key={node.id} value={node.id}>
-                    {node.label}
-                  </option>
-                ))}
-              </select>
-            </Field>
-
-            <div className="grid grid-cols-2 gap-2 mb-2">
-              <Field label="Pattern">
-                <select
-                  value={effectiveWorkload?.pattern ?? 'constant'}
-                  onChange={(event) =>
-                    setWorkloadField('pattern', event.target.value as WorkloadPattern)
-                  }
-                  className={CONTROL_BASE}
-                  disabled={!hasSourceNodes}
-                >
-                  {PATTERN_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-
-              <Field label="Base RPS">
-                <NumberInput
-                  value={effectiveWorkload?.baseRps ?? 100}
-                  min={1}
-                  onChange={(value) => setWorkloadField('baseRps', value)}
-                  disabled={!hasSourceNodes}
-                />
-              </Field>
-            </div>
-
-            {effectiveWorkload?.pattern === 'bursty' && (
-              <div className="grid grid-cols-3 gap-2 mb-2">
-                <Field label="Burst RPS">
-                  <NumberInput
-                    value={effectiveWorkload.bursty?.burstRps ?? 500}
-                    min={1}
-                    onChange={(value) => setNestedWorkloadField('bursty', { burstRps: value })}
-                    disabled={!hasSourceNodes}
-                  />
-                </Field>
-                <Field label="Burst ms">
-                  <NumberInput
-                    value={effectiveWorkload.bursty?.burstDuration ?? 2000}
-                    min={100}
-                    onChange={(value) => setNestedWorkloadField('bursty', { burstDuration: value })}
-                    disabled={!hasSourceNodes}
-                  />
-                </Field>
-                <Field label="Normal ms">
-                  <NumberInput
-                    value={effectiveWorkload.bursty?.normalDuration ?? 8000}
-                    min={100}
-                    onChange={(value) =>
-                      setNestedWorkloadField('bursty', { normalDuration: value })
-                    }
-                    disabled={!hasSourceNodes}
-                  />
-                </Field>
-              </div>
-            )}
-
-            {effectiveWorkload?.pattern === 'spike' && (
-              <div className="grid grid-cols-3 gap-2 mb-2">
-                <Field label="Spike at ms">
-                  <NumberInput
-                    value={effectiveWorkload.spike?.spikeTime ?? 30_000}
-                    min={0}
-                    onChange={(value) => setNestedWorkloadField('spike', { spikeTime: value })}
-                    disabled={!hasSourceNodes}
-                  />
-                </Field>
-                <Field label="Spike RPS">
-                  <NumberInput
-                    value={effectiveWorkload.spike?.spikeRps ?? 1000}
-                    min={1}
-                    onChange={(value) => setNestedWorkloadField('spike', { spikeRps: value })}
-                    disabled={!hasSourceNodes}
-                  />
-                </Field>
-                <Field label="Spike dur ms">
-                  <NumberInput
-                    value={effectiveWorkload.spike?.spikeDuration ?? 5000}
-                    min={100}
-                    onChange={(value) => setNestedWorkloadField('spike', { spikeDuration: value })}
-                    disabled={!hasSourceNodes}
-                  />
-                </Field>
-              </div>
-            )}
-
-            {effectiveWorkload?.pattern === 'sawtooth' && (
-              <div className="grid grid-cols-2 gap-2 mb-2">
-                <Field label="Peak RPS">
-                  <NumberInput
-                    value={effectiveWorkload.sawtooth?.peakRps ?? 300}
-                    min={1}
-                    onChange={(value) => setNestedWorkloadField('sawtooth', { peakRps: value })}
-                    disabled={!hasSourceNodes}
-                  />
-                </Field>
-                <Field label="Ramp ms">
-                  <NumberInput
-                    value={effectiveWorkload.sawtooth?.rampDuration ?? 10_000}
-                    min={100}
-                    onChange={(value) =>
-                      setNestedWorkloadField('sawtooth', { rampDuration: value })
-                    }
-                    disabled={!hasSourceNodes}
-                  />
-                </Field>
-              </div>
-            )}
-
-            <div className="h-px bg-nss-border my-3" />
-
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-nss-muted mb-2">
-              Timing
-            </p>
-
-            <div className="grid grid-cols-2 gap-2 mb-2">
-              <Field label="Duration (s)">
-                <NumberInput
-                  value={Math.round(scenario.global.simulationDuration / 1000)}
-                  min={1}
-                  onChange={(value) => setGlobalField('simulationDuration', value * 1000)}
-                />
-              </Field>
-              <Field label="Warmup (s)">
-                <NumberInput
-                  value={Math.round(scenario.global.warmupDuration / 1000)}
-                  min={0}
-                  onChange={(value) => setGlobalField('warmupDuration', value * 1000)}
-                />
-              </Field>
-            </div>
-
-            <div className="h-px bg-nss-border my-3" />
-
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-nss-muted mb-2">
-              Stop condition
-            </p>
-
-            <Field label="Stop when">
-              <select
-                value={stopMode}
-                onChange={(event) =>
-                  setStopMode(event.target.value as 'duration' | 'requestBudget')
-                }
-                className={CONTROL_BASE}
-                disabled={!hasSourceNodes}
-              >
-                <option value="duration">Duration elapses</option>
-                <option value="requestBudget">Request budget reached</option>
-              </select>
-            </Field>
-
-            {stopMode === 'requestBudget' && (
-              <Field label="Max requests" className="mt-2">
-                <NumberInput
-                  value={stopMaxRequests}
-                  min={1}
-                  onChange={setStopMaxRequests}
-                  disabled={!hasSourceNodes}
-                />
-              </Field>
-            )}
-
-            <p className="mt-1 text-[10px] leading-snug text-nss-muted">
-              {stopMode === 'requestBudget'
-                ? 'Runs until exactly this many requests are generated, then drains. The duration above is ignored.'
-                : 'Runs for the full duration above.'}
-            </p>
-
-            <label className="mt-2 flex items-center justify-between cursor-pointer">
-              <span className="text-[11px] text-nss-text">
-                Halt early if a node is saturated (≥100%)
-              </span>
-              <input
-                type="checkbox"
-                checked={haltOnSaturation}
-                onChange={(event) => setHaltOnSaturation(event.target.checked)}
-                disabled={!hasSourceNodes}
-              />
-            </label>
-
-            <div className="h-px bg-nss-border my-3" />
-
-            <Field label="Seed" className="mb-3">
-              <input
-                type="text"
-                value={scenario.global.seed}
-                onChange={(event) => setGlobalField('seed', event.target.value)}
-                className={CONTROL_BASE}
-                placeholder="default-seed"
-              />
-            </Field>
-
-            <div className="h-px bg-nss-border my-3" />
-
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-nss-muted mb-2">
-              Chaos experiment
-            </p>
-            <div className="mb-3">
-              <ExperimentSetupSection
-                entries={experimentEntries}
-                preview={experimentPreview}
-                onScenarioChange={onScenarioChange}
-              />
-            </div>
-
-            {experimentActive ? (
-              <p className="text-[10px] text-nss-muted mb-3">
-                The experiment schedules its own faults, so the single injected failure below is not
-                used while an experiment is selected.
+                {classroomRunNote}
               </p>
             ) : (
               <>
-                <label className="flex items-center justify-between mb-2 cursor-pointer">
-                  <span className="text-[10px] font-semibold uppercase tracking-widest text-nss-muted">
-                    Chaos - inject a failure
+                <Field label="Source" className="mb-2">
+                  <select
+                    value={scenario.selectedSourceNodeId ?? ''}
+                    onChange={(event) =>
+                      onScenarioChange((current) => ({
+                        ...current,
+                        selectedSourceNodeId: event.target.value || undefined
+                      }))
+                    }
+                    className={CONTROL_BASE}
+                  >
+                    <option value="">Auto (first source)</option>
+                    {sourceNodes.map((node) => (
+                      <option key={node.id} value={node.id}>
+                        {node.label}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+
+                <div className="grid grid-cols-2 gap-2 mb-2">
+                  <Field label="Pattern">
+                    <select
+                      value={effectiveWorkload?.pattern ?? 'constant'}
+                      onChange={(event) =>
+                        setWorkloadField('pattern', event.target.value as WorkloadPattern)
+                      }
+                      className={CONTROL_BASE}
+                      disabled={!hasSourceNodes}
+                    >
+                      {PATTERN_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+
+                  <Field label="Base RPS">
+                    <NumberInput
+                      value={effectiveWorkload?.baseRps ?? 100}
+                      min={1}
+                      onChange={(value) => setWorkloadField('baseRps', value)}
+                      disabled={!hasSourceNodes}
+                    />
+                  </Field>
+                </div>
+
+                {effectiveWorkload?.pattern === 'bursty' && (
+                  <div className="grid grid-cols-3 gap-2 mb-2">
+                    <Field label="Burst RPS">
+                      <NumberInput
+                        value={effectiveWorkload.bursty?.burstRps ?? 500}
+                        min={1}
+                        onChange={(value) => setNestedWorkloadField('bursty', { burstRps: value })}
+                        disabled={!hasSourceNodes}
+                      />
+                    </Field>
+                    <Field label="Burst ms">
+                      <NumberInput
+                        value={effectiveWorkload.bursty?.burstDuration ?? 2000}
+                        min={100}
+                        onChange={(value) =>
+                          setNestedWorkloadField('bursty', { burstDuration: value })
+                        }
+                        disabled={!hasSourceNodes}
+                      />
+                    </Field>
+                    <Field label="Normal ms">
+                      <NumberInput
+                        value={effectiveWorkload.bursty?.normalDuration ?? 8000}
+                        min={100}
+                        onChange={(value) =>
+                          setNestedWorkloadField('bursty', { normalDuration: value })
+                        }
+                        disabled={!hasSourceNodes}
+                      />
+                    </Field>
+                  </div>
+                )}
+
+                {effectiveWorkload?.pattern === 'spike' && (
+                  <div className="grid grid-cols-3 gap-2 mb-2">
+                    <Field label="Spike at ms">
+                      <NumberInput
+                        value={effectiveWorkload.spike?.spikeTime ?? 30_000}
+                        min={0}
+                        onChange={(value) => setNestedWorkloadField('spike', { spikeTime: value })}
+                        disabled={!hasSourceNodes}
+                      />
+                    </Field>
+                    <Field label="Spike RPS">
+                      <NumberInput
+                        value={effectiveWorkload.spike?.spikeRps ?? 1000}
+                        min={1}
+                        onChange={(value) => setNestedWorkloadField('spike', { spikeRps: value })}
+                        disabled={!hasSourceNodes}
+                      />
+                    </Field>
+                    <Field label="Spike dur ms">
+                      <NumberInput
+                        value={effectiveWorkload.spike?.spikeDuration ?? 5000}
+                        min={100}
+                        onChange={(value) =>
+                          setNestedWorkloadField('spike', { spikeDuration: value })
+                        }
+                        disabled={!hasSourceNodes}
+                      />
+                    </Field>
+                  </div>
+                )}
+
+                {effectiveWorkload?.pattern === 'sawtooth' && (
+                  <div className="grid grid-cols-2 gap-2 mb-2">
+                    <Field label="Peak RPS">
+                      <NumberInput
+                        value={effectiveWorkload.sawtooth?.peakRps ?? 300}
+                        min={1}
+                        onChange={(value) => setNestedWorkloadField('sawtooth', { peakRps: value })}
+                        disabled={!hasSourceNodes}
+                      />
+                    </Field>
+                    <Field label="Ramp ms">
+                      <NumberInput
+                        value={effectiveWorkload.sawtooth?.rampDuration ?? 10_000}
+                        min={100}
+                        onChange={(value) =>
+                          setNestedWorkloadField('sawtooth', { rampDuration: value })
+                        }
+                        disabled={!hasSourceNodes}
+                      />
+                    </Field>
+                  </div>
+                )}
+
+                <div className="h-px bg-nss-border my-3" />
+
+                <p className="text-[10px] font-semibold uppercase tracking-widest text-nss-muted mb-2">
+                  Timing
+                </p>
+
+                <div className="grid grid-cols-2 gap-2 mb-2">
+                  <Field label="Duration (s)">
+                    <NumberInput
+                      value={Math.round(scenario.global.simulationDuration / 1000)}
+                      min={1}
+                      onChange={(value) => setGlobalField('simulationDuration', value * 1000)}
+                    />
+                  </Field>
+                  <Field label="Warmup (s)">
+                    <NumberInput
+                      value={Math.round(scenario.global.warmupDuration / 1000)}
+                      min={0}
+                      onChange={(value) => setGlobalField('warmupDuration', value * 1000)}
+                    />
+                  </Field>
+                </div>
+
+                <div className="h-px bg-nss-border my-3" />
+
+                <p className="text-[10px] font-semibold uppercase tracking-widest text-nss-muted mb-2">
+                  Stop condition
+                </p>
+
+                <Field label="Stop when">
+                  <select
+                    value={stopMode}
+                    onChange={(event) =>
+                      setStopMode(event.target.value as 'duration' | 'requestBudget')
+                    }
+                    className={CONTROL_BASE}
+                    disabled={!hasSourceNodes}
+                  >
+                    <option value="duration">Duration elapses</option>
+                    <option value="requestBudget">Request budget reached</option>
+                  </select>
+                </Field>
+
+                {stopMode === 'requestBudget' && (
+                  <Field label="Max requests" className="mt-2">
+                    <NumberInput
+                      value={stopMaxRequests}
+                      min={1}
+                      onChange={setStopMaxRequests}
+                      disabled={!hasSourceNodes}
+                    />
+                  </Field>
+                )}
+
+                <p className="mt-1 text-[10px] leading-snug text-nss-muted">
+                  {stopMode === 'requestBudget'
+                    ? 'Runs until exactly this many requests are generated, then drains. The duration above is ignored.'
+                    : 'Runs for the full duration above.'}
+                </p>
+
+                <label className="mt-2 flex items-center justify-between cursor-pointer">
+                  <span className="text-[11px] text-nss-text">
+                    Halt early if a node is saturated (≥100%)
                   </span>
                   <input
                     type="checkbox"
-                    checked={faultEnabled}
-                    disabled={faultTargets.length === 0}
-                    onChange={(event) => toggleFault(event.target.checked)}
-                    className="accent-nss-danger"
+                    checked={haltOnSaturation}
+                    onChange={(event) => setHaltOnSaturation(event.target.checked)}
+                    disabled={!hasSourceNodes}
                   />
                 </label>
-                {faultTargets.length === 0 ? (
+
+                <div className="h-px bg-nss-border my-3" />
+
+                <Field label="Seed" className="mb-3">
+                  <input
+                    type="text"
+                    value={scenario.global.seed}
+                    onChange={(event) => setGlobalField('seed', event.target.value)}
+                    className={CONTROL_BASE}
+                    placeholder="default-seed"
+                  />
+                </Field>
+
+                <div className="h-px bg-nss-border my-3" />
+
+                <p className="text-[10px] font-semibold uppercase tracking-widest text-nss-muted mb-2">
+                  Chaos experiment
+                </p>
+                <div className="mb-3">
+                  <ExperimentSetupSection
+                    entries={experimentEntries}
+                    preview={experimentPreview}
+                    onScenarioChange={onScenarioChange}
+                  />
+                </div>
+
+                {experimentActive ? (
                   <p className="text-[10px] text-nss-muted mb-3">
-                    Add a non-source component to target with a fault.
+                    The experiment schedules its own faults, so the single injected failure below is
+                    not used while an experiment is selected.
                   </p>
                 ) : (
-                  faultEnabled && (
-                    <div className="space-y-2 mb-3">
-                      <Field label="Target">
-                        <select
-                          value={fault.targetId}
-                          onChange={(event) => patchFault({ targetId: event.target.value })}
-                          className={CONTROL_BASE}
-                        >
-                          {(['component', 'location'] as const).map((group) => {
-                            const options = faultTargets.filter(
-                              (target) => (target.group ?? 'component') === group
-                            )
-                            if (options.length === 0) return null
-                            return (
-                              <optgroup
-                                key={group}
-                                label={
-                                  group === 'component'
-                                    ? 'Components'
-                                    : 'Fault domains (fail everything inside)'
-                                }
-                              >
-                                {options.map((target) => (
-                                  <option key={target.id} value={target.id}>
-                                    {target.label}
-                                  </option>
-                                ))}
-                              </optgroup>
-                            )
-                          })}
-                        </select>
-                      </Field>
-                      <Field label="Mode">
-                        <select
-                          value={fault.mode}
-                          onChange={(event) =>
-                            patchFault({ mode: event.target.value as FailureMode })
-                          }
-                          className={CONTROL_BASE}
-                        >
-                          {FAILURE_MODE_OPTIONS.map((option) => (
-                            <option key={option.value} value={option.value}>
-                              {option.label}
-                            </option>
-                          ))}
-                        </select>
-                      </Field>
-                      <div className="grid grid-cols-2 gap-2">
-                        <Field label="Fail at (s)">
-                          <NumberInput
-                            value={fault.atS}
-                            min={0}
-                            onChange={(value) => patchFault({ atS: value })}
-                          />
-                        </Field>
-                        <Field label="Duration (s, 0 = never recovers)">
-                          <NumberInput
-                            value={fault.durationS}
-                            min={0}
-                            onChange={(value) => patchFault({ durationS: value })}
-                          />
-                        </Field>
-                      </div>
-                    </div>
-                  )
+                  <>
+                    <label className="flex items-center justify-between mb-2 cursor-pointer">
+                      <span className="text-[10px] font-semibold uppercase tracking-widest text-nss-muted">
+                        Chaos - inject a failure
+                      </span>
+                      <input
+                        type="checkbox"
+                        checked={faultEnabled}
+                        disabled={faultTargets.length === 0}
+                        onChange={(event) => toggleFault(event.target.checked)}
+                        className="accent-nss-danger"
+                      />
+                    </label>
+                    {faultTargets.length === 0 ? (
+                      <p className="text-[10px] text-nss-muted mb-3">
+                        Add a non-source component to target with a fault.
+                      </p>
+                    ) : (
+                      faultEnabled && (
+                        <div className="space-y-2 mb-3">
+                          <Field label="Target">
+                            <select
+                              value={fault.targetId}
+                              onChange={(event) => patchFault({ targetId: event.target.value })}
+                              className={CONTROL_BASE}
+                            >
+                              {(['component', 'location'] as const).map((group) => {
+                                const options = faultTargets.filter(
+                                  (target) => (target.group ?? 'component') === group
+                                )
+                                if (options.length === 0) return null
+                                return (
+                                  <optgroup
+                                    key={group}
+                                    label={
+                                      group === 'component'
+                                        ? 'Components'
+                                        : 'Fault domains (fail everything inside)'
+                                    }
+                                  >
+                                    {options.map((target) => (
+                                      <option key={target.id} value={target.id}>
+                                        {target.label}
+                                      </option>
+                                    ))}
+                                  </optgroup>
+                                )
+                              })}
+                            </select>
+                          </Field>
+                          <Field label="Mode">
+                            <select
+                              value={fault.mode}
+                              onChange={(event) =>
+                                patchFault({ mode: event.target.value as FailureMode })
+                              }
+                              className={CONTROL_BASE}
+                            >
+                              {FAILURE_MODE_OPTIONS.map((option) => (
+                                <option key={option.value} value={option.value}>
+                                  {option.label}
+                                </option>
+                              ))}
+                            </select>
+                          </Field>
+                          <div className="grid grid-cols-2 gap-2">
+                            <Field label="Fail at (s)">
+                              <NumberInput
+                                value={fault.atS}
+                                min={0}
+                                onChange={(value) => patchFault({ atS: value })}
+                              />
+                            </Field>
+                            <Field label="Duration (s, 0 = never recovers)">
+                              <NumberInput
+                                value={fault.durationS}
+                                min={0}
+                                onChange={(value) => patchFault({ durationS: value })}
+                              />
+                            </Field>
+                          </div>
+                        </div>
+                      )
+                    )}
+                  </>
                 )}
               </>
             )}

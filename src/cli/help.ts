@@ -176,6 +176,7 @@ ${c.bold}Options${c.reset}
   --attempt-id <id>     (question) Stable attempt id on the output contract
   --submission-id <id>  (question) Stable submission id on the output contract
   --evaluated-at <ts>   (question/batch/scenarios) Explicit ISO timestamp
+  --abstraction <level> (question) classroom | architect (default architect)
   --require-pass        (question-batch) Exit 2 when any valid attempt fails
   -h, --help            Show this message
 

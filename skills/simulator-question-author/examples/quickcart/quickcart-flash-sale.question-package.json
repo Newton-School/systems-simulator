@@ -182,6 +182,99 @@
       }
     ]
   },
+  "classroom": {
+    "givens": {
+      "microservice": {
+        "label": "Server",
+        "capacityRps": 100000,
+        "costPerHour": 0.192
+      }
+    },
+    "targets": {
+      "maxUtilization": 0.8,
+      "maxErrorRate": 0.01
+    },
+    "objectives": [
+      {
+        "id": "request-path",
+        "statement": "The student can route incoming traffic through a load balancer.",
+        "concept": "NET-05"
+      },
+      {
+        "id": "capacity-planning",
+        "statement": "The student can choose enough server copies to serve peak traffic with headroom.",
+        "concept": "SC-05"
+      }
+    ],
+    "controls": [
+      {
+        "id": "place-users",
+        "kind": "place-component",
+        "label": "Place the users entry point",
+        "component": "api-endpoint",
+        "objectiveId": "request-path"
+      },
+      {
+        "id": "place-load-balancer",
+        "kind": "place-component",
+        "label": "Place the load balancer",
+        "component": "load-balancer",
+        "objectiveId": "request-path"
+      },
+      {
+        "id": "connect-request-path",
+        "kind": "connect-components",
+        "label": "Connect the request path",
+        "objectiveId": "request-path"
+      },
+      {
+        "id": "place-servers",
+        "kind": "place-component",
+        "label": "Place the server fleet",
+        "component": "microservice",
+        "objectiveId": "capacity-planning"
+      },
+      {
+        "id": "scale-servers",
+        "kind": "copies",
+        "label": "Choose the number of server copies",
+        "component": "microservice",
+        "objectiveId": "capacity-planning"
+      }
+    ],
+    "checks": [
+      {
+        "id": "through-lb",
+        "template": "traffic-flows-through",
+        "via": "load-balancer",
+        "component": "microservice",
+        "label": "All traffic reaches the servers through the load balancer",
+        "objectiveId": "request-path"
+      },
+      {
+        "id": "serves-all",
+        "template": "serves-all-traffic",
+        "label": "Every request is served",
+        "objectiveId": "capacity-planning"
+      },
+      {
+        "id": "headroom",
+        "template": "within-target-utilization",
+        "component": "microservice",
+        "label": "Every server stays at or below 80% utilization",
+        "points": 2,
+        "objectiveId": "capacity-planning"
+      },
+      {
+        "id": "right-size",
+        "template": "right-sized",
+        "component": "microservice",
+        "factor": 1.5,
+        "severity": "feedback",
+        "label": "The fleet isn't much bigger than it needs to be"
+      }
+    ]
+  },
   "author": "Hritvik Mohan",
   "createdAt": "2026-09-21T00:00:00.000Z"
 }
