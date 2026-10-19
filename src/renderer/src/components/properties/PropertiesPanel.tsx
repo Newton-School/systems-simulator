@@ -644,10 +644,12 @@ function RunInspector({
       Boolean(entry.flow && entry.flow.totalAttempted > 0)
     )
     .sort((a, b) => b.flow.totalAttempted - a.flow.totalAttempted)
-  const totalThroughput = Object.values(metricsByNode).reduce(
-    (sum, metric) => sum + (metric.throughput ?? 0),
-    0
-  )
+  // Not a sum over nodes: a request crossing four components would count four times, so a
+  // 177 req/s system read as 530. Use what the system served, or while a run is still live the
+  // busiest node's rate, which is the entry point's.
+  const totalThroughput =
+    results?.summary.throughput ??
+    Object.values(metricsByNode).reduce((max, metric) => Math.max(max, metric.throughput ?? 0), 0)
   const worstNode = runtimeNodes.reduce<(typeof runtimeNodes)[number] | null>((worst, entry) => {
     if (!worst) return entry
     return (entry.metrics.errorRate ?? 0) > (worst.metrics.errorRate ?? 0) ? entry : worst

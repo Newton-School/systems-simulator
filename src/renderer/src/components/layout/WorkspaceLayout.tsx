@@ -111,6 +111,7 @@ import { SimpleEmptyState } from '@renderer/components/canvas/SimpleEmptyState'
 import { QuestionCard } from '@renderer/components/question/QuestionCard'
 import { AddComponentPopover } from '@renderer/components/library/AddComponentPopover'
 import { RunSummaryStrip } from '@renderer/components/simulation/RunSummaryStrip'
+import { useFocusNodeOnCanvas } from '@renderer/components/simulation/useFocusNodeOnCanvas'
 import { summarizeRun } from '@renderer/components/simulation/runSummaryModel'
 import { compileClassroomRun, useClassroomActive } from '@renderer/hooks/useClassroom'
 import { summarizeClassroomRun } from '../../../../engine/classroom/runSummary'
@@ -437,6 +438,7 @@ export const WorkspaceLayout = () => {
     null
   )
   const [questionCardExpanded, setQuestionCardExpanded] = useState(true)
+  const focusNodeOnCanvas = useFocusNodeOnCanvas()
   const questionCardId = activeQuestion?.id
   const hasCanvasNodes = useStore((s) => s.nodes.length > 0)
   const startsEmpty = activeQuestion?.scaffold.type === 'empty'
@@ -1797,7 +1799,7 @@ export const WorkspaceLayout = () => {
               track('details_opened', {})
               setShowResults(true)
             }}
-            onSelectBottleneck={(nodeId) => selectGraphElements({ nodeId })}
+            onSelectBottleneck={focusNodeOnCanvas}
           />
         )}
 
