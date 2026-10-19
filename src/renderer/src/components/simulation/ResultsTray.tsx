@@ -5328,8 +5328,8 @@ export function ResultsTray({
           <div className="flex-1 overflow-y-auto px-4 py-3 space-y-5">
             {topologyEdited && (
               <div className="rounded-md border border-nss-warning/20 bg-nss-warning/10 px-3 py-2 text-xs text-nss-warning">
-                Nodes or connections on the canvas changed since this run. These results describe
-                the topology as it was when it ran - run again to refresh them.
+                Nodes, connections or failure settings on the canvas changed since this run. These
+                results describe the design as it was when it ran - run again to refresh them.
               </div>
             )}
 

@@ -27,6 +27,16 @@ export interface RunSummary {
   bottleneck: string | null
   /** The canvas node behind `bottleneck`, so the strip can select it. */
   bottleneckNodeId: string | null
+  /** What each node with an injected failure did in this run, one sentence per node. */
+  injectedFailureNotes: string[]
+}
+
+/** A node the run was given an injected failure on (Chaos > Inject failure). */
+export interface InjectedFailure {
+  nodeId: string
+  label: string
+  /** 0..1 */
+  rate: number
 }
 
 /** Error rate at or above this reads as a failed run, not just one that needs work. */
@@ -90,13 +100,55 @@ function engineBottleneck(output: SimulationOutput): Bottleneck | null {
   return null
 }
 
+const MAX_INJECTED_NOTES = 3
+
+/**
+ * Say what an injected failure did, because "Passed, 0% errors" is otherwise indistinguishable
+ * from "the setting did nothing": a down node behind health-aware routing gets no traffic, so
+ * the failure shows up as a node going idle, not as errors.
+ */
+function describeInjectedFailures(
+  output: SimulationOutput,
+  injected: readonly InjectedFailure[]
+): string[] {
+  const notes: string[] = []
+  for (const failure of injected) {
+    if (failure.rate <= 0) continue
+    const node = output.perNode[failure.nodeId]
+    if (!node) continue
+    const arrived = node.postWarmupArrived
+    const failed =
+      node.postWarmupRejected + node.postWarmupTimedOut + node.postWarmupConnectionReset
+    const percent = Math.round(failure.rate * 100)
+    const state = failure.rate >= 1 ? 'down' : `failing ${percent}% of requests`
+    if (arrived === 0) {
+      notes.push(
+        failure.rate >= 1
+          ? `${failure.label} is down and got no traffic: its requests were routed elsewhere.`
+          : `${failure.label} is ${state} but got no traffic in this run.`
+      )
+    } else if (failed > 0) {
+      notes.push(
+        `${failure.label} is ${state}: ${failed.toLocaleString()} of ${arrived.toLocaleString()} requests it received failed.`
+      )
+    } else {
+      notes.push(
+        `${failure.label} is ${state}, but none of the ${arrived.toLocaleString()} requests it received failed.`
+      )
+    }
+  }
+  if (notes.length <= MAX_INJECTED_NOTES) return notes
+  return [...notes.slice(0, MAX_INJECTED_NOTES), `and ${notes.length - MAX_INJECTED_NOTES} more`]
+}
+
 /**
  * Collapse a finished run to a verdict, four numbers and one bottleneck sentence: what the
  * collapsed results strip shows before the learner opts into the full tray.
  */
 export function summarizeRun(
   output: SimulationOutput,
-  classroom: ClassroomRunSummary | null
+  classroom: ClassroomRunSummary | null,
+  injected: readonly InjectedFailure[] = []
 ): RunSummary {
   const { summary } = output
   const overTarget = classroom?.components.some((component) => component.overTarget) ?? false
@@ -141,7 +193,8 @@ export function summarizeRun(
     verdict,
     stats,
     bottleneck: bottleneck?.text ?? null,
-    bottleneckNodeId: bottleneck?.nodeId ?? null
+    bottleneckNodeId: bottleneck?.nodeId ?? null,
+    injectedFailureNotes: describeInjectedFailures(output, injected)
   }
 }
 

@@ -1407,7 +1407,14 @@ function findClusterScheduling(
   return undefined
 }
 
-export const PropertiesPanel = ({ results = null }: { results?: SimulationOutput | null }) => {
+export const PropertiesPanel = ({
+  results = null,
+  resultsStale = false
+}: {
+  results?: SimulationOutput | null
+  /** The design (nodes, links or failure settings) changed after these results were produced. */
+  resultsStale?: boolean
+}) => {
   const nodes = useStore((state) => state.nodes)
   const edges = useStore((state) => state.edges)
   const metricsByNode = useStore((state) => state.simulationMetricsByNode)
@@ -1677,6 +1684,14 @@ export const PropertiesPanel = ({ results = null }: { results?: SimulationOutput
         {metrics.hasRuntime && <InspectorTabs active={tab} onChange={setTab} />}
 
         <div className="flex-1 overflow-y-auto custom-scrollbar p-5 bg-nss-panel">
+          {resultsStale && metrics.hasRuntime && tab === 'metrics' && (
+            <div
+              role="status"
+              className="mb-4 rounded-md border border-nss-warning/30 bg-nss-warning/10 px-3 py-2 text-[11px] leading-relaxed text-nss-warning"
+            >
+              These numbers are from before your latest change. Run again to refresh them.
+            </div>
+          )}
           {selectedNodeLocked && (
             <div className="mb-4 flex items-start gap-2 rounded-md border border-nss-warning/30 bg-nss-warning/10 px-3 py-2 text-[11px] leading-relaxed text-nss-warning">
               <Lock size={13} className="mt-0.5 shrink-0" />

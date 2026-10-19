@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import type { SimulationOutput } from '../../../../engine/analysis/output'
 import type { ClassroomRunSummary } from '../../../../engine/classroom/runSummary'
-import { statDelta, summarizeRun, type RunSummaryStat } from './runSummaryModel'
+import {
+  statDelta,
+  summarizeRun,
+  type InjectedFailure,
+  type RunSummaryStat
+} from './runSummaryModel'
 
 function output(overrides: {
   errorRate?: number
@@ -113,5 +118,60 @@ describe('statDelta', () => {
     expect(statDelta(stat('served', 1000, 'higher'), stat('served', 1005, 'higher'))).toBeNull()
     expect(statDelta(stat('p95', null, 'lower'), stat('p95', 10, 'lower'))).toBeNull()
     expect(statDelta(undefined, stat('p95', 10, 'lower'))).toBeNull()
+  })
+})
+
+describe('injected failure notes', () => {
+  const withNode = (stats: Record<string, number>): SimulationOutput =>
+    ({
+      ...output({}),
+      perNode: {
+        a: {
+          nodeLabel: 'API Server A',
+          postWarmupArrived: 0,
+          postWarmupRejected: 0,
+          postWarmupTimedOut: 0,
+          postWarmupConnectionReset: 0,
+          ...stats
+        }
+      }
+    }) as unknown as SimulationOutput
+  const injected = (rate: number): InjectedFailure[] => [
+    { nodeId: 'a', label: 'API Server A', rate }
+  ]
+
+  it('says a down node got no traffic and was routed around', () => {
+    const notes = summarizeRun(withNode({}), null, injected(1)).injectedFailureNotes
+    expect(notes).toEqual([
+      'API Server A is down and got no traffic: its requests were routed elsewhere.'
+    ])
+  })
+
+  it('counts the requests a failing node actually failed', () => {
+    const notes = summarizeRun(
+      withNode({ postWarmupArrived: 1000, postWarmupRejected: 380, postWarmupTimedOut: 20 }),
+      null,
+      injected(0.4)
+    ).injectedFailureNotes
+    expect(notes).toEqual([
+      'API Server A is failing 40% of requests: 400 of 1,000 requests it received failed.'
+    ])
+  })
+
+  it('does not claim failures that never showed up', () => {
+    const notes = summarizeRun(
+      withNode({ postWarmupArrived: 50 }),
+      null,
+      injected(0.4)
+    ).injectedFailureNotes
+    expect(notes[0]).toContain('none of the 50 requests it received failed')
+  })
+
+  it('has no notes without injected failures, and ignores nodes missing from the run', () => {
+    expect(summarizeRun(withNode({}), null, []).injectedFailureNotes).toEqual([])
+    expect(
+      summarizeRun(withNode({}), null, [{ nodeId: 'gone', label: 'Gone', rate: 1 }])
+        .injectedFailureNotes
+    ).toEqual([])
   })
 })

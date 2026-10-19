@@ -1344,9 +1344,18 @@ export const WorkspaceLayout = () => {
   const runSummary = useMemo(
     () =>
       displaySettings.simpleShell && sim.results && sim.status === 'complete'
-        ? summarizeRun(sim.results, classroomSummary)
+        ? summarizeRun(
+            sim.results,
+            classroomSummary,
+            (sim.topology?.nodes ?? []).flatMap((node) => {
+              const rate = Number(node.config?.['nodeErrorRate'])
+              return Number.isFinite(rate) && rate > 0
+                ? [{ nodeId: node.id, label: node.label, rate }]
+                : []
+            })
+          )
         : null,
-    [classroomSummary, displaySettings.simpleShell, sim.results, sim.status]
+    [classroomSummary, displaySettings.simpleShell, sim.results, sim.status, sim.topology]
   )
   // The run before the current one, so the strip can say what changed.
   const [runSummaryHistory, setRunSummaryHistory] = useState<{
@@ -1650,7 +1659,10 @@ export const WorkspaceLayout = () => {
           </Suspense>
         ) : (
           <Suspense fallback={<PanelFallback label="Loading inspector..." />}>
-            <PropertiesPanel results={sim.results} />
+            <PropertiesPanel
+              results={sim.results}
+              resultsStale={resultsTopologyRelation === 'edited'}
+            />
           </Suspense>
         )}
       </div>

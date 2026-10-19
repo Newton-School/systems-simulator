@@ -28,4 +28,23 @@ describe('compareRunGraph', () => {
       'edited'
     )
   })
+
+  it('reports a changed failure setting as an edit, so old results are not shown as current', () => {
+    const healthy = [
+      { id: 'client' },
+      { id: 'api', data: { sim: { nodeErrorRate: 0 } } },
+      { id: 'db' }
+    ]
+    const downed = [
+      { id: 'client' },
+      { id: 'api', data: { sim: { nodeErrorRate: 1 } } },
+      { id: 'db' }
+    ]
+    const healthyRun = snapshotRunGraph(healthy, edges)
+    expect(compareRunGraph(healthyRun, healthy, edges)).toBe('same')
+    expect(compareRunGraph(healthyRun, downed, edges)).toBe('edited')
+    const downedRun = snapshotRunGraph(downed, edges)
+    expect(compareRunGraph(downedRun, healthy, edges)).toBe('edited')
+    expect(compareRunGraph(downedRun, downed, edges)).toBe('same')
+  })
 })

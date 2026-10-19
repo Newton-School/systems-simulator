@@ -1,6 +1,7 @@
 import { memo, useCallback, useMemo } from 'react'
 import { NodeProps } from 'reactflow'
 import { NodeHeader } from '@renderer/components/nodes/NodeHeader'
+import { NodeFailureBadge } from '@renderer/components/nodes/NodeFailureBadge'
 import { NodeSettingsMenu } from '@renderer/components/nodes/NodeSettingsMenu'
 import { StandardNodeData } from '@renderer/types/ui'
 import { resolveNodeConfig } from '@renderer/config/nodeRegistry'
@@ -102,6 +103,7 @@ const StandardNode = ({ id, data, selected }: NodeProps<StandardNodeData>) => {
     >
       {({ isMenuOpen, onMenuClose, onMenuToggle }) => (
         <div className={isInactive ? 'opacity-40 grayscale' : undefined}>
+          <NodeFailureBadge errorRate={data.sim?.nodeErrorRate} className="-top-2 right-3" />
           <NodeHeader
             label={classroomView?.label ?? (data.label || 'Service')}
             icon={IconComponent}

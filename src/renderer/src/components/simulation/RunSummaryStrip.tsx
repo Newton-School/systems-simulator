@@ -103,9 +103,16 @@ export function RunSummaryStrip({
               )}
             </p>
           )}
+          {summary.injectedFailureNotes.length > 0 && (
+            <ul className="space-y-0.5 text-xs text-nss-muted" data-testid="injected-failure-notes">
+              {summary.injectedFailureNotes.map((note) => (
+                <li key={note}>{note}</li>
+              ))}
+            </ul>
+          )}
           {topologyEdited && (
             <p className="text-xs text-nss-warning">
-              The canvas changed since this run. Run again to refresh.
+              The canvas or a failure setting changed since this run. Run again to refresh.
             </p>
           )}
         </>
