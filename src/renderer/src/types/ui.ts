@@ -56,6 +56,11 @@ export interface DisplaySettings {
    * under sticky/shard routing, and scatters under round-robin).
    */
   colorDotsByKey: boolean
+  /**
+   * Simplified shell (progressive disclosure). When true, a finished run shows a compact summary
+   * strip and keeps the full results tray collapsed behind "See details".
+   */
+  simpleShell: boolean
 }
 
 export interface NodeSimulationMetrics {
@@ -267,7 +272,8 @@ export const DEFAULT_DISPLAY_SETTINGS: DisplaySettings = {
   showSpofBadges: true,
   nodeDisplayStyle: 'symbol',
   edgeRoutingStyle: 'straight',
-  colorDotsByKey: false
+  colorDotsByKey: false,
+  simpleShell: false
 }
 
 export function normalizeScenarioState(value: unknown): ScenarioState {

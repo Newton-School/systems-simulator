@@ -101,6 +101,11 @@ import {
 } from '@renderer/components/simulation/chaosExperimentModel'
 import { ExperimentResultPanel } from '@renderer/components/simulation/ChaosExperimentPanel'
 import { ClassroomResultsCard } from '@renderer/components/simulation/ClassroomResultsCard'
+import { SimpleEmptyState } from '@renderer/components/canvas/SimpleEmptyState'
+import { QuestionCard } from '@renderer/components/question/QuestionCard'
+import { AddComponentPopover } from '@renderer/components/library/AddComponentPopover'
+import { RunSummaryStrip } from '@renderer/components/simulation/RunSummaryStrip'
+import { summarizeRun } from '@renderer/components/simulation/runSummaryModel'
 import { compileClassroomRun, useClassroomActive } from '@renderer/hooks/useClassroom'
 import { summarizeClassroomRun } from '../../../../engine/classroom/runSummary'
 import { evaluateExperiment, type ExperimentPlan } from '../../../../engine/scenarios'
@@ -296,7 +301,10 @@ export const WorkspaceLayout = () => {
   useVisualViewportHeight()
 
   // Sidebar State
-  const [isLeftOpen, setIsLeftOpen] = useState(true)
+  // Simple shell starts with the sidebar closed: the task shows as a card over the canvas.
+  const [isLeftOpen, setIsLeftOpen] = useState(
+    () => !useStore.getState().displaySettings.simpleShell
+  )
   const [leftSidebarTab, setLeftSidebarTab] = useState<LibrarySidebarTab>('library')
   const [isRightOpen, setIsRightOpen] = useState(false)
   // The right panel slot shows the inspector or the JSON Topology Viewer (#87).
@@ -346,8 +354,12 @@ export const WorkspaceLayout = () => {
 
   useEffect(() => {
     if (isCompactWorkspace) return
-    if (isLeftOpen) leftPanelRef.current?.expand()
-    else leftPanelRef.current?.collapse()
+    // Deferred a frame so a closed-on-load sidebar wins over the panel group's saved layout.
+    const frame = requestAnimationFrame(() => {
+      if (isLeftOpen) leftPanelRef.current?.expand()
+      else leftPanelRef.current?.collapse()
+    })
+    return () => cancelAnimationFrame(frame)
   }, [isCompactWorkspace, isLeftOpen])
 
   useEffect(() => {
@@ -389,10 +401,36 @@ export const WorkspaceLayout = () => {
   const setRunInspectorPinned = useStore((s) => s.setRunInspectorPinned)
   const routingVisualization = useStore((s) => s.routingStrategyVisualization)
   const setRoutingVisualization = useStore((s) => s.setRoutingStrategyVisualization)
-  const experienceEnvelope = useMemo(
+  const simpleShell = displaySettings.simpleShell
+  const baseExperienceEnvelope = useMemo(
     () => resolveExperienceEnvelope(environmentProfile, activeQuestion),
     [activeQuestion, environmentProfile]
   )
+  // Simple shell moves the component library out of the sidebar and into the Add popover.
+  const experienceEnvelope = useMemo(
+    () =>
+      simpleShell
+        ? {
+            ...baseExperienceEnvelope,
+            allowedTabs: baseExperienceEnvelope.allowedTabs.filter((tab) => tab !== 'library')
+          }
+        : baseExperienceEnvelope,
+    [baseExperienceEnvelope, simpleShell]
+  )
+  const addPopoverAvailable = simpleShell && !baseExperienceEnvelope.canvasLocked
+  const [addPopoverOpen, setAddPopoverOpen] = useState(false)
+  const [questionCardExpanded, setQuestionCardExpanded] = useState(true)
+  const questionCardId = activeQuestion?.id
+  const hasCanvasNodes = useStore((s) => s.nodes.length > 0)
+  const startsEmpty = activeQuestion?.scaffold.type === 'empty'
+  // Re-open the card for each new question; fold it away once the learner starts building
+  // (a pre-filled scaffold keeps it open: the nodes there aren't the learner's own).
+  useEffect(() => {
+    setQuestionCardExpanded(true)
+  }, [questionCardId])
+  useEffect(() => {
+    if (hasCanvasNodes && startsEmpty) setQuestionCardExpanded(false)
+  }, [hasCanvasNodes, questionCardId, startsEmpty])
   const isNewtonAssignmentHost = isNewtonHostMode()
   const canUseTopologyFiles =
     !isNewtonAssignmentHost && environmentProfile.capabilities.canUseTopologyFiles
@@ -516,21 +554,23 @@ export const WorkspaceLayout = () => {
 
   useEffect(() => {
     // The JSON viewer shows the whole design, so it stays open without a selection.
+    // Simple shell has no run-pinned inspector: the summary strip carries the run, and the
+    // inspector shows only for what is selected.
     if (
       !selectedNodeId &&
       !selectedEdgeId &&
-      !runInspectorPinned &&
+      (!runInspectorPinned || simpleShell) &&
       rightPanelViewRef.current !== 'json'
     ) {
       setIsRightOpen(false)
     }
-  }, [runInspectorPinned, selectedNodeId, selectedEdgeId])
+  }, [runInspectorPinned, selectedNodeId, selectedEdgeId, simpleShell])
 
   useEffect(() => {
-    if (runInspectorPinned && !isCompactWorkspace) {
+    if (runInspectorPinned && !isCompactWorkspace && !simpleShell) {
       setIsRightOpen(true)
     }
-  }, [isCompactWorkspace, runInspectorPinned])
+  }, [isCompactWorkspace, runInspectorPinned, simpleShell])
 
   // Selecting an edge opens the inspector on its properties, mirroring how
   // double-clicking a node opens the node config.
@@ -545,12 +585,13 @@ export const WorkspaceLayout = () => {
   // the editable settings immediately instead of requiring an undiscoverable
   // double-click while the graph itself is locked.
   useEffect(() => {
-    if (selectedNodeId && experienceEnvelope.kind === 'LAB') {
+    // Simple shell works the same way: selecting a node is how you configure it.
+    if (selectedNodeId && (experienceEnvelope.kind === 'LAB' || simpleShell)) {
       setRightPanelView('inspector')
       setIsRightOpen(true)
       if (isCompactWorkspace) setIsLeftOpen(false)
     }
-  }, [experienceEnvelope.kind, isCompactWorkspace, selectedNodeId])
+  }, [experienceEnvelope.kind, isCompactWorkspace, selectedNodeId, simpleShell])
 
   useEffect(() => {
     if (isCompactWorkspace && showResults) {
@@ -932,7 +973,7 @@ export const WorkspaceLayout = () => {
     if (!runInspectorPinned && !selectedNodeId && !selectedEdgeId) {
       setRunInspectorPinned(true)
     }
-    if (!isCompactWorkspace) {
+    if (!isCompactWorkspace && !simpleShell) {
       setIsRightOpen(true)
     }
   }, [
@@ -947,12 +988,13 @@ export const WorkspaceLayout = () => {
     setSimulationMetrics,
     sim.results,
     sim.snapshot,
-    sim.status
+    sim.status,
+    simpleShell
   ])
 
   useEffect(() => {
     if (!sim.results) return
-    if (!isCompactWorkspace) {
+    if (!isCompactWorkspace && !simpleShell) {
       setIsRightOpen(true)
     }
     const inFlightByNode = new Map(
@@ -999,7 +1041,7 @@ export const WorkspaceLayout = () => {
     )
 
     setSimulationMetrics(metricsByNode)
-  }, [isCompactWorkspace, sim.results, setSimulationMetrics])
+  }, [isCompactWorkspace, sim.results, setSimulationMetrics, simpleShell])
 
   useEffect(() => {
     if (sim.status === 'idle') {
@@ -1103,7 +1145,8 @@ export const WorkspaceLayout = () => {
     )
     setRunIssues({ messages: [...policyWarnings, ...(validation.warnings ?? [])], tone: 'warning' })
     useStore.getState().recordQuestionRun()
-    setShowResults(displaySettings.autoOpenSimulationTray)
+    // Simple shell keeps the tray collapsed behind the summary strip until asked for.
+    setShowResults(displaySettings.autoOpenSimulationTray && !displaySettings.simpleShell)
     setLastRunContext(contextForRun)
     clearSimulationMetrics()
     const flowStore = useStore.getState()
@@ -1119,11 +1162,12 @@ export const WorkspaceLayout = () => {
     setLastRunGraph(snapshotRunGraph(flowStore.nodes, flowStore.edges))
     runSimulation(topologyToRun)
     flowStore.setRunInspectorPinned(true)
-    setIsRightOpen(!isCompactWorkspace)
+    setIsRightOpen(!isCompactWorkspace && !displaySettings.simpleShell)
   }, [
     activeQuestion,
     clearSimulationMetrics,
     displaySettings.autoOpenSimulationTray,
+    displaySettings.simpleShell,
     environmentProfile,
     isCompactWorkspace,
     scenario,
@@ -1272,6 +1316,13 @@ export const WorkspaceLayout = () => {
     if (!classroomActive || !sim.results || !sim.topology || sim.status !== 'complete') return null
     return summarizeClassroomRun(sim.topology, sim.results, activeQuestion?.classroom)
   }, [activeQuestion, classroomActive, sim.results, sim.status, sim.topology])
+  const runSummary = useMemo(
+    () =>
+      displaySettings.simpleShell && sim.results && sim.status === 'complete'
+        ? summarizeRun(sim.results, classroomSummary)
+        : null,
+    [classroomSummary, displaySettings.simpleShell, sim.results, sim.status]
+  )
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -1309,6 +1360,12 @@ export const WorkspaceLayout = () => {
         const opensLibrarySearch =
           (!isMod && !event.altKey && !event.shiftKey && event.key === '/') ||
           (isMod && !event.altKey && !event.shiftKey && key === 'k')
+        if (opensLibrarySearch && addPopoverAvailable) {
+          event.preventDefault()
+          setAddPopoverOpen(true)
+          setComponentLibrarySearchFocusVersion((version) => version + 1)
+          return
+        }
         if (opensLibrarySearch && experienceEnvelope.allowedTabs.includes('library')) {
           event.preventDefault()
           handleLeftSidebarTabSelect('library')
@@ -1353,7 +1410,11 @@ export const WorkspaceLayout = () => {
       }
 
       if (!event.shiftKey && !event.altKey && key === 'k') {
-        if (experienceEnvelope.allowedTabs.includes('library')) {
+        if (addPopoverAvailable) {
+          event.preventDefault()
+          setAddPopoverOpen(true)
+          setComponentLibrarySearchFocusVersion((version) => version + 1)
+        } else if (experienceEnvelope.allowedTabs.includes('library')) {
           event.preventDefault()
           handleLeftSidebarTabSelect('library')
           setComponentLibrarySearchFocusVersion((version) => version + 1)
@@ -1422,6 +1483,7 @@ export const WorkspaceLayout = () => {
     canUseTerminal,
     environmentProfile.capabilities.canUseSettings,
     experienceEnvelope.allowedTabs,
+    addPopoverAvailable,
     handleAutoLayout,
     handleLeftSidebarTabSelect,
     handleRun,
@@ -1560,6 +1622,30 @@ export const WorkspaceLayout = () => {
           <FlowCanvas
             showMetricLens={environmentProfile.visibility.liveMetrics}
             interactionLocked={experienceEnvelope.canvasLocked}
+            onAddComponent={
+              addPopoverAvailable ? () => setAddPopoverOpen((current) => !current) : undefined
+            }
+            addComponentActive={addPopoverOpen}
+            emptyState={
+              addPopoverAvailable ? (
+                <SimpleEmptyState
+                  onAddComponent={() => {
+                    setAddPopoverOpen(true)
+                    setComponentLibrarySearchFocusVersion((version) => version + 1)
+                  }}
+                  onLoadStarter={
+                    activeQuestion
+                      ? undefined
+                      : () => {
+                          const starter = SAMPLE_SCENARIOS.find(
+                            (sample) => sample.id === 'direct-client-server'
+                          )
+                          if (starter) void handleSampleLoad(starter)
+                        }
+                  }
+                />
+              ) : undefined
+            }
             onNodeDoubleClick={(_, node) => {
               selectGraphElements({ nodeId: node.id })
               setRightPanelView('inspector')
@@ -1576,7 +1662,38 @@ export const WorkspaceLayout = () => {
         </Suspense>
       </ErrorBoundary>
 
-      {!showResults && sim.results && (
+      {simpleShell && activeQuestion && (
+        <QuestionCard
+          question={activeQuestion}
+          expanded={questionCardExpanded}
+          onToggle={() => setQuestionCardExpanded((current) => !current)}
+          onShowFullBrief={() => {
+            setLeftSidebarTab('question')
+            setIsLeftOpen(true)
+          }}
+        />
+      )}
+
+      {addPopoverAvailable && addPopoverOpen && (
+        <AddComponentPopover
+          onClose={() => setAddPopoverOpen(false)}
+          focusSearchVersion={componentLibrarySearchFocusVersion}
+        />
+      )}
+
+      {displaySettings.simpleShell &&
+        !showResults &&
+        (sim.status === 'running' || sim.status === 'paused' || runSummary) && (
+          <RunSummaryStrip
+            summary={runSummary}
+            running={sim.status === 'running' || sim.status === 'paused'}
+            progress={sim.progress}
+            topologyEdited={resultsTopologyRelation === 'edited'}
+            onSeeDetails={() => setShowResults(true)}
+          />
+        )}
+
+      {!displaySettings.simpleShell && !showResults && sim.results && (
         <button
           type="button"
           onClick={() => setShowResults(true)}

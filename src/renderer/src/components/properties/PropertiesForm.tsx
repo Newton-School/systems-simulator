@@ -19,6 +19,7 @@ import { Input } from '../ui/Input'
 import { Label } from '../ui/Label'
 import { Select } from '../ui/Select'
 import { FormField } from './FormField'
+import { InspectorDisclosure } from './InspectorDisclosure'
 import { getPathValue } from '@renderer/utils/nodeFieldEdit'
 import { RequestDistributionEditor } from './RequestDistributionEditor'
 import { TrafficOriginsEditor } from './TrafficOriginsEditor'
@@ -134,6 +135,7 @@ export const PropertiesForm = ({
   executionProfileEnabled = true,
   lockedFieldReason
 }: PropertiesFormProps) => {
+  const simpleShell = useStore((state) => state.displaySettings.simpleShell)
   const effectiveSourceWorkload = useEffectiveSourceWorkload(nodeId, data)
   const effectiveSelectedSourceNodeId = useStore((state) =>
     resolveEffectiveSelectedSourceNodeId(
@@ -164,6 +166,10 @@ export const PropertiesForm = ({
       })),
     [executionProfileEnabled, sections]
   )
+  // The first section that renders anything is the basics; simple shell opens only that one.
+  const firstSectionId = visibleSections.find(
+    (section) => section.fields.length > 0 || section.note
+  )?.id
   const routingStrategy = getRoutingStrategy(data)
   const isRoutingVisualizationActive = routingVisualization?.sourceNodeId === nodeId
   const [expandedOptionalFields, setExpandedOptionalFields] = useState<Set<FieldPath>>(new Set())
@@ -445,11 +451,9 @@ export const PropertiesForm = ({
 
           const sectionLocked = resourcesLocked && RESOURCE_SECTION_IDS.has(section.id)
 
-          return (
-            <section key={section.id} className="space-y-4">
-              <h3 className="text-[10px] font-bold uppercase tracking-widest text-nss-muted">
-                {section.title}
-              </h3>
+          const Wrapper = simpleShell ? InspectorDisclosure : null
+          const body = (
+            <>
               <div className="rounded-lg border border-nss-border bg-nss-surface px-4 py-3">
                 {sectionLocked && (
                   <p className="mb-4 rounded-md border border-nss-warning/20 bg-nss-warning/10 px-3 py-2 text-[11px] font-medium leading-relaxed text-nss-warning">
@@ -488,6 +492,24 @@ export const PropertiesForm = ({
                   )}
                 </fieldset>
               </div>
+            </>
+          )
+
+          // Simple shell: the first section is the basics; the rest fold away until asked for.
+          return Wrapper ? (
+            <Wrapper
+              key={section.id}
+              title={section.title}
+              defaultOpen={section.id === firstSectionId}
+            >
+              {body}
+            </Wrapper>
+          ) : (
+            <section key={section.id} className="space-y-4">
+              <h3 className="text-[10px] font-bold uppercase tracking-widest text-nss-muted">
+                {section.title}
+              </h3>
+              {body}
             </section>
           )
         })
