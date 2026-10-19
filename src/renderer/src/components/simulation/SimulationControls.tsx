@@ -352,11 +352,12 @@ export function SimulationControls({
           {isPostRun && (
             <button
               onClick={onReset}
+              aria-label="Reset"
               title="Clear results and return to setup"
               className={`${ACTION_BUTTON_BASE} flex items-center gap-1.5 bg-nss-surface text-nss-text border-nss-border hover:bg-nss-bg`}
             >
               <RotateCcw size={12} />
-              Reset
+              {separateRun ? <span className="nss-desktop-only">Reset</span> : 'Reset'}
             </button>
           )}
           {separateRun ? (
@@ -366,11 +367,12 @@ export function SimulationControls({
                 onClick={() => setIsOpen((prev) => !prev)}
                 disabled={disabled}
                 aria-expanded={isOpen}
+                aria-label="Workload"
                 title={workloadSummary ?? 'Workload'}
                 className={`${ACTION_BUTTON_BASE} flex items-center gap-1.5 bg-nss-surface text-nss-text border-nss-border hover:bg-nss-bg`}
               >
                 <SlidersHorizontal size={12} />
-                Workload
+                <span className="nss-desktop-only">Workload</span>
                 {workloadSummary && (
                   <span className="nss-desktop-only font-normal text-nss-muted">
                     {workloadSummary}
@@ -381,10 +383,12 @@ export function SimulationControls({
                 type="button"
                 onClick={onRun}
                 disabled={disabled || !hasSourceNodes || experimentBlocked}
+                aria-label={isPostRun ? 'Run again' : 'Run'}
                 className={`${ACTION_BUTTON_BASE} flex items-center gap-1.5 bg-nss-primary text-white border-transparent hover:bg-nss-primary-hover`}
               >
                 <Play size={12} className="fill-white" />
-                {isPostRun ? 'Run again' : 'Run'}
+                Run
+                {isPostRun ? <span className="nss-desktop-only">&nbsp;again</span> : null}
               </button>
             </>
           ) : (

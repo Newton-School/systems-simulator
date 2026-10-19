@@ -5,6 +5,10 @@ import { useLibraryCatalog } from '@renderer/hooks/useLibraryCatalog'
 import { buildAddPopoverModel } from '@renderer/config/addPopoverModel'
 import type { CatalogItem } from '@renderer/types/ui'
 import { LibraryItem } from './LibraryItem'
+import { BUILDER_TEMPLATE_MODES } from './builderEntries'
+import type { DefinitionBuilderMode } from './CustomDefinitionCreator'
+import { useBuilderPolicy } from '@renderer/hooks/useBuilderPolicy'
+import { builderAvailability } from '../../../../engine/analysis/builderPolicy'
 
 const SECTION_LABEL = 'px-1 text-[10px] font-bold uppercase tracking-widest text-nss-muted'
 
@@ -15,9 +19,12 @@ const SECTION_LABEL = 'px-1 text-[10px] font-bold uppercase tracking-widest text
  */
 export function AddComponentPopover({
   onClose,
+  onOpenBuilder,
   focusSearchVersion = 0
 }: {
   onClose: () => void
+  /** Open a definition builder. The caller owns the builder dialog so it outlives this popover. */
+  onOpenBuilder: (mode: DefinitionBuilderMode) => void
   focusSearchVersion?: number
 }): React.JSX.Element {
   const [query, setQuery] = useState('')
@@ -28,8 +35,18 @@ export function AddComponentPopover({
   const setPendingNodePlacement = useStore((state) => state.setPendingNodePlacement)
 
   const { categories: common } = useLibraryCatalog('', 'common')
-  const { categories: all, curated } = useLibraryCatalog(query, 'all')
+  const { categories: all, curated } = useLibraryCatalog('', 'all')
   const model = buildAddPopoverModel({ common, all, curated, query })
+  const builderPolicy = useBuilderPolicy()
+  // Why a builder is unavailable under the question's builder policy (undefined = usable).
+  const builderDisabledReason = (templateId: string): string | undefined => {
+    const mode = BUILDER_TEMPLATE_MODES[templateId]
+    if (!mode || !builderPolicy.restrictive) return undefined
+    return builderAvailability(builderPolicy.policy, mode, {
+      definitionCount: builderPolicy.entries.length,
+      locked: builderPolicy.locked
+    }).reason
+  }
 
   useEffect(() => {
     searchRef.current?.focus()
@@ -68,7 +85,8 @@ export function AddComponentPopover({
     </div>
   )
 
-  const nothing = model.suggested.length === 0 && model.categories.length === 0
+  const nothing =
+    model.suggested.length === 0 && model.categories.length === 0 && model.builders.length === 0
 
   return (
     <div
@@ -76,7 +94,7 @@ export function AddComponentPopover({
       role="dialog"
       aria-label="Add component"
       data-testid="add-component-popover"
-      className="absolute bottom-36 left-14 z-40 flex max-h-[min(30rem,calc(100%-10rem))] w-80 max-w-[calc(100%-4rem)] flex-col gap-2 overflow-hidden rounded-lg border border-nss-border bg-nss-panel p-2 shadow-xl"
+      className="nss-add-popover absolute bottom-36 left-14 z-40 flex max-h-[min(30rem,calc(100%-10rem))] w-80 max-w-[calc(100%-4rem)] flex-col gap-2 overflow-hidden rounded-lg border border-nss-border bg-nss-panel p-2 shadow-xl"
     >
       <div className="relative shrink-0">
         <Search
@@ -129,6 +147,28 @@ export function AddComponentPopover({
                 </div>
               )
             })}
+          </section>
+        )}
+
+        {model.builders.length > 0 && (
+          <section className="space-y-1">
+            <h3 className={SECTION_LABEL}>Build your own</h3>
+            <div className="grid grid-cols-4 gap-1">
+              {model.builders.map((item) => (
+                <LibraryItem
+                  key={item.id}
+                  item={item}
+                  draggableItem={false}
+                  disabledReason={builderDisabledReason(item.templateId)}
+                  onActivate={(picked) => {
+                    const mode = BUILDER_TEMPLATE_MODES[picked.templateId]
+                    if (!mode) return
+                    onClose()
+                    onOpenBuilder(mode)
+                  }}
+                />
+              ))}
+            </div>
           </section>
         )}
 

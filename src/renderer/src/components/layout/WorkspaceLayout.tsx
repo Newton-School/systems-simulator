@@ -101,6 +101,11 @@ import {
 } from '@renderer/components/simulation/chaosExperimentModel'
 import { ExperimentResultPanel } from '@renderer/components/simulation/ChaosExperimentPanel'
 import { ClassroomResultsCard } from '@renderer/components/simulation/ClassroomResultsCard'
+import type { DefinitionBuilderMode } from '@renderer/components/library/CustomDefinitionCreator'
+import { CommandPalette } from './CommandPalette'
+import type { PaletteCommand } from './commandPaletteModel'
+import { useLibraryCatalog } from '@renderer/hooks/useLibraryCatalog'
+import { BUILDER_TEMPLATE_IDS } from '@renderer/config/catalogFilter'
 import { SimpleEmptyState } from '@renderer/components/canvas/SimpleEmptyState'
 import { QuestionCard } from '@renderer/components/question/QuestionCard'
 import { AddComponentPopover } from '@renderer/components/library/AddComponentPopover'
@@ -129,6 +134,11 @@ const LEFT_LIBRARY_MAX_SIZE = 25
 const PropertiesPanel = lazy(async () => {
   const module = await import('../properties/PropertiesPanel')
   return { default: module.PropertiesPanel }
+})
+
+const CustomDefinitionCreator = lazy(async () => {
+  const module = await import('@renderer/components/library/CustomDefinitionCreator')
+  return { default: module.CustomDefinitionCreator }
 })
 
 const ResultsTray = lazy(async () => {
@@ -419,6 +429,10 @@ export const WorkspaceLayout = () => {
   )
   const addPopoverAvailable = simpleShell && !baseExperienceEnvelope.canvasLocked
   const [addPopoverOpen, setAddPopoverOpen] = useState(false)
+  const [paletteOpen, setPaletteOpen] = useState(false)
+  const [definitionBuilderMode, setDefinitionBuilderMode] = useState<DefinitionBuilderMode | null>(
+    null
+  )
   const [questionCardExpanded, setQuestionCardExpanded] = useState(true)
   const questionCardId = activeQuestion?.id
   const hasCanvasNodes = useStore((s) => s.nodes.length > 0)
@@ -1323,6 +1337,21 @@ export const WorkspaceLayout = () => {
         : null,
     [classroomSummary, displaySettings.simpleShell, sim.results, sim.status]
   )
+  // The run before the current one, so the strip can say what changed.
+  const [runSummaryHistory, setRunSummaryHistory] = useState<{
+    results: typeof sim.results
+    current: typeof runSummary
+    previous: typeof runSummary
+  }>({ results: null, current: null, previous: null })
+  useEffect(() => {
+    if (!runSummary) return
+    // Keyed on the run's output, so recomputing the same run's summary never counts as a new run.
+    setRunSummaryHistory((history) =>
+      history.results === sim.results
+        ? { ...history, current: runSummary }
+        : { results: sim.results, current: runSummary, previous: history.current }
+    )
+  }, [runSummary, sim.results])
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -1360,7 +1389,7 @@ export const WorkspaceLayout = () => {
         const opensLibrarySearch =
           (!isMod && !event.altKey && !event.shiftKey && event.key === '/') ||
           (isMod && !event.altKey && !event.shiftKey && key === 'k')
-        if (opensLibrarySearch && addPopoverAvailable) {
+        if (opensLibrarySearch && !isMod && addPopoverAvailable) {
           event.preventDefault()
           setAddPopoverOpen(true)
           setComponentLibrarySearchFocusVersion((version) => version + 1)
@@ -1410,10 +1439,9 @@ export const WorkspaceLayout = () => {
       }
 
       if (!event.shiftKey && !event.altKey && key === 'k') {
-        if (addPopoverAvailable) {
+        if (simpleShell) {
           event.preventDefault()
-          setAddPopoverOpen(true)
-          setComponentLibrarySearchFocusVersion((version) => version + 1)
+          setPaletteOpen(true)
         } else if (experienceEnvelope.allowedTabs.includes('library')) {
           event.preventDefault()
           handleLeftSidebarTabSelect('library')
@@ -1484,6 +1512,7 @@ export const WorkspaceLayout = () => {
     environmentProfile.capabilities.canUseSettings,
     experienceEnvelope.allowedTabs,
     addPopoverAvailable,
+    simpleShell,
     handleAutoLayout,
     handleLeftSidebarTabSelect,
     handleRun,
@@ -1677,6 +1706,7 @@ export const WorkspaceLayout = () => {
       {addPopoverAvailable && addPopoverOpen && (
         <AddComponentPopover
           onClose={() => setAddPopoverOpen(false)}
+          onOpenBuilder={setDefinitionBuilderMode}
           focusSearchVersion={componentLibrarySearchFocusVersion}
         />
       )}
@@ -1686,10 +1716,12 @@ export const WorkspaceLayout = () => {
         (sim.status === 'running' || sim.status === 'paused' || runSummary) && (
           <RunSummaryStrip
             summary={runSummary}
+            previous={runSummaryHistory.previous}
             running={sim.status === 'running' || sim.status === 'paused'}
             progress={sim.progress}
             topologyEdited={resultsTopologyRelation === 'edited'}
             onSeeDetails={() => setShowResults(true)}
+            onSelectBottleneck={(nodeId) => selectGraphElements({ nodeId })}
           />
         )}
 
@@ -1763,6 +1795,135 @@ export const WorkspaceLayout = () => {
     setIsRightOpen(next)
     if (next && isCompactWorkspace) setIsLeftOpen(false)
   }
+
+  const updateDisplaySettings = useStore((s) => s.updateDisplaySettings)
+  const { categories: paletteCatalog } = useLibraryCatalog('', 'all')
+  const setPendingNodePlacement = useStore((s) => s.setPendingNodePlacement)
+  const paletteCommands: PaletteCommand[] = !paletteOpen
+    ? []
+    : [
+        ...(isRunning || isPaused
+          ? [
+              {
+                id: 'stop',
+                title: 'Stop simulation',
+                group: 'Run',
+                run: () => {
+                  sim.stop()
+                  setRunIssues({ messages: [], tone: 'warning' })
+                }
+              }
+            ]
+          : [
+              {
+                id: 'run',
+                title: isPostRun ? 'Run again' : 'Run simulation',
+                group: 'Run',
+                keywords: 'start simulate',
+                run: handleRun
+              }
+            ]),
+        ...(isPostRun
+          ? [
+              {
+                id: 'reset-run',
+                title: 'Reset run',
+                group: 'Run',
+                keywords: 'clear results',
+                run: handleResetRun
+              }
+            ]
+          : []),
+        ...(sim.results
+          ? [
+              {
+                id: 'results-details',
+                title: showResults ? 'Hide result details' : 'Show result details',
+                group: 'Results',
+                keywords: 'tray metrics bottlenecks traces events failures traffic',
+                run: () => setShowResults((current) => !current)
+              }
+            ]
+          : []),
+        ...(addPopoverAvailable
+          ? [
+              {
+                id: 'add-component',
+                title: 'Add component…',
+                group: 'Add component',
+                keywords: 'library node palette',
+                run: () => {
+                  setAddPopoverOpen(true)
+                  setComponentLibrarySearchFocusVersion((version) => version + 1)
+                }
+              },
+              ...paletteCatalog
+                .flatMap((category) => category.items)
+                .filter((item) => !BUILDER_TEMPLATE_IDS.has(item.templateId))
+                .map((item) => ({
+                  id: `add-${item.id}`,
+                  title: `Add ${item.label}`,
+                  group: 'Add component',
+                  keywords: item.subLabel,
+                  run: () =>
+                    setPendingNodePlacement({
+                      type: item.type,
+                      templateId: item.templateId,
+                      label: item.label
+                    })
+                }))
+            ]
+          : []),
+        ...(canUseTopologyFiles
+          ? [
+              { id: 'open', title: 'Open file…', group: 'File', run: handleOpen },
+              { id: 'save', title: 'Save design', group: 'File', run: handleSave }
+            ]
+          : []),
+        {
+          id: 'auto-layout',
+          title: 'Auto layout',
+          group: 'Canvas',
+          keywords: 'arrange tidy',
+          run: handleAutoLayout
+        },
+        {
+          id: 'samples',
+          title: 'Open a sample scenario…',
+          group: 'Learn',
+          keywords: 'example starter',
+          run: () => setShowSamples(true)
+        },
+        { id: 'toggle-left', title: 'Toggle sidebar', group: 'View', run: toggleLeft },
+        { id: 'toggle-right', title: 'Toggle inspector', group: 'View', run: toggleRight },
+        {
+          id: 'theme',
+          title: 'Toggle light or dark theme',
+          group: 'View',
+          keywords: 'dark light mode',
+          run: () =>
+            updateDisplaySettings((current) => ({
+              ...current,
+              theme: current.theme === 'dark' ? 'light' : 'dark'
+            }))
+        },
+        {
+          id: 'shortcuts',
+          title: 'Show keyboard shortcuts',
+          group: 'Learn',
+          run: () => setShowShortcuts(true)
+        },
+        ...(environmentProfile.capabilities.canUseSettings
+          ? [
+              {
+                id: 'settings',
+                title: 'Open settings',
+                group: 'App',
+                run: () => setSettingsOpenRequestVersion((version) => version + 1)
+              }
+            ]
+          : [])
+      ]
 
   return (
     <div
@@ -1945,6 +2106,19 @@ export const WorkspaceLayout = () => {
           onLoad={handleSampleLoad}
           onClose={() => setShowSamples(false)}
         />
+      )}
+
+      {definitionBuilderMode && (
+        <Suspense fallback={null}>
+          <CustomDefinitionCreator
+            mode={definitionBuilderMode}
+            onClose={() => setDefinitionBuilderMode(null)}
+          />
+        </Suspense>
+      )}
+
+      {simpleShell && paletteOpen && (
+        <CommandPalette commands={paletteCommands} onClose={() => setPaletteOpen(false)} />
       )}
 
       {showShortcuts && <ShortcutsModal onClose={() => setShowShortcuts(false)} />}

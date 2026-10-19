@@ -1,6 +1,7 @@
 # Progressive Disclosure & Deliberate Abstraction — UI Spec
 
-Status: proposal (no code changed). Goal: cut first-screen cognitive load. Reference model: Whimsical — a
+Status: implemented behind the `simpleShell` display setting (Settings > Display > "Simple layout
+(beta)", off by default); see section 10 for what shipped and what is left. Goal: cut first-screen cognitive load. Reference model: Whimsical — a
 near-empty canvas, one slim tool rail, and everything else categorised behind a menu, a panel or a
 keystroke.
 
@@ -128,7 +129,7 @@ Rules:
 - After the first placed node, the popover closes; **contextual add** (`ContextualAddPicker`, already
   in the codebase) offers "what usually connects next" from the selected node — this is the main way
   to grow a diagram.
-- Node *display* is abstracted too: symbols by default (already done), properties hidden until selected.
+- Node _display_ is abstracted too: symbols by default (already done), properties hidden until selected.
 
 ## 5. Stage-by-stage: what is present when
 
@@ -284,7 +285,7 @@ AFTER (4 items + title)
 5. **One primary action per stage.** S0: add a node. S1: Run. S3: fix the bottleneck. Style it as the
    only filled button.
 6. **Verdict before data.** Every results view opens on one sentence + one number.
-7. **Progressive reveal of the *product*, too.** After the user's 3rd successful run, show a one-time
+7. **Progressive reveal of the _product_, too.** After the user's 3rd successful run, show a one-time
    hint for Workload/Failure tests ("Try breaking it"). Features are introduced when they become useful.
 8. **Remember the user.** Persist the last open accordion/tab state; experts who open Advanced once
    keep it open (per-user preference, L3 "Always show advanced").
@@ -296,24 +297,44 @@ AFTER (4 items + title)
 `Cmd/Ctrl+K` lists every action by plain name: "Open file", "Auto layout", "Add cache", "Run with
 failure test", "Show request traces", "Toggle theme". This is what makes aggressive hiding safe.
 
-## 10. Implementation map (for later)
+## 10. Implementation status
 
-| Change                                                                                                           | Files                                                                                                                                             | Size |
-| ---------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ---- |
-| Slim header (title, Run, `...`)                                                                                  | `layout/Header.tsx`, new `layout/HeaderMenu.tsx`, `simulation/SimulationControls.tsx`                                                             | M    |
-| Separate Run button and Workload button + popover (tray content moves into the popover, extras under "Advanced") | `simulation/SimulationControls.tsx` split into `RunButton` and `WorkloadPopover`                                                                  | M    |
-| Library -> Add popover, suggested set                                                                            | `library/LibrarySidebar.tsx`, `ComponentLibrarySidebarPanel.tsx`, `engine/catalog/paletteTemplates.ts`, question schema (`recommendedComponents`) | L    |
-| Question card replaces sidebar tab                                                                               | new `question/QuestionCard.tsx`, `WorkspaceLayout.tsx`                                                                                            | M    |
-| Rail trimmed to 5 + More                                                                                         | `canvas/CanvasToolbar.tsx`                                                                                                                        | S    |
-| Empty-state ghost hint + starter                                                                                 | `canvas/FlowCanvas.tsx`                                                                                                                           | S    |
-| Inspector on-selection, accordions collapsed                                                                     | `properties/PropertiesPanel.tsx`, `ClassroomInspector.tsx`                                                                                        | M    |
-| Summary strip + 4-tab details                                                                                    | `simulation/ResultsTray.tsx` (7 -> 4 tabs), `ClassroomResultsCard.tsx`                                                                            | L    |
-| Command palette                                                                                                  | new `layout/CommandPalette.tsx`                                                                                                                   | M    |
+Everything below is behind `displaySettings.simpleShell` (default `false`), so nothing changes for
+students until it is turned on. PRs: #300 (first six rows), then "part 2".
 
-Suggested order: **(1) results summary strip, (2) header, (3) Add popover, (4) question card,
-(5) inspector, (6) empty state, (7) command palette.** Each is independently shippable behind a flag
-(e.g. `simpleShell`), defaulting on for Classroom mode and off for Author mode, so authors keep the
-dense UI.
+| Spec item                                                 | Status | Where                                                                                        |
+| --------------------------------------------------------- | ------ | -------------------------------------------------------------------------------------------- |
+| Run summary strip, collapsed tray ("See details")         | Done   | `simulation/RunSummaryStrip.tsx`, `runSummaryModel.ts`                                       |
+| Header: Run and Workload as separate buttons, `...` menu  | Done   | `layout/Header.tsx`, `HeaderMenu.tsx`, `simulation/SimulationControls.tsx` (`separateRun`)   |
+| Add popover (suggested row, collapsed categories, search) | Done   | `library/AddComponentPopover.tsx`, `config/addPopoverModel.ts`, `hooks/useLibraryCatalog.ts` |
+| Question card replaces the sidebar tab                    | Done   | `question/QuestionCard.tsx`, `questionCardModel.ts`                                          |
+| Empty state: Add component, Load starter diagram          | Done   | `canvas/SimpleEmptyState.tsx`                                                                |
+| Inspector on selection, sections folded                   | Done   | `WorkspaceLayout.tsx`, `properties/InspectorDisclosure.tsx`, `PropertiesForm.tsx`            |
+| Results regrouped into 4 tabs                             | Done   | `simulation/resultsTabGroups.ts`, `ResultsTray.tsx`                                          |
+| Command palette (`Cmd/Ctrl+K`)                            | Done   | `layout/CommandPalette.tsx`, `commandPaletteModel.ts`                                        |
+| Rail trimmed, Undo/Redo/node style under More             | Done   | `canvas/CanvasToolbar.tsx`                                                                   |
+| Floating Duplicate / Delete above a selected node         | Done   | `canvas/NodeMiniBar.tsx`, `canvas/utils/duplicateNode.ts`                                    |
+| Builders (Service, Custom Node) in the Add popover        | Done   | `library/AddComponentPopover.tsx`, `library/builderEntries.ts`                               |
+| Strip: Show on canvas, change since previous run          | Done   | `RunSummaryStrip.tsx`, `runSummaryModel.ts` (`statDelta`)                                    |
+| Phone widths                                              | Done   | `assets/main.css` compact rules, `Header.tsx`                                                |
+
+Deviations from the plan above:
+
+- The theme toggle stays in the header on desktop (it also applies the saved theme on load); on
+  phones it moves into the `...` menu.
+- The sidebar stays (Question, Scenarios, Labs); only the Component Library tab moved to the popover.
+  Blueprints are already hidden app-wide, so there is no Templates section.
+- The inspector's sections are the existing config-driven sections, not literally
+  Basics / Behaviour / Advanced; the first one opens and the rest fold.
+- The mini-bar has Duplicate and Delete only (no "Link").
+- `/` opens the Add popover and `Cmd/Ctrl+K` opens the command palette.
+
+Not built:
+
+- "Try: add a cache" suggestion chip in the strip (needs rules and wording).
+- Making `simpleShell` the default (a student-facing change that needs sign-off and a contract-test
+  update; suggested rollout is Classroom first).
+- Measurement for section 11.
 
 ## 11. How we will know it worked
 

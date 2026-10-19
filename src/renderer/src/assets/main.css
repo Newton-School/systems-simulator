@@ -238,6 +238,10 @@
     padding-inline: 0.75rem;
   }
 
+  .nss-branding-logo-only .nss-branding-compact {
+    display: none;
+  }
+
   .nss-app-header .nss-touch-target {
     min-width: 2rem;
     min-height: 2rem;
@@ -289,6 +293,13 @@
 
   .nss-results-reopen {
     bottom: max(4.5rem, calc(env(safe-area-inset-bottom, 0px) + 4rem)) !important;
+  }
+
+  .nss-add-popover {
+    bottom: max(4.5rem, calc(env(safe-area-inset-bottom, 0px) + 4rem)) !important;
+    left: 0.5rem !important;
+    width: calc(100% - 1rem) !important;
+    max-width: none !important;
   }
 
   .nss-results-tabs-bar {
