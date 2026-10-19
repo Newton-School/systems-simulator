@@ -8,6 +8,7 @@ import { useClassroomNodeView } from '@renderer/hooks/useClassroom'
 import type { StandardNodeData } from '@renderer/types/ui'
 import { NODE_OFFSETS, NODE_POSITIONS } from './nodeConstants'
 import { NodeSymbol } from './symbols/NodeSymbol'
+import { NodeFailureBadge } from './NodeFailureBadge'
 
 const SYMBOL_SIZE = 72
 
@@ -45,7 +46,13 @@ const SymbolNode = ({ id, data, selected }: NodeProps<StandardNodeData>) => {
         }`}
         style={{ width: SYMBOL_SIZE + 8, height: SYMBOL_SIZE + 8 }}
       >
-        <NodeSymbol templateId={data.templateId} size={SYMBOL_SIZE} />
+        <div className={(data.sim?.nodeErrorRate ?? 0) >= 1 ? 'opacity-45 grayscale' : undefined}>
+          <NodeSymbol templateId={data.templateId} size={SYMBOL_SIZE} />
+        </div>
+        <NodeFailureBadge
+          errorRate={data.sim?.nodeErrorRate}
+          className="-top-2 left-1/2 -translate-x-1/2"
+        />
 
         {NODE_POSITIONS.map((pos) => (
           <React.Fragment key={pos}>
