@@ -474,7 +474,9 @@ export class SimulationEngine {
       // idle feature grades as 0 and an absent one stays unresolved.
       const featureSeeds = featureCounterSeeds(normalized, resolvedTraits)
       if (featureSeeds) this.metrics.recordNodeTraitCounters(node.id, featureSeeds)
-      this.nodes.set(node.id, new GGcKNode(normalized, this.distributions, scheduler))
+      const runtimeNode = new GGcKNode(normalized, this.distributions, scheduler)
+      runtimeNode.setWarmupUs(msToMicro(Math.max(0, topology.global.warmupDuration)))
+      this.nodes.set(node.id, runtimeNode)
       // Report limits against the DERIVED effective c/K (what the node actually
       // ran with), not the vestigial authored queue — so utilization, saturation
       // "workers avg", and node metrics all divide by the real concurrency.
@@ -3604,6 +3606,7 @@ export class SimulationEngine {
     const horizonUs =
       earlyEndUs ??
       (this.clock < this.simulationDurationUs ? this.simulationDurationUs : this.clock)
+    const warmupUs = msToMicro(Math.max(0, this.topology.global.warmupDuration))
     for (const [nodeId, node] of this.nodes) {
       node.finalizeUtilization(horizonUs)
       const workers = this.nodeLimitsById.get(nodeId)?.workers ?? 1
@@ -3614,6 +3617,11 @@ export class SimulationEngine {
         node.getCapacityAreaUs(),
         node.getCpuBusyAreaUs(),
         node.getCoreAreaUs()
+      )
+      this.metrics.recordNodeInSystemArea(
+        nodeId,
+        node.getInSystemAreaPostWarmupUs(),
+        horizonUs > warmupUs ? horizonUs - warmupUs : 0n
       )
     }
 

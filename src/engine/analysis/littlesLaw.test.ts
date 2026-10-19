@@ -1,8 +1,7 @@
 /**
- * Known issues in the Little's Law check, pinned with `it.fails`: each test states the CORRECT
- * expectation and currently fails, so this file passes today. When one of the issues is fixed its
- * test starts passing, `it.fails` turns red, and the marker should be removed (the test then
- * guards the fix). See docs/engine-probe-findings.md.
+ * Little's Law check (L = lambda x W) against known queueing results. Two bugs used to be pinned
+ * here: lambda counted rejected arrivals, and L was a point-sampled average that aliased with
+ * regular arrivals. See docs/engine-probe-findings.md.
  */
 import { describe, expect, it } from 'vitest'
 import type { ComponentNode, TopologyJSON } from '../core/types'
@@ -84,27 +83,22 @@ describe("Little's Law check: known issues", () => {
     expect(node.avgQueueWait).toBeLessThan(27)
   })
 
-  // Little's Law holds for the requests the node ADMITS. The check uses every arrival, rejected
-  // ones included, so an overloaded finite buffer is reported as a violation although the node is
+  // Little's Law holds for the requests the node ADMITS, so an overloaded finite buffer is
   // consistent (observed L = 5 against 5 slots; admitted rate x time in system is about 4.7).
-  it.fails(
-    'does not flag a consistent overloaded node: lambda must exclude rejected arrivals',
-    () => {
-      const { littles } = run({
-        capacity: 5,
-        rps: 300,
-        pattern: 'constant',
-        durationMs: 4_000,
-        warmupMs: 500
-      })
-      expect(littles.withinTolerance).toBe(true)
-    }
-  )
+  it('does not flag a consistent overloaded node: lambda must exclude rejected arrivals', () => {
+    const { littles } = run({
+      capacity: 5,
+      rps: 300,
+      pattern: 'constant',
+      durationMs: 4_000,
+      warmupMs: 500
+    })
+    expect(littles.withinTolerance).toBe(true)
+  })
 
-  // L is a point-sampled average of snapshots, not a time integral. With constant arrivals every
-  // snapshot lands between jobs and sees an empty system, so L reads 0 while utilization is 0.5.
-  // The check still passes only because of its `absoluteError <= 0.5` guard.
-  it.fails('measures L as a time average: half-busy server has L of about 0.5', () => {
+  // L is a time integral. With constant arrivals a point-sampled average sees an empty system
+  // every time, so L read 0 while utilization was 0.5.
+  it('measures L as a time average: half-busy server has L of about 0.5', () => {
     const { node, littles } = run({
       capacity: 10,
       rps: 50,
@@ -115,5 +109,54 @@ describe("Little's Law check: known issues", () => {
     expect(node.utilization).toBeGreaterThan(0.45)
     expect(littles.observedL).toBeGreaterThan(0.4)
     expect(littles.observedL).toBeLessThan(0.6)
+  })
+
+  it('does not flag a server with no waiting room (K = 1) under overload', () => {
+    const { littles } = run({
+      capacity: 1,
+      rps: 150,
+      pattern: 'poisson',
+      durationMs: 20_000,
+      warmupMs: 1_000
+    })
+    expect(littles.withinTolerance).toBe(true)
+    // About 60 admitted per second x 10 ms of service = 0.6 in the system.
+    expect(littles.observedL).toBeGreaterThan(0.45)
+    expect(littles.observedL).toBeLessThan(0.75)
+  })
+
+  it('only counts time after warmup toward L', () => {
+    // Same steady load, with and without a long warmup: L must describe the same steady state.
+    const noWarmup = run({
+      capacity: 10,
+      rps: 50,
+      pattern: 'constant',
+      durationMs: 10_000,
+      warmupMs: 0
+    })
+    const warm = run({
+      capacity: 10,
+      rps: 50,
+      pattern: 'constant',
+      durationMs: 10_000,
+      warmupMs: 5_000
+    })
+    expect(Math.abs(noWarmup.littles.observedL - warm.littles.observedL)).toBeLessThan(0.1)
+    expect(warm.littles.withinTolerance).toBe(true)
+  })
+
+  it('stays within tolerance for a stable constant-arrival server at several loads', () => {
+    for (const rps of [20, 50, 90]) {
+      const { littles } = run({
+        capacity: 50,
+        rps,
+        pattern: 'constant',
+        durationMs: 10_000,
+        warmupMs: 1_000
+      })
+      expect(littles.withinTolerance, `rps ${rps}`).toBe(true)
+      // Utilization = rps x 10 ms, and with deterministic arrivals and service L equals it.
+      expect(littles.observedL).toBeCloseTo((rps * 10) / 1000, 1)
+    }
   })
 })
