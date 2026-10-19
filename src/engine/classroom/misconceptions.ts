@@ -19,15 +19,24 @@ function compare(left: number, op: '<' | '<=' | '>' | '>=' | '==', right: number
   return left === right
 }
 
-function classroomCheckPassed(grade: AttemptGrade, checkId: string): boolean {
+/**
+ * A Classroom check's outcome: `not-run` when it never got evaluated (no results, or
+ * every rubric result was skipped because an earlier structure check failed). A
+ * skipped check is not evidence of a mistake, so it matches neither detector.
+ */
+function classroomCheckOutcome(
+  grade: AttemptGrade,
+  checkId: string
+): 'passed' | 'failed' | 'not-run' {
   const structural = grade.structural.checks.filter(
     (check) => check.id === checkId || check.id.startsWith(`${checkId}.`)
   )
-  const rubric = grade.graded.cases.flatMap(
-    (entry) => entry.rubric?.checks.filter((check) => check.id === checkId) ?? []
-  )
+  const rubric = grade.graded.cases
+    .flatMap((entry) => entry.rubric?.checks.filter((check) => check.id === checkId) ?? [])
+    .filter((check) => check.status !== 'skipped')
   const matches = [...structural, ...rubric]
-  return matches.length > 0 && matches.every((result) => result.passed)
+  if (matches.length === 0) return 'not-run'
+  return matches.every((result) => result.passed) ? 'passed' : 'failed'
 }
 
 function detectorMatches(
@@ -51,8 +60,8 @@ function detectorMatches(
     }
     case 'check-failed':
     case 'check-passed': {
-      const passed = classroomCheckPassed(grade, detector.checkId)
-      return detector.kind === 'check-passed' ? passed : !passed
+      const outcome = classroomCheckOutcome(grade, detector.checkId)
+      return outcome === (detector.kind === 'check-passed' ? 'passed' : 'failed')
     }
   }
 }

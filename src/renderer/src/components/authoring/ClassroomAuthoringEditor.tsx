@@ -2,10 +2,17 @@ import type { QuestionAuthoringSetupDraft } from '../../../../engine/analysis/qu
 import type {
   ClassroomCheck,
   ClassroomCheckTemplate,
+  ClassroomStudentControl,
   ClassroomSettings
 } from '../../../../engine/classroom/types'
 import { classroomCardsForQuestion } from '../../../../engine/classroom/givensTable'
 import { buildClassroomAnswerKey } from '../../../../engine/classroom/answerKey'
+import {
+  getSystemDesignAuthoringRecipe,
+  getSystemDesignConcept
+} from '../../../../engine/classroom/systemDesignConceptRegistry'
+import { inferClassroomQuestionIntent } from '../../../../engine/classroom/questionIntent'
+import { CONCEPT_CARDS } from '../../../../engine/classroom/conceptCards'
 
 interface Props {
   setup: QuestionAuthoringSetupDraft
@@ -35,27 +42,76 @@ export function ClassroomAuthoringEditor({ setup, peakRps, onChange }: Props): R
   const primaryPassthroughType = cards.find((card) => card.role === 'passthrough')?.covers[0]
   const primarySourceType = cards.find((card) => card.role === 'source')?.covers[0]
   const primaryChoiceType = primaryPassthroughType ?? primaryType
+  const selectedRecipes = setup.concepts.flatMap((conceptId) => {
+    const recipe = getSystemDesignAuthoringRecipe(conceptId)
+    return recipe ? [recipe] : []
+  })
+  const allowedDecisionKinds = new Set<ClassroomStudentControl['kind']>(
+    selectedRecipes.flatMap((recipe) => [
+      ...recipe.allowedDecisionKinds
+    ]) as ClassroomStudentControl['kind'][]
+  )
+  const compatibleChecks = new Set<ClassroomCheckTemplate>(
+    selectedRecipes.flatMap((recipe) => [...recipe.compatibleChecks]) as ClassroomCheckTemplate[]
+  )
+  const inferredIntent = inferClassroomQuestionIntent({
+    conceptIds: setup.concepts,
+    peakRps,
+    allowedNodeTypes: setup.constraints.allowedNodeTypes,
+    settings: classroom
+  })
 
-  const setClassroom = (next: ClassroomSettings): void => onChange({ ...setup, classroom: next })
+  const setClassroom = (next: ClassroomSettings): void => {
+    const objectiveConcepts = (next.objectives ?? []).flatMap((objective) => {
+      const concept = getSystemDesignConcept(objective.concept)
+      return concept ? [concept.id] : []
+    })
+    onChange({
+      ...setup,
+      concepts: Array.from(new Set([...setup.concepts, ...objectiveConcepts])),
+      classroom: next
+    })
+  }
+  const ensureObjective = (): { id: string; settings: ClassroomSettings } => {
+    const existing = classroom?.objectives?.[0]
+    if (existing) return { id: existing.id, settings: classroom ?? {} }
+    const objective = {
+      id: 'objective-1',
+      statement: 'The student can explain and apply the lesson concept.',
+      concept: setup.concepts[0] ?? 'PF-02'
+    }
+    return {
+      id: objective.id,
+      settings: { ...(classroom ?? {}), objectives: [objective] }
+    }
+  }
   const addObjective = (): void => {
     const objectives = classroom?.objectives ?? []
     const id = `objective-${objectives.length + 1}`
     setClassroom({
       ...(classroom ?? {}),
-      objectives: [...objectives, { id, statement: 'The student can …', concept: 'system-design' }]
+      objectives: [
+        ...objectives,
+        { id, statement: 'The student can …', concept: setup.concepts[0] ?? 'PF-02' }
+      ],
+      checks: (classroom?.checks ?? []).map((check) =>
+        check.severity !== 'feedback' && !check.objectiveId ? { ...check, objectiveId: id } : check
+      )
     })
   }
   const addMisconception = (): void => {
     const misconceptions = classroom?.misconceptions ?? []
-    const fallbackCheck = classroom?.checks?.find((check) => check.severity !== 'feedback')?.id
+    const { id: objectiveId, settings } = ensureObjective()
+    const fallbackCheck = settings.checks?.find((check) => check.severity !== 'feedback')?.id
     setClassroom({
-      ...(classroom ?? {}),
+      ...settings,
       misconceptions: [
-        ...misconceptions,
+        ...(settings.misconceptions ?? misconceptions),
         {
           id: `misconception-${misconceptions.length + 1}`,
           title: 'Expected wrong turn',
           message: 'Explain the idea the learner should reconsider.',
+          objectiveId,
           detect: { kind: 'check-failed', checkId: fallbackCheck ?? 'classroom-serves-all-traffic' }
         }
       ]
@@ -78,24 +134,23 @@ export function ClassroomAuthoringEditor({ setup, peakRps, onChange }: Props): R
   }
   const addGuidedKnob = (): void => {
     const guidedKnobs = classroom?.guidedKnobs ?? []
-    const objectiveId = classroom?.objectives?.[0]?.id ?? 'objective-1'
+    const { id: objectiveId, settings } = ensureObjective()
+    const path = 'queue.workers'
     setClassroom({
-      ...(classroom ?? {}),
+      ...settings,
       abstractions: Array.from(
         new Set([...(classroom?.abstractions ?? ['architect']), 'guided', 'architect'] as const)
       ),
-      objectives: classroom?.objectives?.length
-        ? classroom.objectives
-        : [
-            {
-              id: objectiveId,
-              statement: 'The student can tune one declared system-design control.',
-              concept: 'guided-tuning'
-            }
-          ],
-      guidedKnobs: [
-        ...guidedKnobs,
-        { path: 'queue.workers', label: 'Worker concurrency', objectiveId }
+      guidedKnobs: [...guidedKnobs, { path, label: 'Worker concurrency', objectiveId }],
+      controls: [
+        ...(settings.controls ?? []),
+        {
+          id: `guided-knob-${guidedKnobs.length + 1}`,
+          kind: 'guided-knob',
+          label: 'Worker concurrency',
+          path,
+          objectiveId
+        }
       ]
     })
   }
@@ -151,24 +206,16 @@ export function ClassroomAuthoringEditor({ setup, peakRps, onChange }: Props): R
   const addNamedChoice = (): void => {
     if (!primaryChoiceType) return
     const choices = classroom?.choices?.[primaryChoiceType] ?? []
-    const objectiveId = classroom?.objectives?.[0]?.id ?? 'objective-1'
+    const { id: objectiveId, settings } = ensureObjective()
+    const choiceId = `choice-${choices.length + 1}`
     setClassroom({
-      ...(classroom ?? {}),
-      objectives: classroom?.objectives?.length
-        ? classroom.objectives
-        : [
-            {
-              id: objectiveId,
-              statement: 'The student can explain and select a controlled design trade-off.',
-              concept: 'design-choice'
-            }
-          ],
+      ...settings,
       choices: {
         ...(classroom?.choices ?? {}),
         [primaryChoiceType]: [
           ...choices,
           {
-            id: `choice-${choices.length + 1}`,
+            id: choiceId,
             label: 'Design choice',
             explanation: 'Choose the option that serves the lesson objective.',
             objectiveId,
@@ -189,6 +236,70 @@ export function ClassroomAuthoringEditor({ setup, peakRps, onChange }: Props): R
             ]
           }
         ]
+      },
+      controls: [
+        ...(settings.controls ?? []),
+        {
+          id: `named-choice-${choices.length + 1}`,
+          kind: 'named-choice',
+          label: 'Design choice',
+          component: primaryChoiceType,
+          choiceId,
+          objectiveId
+        }
+      ]
+    })
+  }
+
+  const addStudentControl = (
+    kind: Extract<
+      ClassroomStudentControl['kind'],
+      'place-component' | 'connect-components' | 'copies'
+    >
+  ): void => {
+    if (!allowedDecisionKinds.has(kind)) return
+    const { id: objectiveId, settings } = ensureObjective()
+    const controls = settings.controls ?? []
+    const number = controls.length + 1
+    const control: ClassroomStudentControl =
+      kind === 'connect-components'
+        ? {
+            id: `control-${number}`,
+            kind,
+            label: 'Connect the system cards',
+            objectiveId
+          }
+        : kind === 'copies'
+          ? {
+              id: `control-${number}`,
+              kind,
+              label: 'Choose the number of copies',
+              component: primaryType ?? 'microservice',
+              objectiveId
+            }
+          : {
+              id: `control-${number}`,
+              kind,
+              label: 'Choose whether to place this component',
+              component: primaryChoiceType ?? primaryType ?? 'microservice',
+              objectiveId
+            }
+    setClassroom({ ...settings, controls: [...controls, control] })
+  }
+  const toggleComponentCard = (component: string, checked: boolean): void => {
+    const allowed = new Set(setup.constraints.allowedNodeTypes ?? [])
+    if (checked) allowed.add(component)
+    else allowed.delete(component)
+    const ordered = CONCEPT_CARDS.map((card) => card.covers[0]).filter((type) => allowed.has(type))
+    const forbidden = (setup.constraints.forbiddenNodeTypes ?? []).filter(
+      (type) => !allowed.has(type)
+    )
+    onChange({
+      ...setup,
+      constraints: {
+        ...setup.constraints,
+        allowedNodeTypes: ordered.length > 0 ? ordered : undefined,
+        forbiddenNodeTypes: forbidden.length > 0 ? forbidden : undefined
       }
     })
   }
@@ -210,6 +321,7 @@ export function ClassroomAuthoringEditor({ setup, peakRps, onChange }: Props): R
   }
 
   const toggleCheck = (template: ClassroomCheckTemplate, checked: boolean): void => {
+    if (checked && !compatibleChecks.has(template)) return
     const existing = classroom?.checks ?? []
     if (!checked) {
       setClassroom({
@@ -231,7 +343,10 @@ export function ClassroomAuthoringEditor({ setup, peakRps, onChange }: Props): R
       ...(template === 'within-target-utilization' || template === 'right-sized'
         ? { component: primaryType ?? 'microservice' }
         : {}),
-      ...(template === 'right-sized' ? { severity: 'feedback' as const, factor: 1.5 } : {})
+      ...(template === 'right-sized' ? { severity: 'feedback' as const, factor: 1.5 } : {}),
+      ...(template !== 'right-sized' && classroom?.objectives?.[0]
+        ? { objectiveId: classroom.objectives[0].id }
+        : {})
     }
     setClassroom({ ...(classroom ?? {}), checks: [...existing, check] })
   }
@@ -287,6 +402,53 @@ export function ClassroomAuthoringEditor({ setup, peakRps, onChange }: Props): R
 
       {enabled && (
         <div className="mt-4 space-y-4">
+          <div
+            className={`rounded-md border p-3 text-[11px] ${
+              inferredIntent
+                ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700'
+                : 'border-amber-500/30 bg-amber-500/10 text-amber-700'
+            }`}
+          >
+            {inferredIntent
+              ? 'Objective contract complete. Studio will generate the baseline scenario and Classroom grading; you do not need duplicate low-level rows.'
+              : 'Complete the concept, peak traffic, component kit, objective, student decision, scored check, and compute capacity. Studio will then generate the scenario and grading automatically.'}
+          </div>
+          <fieldset className="rounded-md border border-nss-border p-3">
+            <legend className="px-1 text-[11px] font-semibold text-nss-text">Component kit</legend>
+            <p className="mb-2 text-[10px] text-nss-muted">
+              Choose only the cards learners need for this objective. This becomes the complete
+              learner palette.
+            </p>
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              {CONCEPT_CARDS.map((card) => {
+                const component = card.covers[0]
+                const checked = setup.constraints.allowedNodeTypes?.includes(component) ?? false
+                return (
+                  <label
+                    key={card.id}
+                    className={`flex cursor-pointer items-start gap-2 rounded-md border p-2 text-[11px] ${
+                      checked
+                        ? 'border-nss-primary/40 bg-nss-primary/10 text-nss-text'
+                        : 'border-nss-border text-nss-muted'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={(event) =>
+                        toggleComponentCard(component, event.currentTarget.checked)
+                      }
+                      className="mt-0.5"
+                    />
+                    <span>
+                      <strong className="block text-nss-text">{card.label}</strong>
+                      <span className="block text-[10px] leading-4">{card.summary}</span>
+                    </span>
+                  </label>
+                )
+              })}
+            </div>
+          </fieldset>
           {setup.constraints.allowedNodeTypes?.length ? (
             <div className="grid gap-3 lg:grid-cols-2">
               {cards
@@ -398,6 +560,88 @@ export function ClassroomAuthoringEditor({ setup, peakRps, onChange }: Props): R
             </label>
           </div>
 
+          <fieldset className="space-y-3 rounded-md border border-nss-border p-3">
+            <div>
+              <legend className="text-[11px] font-semibold text-nss-text">
+                Student-configurable decisions
+              </legend>
+              <p className="mt-1 text-[10px] text-nss-muted">
+                Only these controls are editable. Every one must point to a teaching objective.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={!allowedDecisionKinds.has('connect-components')}
+                onClick={() => addStudentControl('connect-components')}
+                className="rounded border border-nss-border px-2 py-1 text-[11px] font-semibold text-nss-primary disabled:opacity-40"
+              >
+                + Connections
+              </button>
+              <button
+                type="button"
+                disabled={!primaryChoiceType || !allowedDecisionKinds.has('place-component')}
+                onClick={() => addStudentControl('place-component')}
+                className="rounded border border-nss-border px-2 py-1 text-[11px] font-semibold text-nss-primary disabled:opacity-40"
+              >
+                + Component placement
+              </button>
+              <button
+                type="button"
+                disabled={!primaryType || !allowedDecisionKinds.has('copies')}
+                onClick={() => addStudentControl('copies')}
+                className="rounded border border-nss-border px-2 py-1 text-[11px] font-semibold text-nss-primary disabled:opacity-40"
+              >
+                + Copy count
+              </button>
+            </div>
+            {(classroom?.controls ?? []).map((control, index) => (
+              <div
+                key={control.id}
+                className="grid gap-2 rounded border border-nss-border p-2 sm:grid-cols-[1fr_12rem_auto]"
+              >
+                <input
+                  aria-label={`${control.id} label`}
+                  value={control.label}
+                  onChange={(event) => {
+                    const controls = [...(classroom?.controls ?? [])]
+                    controls[index] = { ...control, label: event.currentTarget.value }
+                    setClassroom({ ...(classroom ?? {}), controls })
+                  }}
+                  className="rounded border border-nss-border bg-nss-input-bg px-2 py-1.5 text-[11px]"
+                />
+                <select
+                  aria-label={`${control.id} objective`}
+                  value={control.objectiveId}
+                  onChange={(event) => {
+                    const controls = [...(classroom?.controls ?? [])]
+                    controls[index] = { ...control, objectiveId: event.currentTarget.value }
+                    setClassroom({ ...(classroom ?? {}), controls })
+                  }}
+                  className="rounded border border-nss-border bg-nss-input-bg px-2 py-1.5 text-[11px]"
+                >
+                  {(classroom?.objectives ?? []).map((objective) => (
+                    <option key={objective.id} value={objective.id}>
+                      {objective.statement}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setClassroom({
+                      ...(classroom ?? {}),
+                      controls: (classroom?.controls ?? []).filter((row) => row.id !== control.id)
+                    })
+                  }
+                  className="px-2 text-[11px] text-rose-600"
+                >
+                  Remove
+                </button>
+              </div>
+            ))}
+          </fieldset>
+
           <fieldset>
             <legend className="text-[11px] font-semibold text-nss-text">Classroom checks</legend>
             <div className="mt-2 grid gap-2 sm:grid-cols-2">
@@ -408,7 +652,10 @@ export function ClassroomAuthoringEditor({ setup, peakRps, onChange }: Props): R
                 >
                   <input
                     type="checkbox"
-                    disabled={entry.template === 'traffic-flows-through' && !primaryPassthroughType}
+                    disabled={
+                      !compatibleChecks.has(entry.template) ||
+                      (entry.template === 'traffic-flows-through' && !primaryPassthroughType)
+                    }
                     checked={(classroom?.checks ?? []).some(
                       (check) => check.template === entry.template
                     )}
@@ -418,6 +665,40 @@ export function ClassroomAuthoringEditor({ setup, peakRps, onChange }: Props): R
                 </label>
               ))}
             </div>
+            {(classroom?.checks ?? [])
+              .filter((check) => check.severity !== 'feedback')
+              .map((check) => (
+                <label
+                  key={`${check.id}-objective`}
+                  className="mt-2 grid gap-1 text-[10px] font-semibold text-nss-muted sm:grid-cols-[1fr_12rem] sm:items-center"
+                >
+                  <span>{check.label} proves</span>
+                  <select
+                    value={check.objectiveId ?? ''}
+                    onChange={(event) => {
+                      const checks = [...(classroom?.checks ?? [])]
+                      const checkIndex = checks.findIndex((row) => row.id === check.id)
+                      if (checkIndex >= 0) {
+                        checks[checkIndex] = {
+                          ...checks[checkIndex],
+                          objectiveId: event.currentTarget.value
+                        }
+                        setClassroom({ ...(classroom ?? {}), checks })
+                      }
+                    }}
+                    className="rounded border border-nss-border bg-nss-input-bg px-2 py-1.5 text-[11px] text-nss-text"
+                  >
+                    <option value="" disabled>
+                      Choose objective
+                    </option>
+                    {(classroom?.objectives ?? []).map((objective) => (
+                      <option key={objective.id} value={objective.id}>
+                        {objective.statement}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ))}
           </fieldset>
 
           <fieldset className="space-y-2">
@@ -448,7 +729,7 @@ export function ClassroomAuthoringEditor({ setup, peakRps, onChange }: Props): R
                   }}
                   className="rounded-md border border-nss-border bg-nss-input-bg px-2 py-1.5 text-[11px] text-nss-text"
                 />
-                <input
+                <select
                   aria-label={`${objective.id} concept`}
                   value={objective.concept}
                   onChange={(event) => {
@@ -457,7 +738,16 @@ export function ClassroomAuthoringEditor({ setup, peakRps, onChange }: Props): R
                     setClassroom({ ...(classroom ?? {}), objectives })
                   }}
                   className="rounded-md border border-nss-border bg-nss-input-bg px-2 py-1.5 text-[11px] text-nss-text"
-                />
+                >
+                  {!setup.concepts.includes(objective.concept) && (
+                    <option value={objective.concept}>{objective.concept}</option>
+                  )}
+                  {setup.concepts.map((conceptId) => (
+                    <option key={conceptId} value={conceptId}>
+                      {conceptId} · {getSystemDesignConcept(conceptId)?.title ?? conceptId}
+                    </option>
+                  ))}
+                </select>
                 <button
                   type="button"
                   aria-label={`Remove ${objective.id}`}
@@ -493,7 +783,7 @@ export function ClassroomAuthoringEditor({ setup, peakRps, onChange }: Props): R
             {(classroom?.misconceptions ?? []).map((misconception, index) => (
               <div
                 key={misconception.id}
-                className="grid gap-2 rounded-md border border-nss-border p-2 sm:grid-cols-2"
+                className="grid gap-2 rounded-md border border-nss-border p-2 sm:grid-cols-3"
               >
                 <input
                   value={misconception.title}
@@ -528,6 +818,28 @@ export function ClassroomAuthoringEditor({ setup, peakRps, onChange }: Props): R
                       </option>
                     ))}
                 </select>
+                <select
+                  aria-label={`${misconception.id} objective`}
+                  value={misconception.objectiveId ?? ''}
+                  onChange={(event) => {
+                    const misconceptions = [...(classroom?.misconceptions ?? [])]
+                    misconceptions[index] = {
+                      ...misconception,
+                      objectiveId: event.currentTarget.value
+                    }
+                    setClassroom({ ...(classroom ?? {}), misconceptions })
+                  }}
+                  className="rounded-md border border-nss-border bg-nss-input-bg px-2 py-1.5 text-[11px] text-nss-text"
+                >
+                  <option value="" disabled>
+                    Choose objective
+                  </option>
+                  {(classroom?.objectives ?? []).map((objective) => (
+                    <option key={objective.id} value={objective.id}>
+                      {objective.statement}
+                    </option>
+                  ))}
+                </select>
                 <textarea
                   value={misconception.message}
                   aria-label={`${misconception.id} message`}
@@ -536,7 +848,7 @@ export function ClassroomAuthoringEditor({ setup, peakRps, onChange }: Props): R
                     misconceptions[index] = { ...misconception, message: event.currentTarget.value }
                     setClassroom({ ...(classroom ?? {}), misconceptions })
                   }}
-                  className="sm:col-span-2 rounded-md border border-nss-border bg-nss-input-bg px-2 py-1.5 text-[11px] text-nss-text"
+                  className="sm:col-span-3 rounded-md border border-nss-border bg-nss-input-bg px-2 py-1.5 text-[11px] text-nss-text"
                 />
               </div>
             ))}

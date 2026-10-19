@@ -1,6 +1,6 @@
 import { Minus, Plus } from 'lucide-react'
 import type { ConceptCard } from '../../../../engine/classroom/conceptCards'
-import type { ClassroomSettings } from '../../../../engine/classroom/types'
+import { classroomControlAllows, type ClassroomSettings } from '../../../../engine/classroom/types'
 import { resolveClassroomGivens } from '../../../../engine/classroom/compileClassroom'
 import { formatCostPerHour, formatRps } from '../../../../engine/classroom/givensTable'
 
@@ -56,9 +56,22 @@ export function ClassroomInspector({
     rows.push({ label: 'Cost per copy', value: formatCostPerHour(givens.costPerHour) })
   }
   const range = card.copies
-  const namedChoices = settings?.choices?.[componentType] ?? []
+  const namedChoices = (settings?.choices?.[componentType] ?? []).filter(
+    (choice) =>
+      !settings?.controls ||
+      settings.controls.some(
+        (control) =>
+          control.kind === 'named-choice' &&
+          control.component === componentType &&
+          control.choiceId === choice.id
+      )
+  )
   const hardware = settings?.hardware?.[componentType]
-  const canStep = onCopiesChange !== null && range !== undefined
+  const copiesServeObjective = classroomControlAllows(settings, 'copies', componentType)
+  const canStep = onCopiesChange !== null && range !== undefined && copiesServeObjective
+  const visibleGuidedKnobs = guidedKnobs.filter((knob) =>
+    classroomControlAllows(settings, 'guided-knob', knob.path)
+  )
 
   return (
     <div className="space-y-5" data-testid="classroom-inspector">
@@ -125,6 +138,11 @@ export function ClassroomInspector({
               in total.
             </p>
           )}
+          {!copiesServeObjective && (
+            <p className="text-[10px] leading-snug text-nss-muted">
+              Copy count is locked because it is not part of this lesson&apos;s objectives.
+            </p>
+          )}
         </section>
       )}
 
@@ -158,10 +176,10 @@ export function ClassroomInspector({
         </section>
       )}
 
-      {guidedKnobs.length > 0 && (
+      {visibleGuidedKnobs.length > 0 && (
         <section className="space-y-2">
           <h3 className={SECTION_TITLE}>Guided controls</h3>
-          {guidedKnobs.map((knob) => (
+          {visibleGuidedKnobs.map((knob) => (
             <label key={knob.path} className="block text-[11px] font-semibold text-nss-text">
               {knob.label}
               <input

@@ -55,4 +55,39 @@ describe('Classroom question readiness', () => {
       reason: "The allowed component 'vector-db' has no Classroom concept card."
     })
   })
+
+  it('fails closed when caching can be turned on without a stated hit rate', () => {
+    const cacheChoice = {
+      id: 'caching',
+      label: 'Caching',
+      explanation: 'Serve repeat reads from memory.',
+      objectiveId: 'cache',
+      target: 'cache-enabled' as const,
+      options: [
+        { id: 'on', label: 'On', explanation: 'Cache reads.', value: 'on' },
+        { id: 'off', label: 'Off', explanation: 'Read every time.', value: 'off' }
+      ]
+    }
+    const unstated = question({
+      classroom: {
+        givens: { microservice: { capacityRps: 1000 } },
+        choices: { microservice: [cacheChoice] }
+      }
+    })
+    expect(classroomReadiness(unstated)).toEqual({
+      ready: false,
+      reason: expect.stringContaining("doesn't state")
+    })
+    expect(classroomReadiness(unstated)).toMatchObject({
+      reason: expect.stringContaining('hit rate')
+    })
+
+    const stated = question({
+      classroom: {
+        givens: { microservice: { capacityRps: 1000, cacheHitRate: 0.9 } },
+        choices: { microservice: [cacheChoice] }
+      }
+    })
+    expect(classroomReadiness(stated)).toEqual({ ready: true })
+  })
 })

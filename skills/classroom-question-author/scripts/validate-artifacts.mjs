@@ -42,11 +42,31 @@ for (const givens of Object.values(question.classroom?.givens ?? {})) {
 const objectiveIds = new Set(
   (question.classroom?.objectives ?? []).map((objective) => objective.id)
 )
+const controls = question.classroom?.controls ?? []
+for (const control of controls) {
+  if (!objectiveIds.has(control.objectiveId)) {
+    throw new Error(`Student control '${control.id}' is not tied to an objective.`)
+  }
+}
 for (const check of (question.classroom?.checks ?? []).filter(
   (entry) => entry.severity !== 'feedback'
 )) {
   if (objectiveIds.size > 0 && !objectiveIds.has(check.objectiveId)) {
     throw new Error(`Scored Classroom check '${check.id}' is not tied to an objective.`)
+  }
+}
+if (controls.length > 0) {
+  for (const objectiveId of objectiveIds) {
+    if (!controls.some((control) => control.objectiveId === objectiveId)) {
+      throw new Error(`Classroom objective '${objectiveId}' has no student-configurable decision.`)
+    }
+    if (
+      !(question.classroom?.checks ?? []).some(
+        (check) => check.severity !== 'feedback' && check.objectiveId === objectiveId
+      )
+    ) {
+      throw new Error(`Classroom objective '${objectiveId}' has no scored evidence.`)
+    }
   }
 }
 for (const misconception of question.classroom?.misconceptions ?? []) {

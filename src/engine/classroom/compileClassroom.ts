@@ -267,6 +267,14 @@ function compileNode(
     Math.round((capacityRps * TARGET_SERVICE_MS) / 1000)
   )
   const serviceMs = (1000 * workersPerCopy) / capacityRps
+  // A hit rate decides how much traffic reaches the next component, so it must be
+  // stated. Never fall back to an invented default.
+  if (cacheEnabled && givens.cacheHitRate === undefined) {
+    issues.push({
+      nodeId: raw.id,
+      message: `${givens.label} has caching turned on but no stated hit rate. Add a cache hit-rate given for '${raw.type}' to the question.`
+    })
+  }
   const workers = workersPerCopy * copies
   const info: ClassroomNodeInfo = {
     card: card.id,
@@ -286,7 +294,7 @@ function compileNode(
     config: {
       ...(routingStrategy ? { routingStrategy } : {}),
       ...(cacheEnabled !== undefined
-        ? { cacheHitRate: cacheEnabled ? (givens.cacheHitRate ?? 0.8) : 0 }
+        ? { cacheHitRate: cacheEnabled ? (givens.cacheHitRate ?? 0) : 0 }
         : {}),
       classroom: info
     }

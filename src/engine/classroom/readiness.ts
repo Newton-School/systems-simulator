@@ -38,11 +38,11 @@ export function cachedClassroomReadiness(
   return readiness
 }
 
-/** The capacity the question itself states for a component type (family-aware), if any. */
+/** The givens the question itself states for a component type (family-aware), if any. */
 function statedCapacity(
   question: ReadinessQuestion,
   type: string
-): { capacityRps?: number; label?: string } {
+): { capacityRps?: number; cacheHitRate?: number; label?: string } {
   const givens = question.classroom?.givens ?? {}
   if (givens[type]) return givens[type]
   const key = Object.keys(givens).find(
@@ -103,6 +103,19 @@ export function classroomReadiness(
         ready: false,
         // Never name the minimum: working it out is the lesson.
         reason: `The question can't be solved with ${max} or fewer ${name} copies, the most Classroom allows.`
+      }
+    }
+  }
+  // Turning caching on needs a stated hit rate: it decides how much traffic reaches
+  // the next component, and Classroom never invents it.
+  for (const [type, choices] of Object.entries(question.classroom?.choices ?? {})) {
+    if (!choices.some((choice) => choice.target === 'cache-enabled')) continue
+    const stated = statedCapacity(question, type)
+    if (stated.cacheHitRate === undefined) {
+      const name = stated.label ?? conceptCardForType(type)?.label ?? type
+      return {
+        ready: false,
+        reason: `The question lets students turn caching on but doesn't state the ${name}'s hit rate.`
       }
     }
   }

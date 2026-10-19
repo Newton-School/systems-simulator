@@ -155,6 +155,44 @@ export interface ClassroomGuidedKnob {
   objectiveId: string
 }
 
+/** A learner-visible decision. If this list is present, everything else is locked. */
+export type ClassroomStudentControl =
+  | {
+      id: string
+      kind: 'place-component'
+      label: string
+      component: string
+      objectiveId: string
+    }
+  | {
+      id: string
+      kind: 'connect-components'
+      label: string
+      objectiveId: string
+    }
+  | {
+      id: string
+      kind: 'copies'
+      label: string
+      component: string
+      objectiveId: string
+    }
+  | {
+      id: string
+      kind: 'named-choice'
+      label: string
+      component: string
+      choiceId: string
+      objectiveId: string
+    }
+  | {
+      id: string
+      kind: 'guided-knob'
+      label: string
+      path: string
+      objectiveId: string
+    }
+
 export interface ClassroomHardwareMapping {
   instanceType: string
   executionProfile?: string
@@ -180,6 +218,8 @@ export interface ClassroomSettings {
   lecture?: ClassroomLectureScript
   choices?: Record<string, ClassroomNamedChoice[]>
   guidedKnobs?: ClassroomGuidedKnob[]
+  /** Explicit objective-backed learner decisions. Omitted preserves legacy Classroom behavior. */
+  controls?: ClassroomStudentControl[]
   hardware?: Record<string, ClassroomHardwareMapping>
   /**
    * Show the simulator's design checks (e.g. "single point of failure") in
@@ -304,6 +344,57 @@ const ClassroomNamedChoiceSchema: z.ZodType<ClassroomNamedChoice> = z
   })
   .strict()
 
+const ClassroomStudentControlSchema: z.ZodType<ClassroomStudentControl> = z.discriminatedUnion(
+  'kind',
+  [
+    z
+      .object({
+        id: z.string().min(1),
+        kind: z.literal('place-component'),
+        label: z.string().min(1),
+        component: z.string().min(1),
+        objectiveId: z.string().min(1)
+      })
+      .strict(),
+    z
+      .object({
+        id: z.string().min(1),
+        kind: z.literal('connect-components'),
+        label: z.string().min(1),
+        objectiveId: z.string().min(1)
+      })
+      .strict(),
+    z
+      .object({
+        id: z.string().min(1),
+        kind: z.literal('copies'),
+        label: z.string().min(1),
+        component: z.string().min(1),
+        objectiveId: z.string().min(1)
+      })
+      .strict(),
+    z
+      .object({
+        id: z.string().min(1),
+        kind: z.literal('named-choice'),
+        label: z.string().min(1),
+        component: z.string().min(1),
+        choiceId: z.string().min(1),
+        objectiveId: z.string().min(1)
+      })
+      .strict(),
+    z
+      .object({
+        id: z.string().min(1),
+        kind: z.literal('guided-knob'),
+        label: z.string().min(1),
+        path: z.string().min(1),
+        objectiveId: z.string().min(1)
+      })
+      .strict()
+  ]
+)
+
 const ROUTING_CHOICE_VALUES = new Set([
   'round-robin',
   'weighted',
@@ -427,6 +518,7 @@ export const ClassroomSettingsSchema: z.ZodType<ClassroomSettings> = z
           .strict()
       )
       .optional(),
+    controls: z.array(ClassroomStudentControlSchema).optional(),
     hardware: z
       .record(
         z.string(),
@@ -455,6 +547,24 @@ export const ClassroomSettingsSchema: z.ZodType<ClassroomSettings> = z
       seen.add(check.id)
     }
     const objectiveIds = new Set((settings.objectives ?? []).map((objective) => objective.id))
+    const controlIds = new Set<string>()
+    for (const [index, control] of (settings.controls ?? []).entries()) {
+      if (controlIds.has(control.id)) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['controls', index, 'id'],
+          message: `Duplicate Classroom control id '${control.id}'.`
+        })
+      }
+      controlIds.add(control.id)
+      if (!objectiveIds.has(control.objectiveId)) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['controls', index, 'objectiveId'],
+          message: `Unknown Classroom objective '${control.objectiveId}'.`
+        })
+      }
+    }
     for (const [index, check] of (settings.checks ?? []).entries()) {
       if (objectiveIds.size > 0 && check.severity !== 'feedback' && !check.objectiveId) {
         ctx.addIssue({
@@ -529,6 +639,22 @@ export const ClassroomSettingsSchema: z.ZodType<ClassroomSettings> = z
       }
     }
   })
+
+export function classroomControlAllows(
+  settings: ClassroomSettings | undefined,
+  kind: ClassroomStudentControl['kind'],
+  selector?: string
+): boolean {
+  const controls = settings?.controls
+  if (!controls) return true
+  return controls.some((control) => {
+    if (control.kind !== kind) return false
+    if (selector === undefined) return true
+    if ('component' in control) return control.component === selector
+    if ('path' in control) return control.path === selector
+    return false
+  })
+}
 
 function asInteger(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? Math.round(value) : undefined

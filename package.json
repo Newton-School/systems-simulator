@@ -24,6 +24,8 @@
     "validate:simulator-question-author-skill": "tsx scripts/validate-simulator-question-author.ts",
     "audit:simulator-question": "tsx scripts/audit-simulator-question.ts",
     "check:simulator-question-author-snapshot": "tsx scripts/generate-simulator-question-author-snapshot.ts --check",
+    "generate:system-design-concepts": "node scripts/generate-system-design-concept-registry.mjs",
+    "check:system-design-concepts": "node scripts/generate-system-design-concept-registry.mjs && git diff --exit-code -- src/engine/classroom/systemDesignConceptRegistry.generated.ts skills/classroom-question-author/references/system-design-concepts.md",
     "sync:classroom-question-author-skill": "node scripts/sync-classroom-question-author.mjs",
     "check:classroom-question-author-skill": "node scripts/sync-classroom-question-author.mjs --check && node skills/classroom-question-author/scripts/validate-artifacts.mjs skills/classroom-question-author/examples/quickcart-classroom quickcart-flash-sale",
     "generate:django-guides": "tsx scripts/generate-django-admin-assignment-guides.ts",

@@ -21,6 +21,8 @@ allowed card kit.
 Use `classroom.choices[component]` for conceptual options such as routing,
 cache-on/off, or sync/async. Every choice needs an `objectiveId`, a short label,
 and a one-sentence explanation per option. Do not expose a raw engine enum.
+A cache-on/off choice also needs a stated `cacheHitRate` given for the same
+component; Classroom never assumes one.
 
 ## Fixed latency givens
 

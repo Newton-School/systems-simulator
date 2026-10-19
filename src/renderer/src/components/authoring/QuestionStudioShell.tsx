@@ -64,6 +64,7 @@ import { getRubricMetricCapability } from '../../../../engine/analysis/authoring
 import type { TopologyJSON } from '../../../../engine/core/types'
 import { resolveEnvironmentProfile } from '../../../../engine/analysis/environmentProfile'
 import type { Abstraction } from '../../../../engine/classroom/types'
+import { inferClassroomQuestionIntent } from '../../../../engine/classroom/questionIntent'
 import useStore from '../../store/useStore'
 import { useConfirmDialog } from '../../hooks/useConfirmDialog'
 import { FileService } from '../../services/FileService'
@@ -101,6 +102,7 @@ import {
 import { SemanticGradingEditor } from './SemanticGradingEditor'
 import { StructuralGradingEditor } from './StructuralGradingEditor'
 import {
+  CLASSROOM_QUESTION_STUDIO_STAGES,
   getQuestionStudioStage,
   QUESTION_STUDIO_STAGES,
   type AuthoringStageId
@@ -148,6 +150,13 @@ export function QuestionStudioShell({
     useStore
       .getState()
       .setEnvironmentProfile(resolveEnvironmentProfile({ mode: 'AUTHOR', abstraction }))
+    if (abstraction === 'classroom') {
+      setProject((current) =>
+        CLASSROOM_QUESTION_STUDIO_STAGES.some((stage) => stage.id === current.ui.activeStage)
+          ? current
+          : updateQuestionAuthoringStage(current, 'frame')
+      )
+    }
   }
   const { confirm, dialog } = useConfirmDialog()
   const activeStage = project.ui.activeStage
@@ -204,14 +213,38 @@ export function QuestionStudioShell({
     }
     return options
   }, [metricRules, rubricChecks, scenarios, semanticRules, structuralRules])
-  const stage = getQuestionStudioStage(activeStage)
-  const nextStage = QUESTION_STUDIO_STAGES[stage.number]
+  const visibleStages =
+    previewAbstraction === 'classroom' ? CLASSROOM_QUESTION_STUDIO_STAGES : QUESTION_STUDIO_STAGES
+  const stage =
+    visibleStages.find((candidate) => candidate.id === activeStage) ??
+    visibleStages[0] ??
+    getQuestionStudioStage(activeStage)
+  const stageIndex = visibleStages.findIndex((candidate) => candidate.id === stage.id)
+  const nextStage = stageIndex >= 0 ? visibleStages[stageIndex + 1] : undefined
   const generatedPreview = useMemo(() => compileQuestionAuthoringPreview(project), [project])
   const canExport = generatedPreview.status === 'ready'
   const hasQuestionIdentity = questionTitle.trim().length > 0
   const hasLearnerBrief = problemStatement.trim().length > 0
-  const hasScenario = scenarios.some((scenario) => compileAuthoringScenario(scenario) !== null)
+  const generatedClassroomIntent =
+    setup.classroomIntent ??
+    inferClassroomQuestionIntent({
+      conceptIds: setup.concepts,
+      peakRps: project.question.prompt.scale.peakRps,
+      allowedNodeTypes: setup.constraints.allowedNodeTypes,
+      settings: setup.classroom
+    })
+  const activeClassroomIntent =
+    generatedClassroomIntent?.outcome === 'classroom-direct' ||
+    generatedClassroomIntent?.outcome === 'classroom-structural' ||
+    generatedClassroomIntent?.outcome === 'guided'
+  const hasScenario =
+    activeClassroomIntent ||
+    scenarios.some((scenario) => compileAuthoringScenario(scenario) !== null)
   const hasGrading =
+    (activeClassroomIntent &&
+      (generatedClassroomIntent?.settings.checks ?? []).some(
+        (check) => check.severity !== 'feedback'
+      )) ||
     structuralRules.length + semanticRules.length + metricRules.length + rubricChecks.length > 0
   const fileStatus: AuthoringFileStatus =
     operation === 'saving'
@@ -623,7 +656,11 @@ export function QuestionStudioShell({
 
       <div className="grid min-h-0 flex-1 grid-cols-[13.5rem_minmax(0,1fr)_16rem] max-[900px]:grid-cols-[11rem_minmax(0,1fr)] max-[680px]:grid-cols-1">
         <div className="max-[680px]:hidden">
-          <AuthoringStageRail activeStage={activeStage} onStageChange={handleStageChange} />
+          <AuthoringStageRail
+            activeStage={stage.id}
+            onStageChange={handleStageChange}
+            stages={visibleStages}
+          />
         </div>
 
         <main className="min-h-0 overflow-y-auto">
@@ -643,11 +680,11 @@ export function QuestionStudioShell({
             <label className="mb-6 hidden text-xs font-medium text-nss-muted max-[680px]:block">
               Authoring stage
               <select
-                value={activeStage}
+                value={stage.id}
                 onChange={(event) => handleStageChange(event.target.value as AuthoringStageId)}
                 className="mt-2 block w-full rounded-md border border-nss-border bg-nss-input-bg px-3 py-2 text-sm text-nss-text"
               >
-                {QUESTION_STUDIO_STAGES.map((item) => (
+                {visibleStages.map((item) => (
                   <option key={item.id} value={item.id}>
                     {item.number}. {item.label}
                   </option>
@@ -657,14 +694,20 @@ export function QuestionStudioShell({
             <div className="flex items-start justify-between gap-6">
               <div>
                 <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-nss-primary">
-                  Stage {stage.number} of {QUESTION_STUDIO_STAGES.length}
+                  Stage {stage.number} of {visibleStages.length}
                 </p>
                 <h2 className="mt-2 text-2xl font-semibold tracking-tight text-nss-text">
-                  {stage.id === 'frame' ? 'Frame the lesson' : stage.label}
+                  {stage.id === 'frame'
+                    ? previewAbstraction === 'classroom'
+                      ? 'Build the Classroom lesson'
+                      : 'Frame the lesson'
+                    : stage.label}
                 </h2>
                 <p className="mt-2 max-w-2xl text-sm leading-6 text-nss-muted">
                   {stage.id === 'frame'
-                    ? 'Start with the learner-facing title. Its package ID is generated by the same rule used by the Newton row runtime.'
+                    ? previewAbstraction === 'classroom'
+                      ? 'Define the learner brief, teaching objective, component kit, givens, allowed decisions, and the smallest evidence set in one place.'
+                      : 'Start with the learner-facing title. Its package ID is generated by the same rule used by the Newton row runtime.'
                     : stage.id === 'brief'
                       ? 'Write the learner-facing challenge in plain language and check the exact generated presentation beside it.'
                       : stage.id === 'start'
@@ -680,36 +723,63 @@ export function QuestionStudioShell({
                                 : `${stage.shortDescription} is visible in the navigation shell and will be enabled incrementally.`}
                 </p>
               </div>
-              <div
-                className="hidden rounded-md border border-nss-border bg-nss-panel p-1 md:flex"
-                aria-label="Learner preview abstraction"
-              >
-                {(['classroom', 'guided', 'architect'] as const).map((abstraction) => (
-                  <button
-                    key={abstraction}
-                    type="button"
-                    aria-pressed={previewAbstraction === abstraction}
-                    onClick={() => changePreviewAbstraction(abstraction)}
-                    className={`rounded px-3 py-1 text-[11px] font-semibold capitalize ${
-                      previewAbstraction === abstraction
-                        ? 'bg-nss-primary text-white'
-                        : 'text-nss-muted hover:text-nss-text'
-                    }`}
-                  >
-                    {abstraction}
-                  </button>
-                ))}
+              <div className="hidden md:block">
+                <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-nss-muted">
+                  Authoring depth
+                </p>
+                <div
+                  className="flex rounded-md border border-nss-border bg-nss-panel p-1"
+                  aria-label="Authoring depth and learner preview abstraction"
+                >
+                  {(['classroom', 'guided', 'architect'] as const).map((abstraction) => (
+                    <button
+                      key={abstraction}
+                      type="button"
+                      aria-pressed={previewAbstraction === abstraction}
+                      onClick={() => changePreviewAbstraction(abstraction)}
+                      className={`rounded px-3 py-1 text-[11px] font-semibold capitalize ${
+                        previewAbstraction === abstraction
+                          ? 'bg-nss-primary text-white'
+                          : 'text-nss-muted hover:text-nss-text'
+                      }`}
+                    >
+                      {abstraction}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
 
             {stage.id === 'frame' ? (
               <div className="mt-8">
                 <LessonFrameEditor title={questionTitle} onTitleChange={handleTitleChange} />
+                {previewAbstraction === 'classroom' && (
+                  <div className="mt-4 space-y-4">
+                    <QuestionBriefEditor
+                      questionTitle={questionTitle}
+                      problemStatement={problemStatement}
+                      functionalRequirements={functionalRequirements}
+                      nonFunctionalRequirements={nonFunctionalRequirements}
+                      additionalContext={project.question.prompt.additionalContext}
+                      scale={project.question.prompt.scale}
+                      onProblemStatementChange={handleProblemStatementChange}
+                      onFunctionalRequirementAction={handleFunctionalRequirementAction}
+                      onNonFunctionalRequirementAction={handleNonFunctionalRequirementAction}
+                    />
+                    <PromptDetailsEditor
+                      additionalContext={project.question.prompt.additionalContext}
+                      scale={project.question.prompt.scale}
+                      onChange={handlePromptDetailsChange}
+                    />
+                  </div>
+                )}
                 <div className="mt-4">
                   <QuestionSetupEditor
                     setup={setup}
                     peakRps={project.question.prompt.scale.peakRps}
                     hasScaffold={Boolean(scaffoldTopology?.nodes.length)}
+                    authoringAbstraction={previewAbstraction}
+                    onRecommendAbstraction={changePreviewAbstraction}
                     onChange={handleSetupChange}
                   />
                 </div>
@@ -890,6 +960,7 @@ export function QuestionStudioShell({
           hasLearnerBrief={hasLearnerBrief}
           hasScenario={hasScenario}
           hasGrading={hasGrading}
+          classroomFlow={previewAbstraction === 'classroom'}
         />
       </div>
       {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}

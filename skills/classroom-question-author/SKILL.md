@@ -24,9 +24,15 @@ Do not give the private package, coverage map, solution, or probes to learners.
 
 ## Read only what the lesson needs
 
+Start with the [question design card](references/question-design-card.md): the
+thinking model (decision / given / hidden, six questions, honest routing) that every
+later step applies.
+
 Always read:
 
+- [question design card](references/question-design-card.md)
 - [classroom principles](references/classroom-principles.md)
+- [system-design teaching concepts](references/system-design-concepts.md)
 - [generated concept cards](references/concept-cards.md)
 - [Classroom checks](references/classroom-checks.md)
 - [objective worksheet](references/objective-worksheet.md)
@@ -46,10 +52,18 @@ a Classroom check cannot express an essential structural obligation.
 
 ### 1. Bound the lesson
 
-Complete the objective worksheet before writing JSON. Extract the source bullets
+Answer the design card's six questions, then complete the objective worksheet
+before writing JSON. Extract the source bullets
 verbatim, choose one dominant lesson, and state objectives as “the student can…”.
 For every proposed control, name its objective. If none exists, make it a given or
 remove it.
+
+Resolve the lesson to stable IDs in the system-design concept registry. Treat its
+surface tags as curriculum routing, then use the concept's generated `authoring`
+recipe for its activity, recommended outcome, card kit, decision kinds, compatible
+checks, required givens, and modeling boundary. Confirm actual simulator support
+using the card and check catalogs. Do not turn an Architect-tagged concept into a
+Classroom lesson merely because a similarly named component card exists.
 
 Choose an honest outcome: Classroom-direct, Classroom-structural, Architect
 handoff, or blocked/reframed. Never manufacture runtime evidence for a concept
@@ -71,6 +85,11 @@ forbidden student decisions. Use Architect mode when one of them is the lesson.
 Use the smallest check set that proves the source. Every scored check names one
 objective in coverage and uses a learner-facing label. Do not attach performance
 checks to structural-only lessons. Stay within the shared grading budget.
+
+Use only check templates listed by the selected concepts' generated authoring
+recipes. Reject duplicate evidence and more than two scored checks for one
+objective. Integrity/schema validation is internal and must not become another
+student obligation.
 
 For each expected wrong answer, write one teaching message and one probe design.
 The probe must fail for the intended reason without relying on hidden config.

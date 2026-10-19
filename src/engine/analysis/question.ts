@@ -1122,7 +1122,11 @@ const RubricSchema: z.ZodType<Rubric> = z.object({
   version: z.string().optional(),
   id: z.string().min(1).optional(),
   passThreshold: z.number().min(0).max(1).optional(),
-  checks: z.array(RubricCheckSchema).min(1)
+  // Classroom questions may keep the engine rubric empty because their
+  // objective-backed checks compile into structural/invariant/rubric evidence
+  // at launch time. QuestionPackageSchema enforces that one of these two
+  // scoring contracts is present.
+  checks: z.array(RubricCheckSchema)
 })
 
 const QuestionSuiteSchema = z.object({
@@ -1483,6 +1487,15 @@ export const QuestionPackageSchema: z.ZodType<QuestionPackage> = z
     createdAt: IsoTimestampSchema.optional()
   })
   .superRefine((pkg, ctx) => {
+    const hasScoredClassroomCheck =
+      pkg.classroom?.checks?.some((check) => check.severity !== 'feedback') ?? false
+    if (pkg.rubric.checks.length === 0 && !hasScoredClassroomCheck) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['rubric', 'checks'],
+        message: 'Add at least one rubric check or a scored Classroom check.'
+      })
+    }
     validateUniqueIds(pkg.suite.cases, ['suite', 'cases'], 'Question suite case', ctx)
     validateUniqueIds(pkg.rubric.checks, ['rubric', 'checks'], 'Rubric check', ctx)
     if (pkg.structuralRules) {

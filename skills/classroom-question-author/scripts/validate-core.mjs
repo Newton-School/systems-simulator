@@ -129,6 +129,44 @@ if (question.classroom) {
       `Classroom check ${entry.id}: only 'right-sized' can be feedback-only.`
     )
   }
+  const objectiveIds = new Set((classroom.objectives ?? []).map((objective) => objective.id))
+  for (const objective of classroom.objectives ?? []) {
+    check(
+      objective.statement.trim().toLowerCase().startsWith('the student can'),
+      `Classroom objective '${objective.id}' must be an observable “The student can…” statement.`
+    )
+    check(
+      (classroom.controls ?? []).some((control) => control.objectiveId === objective.id),
+      `Classroom objective '${objective.id}' has no student decision.`
+    )
+    const evidence = (classroom.checks ?? []).filter(
+      (entry) => entry.severity !== 'feedback' && entry.objectiveId === objective.id
+    )
+    check(evidence.length > 0, `Classroom objective '${objective.id}' has no scored evidence.`)
+    check(
+      evidence.length <= 2,
+      `Classroom objective '${objective.id}' has more than two scored checks; keep minimal evidence.`
+    )
+  }
+  for (const control of classroom.controls ?? []) {
+    check(
+      objectiveIds.has(control.objectiveId),
+      `Classroom control '${control.id}' points to an unknown objective.`
+    )
+  }
+  const evidenceKeys = new Set()
+  for (const entry of (classroom.checks ?? []).filter((check) => check.severity !== 'feedback')) {
+    check(
+      entry.objectiveId && objectiveIds.has(entry.objectiveId),
+      `Scored Classroom check '${entry.id}' must point to a known objective.`
+    )
+    const evidenceKey = [entry.objectiveId, entry.template, entry.via, entry.component].join('|')
+    check(
+      !evidenceKeys.has(evidenceKey),
+      `Classroom check '${entry.id}' duplicates scored evidence.`
+    )
+    evidenceKeys.add(evidenceKey)
+  }
   const classroomEnabled =
     classroom.abstractions === undefined || classroom.abstractions.includes('classroom')
   if (classroomEnabled) {

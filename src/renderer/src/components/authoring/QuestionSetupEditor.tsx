@@ -1,6 +1,13 @@
 import { Plus, Settings2, X } from 'lucide-react'
 import { useState } from 'react'
 import type { QuestionAuthoringSetupDraft } from '../../../../engine/analysis/questionAuthoringProject'
+import { applyAdaptiveAuthoringRecipe } from '../../../../engine/classroom/adaptiveAuthoring'
+import {
+  getSystemDesignAuthoringRecipe,
+  getSystemDesignConcept,
+  SYSTEM_DESIGN_CONCEPTS
+} from '../../../../engine/classroom/systemDesignConceptRegistry'
+import type { Abstraction } from '../../../../engine/classroom/types'
 import { RequiredIndicator } from './RequiredIndicator'
 import { ClassroomAuthoringEditor } from './ClassroomAuthoringEditor'
 
@@ -8,6 +15,8 @@ interface QuestionSetupEditorProps {
   setup: QuestionAuthoringSetupDraft
   peakRps?: number
   hasScaffold: boolean
+  authoringAbstraction: Abstraction
+  onRecommendAbstraction: (abstraction: Abstraction) => void
   onChange: (setup: QuestionAuthoringSetupDraft) => void
 }
 
@@ -50,14 +59,28 @@ export function QuestionSetupEditor({
   setup,
   peakRps,
   hasScaffold,
+  authoringAbstraction,
+  onRecommendAbstraction,
   onChange
 }: QuestionSetupEditorProps): React.JSX.Element {
   const [conceptInput, setConceptInput] = useState('')
+  const selectedConcept = getSystemDesignConcept(conceptInput)
+  const activeConcept = selectedConcept ?? getSystemDesignConcept(setup.concepts.at(-1) ?? '')
+  const activeRecipe = activeConcept ? getSystemDesignAuthoringRecipe(activeConcept.id) : undefined
 
   const addConcept = (): void => {
-    const concept = conceptInput.trim().toLowerCase().replace(/\s+/g, '-')
+    const concept = selectedConcept?.id
     if (!concept || setup.concepts.includes(concept)) return
-    onChange({ ...setup, concepts: [...setup.concepts, concept] })
+    const next = { ...setup, concepts: [...setup.concepts, concept] }
+    const adapted =
+      authoringAbstraction === 'classroom' ? applyAdaptiveAuthoringRecipe(next, concept) : null
+    onChange(adapted?.setup ?? next)
+    if (adapted && !adapted.applied) {
+      if (selectedConcept.authoring.outcome === 'guided') onRecommendAbstraction('guided')
+      if (selectedConcept.authoring.outcome === 'architect-handoff') {
+        onRecommendAbstraction('architect')
+      }
+    }
     setConceptInput('')
   }
 
@@ -238,9 +261,12 @@ export function QuestionSetupEditor({
           {DOMAINS.map(([domain, label]) => {
             const checked = setup.domains.includes(domain)
             return (
+              // `relative` keeps the visually hidden checkbox inside the chip. Without
+              // it the absolutely positioned input lands far down the page, and
+              // focusing it on click scrolls the whole window past the Studio.
               <label
                 key={domain}
-                className={`cursor-pointer rounded-full border px-3 py-1.5 text-[11px] font-semibold ${
+                className={`relative cursor-pointer rounded-full border px-3 py-1.5 text-[11px] font-semibold focus-within:ring-2 focus-within:ring-nss-primary/30 ${
                   checked
                     ? 'border-nss-primary/40 bg-nss-primary/10 text-nss-primary'
                     : 'border-nss-border text-nss-muted hover:text-nss-text'
@@ -274,6 +300,7 @@ export function QuestionSetupEditor({
           <input
             id="question-concept"
             type="text"
+            list="system-design-concepts"
             value={conceptInput}
             onChange={(event) => setConceptInput(event.currentTarget.value)}
             onKeyDown={(event) => {
@@ -282,13 +309,21 @@ export function QuestionSetupEditor({
                 addConcept()
               }
             }}
-            placeholder="e.g. async-decoupling"
+            placeholder="Search or enter a concept ID, e.g. NET-05"
             className="min-w-0 flex-1 rounded-md border border-nss-border bg-nss-input-bg px-2.5 py-2 text-xs text-nss-text"
           />
+          <datalist id="system-design-concepts">
+            {SYSTEM_DESIGN_CONCEPTS.map((concept) => (
+              <option key={concept.id} value={concept.id}>
+                {concept.title} · {concept.domain}
+              </option>
+            ))}
+          </datalist>
           <button
             type="button"
+            disabled={!selectedConcept || setup.concepts.includes(selectedConcept.id)}
             onClick={addConcept}
-            className="flex items-center gap-1.5 rounded-md border border-nss-border px-3 py-2 text-xs font-semibold text-nss-text hover:border-nss-primary/40 hover:text-nss-primary"
+            className="flex items-center gap-1.5 rounded-md border border-nss-border px-3 py-2 text-xs font-semibold text-nss-text hover:border-nss-primary/40 hover:text-nss-primary disabled:cursor-not-allowed disabled:opacity-40"
           >
             <Plus size={13} aria-hidden="true" /> Add
           </button>
@@ -301,6 +336,9 @@ export function QuestionSetupEditor({
                 className="inline-flex items-center gap-1 rounded-full bg-nss-surface px-2.5 py-1 text-[10px] text-nss-text"
               >
                 {concept}
+                {getSystemDesignConcept(concept)?.title
+                  ? ` · ${getSystemDesignConcept(concept)?.title}`
+                  : ''}
                 <button
                   type="button"
                   aria-label={`Remove ${concept}`}
@@ -315,6 +353,38 @@ export function QuestionSetupEditor({
                 </button>
               </span>
             ))}
+          </div>
+        )}
+        {activeConcept && activeRecipe && (
+          <div className="mt-3 rounded-md border border-nss-primary/25 bg-nss-primary/5 p-3 text-[11px]">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="font-semibold text-nss-text">
+                  Adaptive recipe · {activeRecipe.activity} ·{' '}
+                  {activeRecipe.outcome.replaceAll('-', ' ')}
+                </p>
+                <p className="mt-1 leading-4 text-nss-muted">{activeRecipe.boundary}</p>
+              </div>
+              {authoringAbstraction === 'classroom' &&
+                (activeRecipe.outcome === 'classroom-direct' ||
+                  activeRecipe.outcome === 'classroom-structural') && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onChange(applyAdaptiveAuthoringRecipe(setup, activeConcept.id).setup)
+                    }
+                    className="rounded-md border border-nss-primary/30 px-2.5 py-1.5 font-semibold text-nss-primary"
+                  >
+                    Apply recommended setup
+                  </button>
+                )}
+            </div>
+            {activeRecipe.requiredGivens.length > 0 && (
+              <p className="mt-2 text-nss-muted">
+                Author must supply: {activeRecipe.requiredGivens.join(', ')}. The Studio will not
+                invent these values.
+              </p>
+            )}
           </div>
         )}
       </div>

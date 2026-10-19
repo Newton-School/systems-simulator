@@ -347,6 +347,41 @@ describe('Classroom Phase 2 and Guided compilation', () => {
     ).choices.routing = 'invented'
     expect(choice()).toMatchObject({ choices: { routing: 'round-robin' } })
   })
+
+  it('refuses to turn caching on without a stated hit rate', () => {
+    const caching = (cacheHitRate?: number): ClassroomSettings => ({
+      givens: {
+        microservice: { capacityRps: 1000, ...(cacheHitRate !== undefined ? { cacheHitRate } : {}) }
+      },
+      choices: {
+        microservice: [
+          {
+            id: 'caching',
+            label: 'Caching',
+            explanation: 'Serve repeat reads from memory.',
+            objectiveId: 'cache',
+            target: 'cache-enabled',
+            options: [
+              { id: 'on', label: 'On', explanation: 'Cache reads.', value: 'on' },
+              { id: 'off', label: 'Off', explanation: 'Read every time.', value: 'off' }
+            ]
+          }
+        ]
+      }
+    })
+    const server = (settings: ClassroomSettings) => {
+      const result = compileClassroomTopology(design([1]), { settings })
+      return {
+        issues: result.issues,
+        hitRate: result.topology.nodes.find((node) => node.id === 'srv-0')?.config?.cacheHitRate
+      }
+    }
+    const unstated = server(caching())
+    expect(unstated.issues).toHaveLength(1)
+    expect(unstated.issues[0].message).toContain('no stated hit rate')
+    expect(unstated.hitRate).toBe(0)
+    expect(server(caching(0.9))).toEqual({ issues: [], hitRate: 0.9 })
+  })
 })
 
 describe('Classroom grading: QuickCart', () => {
@@ -398,6 +433,31 @@ describe('Classroom grading: QuickCart', () => {
     expect(result.structural.passed).toBe(false)
     expect(result.contract.allPassed).toBe(false)
     expect(result.classroom?.misconceptions[0]).toMatchObject({ id: 'no-lb' })
+  })
+
+  it('does not treat a check skipped after a structure failure as a mistake', () => {
+    // The Studio writes the simple form: message fires when the headroom check fails.
+    const simple = quickcart({
+      ...QUICKCART_CLASSROOM,
+      misconceptions: [
+        QUICKCART_CLASSROOM.misconceptions![0],
+        {
+          id: 'forgot-headroom',
+          title: 'Planned to 100%, not 80%',
+          message: 'Leave room for a burst.',
+          detect: { kind: 'check-failed', checkId: 'headroom' }
+        }
+      ]
+    })
+    const gradeWith = (topology: TopologyJSON) =>
+      gradeAttempt(simple, topology, (t) => runSimulation(t), [], { abstraction: 'classroom' })
+    // No load balancer: headroom never ran, so only the structural message applies.
+    expect(
+      gradeWith(design([13], { lb: false })).classroom?.misconceptions.map((m) => m.id)
+    ).toEqual(['no-lb'])
+    expect(gradeWith(design([12])).classroom?.misconceptions.map((m) => m.id)).toEqual([
+      'forgot-headroom'
+    ])
   })
 
   it('flags an oversized fleet as feedback without failing the grade', () => {

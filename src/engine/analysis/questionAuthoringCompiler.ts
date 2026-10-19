@@ -23,6 +23,11 @@ import {
   type AuthoringLevel
 } from './authoringValidator'
 import { buildDjangoQuestionExport, type DjangoQuestionExport } from './djangoQuestionExport'
+import {
+  classroomQuestionIntentIssues,
+  compileClassroomQuestionIntent,
+  inferClassroomQuestionIntent
+} from '../classroom/questionIntent'
 
 export interface QuestionAuthoringPreviewDiagnostic {
   level: AuthoringLevel
@@ -88,6 +93,39 @@ function collectDraftDiagnostics(
 ): QuestionAuthoringPreviewDiagnostic[] {
   const { question } = project
   const diagnostics: QuestionAuthoringPreviewDiagnostic[] = []
+  const setup = resolveQuestionAuthoringSetup(question.setup)
+  const classroomIntent =
+    setup.classroomIntent ??
+    inferClassroomQuestionIntent({
+      conceptIds: setup.concepts,
+      peakRps: question.prompt.scale.peakRps,
+      allowedNodeTypes: setup.constraints.allowedNodeTypes,
+      settings: setup.classroom
+    })
+  if (!setup.classroomIntent && !classroomIntent) {
+    for (const message of classroomQuestionIntentIssues({
+      conceptIds: setup.concepts,
+      peakRps: question.prompt.scale.peakRps,
+      allowedNodeTypes: setup.constraints.allowedNodeTypes,
+      settings: setup.classroom
+    })) {
+      diagnostics.push(
+        draftError(
+          'draft.classroomContractIncomplete',
+          message,
+          'question.setup.classroom',
+          'frame'
+        )
+      )
+    }
+  }
+  const generatesScenario =
+    classroomIntent?.outcome === 'classroom-direct' ||
+    classroomIntent?.outcome === 'classroom-structural' ||
+    classroomIntent?.outcome === 'guided'
+  const generatesGrading =
+    generatesScenario &&
+    (classroomIntent?.settings.checks ?? []).some((check) => check.severity !== 'feedback')
 
   if (!question.title.trim()) {
     diagnostics.push(
@@ -130,7 +168,7 @@ function collectDraftDiagnostics(
     }
   })
 
-  if (question.scenarios.length === 0) {
+  if (question.scenarios.length === 0 && !generatesScenario) {
     diagnostics.push(
       draftError(
         'draft.scenarioRequired',
@@ -193,11 +231,12 @@ function collectDraftDiagnostics(
   })
 
   if (
+    !generatesGrading &&
     question.structuralRules.length +
       question.semanticRules.length +
       question.metricRules.length +
       question.rubricChecks.length ===
-    0
+      0
   ) {
     diagnostics.push(
       draftError(
@@ -240,6 +279,25 @@ function collectDraftDiagnostics(
 function buildQuestionPackage(project: QuestionAuthoringProject): QuestionPackage {
   const { question } = project
   const setup = resolveQuestionAuthoringSetup(question.setup)
+  const classroomIntent =
+    setup.classroomIntent ??
+    inferClassroomQuestionIntent({
+      conceptIds: setup.concepts,
+      peakRps: question.prompt.scale.peakRps,
+      allowedNodeTypes: setup.constraints.allowedNodeTypes,
+      settings: setup.classroom
+    })
+  const compiledIntent = classroomIntent ? compileClassroomQuestionIntent(classroomIntent) : null
+  const intentReady = compiledIntent?.status === 'ready' ? compiledIntent : null
+  const classroom = intentReady
+    ? intentReady.settings
+    : compiledIntent?.status === 'handoff'
+      ? { ...setup.classroom, abstractions: ['architect' as const] }
+      : setup.classroom
+  const constraints = intentReady
+    ? { ...setup.constraints, allowedNodeTypes: intentReady.allowedNodeTypes }
+    : setup.constraints
+  const concepts = Array.from(new Set([...setup.concepts, ...(compiledIntent?.conceptIds ?? [])]))
   // An empty canvas snapshot is not a learner scaffold. Imported drafts can
   // contain a structurally valid TopologyJSON object with no nodes; treating
   // that object as truthy incorrectly advertises a partial scaffold and leaks
@@ -248,8 +306,26 @@ function buildQuestionPackage(project: QuestionAuthoringProject): QuestionPackag
     ? project.assets.scaffoldTopology
     : undefined
   const entryFormat = setup.entryFormat ?? (scaffoldTopology ? 'partial-scaffold' : 'blank-canvas')
-  const scenarios = question.scenarios.map((scenario) => compileAuthoringScenario(scenario)!)
-  const firstScenario = question.scenarios[0]
+  const scenarioDrafts =
+    question.scenarios.length > 0
+      ? question.scenarios
+      : intentReady
+        ? [
+            {
+              id: 'classroom-baseline',
+              description: 'Evaluate the student design at the stated peak traffic.',
+              seed: `${question.id}-classroom`,
+              pattern: 'constant' as const,
+              durationSeconds: 10,
+              warmupSeconds: 0,
+              baseRps: intentReady.peakRps,
+              readPercent: 100,
+              requestSizeBytes: 100
+            }
+          ]
+        : question.scenarios
+  const scenarios = scenarioDrafts.map((scenario) => compileAuthoringScenario(scenario)!)
+  const firstScenario = scenarioDrafts[0]
   const dryRunCase = question.dryRunScenarioId
     ? scenarios.find((scenario) => scenario.id === question.dryRunScenarioId)
     : question.dryRunCase
@@ -281,7 +357,7 @@ function buildQuestionPackage(project: QuestionAuthoringProject): QuestionPackag
         (requirement) => compileAuthoringNfr(requirement)!
       ),
       scale: {
-        peakRps: question.prompt.scale.peakRps ?? firstScenario.baseRps!,
+        peakRps: intentReady?.peakRps ?? question.prompt.scale.peakRps ?? firstScenario.baseRps!,
         readWriteRatio: question.prompt.scale.readWriteRatio ?? firstScenario.readPercent!,
         ...(question.prompt.scale.dau !== undefined ? { dau: question.prompt.scale.dau } : {}),
         ...(question.prompt.scale.storageGb !== undefined
@@ -313,7 +389,7 @@ function buildQuestionPackage(project: QuestionAuthoringProject): QuestionPackag
             : {})
         }
       : { type: 'empty' },
-    constraints: setup.constraints,
+    constraints,
     ...(normalizeBuilderPolicy(setup.builderPolicy)
       ? { builderPolicy: normalizeBuilderPolicy(setup.builderPolicy) }
       : {}),
@@ -335,8 +411,8 @@ function buildQuestionPackage(project: QuestionAuthoringProject): QuestionPackag
     ...(setup.budget ? { budget: setup.budget } : {}),
     ...(setup.workloadCategory ? { workloadCategory: setup.workloadCategory } : {}),
     ...(setup.domains.length > 0 ? { domains: setup.domains } : {}),
-    ...(setup.concepts.length > 0 ? { concepts: setup.concepts } : {}),
-    ...(setup.classroom ? { classroom: setup.classroom } : {}),
+    ...(concepts.length > 0 ? { concepts } : {}),
+    ...(classroom ? { classroom } : {}),
     author: question.author?.trim() || 'System Design Simulator Question Studio',
     ...(question.createdAt ? { createdAt: question.createdAt } : {})
   }
