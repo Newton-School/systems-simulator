@@ -101,6 +101,10 @@ import {
 } from '@renderer/components/simulation/chaosExperimentModel'
 import { ExperimentResultPanel } from '@renderer/components/simulation/ChaosExperimentPanel'
 import { ClassroomResultsCard } from '@renderer/components/simulation/ClassroomResultsCard'
+import { CommandPalette } from './CommandPalette'
+import type { PaletteCommand } from './commandPaletteModel'
+import { useLibraryCatalog } from '@renderer/hooks/useLibraryCatalog'
+import { BUILDER_TEMPLATE_IDS } from '@renderer/config/catalogFilter'
 import { SimpleEmptyState } from '@renderer/components/canvas/SimpleEmptyState'
 import { QuestionCard } from '@renderer/components/question/QuestionCard'
 import { AddComponentPopover } from '@renderer/components/library/AddComponentPopover'
@@ -419,6 +423,7 @@ export const WorkspaceLayout = () => {
   )
   const addPopoverAvailable = simpleShell && !baseExperienceEnvelope.canvasLocked
   const [addPopoverOpen, setAddPopoverOpen] = useState(false)
+  const [paletteOpen, setPaletteOpen] = useState(false)
   const [questionCardExpanded, setQuestionCardExpanded] = useState(true)
   const questionCardId = activeQuestion?.id
   const hasCanvasNodes = useStore((s) => s.nodes.length > 0)
@@ -1360,7 +1365,7 @@ export const WorkspaceLayout = () => {
         const opensLibrarySearch =
           (!isMod && !event.altKey && !event.shiftKey && event.key === '/') ||
           (isMod && !event.altKey && !event.shiftKey && key === 'k')
-        if (opensLibrarySearch && addPopoverAvailable) {
+        if (opensLibrarySearch && !isMod && addPopoverAvailable) {
           event.preventDefault()
           setAddPopoverOpen(true)
           setComponentLibrarySearchFocusVersion((version) => version + 1)
@@ -1410,10 +1415,9 @@ export const WorkspaceLayout = () => {
       }
 
       if (!event.shiftKey && !event.altKey && key === 'k') {
-        if (addPopoverAvailable) {
+        if (simpleShell) {
           event.preventDefault()
-          setAddPopoverOpen(true)
-          setComponentLibrarySearchFocusVersion((version) => version + 1)
+          setPaletteOpen(true)
         } else if (experienceEnvelope.allowedTabs.includes('library')) {
           event.preventDefault()
           handleLeftSidebarTabSelect('library')
@@ -1484,6 +1488,7 @@ export const WorkspaceLayout = () => {
     environmentProfile.capabilities.canUseSettings,
     experienceEnvelope.allowedTabs,
     addPopoverAvailable,
+    simpleShell,
     handleAutoLayout,
     handleLeftSidebarTabSelect,
     handleRun,
@@ -1764,6 +1769,135 @@ export const WorkspaceLayout = () => {
     if (next && isCompactWorkspace) setIsLeftOpen(false)
   }
 
+  const updateDisplaySettings = useStore((s) => s.updateDisplaySettings)
+  const { categories: paletteCatalog } = useLibraryCatalog('', 'all')
+  const setPendingNodePlacement = useStore((s) => s.setPendingNodePlacement)
+  const paletteCommands: PaletteCommand[] = !paletteOpen
+    ? []
+    : [
+        ...(isRunning || isPaused
+          ? [
+              {
+                id: 'stop',
+                title: 'Stop simulation',
+                group: 'Run',
+                run: () => {
+                  sim.stop()
+                  setRunIssues({ messages: [], tone: 'warning' })
+                }
+              }
+            ]
+          : [
+              {
+                id: 'run',
+                title: isPostRun ? 'Run again' : 'Run simulation',
+                group: 'Run',
+                keywords: 'start simulate',
+                run: handleRun
+              }
+            ]),
+        ...(isPostRun
+          ? [
+              {
+                id: 'reset-run',
+                title: 'Reset run',
+                group: 'Run',
+                keywords: 'clear results',
+                run: handleResetRun
+              }
+            ]
+          : []),
+        ...(sim.results
+          ? [
+              {
+                id: 'results-details',
+                title: showResults ? 'Hide result details' : 'Show result details',
+                group: 'Results',
+                keywords: 'tray metrics bottlenecks traces events failures traffic',
+                run: () => setShowResults((current) => !current)
+              }
+            ]
+          : []),
+        ...(addPopoverAvailable
+          ? [
+              {
+                id: 'add-component',
+                title: 'Add component…',
+                group: 'Add component',
+                keywords: 'library node palette',
+                run: () => {
+                  setAddPopoverOpen(true)
+                  setComponentLibrarySearchFocusVersion((version) => version + 1)
+                }
+              },
+              ...paletteCatalog
+                .flatMap((category) => category.items)
+                .filter((item) => !BUILDER_TEMPLATE_IDS.has(item.templateId))
+                .map((item) => ({
+                  id: `add-${item.id}`,
+                  title: `Add ${item.label}`,
+                  group: 'Add component',
+                  keywords: item.subLabel,
+                  run: () =>
+                    setPendingNodePlacement({
+                      type: item.type,
+                      templateId: item.templateId,
+                      label: item.label
+                    })
+                }))
+            ]
+          : []),
+        ...(canUseTopologyFiles
+          ? [
+              { id: 'open', title: 'Open file…', group: 'File', run: handleOpen },
+              { id: 'save', title: 'Save design', group: 'File', run: handleSave }
+            ]
+          : []),
+        {
+          id: 'auto-layout',
+          title: 'Auto layout',
+          group: 'Canvas',
+          keywords: 'arrange tidy',
+          run: handleAutoLayout
+        },
+        {
+          id: 'samples',
+          title: 'Open a sample scenario…',
+          group: 'Learn',
+          keywords: 'example starter',
+          run: () => setShowSamples(true)
+        },
+        { id: 'toggle-left', title: 'Toggle sidebar', group: 'View', run: toggleLeft },
+        { id: 'toggle-right', title: 'Toggle inspector', group: 'View', run: toggleRight },
+        {
+          id: 'theme',
+          title: 'Toggle light or dark theme',
+          group: 'View',
+          keywords: 'dark light mode',
+          run: () =>
+            updateDisplaySettings((current) => ({
+              ...current,
+              theme: current.theme === 'dark' ? 'light' : 'dark'
+            }))
+        },
+        {
+          id: 'shortcuts',
+          title: 'Show keyboard shortcuts',
+          group: 'Learn',
+          run: () => setShowShortcuts(true)
+        },
+        ...(environmentProfile.capabilities.canUseSettings
+          ? [
+              {
+                id: 'settings',
+                title: 'Open settings',
+                group: 'App',
+                run: () => setSettingsOpenRequestVersion((version) => version + 1)
+              }
+            ]
+          : [])
+      ]
+
   return (
     <div
       className={`nss-app-shell flex w-screen min-h-0 flex-col overflow-hidden bg-nss-bg text-nss-text ${
@@ -1945,6 +2079,10 @@ export const WorkspaceLayout = () => {
           onLoad={handleSampleLoad}
           onClose={() => setShowSamples(false)}
         />
+      )}
+
+      {simpleShell && paletteOpen && (
+        <CommandPalette commands={paletteCommands} onClose={() => setPaletteOpen(false)} />
       )}
 
       {showShortcuts && <ShortcutsModal onClose={() => setShowShortcuts(false)} />}
