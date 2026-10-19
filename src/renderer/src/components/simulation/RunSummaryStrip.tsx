@@ -1,4 +1,4 @@
-import type { RunSummary, RunVerdict } from './runSummaryModel'
+import { statDelta, type RunSummary, type RunVerdict } from './runSummaryModel'
 
 const VERDICT_META: Record<RunVerdict, { label: string; cls: string }> = {
   passed: { label: 'Passed', cls: 'border-nss-success/30 bg-nss-success/10 text-nss-success' },
@@ -15,6 +15,7 @@ const VERDICT_META: Record<RunVerdict, { label: string; cls: string }> = {
  */
 export function RunSummaryStrip({
   summary,
+  previous = null,
   running = false,
   progress = 0,
   topologyEdited = false,
@@ -22,6 +23,8 @@ export function RunSummaryStrip({
   onSelectBottleneck
 }: {
   summary: RunSummary | null
+  /** The run before this one, to show what changed. */
+  previous?: RunSummary | null
   running?: boolean
   progress?: number
   topologyEdited?: boolean
@@ -50,16 +53,33 @@ export function RunSummaryStrip({
               {verdict.label}
             </span>
             <dl className="flex flex-wrap items-baseline gap-x-4 gap-y-1 text-xs">
-              {summary.stats.map((stat) => (
-                <div key={stat.id} className="flex items-baseline gap-1.5">
-                  <dt className="text-nss-muted">{stat.label}</dt>
-                  <dd
-                    className={`font-semibold tabular-nums ${stat.bad ? 'text-nss-danger' : 'text-nss-text'}`}
-                  >
-                    {stat.value}
-                  </dd>
-                </div>
-              ))}
+              {summary.stats.map((stat) => {
+                const delta = statDelta(
+                  previous?.stats.find((earlier) => earlier.id === stat.id),
+                  stat
+                )
+                return (
+                  <div key={stat.id} className="flex items-baseline gap-1.5">
+                    <dt className="text-nss-muted">{stat.label}</dt>
+                    <dd
+                      className={`font-semibold tabular-nums ${stat.bad ? 'text-nss-danger' : 'text-nss-text'}`}
+                    >
+                      {stat.value}
+                    </dd>
+                    {delta && (
+                      <dd
+                        title="Change since the previous run"
+                        data-testid={`delta-${stat.id}`}
+                        className={`text-[11px] tabular-nums ${
+                          delta.tone === 'better' ? 'text-nss-success' : 'text-nss-danger'
+                        }`}
+                      >
+                        {delta.text}
+                      </dd>
+                    )}
+                  </div>
+                )
+              })}
             </dl>
             <button
               type="button"

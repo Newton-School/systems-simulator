@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { SimulationOutput } from '../../../../engine/analysis/output'
 import type { ClassroomRunSummary } from '../../../../engine/classroom/runSummary'
-import { summarizeRun } from './runSummaryModel'
+import { statDelta, summarizeRun, type RunSummaryStat } from './runSummaryModel'
 
 function output(overrides: {
   errorRate?: number
@@ -77,5 +77,41 @@ describe('summarizeRun', () => {
 
   it('passes a classroom run with nothing dropped and everything under target', () => {
     expect(summarizeRun(output({}), classroom({})).verdict).toBe('passed')
+  })
+})
+
+describe('statDelta', () => {
+  const stat = (
+    id: RunSummaryStat['id'],
+    raw: number | null,
+    better: RunSummaryStat['better']
+  ): RunSummaryStat => ({ id, label: id, value: String(raw), raw, better })
+
+  it('marks more served as better and fewer as worse', () => {
+    expect(statDelta(stat('served', 100, 'higher'), stat('served', 160, 'higher'))).toEqual({
+      text: '+60 req/s',
+      tone: 'better'
+    })
+    expect(statDelta(stat('served', 100, 'higher'), stat('served', 40, 'higher'))?.tone).toBe(
+      'worse'
+    )
+  })
+
+  it('marks a drop in errors or latency as better', () => {
+    expect(statDelta(stat('dropped', 0.04, 'lower'), stat('dropped', 0, 'lower'))).toEqual({
+      text: '-4 pts',
+      tone: 'better'
+    })
+    expect(statDelta(stat('p95', 120, 'lower'), stat('p95', 140, 'lower'))).toEqual({
+      text: '+20 ms',
+      tone: 'worse'
+    })
+  })
+
+  it('ignores no change, noise and missing numbers', () => {
+    expect(statDelta(stat('served', 100, 'higher'), stat('served', 100, 'higher'))).toBeNull()
+    expect(statDelta(stat('served', 1000, 'higher'), stat('served', 1005, 'higher'))).toBeNull()
+    expect(statDelta(stat('p95', null, 'lower'), stat('p95', 10, 'lower'))).toBeNull()
+    expect(statDelta(undefined, stat('p95', 10, 'lower'))).toBeNull()
   })
 })

@@ -1337,6 +1337,21 @@ export const WorkspaceLayout = () => {
         : null,
     [classroomSummary, displaySettings.simpleShell, sim.results, sim.status]
   )
+  // The run before the current one, so the strip can say what changed.
+  const [runSummaryHistory, setRunSummaryHistory] = useState<{
+    results: typeof sim.results
+    current: typeof runSummary
+    previous: typeof runSummary
+  }>({ results: null, current: null, previous: null })
+  useEffect(() => {
+    if (!runSummary) return
+    // Keyed on the run's output, so recomputing the same run's summary never counts as a new run.
+    setRunSummaryHistory((history) =>
+      history.results === sim.results
+        ? { ...history, current: runSummary }
+        : { results: sim.results, current: runSummary, previous: history.current }
+    )
+  }, [runSummary, sim.results])
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -1701,6 +1716,7 @@ export const WorkspaceLayout = () => {
         (sim.status === 'running' || sim.status === 'paused' || runSummary) && (
           <RunSummaryStrip
             summary={runSummary}
+            previous={runSummaryHistory.previous}
             running={sim.status === 'running' || sim.status === 'paused'}
             progress={sim.progress}
             topologyEdited={resultsTopologyRelation === 'edited'}

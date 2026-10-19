@@ -14,6 +14,10 @@ export interface RunSummaryStat {
   value: string
   /** Draw the value in the danger colour. */
   bad?: boolean
+  /** The unrounded number behind `value`, for comparing runs. Null when there is none. */
+  raw: number | null
+  /** Which direction is an improvement. */
+  better: 'higher' | 'lower'
 }
 
 export interface RunSummary {
@@ -105,17 +109,31 @@ export function summarizeRun(
 
   const served = classroom ? classroom.servedRps : summary.throughput
   const stats: RunSummaryStat[] = [
-    { id: 'served', label: 'Served', value: formatRps(served) },
+    { id: 'served', label: 'Served', value: formatRps(served), raw: served, better: 'higher' },
     {
       id: 'dropped',
       label: classroom ? 'Dropped' : 'Errors',
       value: formatPercent(droppedShare),
-      bad: droppedShare > 0
+      bad: droppedShare > 0,
+      raw: droppedShare,
+      better: 'lower'
     },
-    { id: 'p95', label: 'p95', value: formatLatency(summary.latency.p95) }
+    {
+      id: 'p95',
+      label: 'p95',
+      value: formatLatency(summary.latency.p95),
+      raw: summary.latency.p95,
+      better: 'lower'
+    }
   ]
   if (classroom?.costPerHour !== undefined) {
-    stats.push({ id: 'cost', label: 'Cost', value: formatCostPerHour(classroom.costPerHour) })
+    stats.push({
+      id: 'cost',
+      label: 'Cost',
+      value: formatCostPerHour(classroom.costPerHour),
+      raw: classroom.costPerHour,
+      better: 'lower'
+    })
   }
 
   const bottleneck = classroom ? classroomBottleneck(classroom) : engineBottleneck(output)
@@ -125,4 +143,45 @@ export function summarizeRun(
     bottleneck: bottleneck?.text ?? null,
     bottleneckNodeId: bottleneck?.nodeId ?? null
   }
+}
+
+export interface StatDelta {
+  text: string
+  tone: 'better' | 'worse'
+}
+
+/** Changes smaller than this share of the earlier value read as noise, not a result. */
+const NOISE_SHARE = 0.01
+
+function signed(value: number, format: (magnitude: number) => string): string {
+  return `${value > 0 ? '+' : '-'}${format(Math.abs(value))}`
+}
+
+function formatDelta(id: RunSummaryStat['id'], diff: number): string {
+  switch (id) {
+    case 'served':
+      return signed(diff, (n) => formatRps(n))
+    case 'dropped':
+      return signed(diff, (n) => `${Math.round(n * 1000) / 10} pts`)
+    case 'p95':
+      return signed(diff, (n) => (n < 1000 ? `${Math.round(n)} ms` : `${(n / 1000).toFixed(2)} s`))
+    case 'cost':
+      return signed(diff, (n) => formatCostPerHour(n))
+  }
+}
+
+/**
+ * How a stat moved since the previous run, or null when it did not move enough to mean
+ * anything (or either run has no number for it).
+ */
+export function statDelta(
+  previous: RunSummaryStat | undefined,
+  current: RunSummaryStat
+): StatDelta | null {
+  if (!previous || previous.raw === null || current.raw === null) return null
+  const diff = current.raw - previous.raw
+  const scale = Math.max(Math.abs(previous.raw), Math.abs(current.raw))
+  if (diff === 0 || (scale > 0 && Math.abs(diff) / scale < NOISE_SHARE)) return null
+  const improved = current.better === 'higher' ? diff > 0 : diff < 0
+  return { text: formatDelta(current.id, diff), tone: improved ? 'better' : 'worse' }
 }
