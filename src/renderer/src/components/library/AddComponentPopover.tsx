@@ -76,7 +76,7 @@ export function AddComponentPopover({
       role="dialog"
       aria-label="Add component"
       data-testid="add-component-popover"
-      className="absolute bottom-36 left-14 z-40 flex max-h-[min(30rem,calc(100%-10rem))] w-80 max-w-[calc(100%-4rem)] flex-col gap-2 overflow-hidden rounded-lg border border-nss-border bg-nss-panel p-2 shadow-xl"
+      className="nss-add-popover absolute bottom-36 left-14 z-40 flex max-h-[min(30rem,calc(100%-10rem))] w-80 max-w-[calc(100%-4rem)] flex-col gap-2 overflow-hidden rounded-lg border border-nss-border bg-nss-panel p-2 shadow-xl"
     >
       <div className="relative shrink-0">
         <Search

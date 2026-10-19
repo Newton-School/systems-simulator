@@ -5,6 +5,7 @@ import { CostChip } from './CostChip'
 import { DesignChecksChip } from './DesignChecksChip'
 import { FileStatus } from './FileStatus'
 import { ModeBadge } from './ModeBadge'
+import { ThemeToggle } from './ThemeToggle'
 
 interface HeaderMenuProps {
   onOpen: () => void
@@ -118,6 +119,11 @@ export function HeaderMenu({
             >
               <Workflow size={15} /> Auto layout
             </button>
+          </Group>
+          <Group label="View">
+            <div className="nss-compact-only px-1">
+              <ThemeToggle />
+            </div>
           </Group>
           <Group label="Status">
             <div className="flex flex-wrap items-center gap-2 px-2.5 py-1">

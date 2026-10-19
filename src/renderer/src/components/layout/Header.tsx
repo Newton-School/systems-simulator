@@ -182,7 +182,9 @@ export const Header = memo(
               <Divider />
             </>
           )}
-          <Branding />
+          <div className={simpleShell ? 'nss-branding-logo-only' : 'contents'}>
+            <Branding />
+          </div>
           <Divider />
           <ToggleButton
             onClick={toggleLeft}
@@ -295,9 +297,12 @@ export const Header = memo(
               topologyJsonControls={topologyJsonControls}
             />
           )}
-          {/* Stays mounted: it also applies the saved theme to the document. */}
-          <ThemeToggle />
-          <Divider />
+          {/* Stays mounted: it also applies the saved theme to the document. On phones the
+              simple shell moves it into the menu to leave room for Run. */}
+          <div className={simpleShell ? 'nss-desktop-only contents' : 'contents'}>
+            <ThemeToggle />
+            <Divider />
+          </div>
           <ToggleButton
             onClick={toggleRight}
             isOpen={isRightOpen}

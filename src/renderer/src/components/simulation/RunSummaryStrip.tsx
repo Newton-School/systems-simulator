@@ -34,7 +34,7 @@ export function RunSummaryStrip({
     <section
       aria-label="Run summary"
       data-testid="run-summary-strip"
-      className="pointer-events-auto absolute bottom-4 left-1/2 z-20 w-[min(46rem,calc(100%-2rem))] -translate-x-1/2 space-y-1.5 rounded-lg border border-nss-border bg-nss-panel/95 px-4 py-3 shadow-lg backdrop-blur"
+      className="nss-results-reopen pointer-events-auto absolute bottom-4 left-1/2 z-20 w-[min(46rem,calc(100%-2rem))] -translate-x-1/2 space-y-1.5 rounded-lg border border-nss-border bg-nss-panel/95 px-4 py-3 shadow-lg backdrop-blur"
     >
       {running || !summary || !verdict ? (
         <div className="text-xs font-medium text-nss-muted" role="status">
