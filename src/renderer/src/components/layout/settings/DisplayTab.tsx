@@ -1,3 +1,4 @@
+import { track } from '@renderer/analytics/analytics'
 import useStore from '@renderer/store/useStore'
 import { PRE_RUN_LENSES } from '@renderer/config/metricLensConfig'
 import { SectionLabel, Segmented, SelectField, SettingRow, Toggle } from './SettingsControls'
@@ -166,13 +167,14 @@ export function DisplayTab(): React.JSX.Element {
       >
         <Toggle
           checked={displaySettings.simpleShell}
-          onChange={(simpleShell) =>
+          onChange={(simpleShell) => {
+            track('layout_toggled', { to: simpleShell ? 'simple' : 'full' })
             updateDisplaySettings((current) => ({
               ...current,
               simpleShell,
               simpleShellChosen: true
             }))
-          }
+          }}
         />
       </SettingRow>
 
