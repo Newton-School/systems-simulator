@@ -1,8 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import useStore from '../../store/useStore'
-import { CATALOG_CONFIG } from '../../config/catalogConfig'
-import { filterCatalogCategories, type ComponentLibraryFilter } from '../../config/catalogFilter'
-import { useClassroomActive } from '@renderer/hooks/useClassroom'
+import type { ComponentLibraryFilter } from '../../config/catalogFilter'
+import { useLibraryCatalog } from '@renderer/hooks/useLibraryCatalog'
 import { LibraryItem } from './LibraryItem'
 import { CustomDefinitionCreator, type DefinitionBuilderMode } from './CustomDefinitionCreator'
 import type { CatalogItem } from '@renderer/types/ui'
@@ -38,12 +37,7 @@ export function ComponentLibrarySidebarPanel({
 }): React.JSX.Element {
   const searchInputRef = useRef<HTMLInputElement>(null)
   const [builderMode, setBuilderMode] = useState<DefinitionBuilderMode | null>(null)
-  const editPaletteList = useStore((state) => state.environmentProfile.capabilities.editPaletteList)
   const activeQuestion = useStore((state) => state.activeQuestion)
-  const componentLibraryMode = useStore((state) => state.displaySettings.componentLibraryMode)
-  const hiddenComponentLibraryTemplateIds = useStore(
-    (state) => state.displaySettings.hiddenComponentLibraryTemplateIds
-  )
   const pendingNodePlacement = useStore((state) => state.pendingNodePlacement)
   const setPendingNodePlacement = useStore((state) => state.setPendingNodePlacement)
 
@@ -66,30 +60,8 @@ export function ComponentLibrarySidebarPanel({
   // A question allow-list turns the palette into a strict, curated set: only the
   // author's chosen types, one canonical item each, and no Common/All scoping.
   const hasQuestionAllowlist = Boolean(activeQuestion?.constraints.allowedNodeTypes)
-  const classroomActive = useClassroomActive()
 
-  const filtered = useMemo(
-    () =>
-      filterCatalogCategories(CATALOG_CONFIG, {
-        query,
-        filter,
-        editPaletteList,
-        allowedNodeTypes: activeQuestion?.constraints.allowedNodeTypes ?? null,
-        forbiddenNodeTypes: activeQuestion?.constraints.forbiddenNodeTypes ?? null,
-        componentLibraryMode,
-        hiddenTemplateIds: hiddenComponentLibraryTemplateIds,
-        ...(classroomActive ? { classroom: { settings: activeQuestion?.classroom } } : {})
-      }),
-    [
-      activeQuestion,
-      classroomActive,
-      componentLibraryMode,
-      editPaletteList,
-      filter,
-      hiddenComponentLibraryTemplateIds,
-      query
-    ]
-  )
+  const { categories: filtered } = useLibraryCatalog(query, filter)
 
   const builderPolicy = useBuilderPolicy()
   // Why each builder tile is unavailable under the question's builder policy

@@ -13,6 +13,7 @@ import {
   MousePointer2,
   Palette,
   Pencil,
+  Plus,
   Redo2,
   Shapes,
   SquareStack,
@@ -51,6 +52,9 @@ interface CanvasToolbarProps {
   onUndo: () => void
   onResetCanvas: () => void
   onDeleteSelection: () => void
+  /** Simple shell: show an Add button that opens the component popover. */
+  onAddComponent?: () => void
+  addComponentActive?: boolean
 }
 
 interface CanvasToolButtonProps {
@@ -148,7 +152,9 @@ const CanvasToolbarComponent = ({
   onRedo,
   onUndo,
   onResetCanvas,
-  onDeleteSelection
+  onDeleteSelection,
+  onAddComponent,
+  addComponentActive = false
 }: CanvasToolbarProps) => {
   const [isExpanded, setIsExpanded] = useState(true)
   const symbolMode = useStore((s) => s.displaySettings.nodeDisplayStyle === 'symbol')
@@ -234,6 +240,17 @@ const CanvasToolbarComponent = ({
             onClick={() => onToolChange(tool)}
           />
         ))}
+
+        {onAddComponent ? (
+          <CanvasToolButton
+            icon={Plus}
+            label="Add component"
+            shortcut="/"
+            active={addComponentActive}
+            disabled={editingDisabled}
+            onClick={onAddComponent}
+          />
+        ) : null}
 
         {canAnnotate ? (
           <>

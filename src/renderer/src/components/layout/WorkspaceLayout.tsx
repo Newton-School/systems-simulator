@@ -101,6 +101,7 @@ import {
 } from '@renderer/components/simulation/chaosExperimentModel'
 import { ExperimentResultPanel } from '@renderer/components/simulation/ChaosExperimentPanel'
 import { ClassroomResultsCard } from '@renderer/components/simulation/ClassroomResultsCard'
+import { AddComponentPopover } from '@renderer/components/library/AddComponentPopover'
 import { RunSummaryStrip } from '@renderer/components/simulation/RunSummaryStrip'
 import { summarizeRun } from '@renderer/components/simulation/runSummaryModel'
 import { compileClassroomRun, useClassroomActive } from '@renderer/hooks/useClassroom'
@@ -391,10 +392,24 @@ export const WorkspaceLayout = () => {
   const setRunInspectorPinned = useStore((s) => s.setRunInspectorPinned)
   const routingVisualization = useStore((s) => s.routingStrategyVisualization)
   const setRoutingVisualization = useStore((s) => s.setRoutingStrategyVisualization)
-  const experienceEnvelope = useMemo(
+  const simpleShell = displaySettings.simpleShell
+  const baseExperienceEnvelope = useMemo(
     () => resolveExperienceEnvelope(environmentProfile, activeQuestion),
     [activeQuestion, environmentProfile]
   )
+  // Simple shell moves the component library out of the sidebar and into the Add popover.
+  const experienceEnvelope = useMemo(
+    () =>
+      simpleShell
+        ? {
+            ...baseExperienceEnvelope,
+            allowedTabs: baseExperienceEnvelope.allowedTabs.filter((tab) => tab !== 'library')
+          }
+        : baseExperienceEnvelope,
+    [baseExperienceEnvelope, simpleShell]
+  )
+  const addPopoverAvailable = simpleShell && !baseExperienceEnvelope.canvasLocked
+  const [addPopoverOpen, setAddPopoverOpen] = useState(false)
   const isNewtonAssignmentHost = isNewtonHostMode()
   const canUseTopologyFiles =
     !isNewtonAssignmentHost && environmentProfile.capabilities.canUseTopologyFiles
@@ -1320,6 +1335,12 @@ export const WorkspaceLayout = () => {
         const opensLibrarySearch =
           (!isMod && !event.altKey && !event.shiftKey && event.key === '/') ||
           (isMod && !event.altKey && !event.shiftKey && key === 'k')
+        if (opensLibrarySearch && addPopoverAvailable) {
+          event.preventDefault()
+          setAddPopoverOpen(true)
+          setComponentLibrarySearchFocusVersion((version) => version + 1)
+          return
+        }
         if (opensLibrarySearch && experienceEnvelope.allowedTabs.includes('library')) {
           event.preventDefault()
           handleLeftSidebarTabSelect('library')
@@ -1364,7 +1385,11 @@ export const WorkspaceLayout = () => {
       }
 
       if (!event.shiftKey && !event.altKey && key === 'k') {
-        if (experienceEnvelope.allowedTabs.includes('library')) {
+        if (addPopoverAvailable) {
+          event.preventDefault()
+          setAddPopoverOpen(true)
+          setComponentLibrarySearchFocusVersion((version) => version + 1)
+        } else if (experienceEnvelope.allowedTabs.includes('library')) {
           event.preventDefault()
           handleLeftSidebarTabSelect('library')
           setComponentLibrarySearchFocusVersion((version) => version + 1)
@@ -1433,6 +1458,7 @@ export const WorkspaceLayout = () => {
     canUseTerminal,
     environmentProfile.capabilities.canUseSettings,
     experienceEnvelope.allowedTabs,
+    addPopoverAvailable,
     handleAutoLayout,
     handleLeftSidebarTabSelect,
     handleRun,
@@ -1571,6 +1597,10 @@ export const WorkspaceLayout = () => {
           <FlowCanvas
             showMetricLens={environmentProfile.visibility.liveMetrics}
             interactionLocked={experienceEnvelope.canvasLocked}
+            onAddComponent={
+              addPopoverAvailable ? () => setAddPopoverOpen((current) => !current) : undefined
+            }
+            addComponentActive={addPopoverOpen}
             onNodeDoubleClick={(_, node) => {
               selectGraphElements({ nodeId: node.id })
               setRightPanelView('inspector')
@@ -1586,6 +1616,13 @@ export const WorkspaceLayout = () => {
           />
         </Suspense>
       </ErrorBoundary>
+
+      {addPopoverAvailable && addPopoverOpen && (
+        <AddComponentPopover
+          onClose={() => setAddPopoverOpen(false)}
+          focusSearchVersion={componentLibrarySearchFocusVersion}
+        />
+      )}
 
       {displaySettings.simpleShell &&
         !showResults &&

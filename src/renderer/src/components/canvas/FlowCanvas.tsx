@@ -60,6 +60,9 @@ interface FlowCanvasProps {
   presentationMode?: boolean
   onNodeDoubleClick?: (event: React.MouseEvent, node: Node) => void
   onEdgeDoubleClick?: (event: React.MouseEvent, edge: Edge) => void
+  /** Simple shell: the rail's Add button opens the component popover. */
+  onAddComponent?: () => void
+  addComponentActive?: boolean
 }
 
 function handleReactFlowError(code: string, message: string): void {
@@ -112,7 +115,9 @@ const FlowCanvasInternal = ({
   interactionLocked = false,
   presentationMode = false,
   onNodeDoubleClick,
-  onEdgeDoubleClick
+  onEdgeDoubleClick,
+  onAddComponent,
+  addComponentActive = false
 }: FlowCanvasProps) => {
   const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance | null>(null)
   const classroomActive = useClassroomActive()
@@ -1059,6 +1064,8 @@ const FlowCanvasInternal = ({
           onRedo={useAnnotationFuture ? redoAnnotation : redoGraph}
           onResetCanvas={resetCanvas}
           onDeleteSelection={deleteSelection}
+          onAddComponent={onAddComponent}
+          addComponentActive={addComponentActive}
         />
       )}
       <ReactFlow
