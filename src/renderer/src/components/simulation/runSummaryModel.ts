@@ -21,6 +21,8 @@ export interface RunSummary {
   stats: RunSummaryStat[]
   /** One sentence naming the component that limits the run, when there is one. */
   bottleneck: string | null
+  /** The canvas node behind `bottleneck`, so the strip can select it. */
+  bottleneckNodeId: string | null
 }
 
 /** Error rate at or above this reads as a failed run, not just one that needs work. */
@@ -39,34 +41,47 @@ function verdictFor(errorRate: number, breaches: number, overTarget: boolean): R
   return 'passed'
 }
 
-function classroomBottleneck(summary: ClassroomRunSummary): string | null {
+interface Bottleneck {
+  text: string
+  nodeId: string | null
+}
+
+function classroomBottleneck(summary: ClassroomRunSummary): Bottleneck | null {
   const target = summary.targetUtilization
   const worst = [...summary.components].sort((a, b) => b.utilization - a.utilization)[0]
   if (!worst) return null
   const pct = formatPercent(worst.utilization)
   if (target !== undefined && worst.overTarget) {
-    return `Bottleneck: ${worst.label} at ${pct} (target ${formatPercent(target)} or less)`
+    return {
+      text: `Bottleneck: ${worst.label} at ${pct} (target ${formatPercent(target)} or less)`,
+      nodeId: worst.nodeId
+    }
   }
-  return target === undefined ? null : `Busiest: ${worst.label} at ${pct}`
+  return target === undefined
+    ? null
+    : { text: `Busiest: ${worst.label} at ${pct}`, nodeId: worst.nodeId }
 }
 
-function engineBottleneck(output: SimulationOutput): string | null {
+function engineBottleneck(output: SimulationOutput): Bottleneck | null {
   const { failuresByLocus, latencyDecomposition } = output.summary
   const failure = failuresByLocus[0]
   if (failure) {
-    const label =
-      failure.locusKind === 'node'
-        ? (output.perNode[failure.locus]?.nodeLabel ?? failure.locus)
-        : (output.perEdge[failure.locus]?.edgeLabel ?? failure.locus)
-    return `Most failures end at ${label}`
+    const isNode = failure.locusKind === 'node'
+    const label = isNode
+      ? (output.perNode[failure.locus]?.nodeLabel ?? failure.locus)
+      : (output.perEdge[failure.locus]?.edgeLabel ?? failure.locus)
+    return { text: `Most failures end at ${label}`, nodeId: isNode ? failure.locus : null }
   }
   const latency = latencyDecomposition[0]
   if (latency && latency.kind !== 'unattributed') {
-    const label =
-      latency.kind === 'edge'
-        ? (output.perEdge[latency.component]?.edgeLabel ?? latency.label)
-        : (output.perNode[latency.component]?.nodeLabel ?? latency.label)
-    return `Slowest part of the path: ${label}`
+    const isEdge = latency.kind === 'edge'
+    const label = isEdge
+      ? (output.perEdge[latency.component]?.edgeLabel ?? latency.label)
+      : (output.perNode[latency.component]?.nodeLabel ?? latency.label)
+    return {
+      text: `Slowest part of the path: ${label}`,
+      nodeId: isEdge ? null : latency.component
+    }
   }
   return null
 }
@@ -103,9 +118,11 @@ export function summarizeRun(
     stats.push({ id: 'cost', label: 'Cost', value: formatCostPerHour(classroom.costPerHour) })
   }
 
+  const bottleneck = classroom ? classroomBottleneck(classroom) : engineBottleneck(output)
   return {
     verdict,
     stats,
-    bottleneck: classroom ? classroomBottleneck(classroom) : engineBottleneck(output)
+    bottleneck: bottleneck?.text ?? null,
+    bottleneckNodeId: bottleneck?.nodeId ?? null
   }
 }

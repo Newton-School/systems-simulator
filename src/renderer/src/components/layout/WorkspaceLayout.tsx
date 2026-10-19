@@ -1695,6 +1695,7 @@ export const WorkspaceLayout = () => {
             progress={sim.progress}
             topologyEdited={resultsTopologyRelation === 'edited'}
             onSeeDetails={() => setShowResults(true)}
+            onSelectBottleneck={(nodeId) => selectGraphElements({ nodeId })}
           />
         )}
 

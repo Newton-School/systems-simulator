@@ -56,6 +56,7 @@ describe('summarizeRun', () => {
       null
     )
     expect(summary.bottleneck).toBe('Most failures end at Database')
+    expect(summary.bottleneckNodeId).toBe('db')
   })
 
   it('uses the classroom summary: over-target component is the bottleneck, cost shown', () => {
@@ -70,6 +71,7 @@ describe('summarizeRun', () => {
     )
     expect(summary.verdict).toBe('needs-work')
     expect(summary.bottleneck).toBe('Bottleneck: Database at 118% (target 80% or less)')
+    expect(summary.bottleneckNodeId).toBe('db')
     expect(summary.stats.find((s) => s.id === 'cost')?.value).toBe('$0.420/hr')
   })
 

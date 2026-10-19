@@ -18,13 +18,16 @@ export function RunSummaryStrip({
   running = false,
   progress = 0,
   topologyEdited = false,
-  onSeeDetails
+  onSeeDetails,
+  onSelectBottleneck
 }: {
   summary: RunSummary | null
   running?: boolean
   progress?: number
   topologyEdited?: boolean
   onSeeDetails: () => void
+  /** Select the bottleneck node on the canvas (opens its inspector). */
+  onSelectBottleneck?: (nodeId: string) => void
 }): React.JSX.Element {
   const verdict = summary ? VERDICT_META[summary.verdict] : null
   return (
@@ -66,7 +69,20 @@ export function RunSummaryStrip({
               See details
             </button>
           </div>
-          {summary.bottleneck && <p className="text-xs text-nss-muted">{summary.bottleneck}</p>}
+          {summary.bottleneck && (
+            <p className="flex flex-wrap items-center gap-x-3 text-xs text-nss-muted">
+              <span>{summary.bottleneck}</span>
+              {summary.bottleneckNodeId && onSelectBottleneck && (
+                <button
+                  type="button"
+                  onClick={() => onSelectBottleneck(summary.bottleneckNodeId as string)}
+                  className="font-semibold text-nss-primary transition-colors hover:underline"
+                >
+                  Show on canvas
+                </button>
+              )}
+            </p>
+          )}
           {topologyEdited && (
             <p className="text-xs text-nss-warning">
               The canvas changed since this run. Run again to refresh.
