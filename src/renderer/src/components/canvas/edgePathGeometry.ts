@@ -8,7 +8,7 @@ import {
   type HandleElement,
   type Node
 } from 'reactflow'
-import type { EdgeRoutingStyle } from '@renderer/types/ui'
+import type { EdgeLayoutRoute, EdgeRoutingStyle } from '@renderer/types/ui'
 
 interface EdgePathInput {
   sourceX: number
@@ -34,6 +34,10 @@ export interface EdgePathGeometry extends EdgePathInput {
 
 const OCTILINEAR_STUB_LENGTH = 24
 const EPSILON = 0.001
+// React Flow can remeasure a card as a compact symbol immediately after layout,
+// shifting a port even though the node itself did not move. Dragging explicitly
+// clears stored routes; this tolerance only absorbs those presentation changes.
+const ROUTE_ENDPOINT_TOLERANCE = 96
 
 function offsetFromPort(point: EdgePathPoint, position: Position, distance: number): EdgePathPoint {
   switch (position) {
@@ -155,11 +159,103 @@ function octilinearPath(
   }
 }
 
+function routeStillMatches(route: EdgeLayoutRoute, input: EdgePathInput): boolean {
+  return (
+    Math.hypot(route.source.x - input.sourceX, route.source.y - input.sourceY) <=
+      ROUTE_ENDPOINT_TOLERANCE &&
+    Math.hypot(route.target.x - input.targetX, route.target.y - input.targetY) <=
+      ROUTE_ENDPOINT_TOLERANCE
+  )
+}
+
+function alignRouteEndpoint(
+  point: EdgePathPoint,
+  endpoint: EdgePathPoint,
+  position: Position
+): EdgePathPoint {
+  return position === Position.Left || position === Position.Right
+    ? { x: point.x, y: endpoint.y }
+    : { x: endpoint.x, y: point.y }
+}
+
+function roundedPolylinePath(points: EdgePathPoint[], radius: number): string {
+  if (points.length < 2) return ''
+  if (radius <= 0 || points.length === 2) {
+    return points
+      .map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x},${point.y}`)
+      .join(' ')
+  }
+
+  const commands = [`M ${points[0].x},${points[0].y}`]
+  for (let index = 1; index < points.length - 1; index += 1) {
+    const before = points[index - 1]
+    const corner = points[index]
+    const after = points[index + 1]
+    const incomingLength = Math.hypot(corner.x - before.x, corner.y - before.y)
+    const outgoingLength = Math.hypot(after.x - corner.x, after.y - corner.y)
+    const cornerRadius = Math.min(radius, incomingLength / 2, outgoingLength / 2)
+
+    if (cornerRadius < EPSILON) {
+      commands.push(`L ${corner.x},${corner.y}`)
+      continue
+    }
+
+    const incoming = {
+      x: corner.x + ((before.x - corner.x) / incomingLength) * cornerRadius,
+      y: corner.y + ((before.y - corner.y) / incomingLength) * cornerRadius
+    }
+    const outgoing = {
+      x: corner.x + ((after.x - corner.x) / outgoingLength) * cornerRadius,
+      y: corner.y + ((after.y - corner.y) / outgoingLength) * cornerRadius
+    }
+    commands.push(`L ${incoming.x},${incoming.y}`)
+    commands.push(`Q ${corner.x},${corner.y} ${outgoing.x},${outgoing.y}`)
+  }
+  const last = points[points.length - 1]
+  commands.push(`L ${last.x},${last.y}`)
+  return commands.join(' ')
+}
+
+function storedRoutePath(
+  input: EdgePathInput,
+  route: EdgeLayoutRoute,
+  routingStyle: EdgeRoutingStyle
+): Pick<EdgePathGeometry, 'path' | 'labelX' | 'labelY' | 'points'> | null {
+  if (!routeStillMatches(route, input)) return null
+
+  const source = { x: input.sourceX, y: input.sourceY }
+  const target = { x: input.targetX, y: input.targetY }
+  const bends = route.bends.map((point) => ({ ...point }))
+  if (bends.length > 0) {
+    bends[0] = alignRouteEndpoint(bends[0], source, input.sourcePosition)
+    bends[bends.length - 1] = alignRouteEndpoint(
+      bends[bends.length - 1],
+      target,
+      input.targetPosition
+    )
+  }
+  const points = simplifyPolyline([source, ...bends, target])
+  const label = midpointAlongPolyline(points)
+  const radius = routingStyle === 'rounded' || routingStyle === 'bezier' ? 16 : 0
+  return {
+    path: roundedPolylinePath(points, radius),
+    labelX: label.x,
+    labelY: label.y,
+    points
+  }
+}
+
 /** The one path generator used by normal edges, connection previews, and traces. */
 export function getCanvasEdgePath(
   input: EdgePathInput,
-  routingStyle: EdgeRoutingStyle
+  routingStyle: EdgeRoutingStyle,
+  layoutRoute?: EdgeLayoutRoute
 ): EdgePathGeometry {
+  if (layoutRoute) {
+    const stored = storedRoutePath(input, layoutRoute, routingStyle)
+    if (stored) return { ...input, ...stored }
+  }
+
   if (routingStyle === 'octilinear') {
     return { ...input, ...octilinearPath(input) }
   }
@@ -249,6 +345,7 @@ export function resolveStoredEdgePath(
       sourcePosition: source.position,
       targetPosition: target.position
     },
-    routingStyle
+    routingStyle,
+    (edge.data as { layoutRoute?: EdgeLayoutRoute } | undefined)?.layoutRoute
   )
 }

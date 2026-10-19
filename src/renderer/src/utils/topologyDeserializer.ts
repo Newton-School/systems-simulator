@@ -6,7 +6,7 @@ import {
   type ValidationError
 } from '../../../engine/validation/validator'
 import { describeZodIssue, withSubjects } from '../../../engine/validation/issueMessages'
-import { applyAutoLayout } from './autoLayout'
+import { applyFallbackAutoLayout } from './autoLayout'
 import type { NestedFileData } from './nodeTransformers'
 import { topologyToCanvasFileData } from './topologyCanvasAdapter'
 
@@ -220,7 +220,7 @@ export function layoutTopology(topology: TopologyJSON): TopologyJSON {
   // out once per nesting level (region > zone > subnet) plus a final pass.
   const sizedByAuthor = new Set(locations.filter((l) => l.size).map((l) => l.id))
   for (let pass = 0; pass < 4; pass++) {
-    layoutNodes = applyAutoLayout(layoutNodes, layoutEdges)
+    layoutNodes = applyFallbackAutoLayout(layoutNodes, layoutEdges)
     layoutNodes = sizeContainersToFit(layoutNodes, locationIds, sizedByAuthor)
   }
 

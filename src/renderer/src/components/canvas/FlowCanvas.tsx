@@ -47,7 +47,7 @@ import {
   isModalOpen,
   isPrimaryModifier
 } from '@renderer/config/keyboardShortcuts'
-import type { CatalogItem } from '@renderer/types/ui'
+import type { CatalogItem, EdgeSimulationData } from '@renderer/types/ui'
 import { checkCanvasConnection, reconnectCanvasEdge } from './utils/connectionRules'
 import { contextualAddModesFor, planContextualAdd } from './utils/contextualAdd'
 import { nodeSize } from './utils/nodePlacement'
@@ -305,7 +305,16 @@ const FlowCanvasInternal = ({
         return
       }
       lastRefusalRef.current = null
-      setEdges(result.edges)
+      setEdges(
+        result.edges.map((candidate) => {
+          if (candidate.id !== oldEdge.id) return candidate
+          const data = candidate.data as EdgeSimulationData | undefined
+          if (!data?.layoutRoute) return candidate
+          const rest = { ...data }
+          delete rest.layoutRoute
+          return { ...candidate, data: rest }
+        })
+      )
       setCanvasNotice(
         result.warnings.length > 0
           ? { tone: 'warning', title: 'Connection rerouted', messages: result.warnings }
@@ -370,8 +379,10 @@ const FlowCanvasInternal = ({
 
   const { onDragOver, onDrop, onNodeDragStop, placeNode } = useFlowDnD({
     nodes,
+    edges,
     addNode,
     setNodes,
+    setEdges,
     instance: reactFlowInstance,
     onError: setValidationError
   })

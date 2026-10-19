@@ -50,6 +50,36 @@ describe('edgePathGeometry', () => {
     expect(getCanvasEdgePath(baseInput, 'octilinear').path).toContain('L')
   })
 
+  it('uses a matching obstacle-avoiding route from auto-layout', () => {
+    const geometry = getCanvasEdgePath(baseInput, 'rounded', {
+      source: { x: 0, y: 0 },
+      target: { x: 100, y: 100 },
+      bends: [
+        { x: 0, y: 40 },
+        { x: 100, y: 40 }
+      ]
+    })
+
+    expect(geometry.path).toContain('Q')
+    expect(geometry.points).toEqual([
+      { x: 0, y: 0 },
+      { x: 0, y: 40 },
+      { x: 100, y: 40 },
+      { x: 100, y: 100 }
+    ])
+  })
+
+  it('falls back to live geometry after an endpoint is moved', () => {
+    const staleRoute = {
+      source: { x: 0, y: 0 },
+      target: { x: 100, y: 100 },
+      bends: [{ x: 0, y: 40 }]
+    }
+    const movedInput = { ...baseInput, sourceX: 150 }
+
+    expect(getCanvasEdgePath(movedInput, 'straight', staleRoute).path).toBe('M 150,0L 100,100')
+  })
+
   it('reconstructs the exact base-edge path for the request tracer in every route style', () => {
     const sourceNode: Node = {
       id: 'source',

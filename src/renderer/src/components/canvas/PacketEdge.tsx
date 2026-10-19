@@ -140,7 +140,8 @@ export const PacketEdge = ({
     labelY
   } = getCanvasEdgePath(
     { sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition },
-    edgeRoutingStyle
+    edgeRoutingStyle,
+    edgeData.layoutRoute
   )
 
   const hasLabel = typeof label === 'string' && label.trim().length > 0

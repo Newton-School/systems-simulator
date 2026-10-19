@@ -357,6 +357,7 @@ export const WorkspaceLayout = () => {
    */
   const [showHostBackButton, setShowHostBackButton] = useState(false)
   const lastLiveNodeMetricsSnapshotAtRef = useRef<number | null>(null)
+  const autoLayoutRunningRef = useRef(false)
 
   // Panel refs - panels stay in the DOM always; we collapse/expand imperatively
   // so that opening one side never redistributes the other side's size.
@@ -383,10 +384,11 @@ export const WorkspaceLayout = () => {
   const isUnsaved = useStore((s) => s.isUnsaved)
   const nodes = useStore((s) => s.nodes)
   const edges = useStore((s) => s.edges)
+  const graphRevision = useStore((s) => s.graphRevision)
   const scenario = useStore((s) => s.scenario)
   const updateScenario = useStore((s) => s.updateScenario)
   const displaySettings = useStore((s) => s.displaySettings)
-  const setNodes = useStore((s) => s.setNodes)
+  const setGraph = useStore((s) => s.setGraph)
   const setSimulationMetrics = useStore((s) => s.setSimulationMetrics)
   const clearSimulationMetrics = useStore((s) => s.clearSimulationMetrics)
   const selectGraphElements = useStore((s) => s.selectGraphElements)
@@ -957,14 +959,22 @@ export const WorkspaceLayout = () => {
     ]
   )
 
-  const handleAutoLayout = useCallback(() => {
-    if (nodes.length === 0) {
-      return
-    }
+  const handleAutoLayout = useCallback(async () => {
+    if (nodes.length === 0 || autoLayoutRunningRef.current) return
 
-    setNodes(applyAutoLayout(nodes, edges))
-    requestViewportFit()
-  }, [edges, nodes, requestViewportFit, setNodes])
+    autoLayoutRunningRef.current = true
+    const requestedRevision = graphRevision
+    try {
+      const layout = await applyAutoLayout(nodes, edges)
+      if (useStore.getState().graphRevision !== requestedRevision) return
+      setGraph(layout.nodes, layout.edges)
+      requestViewportFit()
+    } catch (error) {
+      console.error('Unable to auto-layout the topology', error)
+    } finally {
+      autoLayoutRunningRef.current = false
+    }
+  }, [edges, graphRevision, nodes, requestViewportFit, setGraph])
 
   useEffect(() => {
     if (sim.results || !sim.snapshot || (sim.status !== 'running' && sim.status !== 'paused')) {
