@@ -101,6 +101,7 @@ import {
 } from '@renderer/components/simulation/chaosExperimentModel'
 import { ExperimentResultPanel } from '@renderer/components/simulation/ChaosExperimentPanel'
 import { ClassroomResultsCard } from '@renderer/components/simulation/ClassroomResultsCard'
+import { QuestionCard } from '@renderer/components/question/QuestionCard'
 import { AddComponentPopover } from '@renderer/components/library/AddComponentPopover'
 import { RunSummaryStrip } from '@renderer/components/simulation/RunSummaryStrip'
 import { summarizeRun } from '@renderer/components/simulation/runSummaryModel'
@@ -299,7 +300,10 @@ export const WorkspaceLayout = () => {
   useVisualViewportHeight()
 
   // Sidebar State
-  const [isLeftOpen, setIsLeftOpen] = useState(true)
+  // Simple shell starts with the sidebar closed: the task shows as a card over the canvas.
+  const [isLeftOpen, setIsLeftOpen] = useState(
+    () => !useStore.getState().displaySettings.simpleShell
+  )
   const [leftSidebarTab, setLeftSidebarTab] = useState<LibrarySidebarTab>('library')
   const [isRightOpen, setIsRightOpen] = useState(false)
   // The right panel slot shows the inspector or the JSON Topology Viewer (#87).
@@ -410,6 +414,18 @@ export const WorkspaceLayout = () => {
   )
   const addPopoverAvailable = simpleShell && !baseExperienceEnvelope.canvasLocked
   const [addPopoverOpen, setAddPopoverOpen] = useState(false)
+  const [questionCardExpanded, setQuestionCardExpanded] = useState(true)
+  const questionCardId = activeQuestion?.id
+  const hasCanvasNodes = useStore((s) => s.nodes.length > 0)
+  const startsEmpty = activeQuestion?.scaffold.type === 'empty'
+  // Re-open the card for each new question; fold it away once the learner starts building
+  // (a pre-filled scaffold keeps it open: the nodes there aren't the learner's own).
+  useEffect(() => {
+    setQuestionCardExpanded(true)
+  }, [questionCardId])
+  useEffect(() => {
+    if (hasCanvasNodes && startsEmpty) setQuestionCardExpanded(false)
+  }, [hasCanvasNodes, questionCardId, startsEmpty])
   const isNewtonAssignmentHost = isNewtonHostMode()
   const canUseTopologyFiles =
     !isNewtonAssignmentHost && environmentProfile.capabilities.canUseTopologyFiles
@@ -1616,6 +1632,18 @@ export const WorkspaceLayout = () => {
           />
         </Suspense>
       </ErrorBoundary>
+
+      {simpleShell && activeQuestion && (
+        <QuestionCard
+          question={activeQuestion}
+          expanded={questionCardExpanded}
+          onToggle={() => setQuestionCardExpanded((current) => !current)}
+          onShowFullBrief={() => {
+            setLeftSidebarTab('question')
+            setIsLeftOpen(true)
+          }}
+        />
+      )}
 
       {addPopoverAvailable && addPopoverOpen && (
         <AddComponentPopover
