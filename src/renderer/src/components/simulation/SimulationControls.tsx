@@ -381,8 +381,17 @@ export function SimulationControls({
               </button>
               <button
                 type="button"
-                onClick={onRun}
-                disabled={disabled || !hasSourceNodes || experimentBlocked}
+                // A blocked experiment opens the Workload panel, where the reason is written,
+                // instead of leaving Run dead with no explanation.
+                onClick={experimentBlocked ? () => setIsOpen(true) : onRun}
+                disabled={disabled || !hasSourceNodes}
+                title={
+                  !hasSourceNodes
+                    ? 'Add a source component (such as a Client) to run.'
+                    : experimentBlocked
+                      ? 'The selected experiment cannot run on this design. Click to see why.'
+                      : undefined
+                }
                 aria-label={isPostRun ? 'Run again' : 'Run'}
                 className={`${ACTION_BUTTON_BASE} flex items-center gap-1.5 bg-nss-primary text-white border-transparent hover:bg-nss-primary-hover`}
               >

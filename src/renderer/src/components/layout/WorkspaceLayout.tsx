@@ -111,6 +111,7 @@ import { SimpleEmptyState } from '@renderer/components/canvas/SimpleEmptyState'
 import { QuestionCard } from '@renderer/components/question/QuestionCard'
 import { AddComponentPopover } from '@renderer/components/library/AddComponentPopover'
 import { RunSummaryStrip } from '@renderer/components/simulation/RunSummaryStrip'
+import { useFocusNodeOnCanvas } from '@renderer/components/simulation/useFocusNodeOnCanvas'
 import { summarizeRun } from '@renderer/components/simulation/runSummaryModel'
 import { compileClassroomRun, useClassroomActive } from '@renderer/hooks/useClassroom'
 import { summarizeClassroomRun } from '../../../../engine/classroom/runSummary'
@@ -437,6 +438,7 @@ export const WorkspaceLayout = () => {
     null
   )
   const [questionCardExpanded, setQuestionCardExpanded] = useState(true)
+  const focusNodeOnCanvas = useFocusNodeOnCanvas()
   const questionCardId = activeQuestion?.id
   const hasCanvasNodes = useStore((s) => s.nodes.length > 0)
   const startsEmpty = activeQuestion?.scaffold.type === 'empty'
@@ -1184,7 +1186,7 @@ export const WorkspaceLayout = () => {
     flowStore.setEdgeFlowStatus('running')
     // Read the graph from the store at run time, not from the render closure, so the
     // snapshot can't go stale if this callback's dependency list changes.
-    setLastRunGraph(snapshotRunGraph(flowStore.nodes, flowStore.edges))
+    setLastRunGraph(snapshotRunGraph(flowStore.nodes, flowStore.edges, flowStore.scenario))
     runSimulation(topologyToRun)
     flowStore.setRunInspectorPinned(true)
     setIsRightOpen(!isCompactWorkspace && !displaySettings.simpleShell)
@@ -1206,8 +1208,8 @@ export const WorkspaceLayout = () => {
   }, [startSimulation])
 
   const resultsTopologyRelation = useMemo(
-    () => (lastRunGraph ? compareRunGraph(lastRunGraph, nodes, edges) : 'same'),
-    [edges, lastRunGraph, nodes]
+    () => (lastRunGraph ? compareRunGraph(lastRunGraph, nodes, edges, scenario) : 'same'),
+    [edges, lastRunGraph, nodes, scenario]
   )
 
   // Leave the post-run state and return to pre-run setup: discard the run's
@@ -1344,9 +1346,32 @@ export const WorkspaceLayout = () => {
   const runSummary = useMemo(
     () =>
       displaySettings.simpleShell && sim.results && sim.status === 'complete'
-        ? summarizeRun(sim.results, classroomSummary)
+        ? summarizeRun(sim.results, classroomSummary, {
+            injected: (sim.topology?.nodes ?? []).flatMap((node) => {
+              const rate = Number(node.config?.['nodeErrorRate'])
+              return Number.isFinite(rate) && rate > 0
+                ? [{ nodeId: node.id, label: node.label, rate }]
+                : []
+            }),
+            faults: sim.topology?.faults ?? [],
+            labelFor: (id) => sim.topology?.nodes.find((node) => node.id === id)?.label ?? id,
+            experiment: experimentResult
+              ? {
+                  name: experimentResult.name,
+                  passed: experimentResult.passed,
+                  summary: experimentResult.summary
+                }
+              : null
+          })
         : null,
-    [classroomSummary, displaySettings.simpleShell, sim.results, sim.status]
+    [
+      classroomSummary,
+      displaySettings.simpleShell,
+      experimentResult,
+      sim.results,
+      sim.status,
+      sim.topology
+    ]
   )
   // The run before the current one, so the strip can say what changed.
   const [runSummaryHistory, setRunSummaryHistory] = useState<{
@@ -1650,7 +1675,10 @@ export const WorkspaceLayout = () => {
           </Suspense>
         ) : (
           <Suspense fallback={<PanelFallback label="Loading inspector..." />}>
-            <PropertiesPanel results={sim.results} />
+            <PropertiesPanel
+              results={sim.results}
+              resultsStale={resultsTopologyRelation === 'edited'}
+            />
           </Suspense>
         )}
       </div>
@@ -1771,7 +1799,7 @@ export const WorkspaceLayout = () => {
               track('details_opened', {})
               setShowResults(true)
             }}
-            onSelectBottleneck={(nodeId) => selectGraphElements({ nodeId })}
+            onSelectBottleneck={focusNodeOnCanvas}
           />
         )}
 
@@ -2089,7 +2117,12 @@ export const WorkspaceLayout = () => {
                 <button
                   type="button"
                   aria-label="Close inspector drawer"
-                  onClick={() => setIsRightOpen(false)}
+                  onClick={() => {
+                    setIsRightOpen(false)
+                    // The simple layout opens the inspector by selecting a node, so closing it
+                    // also deselects: otherwise tapping the same node can't open it again.
+                    if (simpleShell) selectGraphElements({})
+                  }}
                   className="absolute inset-0 z-30 bg-black/15"
                 />
                 <aside className="absolute inset-y-0 right-0 z-40 w-[min(24rem,calc(100%-3rem))] overflow-hidden bg-nss-panel shadow-2xl">
