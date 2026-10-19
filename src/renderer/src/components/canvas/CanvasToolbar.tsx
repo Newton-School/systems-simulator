@@ -158,6 +158,8 @@ const CanvasToolbarComponent = ({
 }: CanvasToolbarProps) => {
   const [isExpanded, setIsExpanded] = useState(true)
   const symbolMode = useStore((s) => s.displaySettings.nodeDisplayStyle === 'symbol')
+  // Simple shell keeps the rail to the tools you build with; the rest lives under More.
+  const compact = useStore((s) => s.displaySettings.simpleShell)
   const updateDisplaySettings = useStore((s) => s.updateDisplaySettings)
   const [annotationsExpanded, setAnnotationsExpanded] = useState(false)
   const [moreOpen, setMoreOpen] = useState(false)
@@ -276,20 +278,24 @@ const CanvasToolbarComponent = ({
           </>
         ) : null}
 
-        <ToolbarDivider />
-        <CanvasToolButton
-          icon={symbolMode ? Shapes : SquareStack}
-          label={symbolMode ? 'Show detailed node cards' : 'Show architecture symbols'}
-          active={symbolMode}
-          onClick={() =>
-            updateDisplaySettings((current) => ({
-              ...current,
-              nodeDisplayStyle: symbolMode ? 'card' : 'symbol'
-            }))
-          }
-        />
-        <CanvasToolButton icon={Undo2} label="Undo" disabled={!canUndo} onClick={onUndo} />
-        <CanvasToolButton icon={Redo2} label="Redo" disabled={!canRedo} onClick={onRedo} />
+        {compact ? null : (
+          <>
+            <ToolbarDivider />
+            <CanvasToolButton
+              icon={symbolMode ? Shapes : SquareStack}
+              label={symbolMode ? 'Show detailed node cards' : 'Show architecture symbols'}
+              active={symbolMode}
+              onClick={() =>
+                updateDisplaySettings((current) => ({
+                  ...current,
+                  nodeDisplayStyle: symbolMode ? 'card' : 'symbol'
+                }))
+              }
+            />
+            <CanvasToolButton icon={Undo2} label="Undo" disabled={!canUndo} onClick={onUndo} />
+            <CanvasToolButton icon={Redo2} label="Redo" disabled={!canRedo} onClick={onRedo} />
+          </>
+        )}
 
         <div ref={moreAnchorRef} className="relative">
           <CanvasToolButton
@@ -306,6 +312,49 @@ const CanvasToolbarComponent = ({
                   style={moreMenuPosition}
                   className="fixed z-[100] w-48 rounded-lg border border-nss-border bg-nss-panel p-1 shadow-xl"
                 >
+                  {compact ? (
+                    <>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        disabled={!canUndo}
+                        onClick={() => {
+                          onUndo()
+                          setMoreOpen(false)
+                        }}
+                        className="flex min-h-10 w-full items-center gap-2 rounded-md px-3 text-left text-xs text-nss-text hover:bg-nss-surface disabled:opacity-40"
+                      >
+                        <Undo2 size={15} /> Undo
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        disabled={!canRedo}
+                        onClick={() => {
+                          onRedo()
+                          setMoreOpen(false)
+                        }}
+                        className="flex min-h-10 w-full items-center gap-2 rounded-md px-3 text-left text-xs text-nss-text hover:bg-nss-surface disabled:opacity-40"
+                      >
+                        <Redo2 size={15} /> Redo
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          updateDisplaySettings((current) => ({
+                            ...current,
+                            nodeDisplayStyle: symbolMode ? 'card' : 'symbol'
+                          }))
+                          setMoreOpen(false)
+                        }}
+                        className="flex min-h-10 w-full items-center gap-2 rounded-md px-3 text-left text-xs text-nss-text hover:bg-nss-surface"
+                      >
+                        {symbolMode ? <SquareStack size={15} /> : <Shapes size={15} />}
+                        {symbolMode ? 'Show node cards' : 'Show symbols'}
+                      </button>
+                    </>
+                  ) : null}
                   <button
                     type="button"
                     role="menuitem"

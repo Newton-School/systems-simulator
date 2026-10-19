@@ -132,6 +132,7 @@ export const Header = memo(
   }: HeaderProps) => {
     const classroomActive = useClassroomActive()
     const simpleShell = useStore((state) => state.displaySettings.simpleShell)
+    const questionTitle = useStore((state) => state.activeQuestion?.title)
     const headerRef = useRef<HTMLElement>(null)
     const leftGroupRef = useRef<HTMLDivElement>(null)
     const centerGroupRef = useRef<HTMLDivElement>(null)
@@ -189,6 +190,18 @@ export const Header = memo(
             label="Toggle left sidebar"
             icon={<Sidebar size={18} />}
           />
+          {simpleShell && questionTitle && (
+            <>
+              <Divider />
+              <span
+                className="nss-desktop-only max-w-[16rem] truncate text-xs font-semibold text-nss-text"
+                title={questionTitle}
+                data-testid="header-question-title"
+              >
+                {questionTitle}
+              </span>
+            </>
+          )}
           {!simpleShell && (
             <>
               <div className="nss-desktop-only contents">
