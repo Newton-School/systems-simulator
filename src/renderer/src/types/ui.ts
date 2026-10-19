@@ -61,6 +61,12 @@ export interface DisplaySettings {
    * strip and keeps the full results tray collapsed behind "See details".
    */
   simpleShell: boolean
+  /**
+   * True once the user has switched the simple layout on or off themselves. Settings saved
+   * before the layout became the default carry `simpleShell: false` only because it was the
+   * default then, so a saved `false` counts as a choice only when this is set.
+   */
+  simpleShellChosen: boolean
 }
 
 export interface NodeSimulationMetrics {
@@ -273,7 +279,8 @@ export const DEFAULT_DISPLAY_SETTINGS: DisplaySettings = {
   nodeDisplayStyle: 'symbol',
   edgeRoutingStyle: 'straight',
   colorDotsByKey: false,
-  simpleShell: false
+  simpleShell: true,
+  simpleShellChosen: false
 }
 
 export function normalizeScenarioState(value: unknown): ScenarioState {

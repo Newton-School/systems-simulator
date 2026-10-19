@@ -252,3 +252,27 @@ describe('student experience contract: Classroom mode', () => {
     expect(source).toContain('classroom?.designChecks === true')
   })
 })
+
+describe('student experience contract: simple layout', () => {
+  it('opens in the simple layout by default', async () => {
+    const { DEFAULT_DISPLAY_SETTINGS } = await import('@renderer/types/ui')
+    expect(DEFAULT_DISPLAY_SETTINGS.simpleShell).toBe(true)
+  })
+
+  it('moves people who never chose onto it, and keeps the choice of those who did', async () => {
+    const { loadDisplaySettings } = await import('@renderer/utils/displaySettingsPersistence')
+    const stored = (value: object) =>
+      localStorage.setItem('nssimulator.display-settings', JSON.stringify(value))
+
+    localStorage.clear()
+    expect(loadDisplaySettings().simpleShell).toBe(true)
+
+    // Saved before the layout became the default: the false was only the old default.
+    stored({ theme: 'dark', simpleShell: false })
+    expect(loadDisplaySettings().simpleShell).toBe(true)
+
+    stored({ theme: 'dark', simpleShell: false, simpleShellChosen: true })
+    expect(loadDisplaySettings().simpleShell).toBe(false)
+    localStorage.clear()
+  })
+})

@@ -161,13 +161,17 @@ export function DisplayTab(): React.JSX.Element {
 
       <SettingRow
         id="settings-display-simple-shell"
-        label="Simple layout (beta)"
-        hint="After a run, show a one-line summary and keep the detailed results tray collapsed behind See details."
+        label="Simple layout"
+        hint="Show only what the current step needs: a one-line run summary, an Add menu, and a task card. Turn off for the full layout."
       >
         <Toggle
           checked={displaySettings.simpleShell}
           onChange={(simpleShell) =>
-            updateDisplaySettings((current) => ({ ...current, simpleShell }))
+            updateDisplaySettings((current) => ({
+              ...current,
+              simpleShell,
+              simpleShellChosen: true
+            }))
           }
         />
       </SettingRow>

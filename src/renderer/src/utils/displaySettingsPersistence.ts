@@ -56,7 +56,11 @@ export function loadDisplaySettings(): DisplaySettings {
       componentLibraryMode,
       hiddenComponentLibraryTemplateIds,
       edgeRoutingStyle,
-      simpleShell: parsed.simpleShell === true,
+      simpleShellChosen: parsed.simpleShellChosen === true,
+      simpleShell:
+        parsed.simpleShellChosen === true && typeof parsed.simpleShell === 'boolean'
+          ? parsed.simpleShell
+          : DEFAULT_DISPLAY_SETTINGS.simpleShell,
       nodeDisplayStyle:
         parsed.nodeDisplayStyle === 'card' ? 'card' : DEFAULT_DISPLAY_SETTINGS.nodeDisplayStyle,
       theme:
