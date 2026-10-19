@@ -2117,7 +2117,12 @@ export const WorkspaceLayout = () => {
                 <button
                   type="button"
                   aria-label="Close inspector drawer"
-                  onClick={() => setIsRightOpen(false)}
+                  onClick={() => {
+                    setIsRightOpen(false)
+                    // The simple layout opens the inspector by selecting a node, so closing it
+                    // also deselects: otherwise tapping the same node can't open it again.
+                    if (simpleShell) selectGraphElements({})
+                  }}
                   className="absolute inset-0 z-30 bg-black/15"
                 />
                 <aside className="absolute inset-y-0 right-0 z-40 w-[min(24rem,calc(100%-3rem))] overflow-hidden bg-nss-panel shadow-2xl">
