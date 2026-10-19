@@ -6,8 +6,16 @@ export interface AddPopoverModel {
   suggested: CatalogItem[]
   /** Everything else, grouped. Shown collapsed, or expanded as search results. */
   categories: CatalogCategory[]
+  /** Tiles that open a definition builder (Service, Custom Node, My Services), if offered. */
+  builders: CatalogItem[]
   /** A query is active: results span the whole catalog and replace the suggested row. */
   searching: boolean
+}
+
+function onlyBuilders(categories: readonly CatalogCategory[]): CatalogItem[] {
+  return categories
+    .flatMap((category) => category.items)
+    .filter((item) => BUILDER_TEMPLATE_IDS.has(item.templateId))
 }
 
 function withoutBuilders(categories: readonly CatalogCategory[]): CatalogCategory[] {
@@ -34,7 +42,8 @@ function flatten(categories: readonly CatalogCategory[]): CatalogItem[] {
  * Lay out the Add popover from the library's own filtered results: the Common set up top and
  * the full catalog behind collapsed categories. A question that already curates the palette
  * (allow-list or Classroom) is its own suggested set, so there is nothing more to browse.
- * Definition builders open a modal rather than placing a node, so they stay out of the popover.
+ * Definition builders open a modal rather than placing a node, so they sit apart under their
+ * own "Build your own" heading instead of among the placeable components.
  */
 export function buildAddPopoverModel({
   common,
@@ -49,14 +58,20 @@ export function buildAddPopoverModel({
 }): AddPopoverModel {
   const allItems = withoutBuilders(all)
   if (query.trim().length > 0) {
-    return { suggested: [], categories: allItems, searching: true }
+    return { suggested: [], categories: allItems, builders: [], searching: true }
   }
   if (curated) {
-    return { suggested: flatten(allItems), categories: [], searching: false }
+    return {
+      suggested: flatten(allItems),
+      categories: [],
+      builders: onlyBuilders(all),
+      searching: false
+    }
   }
   return {
     suggested: flatten(withoutBuilders(common)),
     categories: allItems,
+    builders: onlyBuilders(all),
     searching: false
   }
 }

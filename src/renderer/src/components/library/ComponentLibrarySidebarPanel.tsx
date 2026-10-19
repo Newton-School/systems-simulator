@@ -4,6 +4,7 @@ import type { ComponentLibraryFilter } from '../../config/catalogFilter'
 import { useLibraryCatalog } from '@renderer/hooks/useLibraryCatalog'
 import { LibraryItem } from './LibraryItem'
 import { CustomDefinitionCreator, type DefinitionBuilderMode } from './CustomDefinitionCreator'
+import { BUILDER_ENTRY_LABELS, BUILDER_TEMPLATE_MODES } from './builderEntries'
 import type { CatalogItem } from '@renderer/types/ui'
 import { useBuilderPolicy } from '@renderer/hooks/useBuilderPolicy'
 import { builderAvailability } from '../../../../engine/analysis/builderPolicy'
@@ -11,17 +12,6 @@ import { builderAvailability } from '../../../../engine/analysis/builderPolicy'
 export type { ComponentLibraryFilter }
 
 const FILTERS: readonly ComponentLibraryFilter[] = ['common', 'all']
-const BUILDER_ENTRY_LABELS: Readonly<Record<DefinitionBuilderMode, string>> = {
-  service: 'Service builder',
-  'my-service': 'My Services',
-  'custom-node': 'Custom Node builder'
-}
-const BUILDER_TEMPLATE_MODES: Readonly<Record<string, DefinitionBuilderMode>> = {
-  'generic-service': 'service',
-  'my-service': 'my-service',
-  'custom-node-builder': 'custom-node'
-}
-
 export function ComponentLibrarySidebarPanel({
   query,
   filter,

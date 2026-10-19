@@ -23,11 +23,16 @@ describe('buildAddPopoverModel', () => {
     expect(model.searching).toBe(false)
   })
 
-  it('drops definition builders, which open a modal instead of placing a node', () => {
+  it('keeps definition builders apart from placeable components', () => {
     const model = buildAddPopoverModel({ common, all, curated: false, query: '' })
     expect(model.categories.flatMap((c) => c.items.map((i) => i.id))).not.toContain(
       'generic-service'
     )
+    expect(model.builders.map((i) => i.id)).toEqual(['generic-service'])
+  })
+
+  it('offers no builders while searching', () => {
+    expect(buildAddPopoverModel({ common, all, curated: false, query: 'db' }).builders).toEqual([])
   })
 
   it('treats a curated palette as the suggested set with nothing to browse', () => {

@@ -101,6 +101,7 @@ import {
 } from '@renderer/components/simulation/chaosExperimentModel'
 import { ExperimentResultPanel } from '@renderer/components/simulation/ChaosExperimentPanel'
 import { ClassroomResultsCard } from '@renderer/components/simulation/ClassroomResultsCard'
+import type { DefinitionBuilderMode } from '@renderer/components/library/CustomDefinitionCreator'
 import { CommandPalette } from './CommandPalette'
 import type { PaletteCommand } from './commandPaletteModel'
 import { useLibraryCatalog } from '@renderer/hooks/useLibraryCatalog'
@@ -133,6 +134,11 @@ const LEFT_LIBRARY_MAX_SIZE = 25
 const PropertiesPanel = lazy(async () => {
   const module = await import('../properties/PropertiesPanel')
   return { default: module.PropertiesPanel }
+})
+
+const CustomDefinitionCreator = lazy(async () => {
+  const module = await import('@renderer/components/library/CustomDefinitionCreator')
+  return { default: module.CustomDefinitionCreator }
 })
 
 const ResultsTray = lazy(async () => {
@@ -424,6 +430,9 @@ export const WorkspaceLayout = () => {
   const addPopoverAvailable = simpleShell && !baseExperienceEnvelope.canvasLocked
   const [addPopoverOpen, setAddPopoverOpen] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
+  const [definitionBuilderMode, setDefinitionBuilderMode] = useState<DefinitionBuilderMode | null>(
+    null
+  )
   const [questionCardExpanded, setQuestionCardExpanded] = useState(true)
   const questionCardId = activeQuestion?.id
   const hasCanvasNodes = useStore((s) => s.nodes.length > 0)
@@ -1682,6 +1691,7 @@ export const WorkspaceLayout = () => {
       {addPopoverAvailable && addPopoverOpen && (
         <AddComponentPopover
           onClose={() => setAddPopoverOpen(false)}
+          onOpenBuilder={setDefinitionBuilderMode}
           focusSearchVersion={componentLibrarySearchFocusVersion}
         />
       )}
@@ -2080,6 +2090,15 @@ export const WorkspaceLayout = () => {
           onLoad={handleSampleLoad}
           onClose={() => setShowSamples(false)}
         />
+      )}
+
+      {definitionBuilderMode && (
+        <Suspense fallback={null}>
+          <CustomDefinitionCreator
+            mode={definitionBuilderMode}
+            onClose={() => setDefinitionBuilderMode(null)}
+          />
+        </Suspense>
       )}
 
       {simpleShell && paletteOpen && (

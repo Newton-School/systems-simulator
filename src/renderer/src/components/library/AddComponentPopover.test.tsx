@@ -21,7 +21,7 @@ function render(onClose = () => {}): HTMLDivElement {
   container = document.createElement('div')
   document.body.append(container)
   root = createRoot(container)
-  act(() => root?.render(<AddComponentPopover onClose={onClose} />))
+  act(() => root?.render(<AddComponentPopover onClose={onClose} onOpenBuilder={() => {}} />))
   return container
 }
 
