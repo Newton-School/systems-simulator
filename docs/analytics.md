@@ -15,6 +15,14 @@ Set these at build time (Vite env variables):
 
 `console` prints events to the browser console, for development.
 
+### Checking that events fire (no key needed)
+
+Add `?analytics=console` to the URL, or set `localStorage['nssimulator.analytics-debug'] = 'console'`
+to keep it on, and every event is printed as `[analytics] <name> <properties>`. `?analytics=off`
+clears the stored flag. Do Not Track and the opt-out flag still silence it. The wiring is covered by
+`analytics/useUsageTracking.test.tsx`, which drives the real hook through a session and asserts the
+events printed, in order.
+
 PostHog is used through its public capture endpoint with a plain `fetch`, so there is no SDK, no
 auto-capture, no session recording and no person profile.
 

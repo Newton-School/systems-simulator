@@ -3,6 +3,8 @@ import { consoleSink, createPostHogSink, noopSink, type AnalyticsSink } from './
 
 const ANONYMOUS_ID_KEY = 'nssimulator.analytics-id'
 const OPT_OUT_KEY = 'nssimulator.analytics-opt-out'
+const DEBUG_KEY = 'nssimulator.analytics-debug'
+const DEBUG_QUERY_PARAM = 'analytics'
 
 let activeSinks: readonly AnalyticsSink[] = [noopSink]
 const sentOnce = new Set<string>()
@@ -46,9 +48,12 @@ export function anonymousId(): string {
  * Choose where events go. Called once at startup; `track` does nothing before that. Pass more
  * than one sink to report to several places at once.
  */
-export function configureAnalytics(sinks: readonly AnalyticsSink[]): void {
+export function configureAnalytics(
+  sinks: readonly AnalyticsSink[],
+  options: { keepOnceKeys?: boolean } = {}
+): void {
   activeSinks = sinks.length > 0 ? sinks : [noopSink]
-  sentOnce.clear()
+  if (!options.keepOnceKeys) sentOnce.clear()
 }
 
 /** Report an event. Never throws, and does nothing if the person opted out. */
@@ -107,7 +112,33 @@ export function sinksFromEnv(env: AnalyticsEnv): AnalyticsSink[] {
   return sinks
 }
 
-/** Start reporting to whatever the build's environment configures. */
+/**
+ * Whether to log events to the console on top of whatever the build configures, for checking
+ * that events fire without a PostHog key. Turn it on with `?analytics=console` on the URL
+ * (this page load only), or `localStorage['nssimulator.analytics-debug'] = 'console'` (stays on
+ * until removed); `?analytics=off` clears the stored flag.
+ */
+export function debugConsoleRequested(search: string = globalThis.location?.search ?? ''): boolean {
+  const requested = new URLSearchParams(search).get(DEBUG_QUERY_PARAM)
+  if (requested === 'off') {
+    try {
+      storage()?.removeItem(DEBUG_KEY)
+    } catch {
+      // Storage can be blocked; the flag then just stays off.
+    }
+    return false
+  }
+  if (requested === 'console') return true
+  return storage()?.getItem(DEBUG_KEY) === 'console'
+}
+
+/** Start reporting to whatever the build's environment configures, plus the debug console. */
+
 export function startAnalytics(env: AnalyticsEnv = import.meta.env as AnalyticsEnv): void {
-  configureAnalytics(sinksFromEnv(env))
+  const sinks = sinksFromEnv(env)
+  if (debugConsoleRequested() && !sinks.some((sink) => sink.id === consoleSink.id)) {
+    sinks.push(consoleSink)
+  }
+  // Keep the once-per-session keys: React StrictMode runs mount effects twice in development.
+  configureAnalytics(sinks, { keepOnceKeys: true })
 }

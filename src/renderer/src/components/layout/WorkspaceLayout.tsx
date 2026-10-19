@@ -102,7 +102,8 @@ import {
 import { ExperimentResultPanel } from '@renderer/components/simulation/ChaosExperimentPanel'
 import { ClassroomResultsCard } from '@renderer/components/simulation/ClassroomResultsCard'
 import type { DefinitionBuilderMode } from '@renderer/components/library/CustomDefinitionCreator'
-import { startAnalytics, track, trackOnce } from '@renderer/analytics/analytics'
+import { track } from '@renderer/analytics/analytics'
+import { useUsageTracking } from '@renderer/analytics/useUsageTracking'
 import { CommandPalette } from './CommandPalette'
 import type { PaletteCommand } from './commandPaletteModel'
 import { useLibraryCatalog } from '@renderer/hooks/useLibraryCatalog'
@@ -1389,41 +1390,15 @@ export const WorkspaceLayout = () => {
     )
   }, [runSummary, sim.results])
 
-  // Usage events (see analytics/events.ts). Nothing is sent unless the build configures a sink.
-  const openedAtRef = useRef(Date.now())
-  const runCountRef = useRef(0)
-  const layoutName = simpleShell ? 'simple' : 'full'
-  useEffect(() => {
-    startAnalytics()
-    track('app_opened', { layout: layoutName })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-  useEffect(() => {
-    if (hasCanvasNodes) {
-      trackOnce('canvas-populated', 'canvas_populated', {
-        ms_since_open: Date.now() - openedAtRef.current
-      })
-    }
-  }, [hasCanvasNodes])
-  useEffect(() => {
-    if (sim.status !== 'running') return
-    runCountRef.current += 1
-    track('run_started', {
-      first: runCountRef.current === 1,
-      layout: layoutName,
-      ms_since_open: Date.now() - openedAtRef.current
-    })
-  }, [layoutName, sim.status])
-  const completedVerdict = runSummary?.verdict
-  useEffect(() => {
-    if (completedVerdict) track('run_completed', { verdict: completedVerdict })
-  }, [completedVerdict, sim.results])
-  useEffect(() => {
-    if (paletteOpen) track('palette_opened', {})
-  }, [paletteOpen])
-  useEffect(() => {
-    if (addPopoverOpen) track('add_popover_opened', {})
-  }, [addPopoverOpen])
+  useUsageTracking({
+    layout: simpleShell ? 'simple' : 'full',
+    hasCanvasNodes,
+    runStatus: sim.status,
+    runVerdict: runSummary?.verdict,
+    runResultsKey: sim.results,
+    paletteOpen,
+    addPopoverOpen
+  })
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {

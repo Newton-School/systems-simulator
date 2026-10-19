@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   analyticsOptedOut,
   configureAnalytics,
+  debugConsoleRequested,
+  startAnalytics,
   setAnalyticsOptOut,
   sinksFromEnv,
   track,
@@ -116,5 +118,42 @@ describe('PostHog sink', () => {
     })
     expect(() => sink.send({ name: 'palette_opened', properties: {}, timestamp: 0 })).not.toThrow()
     await Promise.resolve()
+  })
+})
+
+describe('debug console sink', () => {
+  it('is off by default', () => {
+    expect(debugConsoleRequested('')).toBe(false)
+  })
+
+  it('turns on for one page load with ?analytics=console', () => {
+    expect(debugConsoleRequested('?analytics=console')).toBe(true)
+    expect(debugConsoleRequested('')).toBe(false)
+  })
+
+  it('stays on with the localStorage flag, and ?analytics=off clears it', () => {
+    localStorage.setItem('nssimulator.analytics-debug', 'console')
+    expect(debugConsoleRequested('')).toBe(true)
+    expect(debugConsoleRequested('?analytics=off')).toBe(false)
+    expect(localStorage.getItem('nssimulator.analytics-debug')).toBeNull()
+    expect(debugConsoleRequested('')).toBe(false)
+  })
+
+  it('adds the console sink at startup so events are printed with no PostHog key', () => {
+    localStorage.setItem('nssimulator.analytics-debug', 'console')
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {})
+    startAnalytics({})
+    track('palette_opened', {})
+    expect(info).toHaveBeenCalledWith('[analytics]', 'palette_opened', {})
+    info.mockRestore()
+  })
+
+  it('does not print twice when the build already configures the console sink', () => {
+    localStorage.setItem('nssimulator.analytics-debug', 'console')
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {})
+    startAnalytics({ VITE_ANALYTICS_SINKS: 'console' })
+    track('palette_opened', {})
+    expect(info).toHaveBeenCalledTimes(1)
+    info.mockRestore()
   })
 })
