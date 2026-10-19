@@ -221,6 +221,14 @@ const STATIC_SETTINGS_SEARCH_ENTRIES: SettingsSearchEntry[] = [
     targetId: 'settings-display-results-open'
   },
   {
+    id: 'display-simple-shell',
+    tab: 'display',
+    title: 'Simple layout (beta)',
+    description: 'Show a one-line run summary and keep the detailed results tray collapsed.',
+    keywords: 'simple minimal summary results details collapsed clutter',
+    targetId: 'settings-display-simple-shell'
+  },
+  {
     id: 'display-results-tab',
     tab: 'display',
     title: 'Default results tab',

@@ -160,6 +160,19 @@ export function DisplayTab(): React.JSX.Element {
       </SettingRow>
 
       <SettingRow
+        id="settings-display-simple-shell"
+        label="Simple layout (beta)"
+        hint="After a run, show a one-line summary and keep the detailed results tray collapsed behind See details."
+      >
+        <Toggle
+          checked={displaySettings.simpleShell}
+          onChange={(simpleShell) =>
+            updateDisplaySettings((current) => ({ ...current, simpleShell }))
+          }
+        />
+      </SettingRow>
+
+      <SettingRow
         id="settings-display-results-tab"
         label="Default results tab"
         hint="Which section the results tray lands on when a completed run first opens."

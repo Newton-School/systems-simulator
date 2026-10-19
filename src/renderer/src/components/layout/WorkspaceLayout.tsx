@@ -101,6 +101,8 @@ import {
 } from '@renderer/components/simulation/chaosExperimentModel'
 import { ExperimentResultPanel } from '@renderer/components/simulation/ChaosExperimentPanel'
 import { ClassroomResultsCard } from '@renderer/components/simulation/ClassroomResultsCard'
+import { RunSummaryStrip } from '@renderer/components/simulation/RunSummaryStrip'
+import { summarizeRun } from '@renderer/components/simulation/runSummaryModel'
 import { compileClassroomRun, useClassroomActive } from '@renderer/hooks/useClassroom'
 import { summarizeClassroomRun } from '../../../../engine/classroom/runSummary'
 import { evaluateExperiment, type ExperimentPlan } from '../../../../engine/scenarios'
@@ -1103,7 +1105,8 @@ export const WorkspaceLayout = () => {
     )
     setRunIssues({ messages: [...policyWarnings, ...(validation.warnings ?? [])], tone: 'warning' })
     useStore.getState().recordQuestionRun()
-    setShowResults(displaySettings.autoOpenSimulationTray)
+    // Simple shell keeps the tray collapsed behind the summary strip until asked for.
+    setShowResults(displaySettings.autoOpenSimulationTray && !displaySettings.simpleShell)
     setLastRunContext(contextForRun)
     clearSimulationMetrics()
     const flowStore = useStore.getState()
@@ -1124,6 +1127,7 @@ export const WorkspaceLayout = () => {
     activeQuestion,
     clearSimulationMetrics,
     displaySettings.autoOpenSimulationTray,
+    displaySettings.simpleShell,
     environmentProfile,
     isCompactWorkspace,
     scenario,
@@ -1272,6 +1276,13 @@ export const WorkspaceLayout = () => {
     if (!classroomActive || !sim.results || !sim.topology || sim.status !== 'complete') return null
     return summarizeClassroomRun(sim.topology, sim.results, activeQuestion?.classroom)
   }, [activeQuestion, classroomActive, sim.results, sim.status, sim.topology])
+  const runSummary = useMemo(
+    () =>
+      displaySettings.simpleShell && sim.results && sim.status === 'complete'
+        ? summarizeRun(sim.results, classroomSummary)
+        : null,
+    [classroomSummary, displaySettings.simpleShell, sim.results, sim.status]
+  )
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -1576,7 +1587,19 @@ export const WorkspaceLayout = () => {
         </Suspense>
       </ErrorBoundary>
 
-      {!showResults && sim.results && (
+      {displaySettings.simpleShell &&
+        !showResults &&
+        (sim.status === 'running' || sim.status === 'paused' || runSummary) && (
+          <RunSummaryStrip
+            summary={runSummary}
+            running={sim.status === 'running' || sim.status === 'paused'}
+            progress={sim.progress}
+            topologyEdited={resultsTopologyRelation === 'edited'}
+            onSeeDetails={() => setShowResults(true)}
+          />
+        )}
+
+      {!displaySettings.simpleShell && !showResults && sim.results && (
         <button
           type="button"
           onClick={() => setShowResults(true)}
