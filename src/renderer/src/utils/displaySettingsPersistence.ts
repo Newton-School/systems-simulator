@@ -56,6 +56,8 @@ export function loadDisplaySettings(): DisplaySettings {
       componentLibraryMode,
       hiddenComponentLibraryTemplateIds,
       edgeRoutingStyle,
+      nodeDisplayStyle:
+        parsed.nodeDisplayStyle === 'card' ? 'card' : DEFAULT_DISPLAY_SETTINGS.nodeDisplayStyle,
       theme:
         parsed.theme === 'light' || parsed.theme === 'dark'
           ? parsed.theme

@@ -30,6 +30,8 @@ export type ResultsTabId =
   | 'traces'
   | 'traffic'
 export type ComponentLibraryMode = 'default' | 'all'
+/** 'symbol': architecture-diagram icons with no metrics. 'card': the detailed metric cards. */
+export type NodeDisplayStyle = 'symbol' | 'card'
 export type EdgeRoutingStyle = EdgePresentationRoutingStyle
 
 export interface DisplaySettings {
@@ -44,6 +46,8 @@ export interface DisplaySettings {
   hiddenComponentLibraryTemplateIds: string[]
   /** When false, the SPOF badge and danger ring are hidden on canvas nodes. */
   showSpofBadges: boolean
+  /** How canvas nodes are drawn. Components without a symbol always render as cards. */
+  nodeDisplayStyle: NodeDisplayStyle
   /** Geometry used by both normal canvas edges and the causal request tracer. */
   edgeRoutingStyle: EdgeRoutingStyle
   /**
@@ -261,6 +265,7 @@ export const DEFAULT_DISPLAY_SETTINGS: DisplaySettings = {
   componentLibraryMode: 'default',
   hiddenComponentLibraryTemplateIds: [],
   showSpofBadges: true,
+  nodeDisplayStyle: 'symbol',
   edgeRoutingStyle: 'straight',
   colorDotsByKey: false
 }

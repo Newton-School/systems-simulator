@@ -102,6 +102,23 @@ export function DisplayTab(): React.JSX.Element {
       </SettingRow>
 
       <SettingRow
+        id="settings-display-node-style"
+        label="Node style"
+        hint="Symbols draw each component as its architecture-diagram icon with just its name. Cards show the detailed node with metrics. Components without a symbol yet always show as cards."
+      >
+        <Segmented
+          value={displaySettings.nodeDisplayStyle}
+          options={[
+            { value: 'symbol', label: 'Symbols' },
+            { value: 'card', label: 'Cards' }
+          ]}
+          onChange={(nodeDisplayStyle) =>
+            updateDisplaySettings((current) => ({ ...current, nodeDisplayStyle }))
+          }
+        />
+      </SettingRow>
+
+      <SettingRow
         id="settings-display-spof"
         label="Single point of failure badges"
         hint="When on, nodes flagged as a single point of failure by the last run show the SPOF badge and a red ring on the canvas."

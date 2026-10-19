@@ -23,6 +23,7 @@ import { RequestDebugOverlay } from './RequestDebugOverlay'
 import { MetricLensSwitcher } from './MetricLensSwitcher'
 // Hooks & Config
 import useStore from '@renderer/store/useStore'
+import { hasNodeSymbol } from '@renderer/components/nodes/symbols/symbolRegistry'
 import { useClassroomActive } from '@renderer/hooks/useClassroom'
 
 import { useCopyPaste } from './hooks/useCopyPaste'
@@ -115,6 +116,17 @@ const FlowCanvasInternal = ({
 }: FlowCanvasProps) => {
   const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance | null>(null)
   const classroomActive = useClassroomActive()
+  // Symbol-only canvases carry no metrics, so the lens switcher and legend have nothing to say.
+  const symbolsOnly = useStore(
+    (s) =>
+      s.displaySettings.nodeDisplayStyle === 'symbol' &&
+      s.nodes.every(
+        (node) =>
+          node.type === 'containerNode' ||
+          node.type === TEXT_LABEL_NODE_TYPE ||
+          hasNodeSymbol((node.data as { templateId?: string }).templateId)
+      )
+  )
   const [selectedTool, setSelectedTool] = useState<CanvasTool>('pan')
   const [canvasViewport, setCanvasViewport] = useState<Viewport>({ x: 0, y: 0, zoom: 1 })
   const [tapConnectSourceId, setTapConnectSourceId] = useState<string | null>(null)
@@ -1137,8 +1149,8 @@ const FlowCanvasInternal = ({
           Tap a destination node
         </div>
       ) : null}
-      {!isEmpty && showMetricLens && !classroomActive && <MetricLensSwitcher />}
-      {!isEmpty && showMetricLens && <CanvasLegend />}
+      {!isEmpty && showMetricLens && !classroomActive && !symbolsOnly && <MetricLensSwitcher />}
+      {!isEmpty && showMetricLens && !symbolsOnly && <CanvasLegend />}
       <RequestTraceOverlay />
       <RequestDebugOverlay />
 

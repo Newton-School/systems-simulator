@@ -1,6 +1,9 @@
 import React from 'react'
 import { CatalogItem } from '@renderer/types/ui'
 import { HoverTooltip } from '../ui/Tooltip'
+import useStore from '@renderer/store/useStore'
+import { NodeSymbol } from '../nodes/symbols/NodeSymbol'
+import { hasNodeSymbol } from '../nodes/symbols/symbolRegistry'
 
 interface LibraryItemProps {
   item: CatalogItem
@@ -75,6 +78,8 @@ export const LibraryItem = ({
   const activate = disabled ? undefined : onActivate
   const { icon: Icon, label, color, type, templateId } = item
   const { bg, text } = color
+  const showSymbol =
+    useStore((s) => s.displaySettings.nodeDisplayStyle === 'symbol') && hasNodeSymbol(templateId)
 
   const onDragStart = (event: React.DragEvent) => {
     if (!draggableItem) {
@@ -123,15 +128,21 @@ export const LibraryItem = ({
           `}
         >
           {/* Icon tile */}
-          <div
-            className={`
+          {showSymbol ? (
+            <div className="flex h-12 w-12 items-center justify-center">
+              <NodeSymbol templateId={templateId} size={44} />
+            </div>
+          ) : (
+            <div
+              className={`
               w-12 h-12 rounded-lg flex items-center justify-center
               ${bg} bg-opacity-30 group-hover:bg-opacity-40
               dark:bg-opacity-30 dark:group-hover:bg-opacity-30 transition-all
             `}
-          >
-            <Icon size={16} className={`${text} dark:!text-nss-bg`} />
-          </div>
+            >
+              <Icon size={16} className={`${text} dark:!text-nss-bg`} />
+            </div>
+          )}
 
           {/* Label */}
           <span className="text-[10px] font-medium text-nss-text text-center leading-tight line-clamp-2 w-full">

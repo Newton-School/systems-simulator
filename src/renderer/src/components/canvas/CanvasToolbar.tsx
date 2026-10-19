@@ -1,5 +1,6 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import useStore from '@renderer/store/useStore'
 import { clsx } from 'clsx'
 import {
   ArrowUpRight,
@@ -13,6 +14,8 @@ import {
   Palette,
   Pencil,
   Redo2,
+  Shapes,
+  SquareStack,
   RotateCcw,
   Sparkles,
   Trash2,
@@ -148,6 +151,8 @@ const CanvasToolbarComponent = ({
   onDeleteSelection
 }: CanvasToolbarProps) => {
   const [isExpanded, setIsExpanded] = useState(true)
+  const symbolMode = useStore((s) => s.displaySettings.nodeDisplayStyle === 'symbol')
+  const updateDisplaySettings = useStore((s) => s.updateDisplaySettings)
   const [annotationsExpanded, setAnnotationsExpanded] = useState(false)
   const [moreOpen, setMoreOpen] = useState(false)
   const [moreMenuPosition, setMoreMenuPosition] = useState<{ left: number; bottom: number } | null>(
@@ -255,6 +260,17 @@ const CanvasToolbarComponent = ({
         ) : null}
 
         <ToolbarDivider />
+        <CanvasToolButton
+          icon={symbolMode ? Shapes : SquareStack}
+          label={symbolMode ? 'Show detailed node cards' : 'Show architecture symbols'}
+          active={symbolMode}
+          onClick={() =>
+            updateDisplaySettings((current) => ({
+              ...current,
+              nodeDisplayStyle: symbolMode ? 'card' : 'symbol'
+            }))
+          }
+        />
         <CanvasToolButton icon={Undo2} label="Undo" disabled={!canUndo} onClick={onUndo} />
         <CanvasToolButton icon={Redo2} label="Redo" disabled={!canRedo} onClick={onRedo} />
 
