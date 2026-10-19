@@ -1184,7 +1184,7 @@ export const WorkspaceLayout = () => {
     flowStore.setEdgeFlowStatus('running')
     // Read the graph from the store at run time, not from the render closure, so the
     // snapshot can't go stale if this callback's dependency list changes.
-    setLastRunGraph(snapshotRunGraph(flowStore.nodes, flowStore.edges))
+    setLastRunGraph(snapshotRunGraph(flowStore.nodes, flowStore.edges, flowStore.scenario))
     runSimulation(topologyToRun)
     flowStore.setRunInspectorPinned(true)
     setIsRightOpen(!isCompactWorkspace && !displaySettings.simpleShell)
@@ -1206,8 +1206,8 @@ export const WorkspaceLayout = () => {
   }, [startSimulation])
 
   const resultsTopologyRelation = useMemo(
-    () => (lastRunGraph ? compareRunGraph(lastRunGraph, nodes, edges) : 'same'),
-    [edges, lastRunGraph, nodes]
+    () => (lastRunGraph ? compareRunGraph(lastRunGraph, nodes, edges, scenario) : 'same'),
+    [edges, lastRunGraph, nodes, scenario]
   )
 
   // Leave the post-run state and return to pre-run setup: discard the run's
@@ -1344,18 +1344,32 @@ export const WorkspaceLayout = () => {
   const runSummary = useMemo(
     () =>
       displaySettings.simpleShell && sim.results && sim.status === 'complete'
-        ? summarizeRun(
-            sim.results,
-            classroomSummary,
-            (sim.topology?.nodes ?? []).flatMap((node) => {
+        ? summarizeRun(sim.results, classroomSummary, {
+            injected: (sim.topology?.nodes ?? []).flatMap((node) => {
               const rate = Number(node.config?.['nodeErrorRate'])
               return Number.isFinite(rate) && rate > 0
                 ? [{ nodeId: node.id, label: node.label, rate }]
                 : []
-            })
-          )
+            }),
+            faults: sim.topology?.faults ?? [],
+            labelFor: (id) => sim.topology?.nodes.find((node) => node.id === id)?.label ?? id,
+            experiment: experimentResult
+              ? {
+                  name: experimentResult.name,
+                  passed: experimentResult.passed,
+                  summary: experimentResult.summary
+                }
+              : null
+          })
         : null,
-    [classroomSummary, displaySettings.simpleShell, sim.results, sim.status, sim.topology]
+    [
+      classroomSummary,
+      displaySettings.simpleShell,
+      experimentResult,
+      sim.results,
+      sim.status,
+      sim.topology
+    ]
   )
   // The run before the current one, so the strip can say what changed.
   const [runSummaryHistory, setRunSummaryHistory] = useState<{

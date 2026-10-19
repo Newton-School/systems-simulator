@@ -112,7 +112,7 @@ export function RunSummaryStrip({
           )}
           {topologyEdited && (
             <p className="text-xs text-nss-warning">
-              The canvas or a failure setting changed since this run. Run again to refresh.
+              The design or workload changed since this run. Run again to refresh.
             </p>
           )}
         </>

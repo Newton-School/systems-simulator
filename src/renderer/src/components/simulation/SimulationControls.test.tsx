@@ -79,4 +79,39 @@ describe('SimulationControls Run and Workload', () => {
     act(() => button(view, /^Run$/)?.click())
     expect(onRun).not.toHaveBeenCalled()
   })
+
+  it('separate mode: a blocked experiment opens the Workload panel on Run instead of going dead', () => {
+    const onRun = vi.fn()
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    root = createRoot(container)
+    act(() =>
+      root?.render(
+        <SimulationControls
+          onRun={onRun}
+          onReset={() => {}}
+          isPostRun={false}
+          onPause={() => {}}
+          onResume={() => {}}
+          onStop={() => {}}
+          isRunning={false}
+          isPaused={false}
+          sourceNodes={sourceNodes}
+          faultTargets={[]}
+          scenario={{
+            ...DEFAULT_SCENARIO_STATE,
+            experiment: [{ preset: 'database-failover' }] as never
+          }}
+          onScenarioChange={() => {}}
+          previewExperiment={() => ({ ok: false, reason: 'needs a replica' }) as never}
+          separateRun
+        />
+      )
+    )
+    const run = button(container, /^Run$/)
+    expect(run?.disabled).toBe(false)
+    act(() => run?.click())
+    expect(onRun).not.toHaveBeenCalled()
+    expect(document.body.textContent).toContain('Base RPS')
+  })
 })

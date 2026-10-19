@@ -1,4 +1,6 @@
 import type { SimulationOutput } from '../../../../engine/analysis/output'
+import type { FaultSpec } from '../../../../engine/core/types'
+import { readFault, type FailureMode } from './simulationControlModel'
 import type { ClassroomRunSummary } from '../../../../engine/classroom/runSummary'
 import {
   formatCostPerHour,
@@ -37,6 +39,16 @@ export interface InjectedFailure {
   label: string
   /** 0..1 */
   rate: number
+}
+
+/** What the run was given besides per-node settings: scheduled failures from the Workload panel. */
+export interface RunFailureInputs {
+  injected?: readonly InjectedFailure[]
+  faults?: readonly FaultSpec[]
+  /** Labels for fault targets (nodes or containers), by id. */
+  labelFor?: (id: string) => string
+  /** The chaos experiment's verdict, when the run was one. */
+  experiment?: { name: string; passed: boolean; summary: string } | null
 }
 
 /** Error rate at or above this reads as a failed run, not just one that needs work. */
@@ -102,6 +114,35 @@ function engineBottleneck(output: SimulationOutput): Bottleneck | null {
 
 const MAX_INJECTED_NOTES = 3
 
+const FAULT_VERB: Record<FailureMode, string> = {
+  blackhole: 'stops responding',
+  hang: 'freezes',
+  reject: 'rejects requests',
+  degraded: 'slows down'
+}
+
+/** One sentence per scheduled failure: when it hit, and how many requests it cost there. */
+function describeScheduledFaults(
+  output: SimulationOutput,
+  faults: readonly FaultSpec[],
+  labelFor?: (id: string) => string
+): string[] {
+  return faults.map((fault) => {
+    const { targetId, atS, durationS, mode } = readFault(fault)
+    const label = labelFor?.(targetId) ?? output.perNode[targetId]?.nodeLabel ?? targetId
+    const node = output.perNode[targetId]
+    const failed = node
+      ? node.postWarmupRejected + node.postWarmupTimedOut + node.postWarmupConnectionReset
+      : 0
+    const span = durationS > 0 ? `from ${atS}s for ${durationS}s` : `from ${atS}s onward`
+    const cost =
+      failed > 0
+        ? ` ${failed.toLocaleString()} requests failed there.`
+        : ' No requests failed there.'
+    return `Scheduled failure: ${label} ${FAULT_VERB[mode] ?? 'fails'} ${span}.${cost}`
+  })
+}
+
 /**
  * Say what an injected failure did, because "Passed, 0% errors" is otherwise indistinguishable
  * from "the setting did nothing": a down node behind health-aware routing gets no traffic, so
@@ -148,7 +189,7 @@ function describeInjectedFailures(
 export function summarizeRun(
   output: SimulationOutput,
   classroom: ClassroomRunSummary | null,
-  injected: readonly InjectedFailure[] = []
+  failures: RunFailureInputs = {}
 ): RunSummary {
   const { summary } = output
   const overTarget = classroom?.components.some((component) => component.overTarget) ?? false
@@ -189,12 +230,22 @@ export function summarizeRun(
   }
 
   const bottleneck = classroom ? classroomBottleneck(classroom) : engineBottleneck(output)
+  // A failed experiment is not a pass, even when the steady-state numbers look fine.
+  const experimentFailed = failures.experiment ? !failures.experiment.passed : false
   return {
-    verdict,
+    verdict: experimentFailed && verdict === 'passed' ? 'needs-work' : verdict,
     stats,
     bottleneck: bottleneck?.text ?? null,
     bottleneckNodeId: bottleneck?.nodeId ?? null,
-    injectedFailureNotes: describeInjectedFailures(output, injected)
+    injectedFailureNotes: [
+      ...(failures.experiment
+        ? [
+            `Experiment "${failures.experiment.name}" ${failures.experiment.passed ? 'passed' : 'failed'}: ${failures.experiment.summary}`
+          ]
+        : []),
+      ...describeInjectedFailures(output, failures.injected ?? []),
+      ...describeScheduledFaults(output, failures.faults ?? [], failures.labelFor)
+    ]
   }
 }
 

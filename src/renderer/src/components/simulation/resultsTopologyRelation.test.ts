@@ -29,22 +29,37 @@ describe('compareRunGraph', () => {
     )
   })
 
-  it('reports a changed failure setting as an edit, so old results are not shown as current', () => {
-    const healthy = [
-      { id: 'client' },
-      { id: 'api', data: { sim: { nodeErrorRate: 0 } } },
-      { id: 'db' }
-    ]
-    const downed = [
-      { id: 'client' },
-      { id: 'api', data: { sim: { nodeErrorRate: 1 } } },
-      { id: 'db' }
-    ]
-    const healthyRun = snapshotRunGraph(healthy, edges)
-    expect(compareRunGraph(healthyRun, healthy, edges)).toBe('same')
-    expect(compareRunGraph(healthyRun, downed, edges)).toBe('edited')
-    const downedRun = snapshotRunGraph(downed, edges)
-    expect(compareRunGraph(downedRun, healthy, edges)).toBe('edited')
-    expect(compareRunGraph(downedRun, downed, edges)).toBe('same')
+  it('reports any changed node setting as an edit, so old results are not shown as current', () => {
+    const node = (instanceCount: number, nodeErrorRate = 0) => ({
+      id: 'api',
+      data: { sim: { resources: { instanceCount }, nodeErrorRate } }
+    })
+    const before = [{ id: 'client' }, node(1), { id: 'db' }]
+    const run = snapshotRunGraph(before, edges)
+    expect(compareRunGraph(run, before, edges)).toBe('same')
+    expect(compareRunGraph(run, [{ id: 'client' }, node(4), { id: 'db' }], edges)).toBe('edited')
+    expect(compareRunGraph(run, [{ id: 'client' }, node(1, 1), { id: 'db' }], edges)).toBe('edited')
+    // A new object with the same settings is not an edit.
+    expect(compareRunGraph(run, [{ id: 'client' }, node(1), { id: 'db' }], edges)).toBe('same')
+  })
+
+  it('ignores a node moving around the canvas', () => {
+    const data = { sim: { resources: { instanceCount: 2 } } }
+    const run = snapshotRunGraph([{ id: 'api', data }], [])
+    expect(compareRunGraph(run, [{ id: 'api', data, position: { x: 9, y: 9 } } as never], [])).toBe(
+      'same'
+    )
+  })
+
+  it('reports a changed workload or failure injection as an edit', () => {
+    const scenario = { workloadOverride: { baseRps: 180 }, faults: [] }
+    const run = snapshotRunGraph(nodes, edges, scenario)
+    expect(compareRunGraph(run, nodes, edges, { ...scenario })).toBe('same')
+    expect(
+      compareRunGraph(run, nodes, edges, { workloadOverride: { baseRps: 300 }, faults: [] })
+    ).toBe('edited')
+    expect(compareRunGraph(run, nodes, edges, { ...scenario, faults: [{ targetId: 'api' }] })).toBe(
+      'edited'
+    )
   })
 })

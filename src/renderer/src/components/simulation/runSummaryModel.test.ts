@@ -141,7 +141,7 @@ describe('injected failure notes', () => {
   ]
 
   it('says a down node got no traffic and was routed around', () => {
-    const notes = summarizeRun(withNode({}), null, injected(1)).injectedFailureNotes
+    const notes = summarizeRun(withNode({}), null, { injected: injected(1) }).injectedFailureNotes
     expect(notes).toEqual([
       'API Server A is down and got no traffic: its requests were routed elsewhere.'
     ])
@@ -151,7 +151,7 @@ describe('injected failure notes', () => {
     const notes = summarizeRun(
       withNode({ postWarmupArrived: 1000, postWarmupRejected: 380, postWarmupTimedOut: 20 }),
       null,
-      injected(0.4)
+      { injected: injected(0.4) }
     ).injectedFailureNotes
     expect(notes).toEqual([
       'API Server A is failing 40% of requests: 400 of 1,000 requests it received failed.'
@@ -159,19 +159,57 @@ describe('injected failure notes', () => {
   })
 
   it('does not claim failures that never showed up', () => {
-    const notes = summarizeRun(
-      withNode({ postWarmupArrived: 50 }),
-      null,
-      injected(0.4)
-    ).injectedFailureNotes
+    const notes = summarizeRun(withNode({ postWarmupArrived: 50 }), null, {
+      injected: injected(0.4)
+    }).injectedFailureNotes
     expect(notes[0]).toContain('none of the 50 requests it received failed')
   })
 
   it('has no notes without injected failures, and ignores nodes missing from the run', () => {
-    expect(summarizeRun(withNode({}), null, []).injectedFailureNotes).toEqual([])
+    expect(summarizeRun(withNode({}), null, { injected: [] }).injectedFailureNotes).toEqual([])
     expect(
-      summarizeRun(withNode({}), null, [{ nodeId: 'gone', label: 'Gone', rate: 1 }])
+      summarizeRun(withNode({}), null, { injected: [{ nodeId: 'gone', label: 'Gone', rate: 1 }] })
         .injectedFailureNotes
     ).toEqual([])
+  })
+
+  it('describes a scheduled failure with its timing and what it cost', () => {
+    const fault = (mode: string, atMs: number, durationMs: number) =>
+      ({
+        targetId: 'a',
+        faultType: 'chaos',
+        timing: 'deterministic',
+        duration: 'fixed',
+        params: { atMs, durationMs, mode }
+      }) as never
+    const hit = withNode({ postWarmupArrived: 900, postWarmupRejected: 120 })
+    expect(
+      summarizeRun(hit, null, { faults: [fault('reject', 5000, 10000)] }).injectedFailureNotes
+    ).toEqual([
+      'Scheduled failure: API Server A rejects requests from 5s for 10s. 120 requests failed there.'
+    ])
+    expect(
+      summarizeRun(withNode({ postWarmupArrived: 900 }), null, {
+        faults: [fault('blackhole', 2000, 0)]
+      }).injectedFailureNotes
+    ).toEqual([
+      'Scheduled failure: API Server A stops responding from 2s onward. No requests failed there.'
+    ])
+  })
+
+  it('reports the experiment verdict, and a failed one is not a pass', () => {
+    const run = withNode({})
+    const passed = summarizeRun(run, null, {
+      experiment: { name: 'Traffic spike', passed: true, summary: 'Steady state held.' }
+    })
+    expect(passed.injectedFailureNotes[0]).toBe(
+      'Experiment "Traffic spike" passed: Steady state held.'
+    )
+    expect(passed.verdict).toBe('passed')
+    const failed = summarizeRun(run, null, {
+      experiment: { name: 'Traffic spike', passed: false, summary: 'Errors rose above 1%.' }
+    })
+    expect(failed.injectedFailureNotes[0]).toContain('failed')
+    expect(failed.verdict).toBe('needs-work')
   })
 })
