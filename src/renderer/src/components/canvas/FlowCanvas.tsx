@@ -35,6 +35,7 @@ import { useHandleProximity } from './hooks/useHandleProximity'
 import MagneticConnectionLine from './MagneticConnectionLine'
 import { MAGNETIC_CONNECTION_RADIUS_PX } from './magneticSnapConfig'
 import { CanvasToolbar, type CanvasTool } from './CanvasToolbar'
+import { NodeMiniBar } from './NodeMiniBar'
 import { CanvasAnnotationLayer } from './CanvasAnnotationLayer'
 import type { AnnotationTool } from '@renderer/types/annotations'
 import {
@@ -124,6 +125,7 @@ const FlowCanvasInternal = ({
 }: FlowCanvasProps) => {
   const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance | null>(null)
   const classroomActive = useClassroomActive()
+  const simpleShell = useStore((state) => state.displaySettings.simpleShell)
   // Symbol-only canvases carry no metrics, so the lens switcher and legend have nothing to say.
   const symbolsOnly = useStore(
     (s) =>
@@ -1133,6 +1135,9 @@ const FlowCanvasInternal = ({
         elevateEdgesOnSelect
         className={flowClassName}
       >
+        {simpleShell && !presentationMode && activeTool === 'select' ? (
+          <NodeMiniBar onDelete={deleteSelection} disabled={interactionLocked} />
+        ) : null}
         <Background variant={BackgroundVariant.Dots} gap={30} size={1.2} color={GRID_COLOR} />
         {!presentationMode && <Controls className="!bg-nss-surface !border-nss-border" />}
         {!presentationMode && (
