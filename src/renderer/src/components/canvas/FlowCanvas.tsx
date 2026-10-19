@@ -63,6 +63,8 @@ interface FlowCanvasProps {
   /** Simple shell: the rail's Add button opens the component popover. */
   onAddComponent?: () => void
   addComponentActive?: boolean
+  /** Replaces the default empty-canvas hint (simple shell). */
+  emptyState?: React.ReactNode
 }
 
 function handleReactFlowError(code: string, message: string): void {
@@ -117,7 +119,8 @@ const FlowCanvasInternal = ({
   onNodeDoubleClick,
   onEdgeDoubleClick,
   onAddComponent,
-  addComponentActive = false
+  addComponentActive = false,
+  emptyState
 }: FlowCanvasProps) => {
   const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance | null>(null)
   const classroomActive = useClassroomActive()
@@ -1164,8 +1167,18 @@ const FlowCanvasInternal = ({
       {/* Empty State */}
       <EmptyFlowState
         isEmpty={isEmpty}
-        hidden={annotationToolActive || activeTool === 'laser' || activeTool === 'text'}
+        hidden={
+          annotationToolActive ||
+          activeTool === 'laser' ||
+          activeTool === 'text' ||
+          Boolean(emptyState)
+        }
       />
+      {emptyState && isEmpty && !pendingNodePlacement && !annotationToolActive ? (
+        <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
+          {emptyState}
+        </div>
+      ) : null}
       {contextualAddRequest && contextualPickerPosition ? (
         <ContextualAddPicker
           key={`${contextualAddRequest.mode}:${contextualAddRequest.anchorNodeId}`}

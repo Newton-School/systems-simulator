@@ -101,6 +101,7 @@ import {
 } from '@renderer/components/simulation/chaosExperimentModel'
 import { ExperimentResultPanel } from '@renderer/components/simulation/ChaosExperimentPanel'
 import { ClassroomResultsCard } from '@renderer/components/simulation/ClassroomResultsCard'
+import { SimpleEmptyState } from '@renderer/components/canvas/SimpleEmptyState'
 import { QuestionCard } from '@renderer/components/question/QuestionCard'
 import { AddComponentPopover } from '@renderer/components/library/AddComponentPopover'
 import { RunSummaryStrip } from '@renderer/components/simulation/RunSummaryStrip'
@@ -353,8 +354,12 @@ export const WorkspaceLayout = () => {
 
   useEffect(() => {
     if (isCompactWorkspace) return
-    if (isLeftOpen) leftPanelRef.current?.expand()
-    else leftPanelRef.current?.collapse()
+    // Deferred a frame so a closed-on-load sidebar wins over the panel group's saved layout.
+    const frame = requestAnimationFrame(() => {
+      if (isLeftOpen) leftPanelRef.current?.expand()
+      else leftPanelRef.current?.collapse()
+    })
+    return () => cancelAnimationFrame(frame)
   }, [isCompactWorkspace, isLeftOpen])
 
   useEffect(() => {
@@ -1617,6 +1622,26 @@ export const WorkspaceLayout = () => {
               addPopoverAvailable ? () => setAddPopoverOpen((current) => !current) : undefined
             }
             addComponentActive={addPopoverOpen}
+            emptyState={
+              addPopoverAvailable ? (
+                <SimpleEmptyState
+                  onAddComponent={() => {
+                    setAddPopoverOpen(true)
+                    setComponentLibrarySearchFocusVersion((version) => version + 1)
+                  }}
+                  onLoadStarter={
+                    activeQuestion
+                      ? undefined
+                      : () => {
+                          const starter = SAMPLE_SCENARIOS.find(
+                            (sample) => sample.id === 'direct-client-server'
+                          )
+                          if (starter) void handleSampleLoad(starter)
+                        }
+                  }
+                />
+              ) : undefined
+            }
             onNodeDoubleClick={(_, node) => {
               selectGraphElements({ nodeId: node.id })
               setRightPanelView('inspector')
