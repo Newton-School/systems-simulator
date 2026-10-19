@@ -554,21 +554,23 @@ export const WorkspaceLayout = () => {
 
   useEffect(() => {
     // The JSON viewer shows the whole design, so it stays open without a selection.
+    // Simple shell has no run-pinned inspector: the summary strip carries the run, and the
+    // inspector shows only for what is selected.
     if (
       !selectedNodeId &&
       !selectedEdgeId &&
-      !runInspectorPinned &&
+      (!runInspectorPinned || simpleShell) &&
       rightPanelViewRef.current !== 'json'
     ) {
       setIsRightOpen(false)
     }
-  }, [runInspectorPinned, selectedNodeId, selectedEdgeId])
+  }, [runInspectorPinned, selectedNodeId, selectedEdgeId, simpleShell])
 
   useEffect(() => {
-    if (runInspectorPinned && !isCompactWorkspace) {
+    if (runInspectorPinned && !isCompactWorkspace && !simpleShell) {
       setIsRightOpen(true)
     }
-  }, [isCompactWorkspace, runInspectorPinned])
+  }, [isCompactWorkspace, runInspectorPinned, simpleShell])
 
   // Selecting an edge opens the inspector on its properties, mirroring how
   // double-clicking a node opens the node config.
@@ -583,12 +585,13 @@ export const WorkspaceLayout = () => {
   // the editable settings immediately instead of requiring an undiscoverable
   // double-click while the graph itself is locked.
   useEffect(() => {
-    if (selectedNodeId && experienceEnvelope.kind === 'LAB') {
+    // Simple shell works the same way: selecting a node is how you configure it.
+    if (selectedNodeId && (experienceEnvelope.kind === 'LAB' || simpleShell)) {
       setRightPanelView('inspector')
       setIsRightOpen(true)
       if (isCompactWorkspace) setIsLeftOpen(false)
     }
-  }, [experienceEnvelope.kind, isCompactWorkspace, selectedNodeId])
+  }, [experienceEnvelope.kind, isCompactWorkspace, selectedNodeId, simpleShell])
 
   useEffect(() => {
     if (isCompactWorkspace && showResults) {
@@ -970,7 +973,7 @@ export const WorkspaceLayout = () => {
     if (!runInspectorPinned && !selectedNodeId && !selectedEdgeId) {
       setRunInspectorPinned(true)
     }
-    if (!isCompactWorkspace) {
+    if (!isCompactWorkspace && !simpleShell) {
       setIsRightOpen(true)
     }
   }, [
@@ -985,12 +988,13 @@ export const WorkspaceLayout = () => {
     setSimulationMetrics,
     sim.results,
     sim.snapshot,
-    sim.status
+    sim.status,
+    simpleShell
   ])
 
   useEffect(() => {
     if (!sim.results) return
-    if (!isCompactWorkspace) {
+    if (!isCompactWorkspace && !simpleShell) {
       setIsRightOpen(true)
     }
     const inFlightByNode = new Map(
@@ -1037,7 +1041,7 @@ export const WorkspaceLayout = () => {
     )
 
     setSimulationMetrics(metricsByNode)
-  }, [isCompactWorkspace, sim.results, setSimulationMetrics])
+  }, [isCompactWorkspace, sim.results, setSimulationMetrics, simpleShell])
 
   useEffect(() => {
     if (sim.status === 'idle') {
@@ -1158,7 +1162,7 @@ export const WorkspaceLayout = () => {
     setLastRunGraph(snapshotRunGraph(flowStore.nodes, flowStore.edges))
     runSimulation(topologyToRun)
     flowStore.setRunInspectorPinned(true)
-    setIsRightOpen(!isCompactWorkspace)
+    setIsRightOpen(!isCompactWorkspace && !displaySettings.simpleShell)
   }, [
     activeQuestion,
     clearSimulationMetrics,
