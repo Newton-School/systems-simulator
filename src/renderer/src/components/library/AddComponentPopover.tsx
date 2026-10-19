@@ -35,7 +35,7 @@ export function AddComponentPopover({
   const setPendingNodePlacement = useStore((state) => state.setPendingNodePlacement)
 
   const { categories: common } = useLibraryCatalog('', 'common')
-  const { categories: all, curated } = useLibraryCatalog(query, 'all')
+  const { categories: all, curated } = useLibraryCatalog('', 'all')
   const model = buildAddPopoverModel({ common, all, curated, query })
   const builderPolicy = useBuilderPolicy()
   // Why a builder is unavailable under the question's builder policy (undefined = usable).
