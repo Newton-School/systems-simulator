@@ -474,7 +474,9 @@ export class SimulationEngine {
       // idle feature grades as 0 and an absent one stays unresolved.
       const featureSeeds = featureCounterSeeds(normalized, resolvedTraits)
       if (featureSeeds) this.metrics.recordNodeTraitCounters(node.id, featureSeeds)
-      this.nodes.set(node.id, new GGcKNode(normalized, this.distributions, scheduler))
+      const runtimeNode = new GGcKNode(normalized, this.distributions, scheduler)
+      runtimeNode.setWarmupUs(msToMicro(Math.max(0, topology.global.warmupDuration)))
+      this.nodes.set(node.id, runtimeNode)
       // Report limits against the DERIVED effective c/K (what the node actually
       // ran with), not the vestigial authored queue — so utilization, saturation
       // "workers avg", and node metrics all divide by the real concurrency.
@@ -1284,7 +1286,17 @@ export class SimulationEngine {
       return
     }
 
-    const arrivalTraitDecision = this.runBeforeArrivalTraits(nodeId, request)
+    // A node that is down or faulted cannot answer from its own state: a cache hit, a queue ack
+    // or any other arrival trait that would complete the request here must not run. A Down node
+    // (nodeErrorRate 1) that has arrival traits refuses at the door; a faulted node falls through
+    // to its failure mode (reject, blackhole, hang) in the queue admission below.
+    if (this.isDownWithArrivalTraits(nodeId) && this.rejectForNodeError(nodeId, request)) {
+      return
+    }
+    const nodeFaulted = node.getState().status === 'failed'
+    const arrivalTraitDecision: BeforeArrivalDecision = nodeFaulted
+      ? { action: 'continue' }
+      : this.runBeforeArrivalTraits(nodeId, request)
     if (arrivalTraitDecision.action !== 'continue') {
       this.traceAdmission(
         request,
@@ -1325,6 +1337,11 @@ export class SimulationEngine {
     }
 
     if (arrivalTraitDecision.action === 'handled') {
+      // Answered by a trait (e.g. a cache hit) without reaching service completion, where the
+      // node's injected error rate normally applies. A partly failing node fails these too.
+      if (this.shouldFailAtNode(nodeId) && this.rejectForNodeError(nodeId, request)) {
+        return
+      }
       this.completeRequestViaTrait(nodeId, request, arrivalTraitDecision)
 
       if (arrivalTraitDecision.payload?.forkConsumerRequest === true) {
@@ -3604,6 +3621,7 @@ export class SimulationEngine {
     const horizonUs =
       earlyEndUs ??
       (this.clock < this.simulationDurationUs ? this.simulationDurationUs : this.clock)
+    const warmupUs = msToMicro(Math.max(0, this.topology.global.warmupDuration))
     for (const [nodeId, node] of this.nodes) {
       node.finalizeUtilization(horizonUs)
       const workers = this.nodeLimitsById.get(nodeId)?.workers ?? 1
@@ -3614,6 +3632,11 @@ export class SimulationEngine {
         node.getCapacityAreaUs(),
         node.getCpuBusyAreaUs(),
         node.getCoreAreaUs()
+      )
+      this.metrics.recordNodeInSystemArea(
+        nodeId,
+        node.getInSystemAreaPostWarmupUs(),
+        horizonUs > warmupUs ? horizonUs - warmupUs : 0n
       )
     }
 
@@ -3773,6 +3796,26 @@ export class SimulationEngine {
     }
 
     return false
+  }
+
+  /** Injected error rate of 1 on a node that has arrival traits (cache, queue ack, and so on). */
+  private isDownWithArrivalTraits(nodeId: string): boolean {
+    if ((this.nodeErrorRateById.get(nodeId) ?? 0) < 1) return false
+    return (this.traitsByNodeId.get(nodeId) ?? []).some((trait) => Boolean(trait.beforeArrival))
+  }
+
+  /** Reject a request at a node because of its injected error rate. Always returns true. */
+  private rejectForNodeError(nodeId: string, request: Request): boolean {
+    this.eventQueue.insert(
+      createEvent(
+        'request-rejected',
+        nodeId,
+        request.id,
+        { request, reason: 'node_error_rate', nodeArrivalTime: this.clock },
+        this.clock
+      )
+    )
+    return true
   }
 
   private shouldFailAtNode(nodeId: string): boolean {

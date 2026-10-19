@@ -787,11 +787,17 @@ function calculateLittlesLaw(
   const durationSec = Math.max(0.001, (config.simulationDuration - config.warmupDuration) / 1000)
 
   return Object.entries(perNode).map(([nodeId, metrics]) => {
-    const lambda = metrics.postWarmupArrived / durationSec
+    // Little's Law holds for the requests the node ADMITS. Requests turned away at admission
+    // never spend time in the system, so counting them in lambda breaks the identity exactly
+    // when a finite buffer overflows. Requests that failed after service (nodeErrorRate) are
+    // counted as rejections too but were admitted, so only the remainder is subtracted.
+    const rejectedAtAdmission = Math.max(
+      0,
+      metrics.postWarmupRejected - metrics.postWarmupFailedAfterService
+    )
+    const lambda = Math.max(0, metrics.postWarmupArrived - rejectedAtAdmission) / durationSec
     const wSeconds = metrics.postWarmupAvgTimeInSystem / 1000
     const expectedL = lambda * wSeconds
-    // const observedL = metrics.postWarmupAvgInSystem
-    // const error = Math.abs(observedL - expectedL) / Math.max(expectedL, 0.001)
 
     const observedL = metrics.postWarmupAvgInSystem
     const absoluteError = Math.abs(observedL - expectedL)
@@ -802,7 +808,8 @@ function calculateLittlesLaw(
       observedL,
       expectedL,
       error,
-      withinTolerance: error <= 0.1 || absoluteError <= 0.5, // ← dual guard,
+      // A small absolute floor stops noise on a nearly empty node from failing the relative test.
+      withinTolerance: error <= 0.1 || absoluteError <= 0.05,
       lambda,
       wSeconds
     }
