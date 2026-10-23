@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ChangeEvent } from 'react'
 import { AlertTriangle, CheckCircle2, FileJson, Upload, X } from 'lucide-react'
 import type { ValidationError } from '../../../../engine/validation/validator'
+import { resolveEdgeModel } from '../../../../engine/analysis/environmentProfile'
 import { isTopologyJsonLike } from '@renderer/utils/topologyCanvasAdapter'
 import {
   deserializeTopology,
@@ -97,7 +98,11 @@ export function ImportTopologyDialog({ onClose, onImport }: ImportTopologyDialog
       return
     }
 
-    const result = deserializeTopology(parsed.value)
+    // Validate against the environment the design will run in: connector mode ignores connection physics,
+    // so network-only warnings are noise there and the importer says what a run will ignore instead.
+    const environment = useStore.getState()
+    const edgeModel = resolveEdgeModel(environment.environmentProfile, environment.activeQuestion)
+    const result = deserializeTopology(parsed.value, { edgeModel })
     if (isImportFailure(result)) {
       setOutcome({ kind: 'error', title: 'Nothing was imported', errors: result.errors })
       return

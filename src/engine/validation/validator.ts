@@ -1092,9 +1092,13 @@ export const validateTopology = (
 
     if (role !== 'source') {
       if (!node.queue) {
-        warnings.push(
-          `${nodeLabel}: Queue settings are missing, so default queue settings were applied (1 worker, room for 100 waiting requests).`
-        )
+        // A node sized by an instance model derives its concurrency from the hardware; it has no queue
+        // to be missing, so the warning would only mislead.
+        if (!hasInstanceModel(node.resources)) {
+          warnings.push(
+            `${nodeLabel}: Queue settings are missing, so default queue settings were applied (1 worker, room for 100 waiting requests).`
+          )
+        }
         node.queue = { workers: 1, capacity: 100, discipline: 'fifo' }
       }
 

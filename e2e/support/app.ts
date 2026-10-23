@@ -14,7 +14,8 @@ export async function openApp(page: Page): Promise<void> {
 
 /**
  * Paste a TopologyJSON through More actions > JSON > Import JSON, then close the result dialog.
- * Returns the dialog text (the import summary and any warnings) so a flow can assert on it.
+ * Returns the dialog text (the import summary and any warnings) so a flow can assert on it, or an empty
+ * string when the import was clean and the dialog closed on its own.
  */
 export async function importTopology(page: Page, topology: TopologyJSON): Promise<string> {
   await page.getByRole('button', { name: 'More actions' }).click()
@@ -22,9 +23,12 @@ export async function importTopology(page: Page, topology: TopologyJSON): Promis
   await page.getByRole('menuitem', { name: /Import JSON/ }).click()
   await page.getByRole('textbox').fill(JSON.stringify(topology))
   await page.getByRole('button', { name: 'Import', exact: true }).click()
-  await expect(page.getByText(/Imported \d+ components?/)).toBeVisible()
+  // A clean import closes the dialog by itself; one with warnings stays open on a summary with a Done button.
+  const done = page.getByRole('button', { name: 'Done' })
+  await expect(page.getByRole('textbox')).toBeHidden()
+  if (!(await done.isVisible())) return ''
   const text = await bodyText(page)
-  await page.getByRole('button', { name: 'Done' }).click()
+  await done.click()
   return text
 }
 

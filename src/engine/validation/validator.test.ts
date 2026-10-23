@@ -564,6 +564,40 @@ describe('validateTopology active-source validation', () => {
     )
   })
 
+  describe('missing queue settings', () => {
+    const warnsAboutQueue = (node: ComponentNode): boolean => {
+      const source = makeSourceNode('client', 'Client App')
+      const result = validateTopology(
+        makeTopology({
+          nodes: [source, node],
+          edges: [makeEdge('client-api', source.id, node.id)],
+          sourceNodeId: source.id
+        })
+      )
+      return (result.warnings ?? []).some((warning) =>
+        warning.includes('Queue settings are missing')
+      )
+    }
+
+    it('warns when a node sets neither a queue nor an instance, because the engine default applies', () => {
+      const bare = {
+        ...makeProcessorNode('api', 'API Server'),
+        queue: undefined,
+        resources: undefined
+      }
+      expect(warnsAboutQueue(bare as unknown as ComponentNode)).toBe(true)
+    })
+
+    it('stays quiet for a node sized by an instance: it has no queue to be missing', () => {
+      const sized = {
+        ...makeProcessorNode('api', 'API Server'),
+        queue: undefined,
+        resources: { instanceType: 'm5.large', instanceCount: 1 }
+      }
+      expect(warnsAboutQueue(sized as unknown as ComponentNode)).toBe(false)
+    })
+  })
+
   it('suppresses edge-constraint warnings in connector mode', () => {
     const source = makeSourceNode('client', 'Client App')
     const service = makeProcessorNode('api', 'API Server')
