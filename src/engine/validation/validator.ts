@@ -16,6 +16,7 @@ import type {
 } from '../core/types'
 import { inferStructuralRole } from '../catalog/componentSpecs'
 import { hasInstanceModel } from '../nodes/resourceDerivation'
+import { CIRCUIT_BREAKER_COMPONENT_TYPES } from '../traits/circuitBreaker'
 import { BULKHEAD_COMPONENT_TYPES } from '../traits/bulkhead'
 import { isQueueDeliverySemantics } from '../core/simulationSemantics'
 import { validateEdgeConstraintSelection } from '../defaults/edgeConstraints'
@@ -1889,6 +1890,17 @@ export const validateTopology = (
         : `without an ${label('resources.instanceType')}, workers and queue space come from the queue settings`
       warnings.push(
         `${nodeLabel}: ${fields} ${ignoredResourceFields.length > 1 ? 'are' : 'is'} set but ignored by the simulator: ${reason}.`
+      )
+    }
+
+    // A circuit breaker only gates calls on the node types that implement it. On any other node the
+    // setting is accepted and records state but rejects nothing, so say so instead of looking active.
+    if (
+      node.resilience?.circuitBreaker &&
+      !(CIRCUIT_BREAKER_COMPONENT_TYPES as readonly string[]).includes(node.type)
+    ) {
+      warnings.push(
+        `${nodeLabel}: A circuit breaker is configured but this component type does not apply one, so it will never reject a call. Put it on a sidecar, service mesh or circuit breaker controller.`
       )
     }
 

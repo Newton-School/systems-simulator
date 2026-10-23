@@ -526,6 +526,44 @@ describe('validateTopology active-source validation', () => {
     )
   })
 
+  describe('circuit breaker on a component that does not apply one', () => {
+    const breaker = {
+      failureThreshold: 0.5,
+      failureCount: 10,
+      recoveryTimeout: 5_000,
+      halfOpenRequests: 1
+    }
+    const warningFor = (type: ComponentNode['type']) => {
+      const source = makeSourceNode('client', 'Client App')
+      const service = {
+        ...makeProcessorNode('api', 'API Server'),
+        type,
+        resilience: { circuitBreaker: breaker }
+      }
+      const result = validateTopology(
+        makeTopology({
+          nodes: [source, service],
+          edges: [makeEdge('client-api', source.id, service.id)],
+          sourceNodeId: source.id
+        })
+      )
+      return (result.warnings ?? []).find((warning) =>
+        warning.includes('circuit breaker is configured')
+      )
+    }
+
+    it('warns on a microservice, where the setting records state but never rejects a call', () => {
+      expect(warningFor('microservice')).toMatch(/never reject a call/)
+    })
+
+    it.each(['sidecar', 'service-mesh', 'circuit-breaker-controller'] as const)(
+      'is quiet on a %s, which applies it',
+      (type) => {
+        expect(warningFor(type)).toBeUndefined()
+      }
+    )
+  })
+
   it('suppresses edge-constraint warnings in connector mode', () => {
     const source = makeSourceNode('client', 'Client App')
     const service = makeProcessorNode('api', 'API Server')

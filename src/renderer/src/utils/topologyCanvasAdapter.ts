@@ -23,6 +23,7 @@ import type { NestedFileData, NestedNode } from './nodeTransformers'
 import { convertFlatToNested } from './nodeTransformers'
 import { deriveNodeExtra } from './topologyCarry'
 import { getPathTypeLatencyProfile } from '../../../engine/defaults/edgeDefaults'
+import { resolveCapacityModel } from '../../../engine/catalog/capacityModel'
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
@@ -191,6 +192,10 @@ function overlaySimulationConfig(
   // the loaded topology's real instance, not a fallback default.
   if (node.resources) {
     sim.resources = structuredClone(node.resources)
+  } else if (resolveCapacityModel(node) === 'raw-queue') {
+    // The file sized this node with a queue and no instance. The palette template carries a default
+    // instance; keeping it would override the authored queue (see catalog/capacityModel.ts).
+    delete sim.resources
   }
 
   if (node.processing) {

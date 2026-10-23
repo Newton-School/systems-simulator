@@ -211,12 +211,21 @@ describe('planTopologyEdit', () => {
   })
 
   it('refuses derived concurrency fields on an instance-model node', () => {
-    // The canvas puts every node on the instance model, so declared workers and
-    // queue capacity are derived from the hardware and an edit would do nothing.
-    const topology = exported(base)
+    // With an instance model, workers and queue capacity are derived from the hardware and an
+    // edit would do nothing.
+    const withInstance: TopologyJSON = {
+      ...TOPOLOGY,
+      nodes: TOPOLOGY.nodes.map((node) =>
+        node.id === 'api'
+          ? { ...node, resources: { instanceType: 'm5.large', instanceCount: 1 } }
+          : node
+      )
+    }
+    const instanceBase = snapshotFor(withInstance)
+    const topology = exported(instanceBase)
     for (const field of ['workers', 'capacity'] as const) {
       const path = ['nodes', 1, 'queue', field]
-      const result = planTopologyEdit(base, topology, path, 16)
+      const result = planTopologyEdit(instanceBase, topology, path, 16)
       expect(result).toMatchObject({
         ok: false,
         message: expect.stringMatching(/Derived from the instance/)
@@ -224,6 +233,17 @@ describe('planTopologyEdit', () => {
       const leaf = find(buildTopologyTree(topology), path.join('.'))
       expect(leafEditor(leaf!.path, leaf!.value, leaf!.readOnlyReason).kind).toBe('readonly')
     }
+  })
+
+  it('keeps an authored queue authoritative: no instance is added and workers stay editable', () => {
+    // A file that sizes a node with a raw queue and no instance must run as written. The canvas
+    // used to attach a default instance on import, which made 8 workers into 64.
+    const topology = exported(base)
+    expect(topology.nodes[1]?.resources).toBeUndefined()
+    expect(topology.nodes[1]?.queue).toMatchObject({ workers: 8, capacity: 100 })
+    const edited = exported(apply(base, ['nodes', 1, 'queue', 'workers'], 16))
+    expect(edited.nodes[1]?.queue?.workers).toBe(16)
+    expect(edited.nodes[1]?.resources).toBeUndefined()
   })
 
   it('changes only the edited field', () => {
