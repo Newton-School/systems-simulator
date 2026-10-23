@@ -124,3 +124,110 @@ export function serversNeeded(rps: number, perServerRps: number, maxUtilization:
 export function relErr(actual: number, expected: number): number {
   return Math.abs(actual - expected) / Math.abs(expected)
 }
+
+// ───────────────────── chapter 03: distributions ─────────────────────
+
+/** Standard normal quantiles used by the chapter (one-sided). */
+export const Z = { p50: 0, p90: 1.2816, p95: 1.6449, p99: 2.3263, p999: 3.0902 } as const
+
+/** Standard normal CDF and density, for the clamped-normal mean. */
+export function normCdf(x: number): number {
+  // Abramowitz and Stegun 7.1.26 via erf
+  const t = 1 / (1 + 0.3275911 * Math.abs(x / Math.SQRT2))
+  const y =
+    1 -
+    ((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t - 0.284496736) * t + 0.254829592) *
+      t *
+      Math.exp(-((x / Math.SQRT2) ** 2))
+  return 0.5 * (1 + (x >= 0 ? y : -y))
+}
+export function normPdf(x: number): number {
+  return Math.exp(-0.5 * x * x) / Math.sqrt(2 * Math.PI)
+}
+
+/** E[max(X, 0)] for X ~ Normal(mean, sd): what a clamped-at-zero normal service time averages. */
+export function clampedNormalMean(mean: number, sd: number): number {
+  const a = mean / sd
+  return mean * normCdf(a) + sd * normPdf(a)
+}
+
+function gammaFn(z: number): number {
+  // Lanczos approximation
+  const g = 7
+  const c = [
+    0.99999999999980993, 676.5203681218851, -1259.1392167224028, 771.32342877765313,
+    -176.61502916214059, 12.507343278686905, -0.13857109526572012, 9.9843695780195716e-6,
+    1.5056327351493116e-7
+  ]
+  if (z < 0.5) return Math.PI / (Math.sin(Math.PI * z) * gammaFn(1 - z))
+  const x = z - 1
+  let a = c[0]
+  const t = x + g + 0.5
+  for (let i = 1; i < g + 2; i += 1) a += c[i] / (x + i)
+  return Math.sqrt(2 * Math.PI) * t ** (x + 0.5) * Math.exp(-t) * a
+}
+
+export interface Moments {
+  mean: number
+  sd: number
+}
+
+export const dist = {
+  uniform: (min: number, max: number): Moments => ({
+    mean: (min + max) / 2,
+    sd: (max - min) / Math.sqrt(12)
+  }),
+  exponential: (mean: number): Moments => ({ mean, sd: mean }),
+  expQuantile: (mean: number, p: number): number => -mean * Math.log(1 - p),
+  normalQuantile: (mean: number, sd: number, z: number): number => mean + sd * z,
+  logNormal: (mu: number, sigma: number): Moments => ({
+    mean: Math.exp(mu + (sigma * sigma) / 2),
+    sd: Math.sqrt((Math.exp(sigma * sigma) - 1) * Math.exp(2 * mu + sigma * sigma))
+  }),
+  logNormalCv: (sigma: number): number => Math.sqrt(Math.exp(sigma * sigma) - 1),
+  logNormalQuantile: (mu: number, sigma: number, z: number): number => Math.exp(mu + sigma * z),
+  gamma: (k: number, theta: number): Moments => ({ mean: k * theta, sd: Math.sqrt(k) * theta }),
+  weibull: (k: number, lambda: number): Moments => ({
+    mean: lambda * gammaFn(1 + 1 / k),
+    sd: lambda * Math.sqrt(gammaFn(1 + 2 / k) - gammaFn(1 + 1 / k) ** 2)
+  }),
+  weibullQuantile: (k: number, lambda: number, p: number): number =>
+    lambda * (-Math.log(1 - p)) ** (1 / k),
+  pareto: (alpha: number, xm: number): Moments => ({
+    mean: (alpha * xm) / (alpha - 1),
+    sd: Math.sqrt(((xm / (alpha - 1)) ** 2 * alpha) / (alpha - 2))
+  }),
+  paretoQuantile: (alpha: number, xm: number, p: number): number => xm * (1 - p) ** (-1 / alpha),
+  beta: (a: number, b: number): Moments => ({
+    mean: a / (a + b),
+    sd: Math.sqrt((a * b) / ((a + b) ** 2 * (a + b + 1)))
+  }),
+  binomial: (n: number, p: number): Moments => ({ mean: n * p, sd: Math.sqrt(n * p * (1 - p)) }),
+  poisson: (lambda: number): Moments => ({ mean: lambda, sd: Math.sqrt(lambda) }),
+  /** Mixture moments from components {weight, mean, sd}. */
+  mixture: (parts: { w: number; mean: number; sd: number }[]): Moments => {
+    const mean = parts.reduce((a, p) => a + p.w * p.mean, 0)
+    const second = parts.reduce((a, p) => a + p.w * (p.sd * p.sd + p.mean * p.mean), 0)
+    return { mean, sd: Math.sqrt(second - mean * mean) }
+  }
+}
+
+// ───────────────────── chapter 05: workload ─────────────────────
+
+/** Fraction of requests that go to the `topN` hottest of `size` keys under Zipf(s). */
+export function zipfTopShare(size: number, s: number, topN: number): number {
+  let total = 0
+  let top = 0
+  for (let r = 1; r <= size; r += 1) {
+    const w = r ** -s
+    total += w
+    if (r <= topN) top += w
+  }
+  return top / total
+}
+
+/** M/G/1 mean queue wait (Pollaczek-Khinchine), chapter 01 section 4.2. */
+export function mg1WqSec(lambda: number, serviceSec: number, cs2: number): number {
+  const rho = lambda * serviceSec
+  return (rho / (1 - rho)) * ((1 + cs2) / 2) * serviceSec
+}

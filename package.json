@@ -41,7 +41,10 @@
     "test:e2e": "playwright test",
     "test:e2e:ch01": "playwright test e2e/oracles.spec.ts e2e/journeys/ch01-queueing.spec.ts",
     "test:e2e:ch02": "playwright test e2e/journeys/ch02-reliability.spec.ts",
-    "typecheck:e2e": "tsc --noEmit -p e2e/tsconfig.json"
+    "typecheck:e2e": "tsc --noEmit -p e2e/tsconfig.json",
+    "test:e2e:ch03": "playwright test e2e/journeys/ch03-distributions.spec.ts",
+    "test:e2e:ch04": "playwright test e2e/journeys/ch04-discrete-event.spec.ts",
+    "test:e2e:ch05": "playwright test e2e/journeys/ch05-workload.spec.ts"
   },
   "dependencies": {
     "clsx": "^2.1.1",
