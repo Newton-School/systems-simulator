@@ -17,6 +17,7 @@
  * invariant evaluates against the fluid result with no special-casing.
  */
 
+import { normalizeTopology } from '../catalog/capacityModel'
 import { detectSinglePointsOfFailure } from './singlePointOfFailure'
 import { evaluateInvariantViolations } from './invariants'
 import { generateSimulationOutput, type SimulationOutput } from './output'
@@ -35,9 +36,11 @@ import type { TopologyJSON } from '../core/types'
  * rate override).
  */
 export function runFluidSimulation(
-  topology: TopologyJSON,
+  authored: TopologyJSON,
   options: FluidModelOptions = {}
 ): SimulationOutput {
+  // Same resolution as the discrete engine, so both evaluation paths see one document.
+  const topology = normalizeTopology(authored)
   const fluid = evaluateFluidModel(topology, options)
 
   // A fresh collector registered with the topology's nodes/edges yields a fully

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { ComponentNode, TopologyJSON } from '../../../engine/core/types'
 import { runSimulation } from '../../../engine/runSimulation'
-import { resolveCapacityModel } from '../../../engine/catalog/capacityModel'
+import { normalizeTopology, resolveCapacityModel } from '../../../engine/catalog/capacityModel'
 import { normalizeScenarioState } from '@renderer/types/ui'
 import { serializeCanvasToTopology } from './canvasTopologySerializer'
 import { convertNestedToFlat } from './nodeTransformers'
@@ -18,10 +18,10 @@ import { deserializeTopology, isImportFailure } from './topologyDeserializer'
 
 type NodeSpec = { queue?: { workers: number; capacity: number }; resources?: object }
 
-function doc(srv: NodeSpec, opts: { processing?: boolean } = {}): TopologyJSON {
+function doc(srv: NodeSpec, opts: { processing?: boolean; type?: string } = {}): TopologyJSON {
   const node: Record<string, unknown> = {
     id: 'srv',
-    type: 'microservice',
+    type: opts.type ?? 'microservice',
     category: 'compute',
     label: 'srv',
     position: { x: 300, y: 0 }
@@ -147,14 +147,74 @@ describe('the same file gives the same answer directly and through the canvas', 
     expect(srv.queue?.workers).toBe(1)
   })
 
-  // Tracked, not yet fixed: a node that authors neither a queue nor resources is sized by the engine's
-  // built-in default when run directly (1 worker, 1 ms service) but by the palette template
-  // (an instance plus a category service time) when imported. Fixing it needs the engine and the
-  // palette to share one default profile.
-  it.fails('a node with neither queue nor resources also agrees', () => {
+  // A node that authored neither a queue nor resources used to run with the engine's bare default (1 worker, 1 ms)
+  // when run directly but with the palette profile (an instance plus a category service time) when imported.
+  // `normalizeTopology` now fills the same profile on both paths.
+  it('a node with neither queue nor resources agrees', () => {
     const topology = doc({}, { processing: false })
     const direct = measure(topology)
     const canvas = measure(throughCanvas(topology))
     expect(canvas.utilization).toBeCloseTo(direct.utilization, 6)
+    expect(canvas.queueWait).toBeCloseTo(direct.queueWait, 6)
+    expect(canvas.throughput).toBeCloseTo(direct.throughput, 6)
+  })
+
+  it.each([
+    ['neither queue nor resources, service time authored', doc({}, { processing: true })],
+    [
+      'queue authored, service time missing',
+      doc({ queue: { workers: 2, capacity: 50 } }, { processing: false })
+    ],
+    [
+      'instance authored, service time missing',
+      doc(
+        { resources: { instanceType: 'm5.large', instanceCount: 1, workloadKind: 'cpu-bound' } },
+        { processing: false }
+      )
+    ]
+  ])('partially specified: %s', (_name, topology) => {
+    const direct = measure(topology)
+    const canvas = measure(throughCanvas(topology))
+    expect(canvas.utilization).toBeCloseTo(direct.utilization, 6)
+    expect(canvas.queueWait).toBeCloseTo(direct.queueWait, 6)
+    expect(canvas.throughput).toBeCloseTo(direct.throughput, 6)
+  })
+
+  it.each([
+    'microservice',
+    'load-balancer',
+    'relational-db',
+    'in-memory-cache',
+    'api-gateway',
+    'sidecar',
+    'nosql-db',
+    'search-service'
+  ])('a bare %s agrees', (type) => {
+    const topology = doc({}, { processing: false, type })
+    const direct = measure(topology)
+    const canvas = measure(throughCanvas(topology))
+    expect(canvas.utilization).toBeCloseTo(direct.utilization, 6)
+    expect(canvas.queueWait).toBeCloseTo(direct.queueWait, 6)
+  })
+
+  it('never overrides what the document authored', () => {
+    const authored = doc({ queue: { workers: 3, capacity: 40 } }, { processing: true })
+    const resolved = normalizeTopology(authored)
+    const srv = resolved.nodes.find((node) => node.id === 'srv')!
+    expect(srv.queue).toMatchObject({ workers: 3, capacity: 40 })
+    expect(srv.resources).toBeUndefined()
+    expect(srv.processing).toEqual(authored.nodes[1].processing)
+    expect(normalizeTopology(resolved)).toBe(resolved) // idempotent
+  })
+
+  it('fills a node that authored nothing, and leaves the traffic source alone', () => {
+    const resolved = normalizeTopology(doc({}, { processing: false }))
+    const srv = resolved.nodes.find((node) => node.id === 'srv')!
+    expect(srv.queue).toBeDefined()
+    expect(srv.resources?.instanceType).toBeDefined()
+    expect(srv.processing).toBeDefined()
+    const source = resolved.nodes.find((node) => node.id === 'source')!
+    expect(source.queue).toBeUndefined()
+    expect(source.processing).toBeUndefined()
   })
 })

@@ -575,17 +575,41 @@ describe('validateTopology active-source validation', () => {
         })
       )
       return (result.warnings ?? []).some((warning) =>
-        warning.includes('Queue settings are missing')
+        warning.includes('No queue or instance resources were set')
       )
     }
 
-    it('warns when a node sets neither a queue nor an instance, because the engine default applies', () => {
+    it('warns when a node sets neither a queue nor an instance, and says what it runs with instead', () => {
       const bare = {
         ...makeProcessorNode('api', 'API Server'),
         queue: undefined,
         resources: undefined
       }
       expect(warnsAboutQueue(bare as unknown as ComponentNode)).toBe(true)
+    })
+
+    it('names the default profile, so the user knows what will actually run', () => {
+      const source = makeSourceNode('client', 'Client App')
+      const node = {
+        ...makeProcessorNode('api', 'API Server'),
+        queue: undefined,
+        resources: undefined,
+        processing: undefined
+      }
+      const result = validateTopology(
+        makeTopology({
+          nodes: [source, node as unknown as ComponentNode],
+          edges: [makeEdge('client-api', source.id, node.id)],
+          sourceNodeId: source.id
+        })
+      )
+      const warnings = result.warnings ?? []
+      expect(warnings.find((w) => w.includes('No queue or instance resources'))).toMatch(
+        /default profile for its type \(\d+ concurrent workers?\)/
+      )
+      expect(warnings.find((w) => w.includes('Performance settings are missing'))).toMatch(
+        /about [\d.]+ ms per request, \d+ ms timeout/
+      )
     })
 
     it('stays quiet for a node sized by an instance: it has no queue to be missing', () => {

@@ -91,6 +91,7 @@ import {
 } from './core/faultDomains'
 import { GGcKNode } from './nodes/GGcKNode'
 import { deriveNodeConcurrency } from './nodes/resourceDerivation'
+import { normalizeTopology } from './catalog/capacityModel'
 import {
   DEFAULT_CHAOS_FAILURE_SPEC,
   LEGACY_REJECT_FAILURE_SPEC,
@@ -431,10 +432,13 @@ export class SimulationEngine {
   /** Name of the beforeArrival trait that returned the last non-continue decision. */
   private lastDecidingArrivalTrait: string | null = null
 
-  constructor(
-    private readonly topology: TopologyJSON,
-    options: SimulationEngineOptions = {}
-  ) {
+  private readonly topology: TopologyJSON
+
+  constructor(authored: TopologyJSON, options: SimulationEngineOptions = {}) {
+    // The one place a document's missing capacity and service time are filled in, so the same file runs the
+    // same way from the canvas, the CLI, the grader and the worker (catalog/capacityModel.ts).
+    const topology = normalizeTopology(authored)
+    this.topology = topology
     const rng = createRandom(topology.global.seed)
     const traitResolver = options.resolveTraits ?? resolveTraits
     this.debugInvariants = options.debugInvariants ?? false

@@ -17,6 +17,7 @@ import type {
 import { inferStructuralRole } from '../catalog/componentSpecs'
 import { hasInstanceModel } from '../nodes/resourceDerivation'
 import { CIRCUIT_BREAKER_COMPONENT_TYPES } from '../traits/circuitBreaker'
+import { describeDefaultProfile } from '../catalog/capacityModel'
 import { BULKHEAD_COMPONENT_TYPES } from '../traits/bulkhead'
 import { isQueueDeliverySemantics } from '../core/simulationSemantics'
 import { validateEdgeConstraintSelection } from '../defaults/edgeConstraints'
@@ -1091,12 +1092,15 @@ export const validateTopology = (
     }
 
     if (role !== 'source') {
+      const defaults = describeDefaultProfile(node)
       if (!node.queue) {
         // A node sized by an instance model derives its concurrency from the hardware; it has no queue
         // to be missing, so the warning would only mislead.
         if (!hasInstanceModel(node.resources)) {
           warnings.push(
-            `${nodeLabel}: Queue settings are missing, so default queue settings were applied (1 worker, room for 100 waiting requests).`
+            defaults
+              ? `${nodeLabel}: No queue or instance resources were set, so this component runs with the default profile for its type (${defaults.capacity}). Set resources or a queue to choose its capacity.`
+              : `${nodeLabel}: Queue settings are missing, so default queue settings were applied (1 worker, room for 100 waiting requests).`
           )
         }
         node.queue = { workers: 1, capacity: 100, discipline: 'fifo' }
@@ -1104,7 +1108,9 @@ export const validateTopology = (
 
       if (!node.processing) {
         warnings.push(
-          `${nodeLabel}: Performance settings are missing, so default performance settings were applied (1 ms service time, 30 s timeout).`
+          defaults
+            ? `${nodeLabel}: Performance settings are missing, so the default for this component type is used (${defaults.service}).`
+            : `${nodeLabel}: Performance settings are missing, so default performance settings were applied (1 ms service time, 30 s timeout).`
         )
         node.processing = {
           distribution: { type: 'constant', value: 1 },
