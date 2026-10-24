@@ -231,3 +231,116 @@ export function mg1WqSec(lambda: number, serviceSec: number, cs2: number): numbe
   const rho = lambda * serviceSec
   return (rho / (1 - rho)) * ((1 + cs2) / 2) * serviceSec
 }
+
+// ───────────────────── chapters 06 to 08 ─────────────────────
+
+/** vCPU counts of the EC2 sizes the chapter quotes (docs.aws.amazon.com/ec2 instance types). */
+export const VCPU: Record<string, number> = {
+  't3.medium': 2,
+  'm5.large': 2,
+  'm5.xlarge': 4,
+  'm5.2xlarge': 8,
+  'm5.4xlarge': 16,
+  'c5.large': 2,
+  'c5.2xlarge': 8
+}
+
+/** Workers per vCPU for the two profiles (chapter 06 section 3.1). */
+export const WORKERS_PER_VCPU = { 'cpu-bound': 1, 'io-bound': 32 } as const
+
+/** Goetz sizing formula: cores x target utilisation x (1 + wait / service). */
+export function goetzThreads(
+  cores: number,
+  waitMs: number,
+  serviceMs: number,
+  utilisation = 1
+): number {
+  return cores * utilisation * (1 + waitMs / serviceMs)
+}
+
+/** Concurrency = rate x duration (Little's Law as AWS Lambda states it). */
+export function concurrency(rps: number, durationSec: number): number {
+  return rps * durationSec
+}
+
+/** Amdahl speedup for parallel fraction p on n processors. */
+export function amdahl(p: number, n: number): number {
+  return 1 / (1 - p + p / n)
+}
+
+/** Universal Scalability Law relative capacity and its peak (chapter 06 section 5.2). */
+export function usl(alpha: number, beta: number, n: number): number {
+  return n / (1 + alpha * (n - 1) + beta * n * (n - 1))
+}
+export function uslPeak(alpha: number, beta: number): number {
+  return Math.sqrt((1 - alpha) / beta)
+}
+
+/** Service time on a core of relative speed `perf`; io-bound work only gets 25% of the advantage. */
+export function effectiveServiceMs(
+  baseMs: number,
+  perf: number,
+  kind: 'cpu-bound' | 'io-bound'
+): number {
+  const eff = kind === 'cpu-bound' ? perf : 1 + (perf - 1) * 0.25
+  return baseMs / eff
+}
+
+/** Origin share of traffic behind a cache of hit ratio h, optionally behind a shield of hit ratio h2. */
+export function originShare(h: number, shieldHit = 0): number {
+  return (1 - h) * (1 - shieldHit)
+}
+
+/** Mean latency through a cache: hit costs the edge; a miss also pays the origin. */
+export function cdnMeanMs(h: number, edgeMs: number, originMs: number): number {
+  return h * edgeMs + (1 - h) * (edgeMs + originMs)
+}
+
+/** Fraction of keys that stay put when hash mod n grows to n + 1 (about 1 / (n + 1)). */
+export function modHashMoved(n: number): number {
+  return 1 - 1 / (n + 1)
+}
+
+/** Transmission time of `bytes` over `mbps`, in ms. */
+export function transmissionMs(bytes: number, mbps: number): number {
+  return bytes / (mbps * 125)
+}
+
+/** Bandwidth-delay product in bytes. */
+export function bdpBytes(mbps: number, rttMs: number): number {
+  return (mbps * 1e6 * (rttMs / 1000)) / 8
+}
+
+/** Round trips before the first response byte on a fresh connection (chapter 08 section 4). */
+export function roundTripsToFirstByte(tls: 'none' | '1.2' | '1.3', resumed = false): number {
+  const tcp = 1
+  const request = 1
+  if (tls === 'none') return tcp + request
+  if (tls === '1.2') return tcp + (resumed ? 1 : 2) + request
+  return tcp + (resumed ? 0 : 1) + request
+}
+
+/** Mathis bound on TCP throughput in bits per second. */
+export function mathisBps(
+  mssBytes: number,
+  rttSec: number,
+  lossProbability: number,
+  c = Math.sqrt(1.5)
+): number {
+  return ((mssBytes * 8) / rttSec) * (c / Math.sqrt(lossProbability))
+}
+
+/** Probability that at least one of `packets` packets is lost. */
+export function requestHitByLoss(p: number, packets: number): number {
+  return 1 - (1 - p) ** packets
+}
+
+/** Connections needed for `rps` at `latencySec` when each connection carries `streams` requests. */
+export function connectionsNeeded(rps: number, latencySec: number, streams: number): number {
+  return Math.ceil((rps * latencySec) / streams)
+}
+
+/** Mean added wait for records in a batch that fills: records wait 0..(n - 1) gaps, average (n - 1) / 2 gaps. */
+export function batchMeanWaitMs(recordsPerBatch: number, gapMs: number): number {
+  return ((recordsPerBatch - 1) / 2) * gapMs
+}

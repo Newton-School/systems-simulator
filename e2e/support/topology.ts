@@ -4,7 +4,14 @@
  */
 import type { TopologyJSON } from '../../src/engine/core/types'
 
-export type Pattern = 'constant' | 'poisson'
+export type Pattern =
+  | 'constant'
+  | 'poisson'
+  | 'bursty'
+  | 'diurnal'
+  | 'spike'
+  | 'sawtooth'
+  | 'replay'
 
 export interface ServerSpec {
   id: string
@@ -142,7 +149,8 @@ export interface ChainOptions {
   source?: Record<string, unknown>
   /** Nodes after the source, wired in order unless `edges` is given. */
   nodes: Record<string, unknown>[]
-  edges?: [string, string][]
+  /** Edges as [from, to] or [from, to, fields]; fields override the edge defaults. */
+  edges?: ([string, string] | [string, string, Record<string, unknown>])[]
   faults?: Record<string, unknown>[]
   requestDistribution?: Record<string, unknown>[]
 }
@@ -202,11 +210,12 @@ export function chain(opts: ChainOptions): TopologyJSON {
   const source = (base.nodes as unknown as Record<string, unknown>[])[0]
   Object.assign(source, opts.source ?? {})
   const ids = ['source', ...opts.nodes.map((n) => n.id as string)]
-  const edges = opts.edges ?? ids.slice(0, -1).map((id, i) => [id, ids[i + 1]] as [string, string])
+  const edges: ([string, string] | [string, string, Record<string, unknown>])[] =
+    opts.edges ?? ids.slice(0, -1).map((id, i) => [id, ids[i + 1]] as [string, string])
   return {
     ...base,
     nodes: [source, ...opts.nodes],
-    edges: edges.map(([a, b]) => edge(a, b)),
+    edges: edges.map(([a, b, extra]) => edge(a, b, extra)),
     ...(opts.faults ? { faults: opts.faults } : {}),
     workload: {
       ...(base.workload as object),

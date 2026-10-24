@@ -84,3 +84,11 @@ export async function readUiRun(page: Page, nodeLabel = 'srv'): Promise<UiRun> {
     conservation: health('Conservation')
   }
 }
+
+/** Settings > Environments > Edge model > Network: the way out the import notice names. */
+export async function useNetworkEdges(page: Page): Promise<void> {
+  await page.getByRole('button', { name: 'Settings', exact: true }).click()
+  await page.getByRole('button', { name: 'Environments', exact: true }).click()
+  await page.getByRole('button', { name: 'Network', exact: true }).click()
+  await page.getByRole('button', { name: 'Close settings' }).click()
+}

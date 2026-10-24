@@ -6,19 +6,11 @@
  * show warnings that only make sense in network mode, and that the way out it names (Settings > Environments >
  * Edge model > Network) really does make the UI show what the engine computes for the same file.
  */
-import { expect, test, type Page } from '@playwright/test'
-import { importTopology, openApp, readUiRun, runAndWait } from '../support/app'
+import { expect, test } from '@playwright/test'
+import { importTopology, openApp, readUiRun, runAndWait, useNetworkEdges } from '../support/app'
 import { runEngine } from '../support/engine'
 import { relErr } from '../support/oracles'
 import { instanceServer } from '../support/topology'
-
-/** Settings > Environments > Edge model > Network, the way out the import notice names. */
-async function useNetworkEdges(page: Page): Promise<void> {
-  await page.getByRole('button', { name: 'Settings', exact: true }).click()
-  await page.getByRole('button', { name: 'Environments', exact: true }).click()
-  await page.getByRole('button', { name: 'Network', exact: true }).click()
-  await page.getByRole('button', { name: 'Close settings' }).click()
-}
 
 /** 50 ms link and 20% errors in front of a 10 ms server, 50 req/s for 20 s. */
 function linkWithPhysics() {
