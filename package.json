@@ -52,7 +52,12 @@
     "test:e2e:ch10": "playwright test e2e/journeys/ch10-caching.spec.ts",
     "test:e2e:ch11": "playwright test e2e/journeys/ch11-replication.spec.ts",
     "test:e2e:ch12": "playwright test e2e/journeys/ch12-sharding.spec.ts",
-    "test:e2e:ch13": "playwright test e2e/journeys/ch13-messaging.spec.ts"
+    "test:e2e:ch13": "playwright test e2e/journeys/ch13-messaging.spec.ts",
+    "test:e2e:ch14": "playwright test e2e/journeys/ch14-orchestration.spec.ts",
+    "test:e2e:ch15": "playwright test e2e/journeys/ch15-security.spec.ts",
+    "test:e2e:ch16": "playwright test e2e/journeys/ch16-observability.spec.ts",
+    "test:e2e:ch17": "playwright test e2e/journeys/ch17-delivery.spec.ts",
+    "test:e2e:ch18": "playwright test e2e/journeys/ch18-data-ai.spec.ts"
   },
   "dependencies": {
     "clsx": "^2.1.1",

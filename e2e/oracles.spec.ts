@@ -4,7 +4,16 @@
  */
 import { expect, test } from '@playwright/test'
 import {
+  burnRate,
+  canarySamples,
+  captureProbability,
   cheHitRatio,
+  errorBudgetMinutes,
+  hpaDesired,
+  podsPerMachine,
+  replicasNeeded,
+  rollingBounds,
+  windowsPerEvent,
   erlangC,
   expectedAttempts,
   harmonic,
@@ -113,5 +122,47 @@ test.describe('oracle self-check against the reference chapters', () => {
   test('ORC-13 a 100 KB store with 1 KB records at write amplification 2 takes 50 writes (ch09 9)', () => {
     expect(writesBeforeFull(0.0001, 0, 1000, 2)).toBe(50)
     expect(writesBeforeFull(0.0001, 0.00005, 1000, 2)).toBe(25)
+  })
+
+  test('ORC-14 HPA: 4 at 90% vs 70% gives 6; 10 at 30% gives 5; 4 at 76% stays (ch14 2)', () => {
+    expect(hpaDesired(4, 90, 70)).toBe(6)
+    expect(hpaDesired(10, 30, 70)).toBe(5)
+    expect(hpaDesired(4, 76, 70)).toBe(4)
+    expect(replicasNeeded(10, 0.7, 2)).toBe(8)
+  })
+
+  test('ORC-15 bin packing: 2 vCPU / 16 GB pods fit 2 per 8 vCPU / 32 GB machine, not 4 (ch14 4)', () => {
+    expect(podsPerMachine(8, 32, 2, 16)).toBe(2)
+    expect(podsPerMachine(4, 16, 2, 8)).toBe(2)
+    expect(podsPerMachine(8, 32, 8, 16)).toBe(1)
+  })
+
+  test('ORC-16 error budgets: 99% is 432 min, 99.9% 43.2, 99.99% 4.32; burn 14.4 at 1.44% (ch16 4)', () => {
+    expect(errorBudgetMinutes(0.99)).toBeCloseTo(432, 6)
+    expect(errorBudgetMinutes(0.999)).toBeCloseTo(43.2, 6)
+    expect(errorBudgetMinutes(0.9999)).toBeCloseTo(4.32, 6)
+    expect(burnRate(0.0144, 0.999)).toBeCloseTo(14.4, 9)
+  })
+
+  test('ORC-17 head sampling at 1% needs 459 occurrences for a 99% chance; a 1.5% to 2.5% canary needs about 2,400 (ch16 5, ch17 3)', () => {
+    expect(captureProbability(0.01, 459)).toBeGreaterThan(0.99)
+    expect(captureProbability(0.01, 458)).toBeLessThan(0.99)
+    expect(canarySamples(0.01, 0.02)).toBeCloseTo(2364, 0)
+    expect(windowsPerEvent(600_000, 300_000)).toBe(2)
+  })
+
+  test('ORC-18 rolling update: 3 replicas at 25%/25% surge 1 unavailable 0; 10 replicas surge 3 unavailable 2 (ch17 2)', () => {
+    expect(rollingBounds(3, 25, 25)).toEqual({
+      surge: 1,
+      unavailable: 0,
+      minReady: 3,
+      maxRunning: 4
+    })
+    expect(rollingBounds(10, 25, 25)).toEqual({
+      surge: 3,
+      unavailable: 2,
+      minReady: 8,
+      maxRunning: 13
+    })
   })
 })

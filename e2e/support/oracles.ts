@@ -425,3 +425,69 @@ export function staleReadProbability(
 export function redeliveryShare(meanMs: number, limitMs: number): number {
   return Math.exp(-limitMs / meanMs)
 }
+
+// ───────────────────── chapters 14 to 18: orchestration, security, observability, delivery, data and AI ─────────────────────
+
+/** Kubernetes HPA: ceil(current x metric / target), unchanged inside the tolerance band (ch14 section 2). */
+export function hpaDesired(
+  current: number,
+  metric: number,
+  target: number,
+  tolerance = 0.1
+): number {
+  const ratio = metric / target
+  if (Math.abs(ratio - 1) <= tolerance) return current
+  return Math.ceil(current * ratio)
+}
+
+/** Replicas needed to keep utilization at or under `target`: ceil(load / (target x capacity per replica)). */
+export function replicasNeeded(
+  loadServers: number,
+  target: number,
+  serversPerReplica: number
+): number {
+  return Math.ceil(loadServers / (target * serversPerReplica))
+}
+
+/** Pods of a given size that fit on one machine: limited by whichever of CPU and RAM runs out first. */
+export function podsPerMachine(
+  machineVcpu: number,
+  machineGb: number,
+  podVcpu: number,
+  podGb: number
+): number {
+  return Math.min(Math.floor(machineVcpu / podVcpu), Math.floor(machineGb / podGb))
+}
+
+/** Error budget in minutes for an SLO over a period (ch16 section 4). */
+export function errorBudgetMinutes(slo: number, periodDays = 30): number {
+  return periodDays * 24 * 60 * (1 - slo)
+}
+
+/** Burn rate = observed error rate / (1 - SLO). */
+export function burnRate(errorRate: number, slo: number): number {
+  return errorRate / (1 - slo)
+}
+
+/** Probability of capturing at least one of k occurrences at head-sampling rate p. */
+export function captureProbability(p: number, k: number): number {
+  return 1 - (1 - p) ** k
+}
+
+/** Requests per canary arm to tell error rate p1 from p2 at about 80% power (ch17 section 3). */
+export function canarySamples(p1: number, p2: number): number {
+  const p = (p1 + p2) / 2
+  return (16 * p * (1 - p)) / (p2 - p1) ** 2
+}
+
+/** Windows an event belongs to in a sliding window: size / slide (ch18 section 2). */
+export function windowsPerEvent(sizeMs: number, slideMs: number): number {
+  return sizeMs / slideMs
+}
+
+/** Kubernetes rolling update bounds: surge rounds up, unavailable rounds down (ch17 section 2). */
+export function rollingBounds(replicas: number, surgePct: number, unavailablePct: number) {
+  const surge = Math.ceil((replicas * surgePct) / 100)
+  const unavailable = Math.floor((replicas * unavailablePct) / 100)
+  return { surge, unavailable, minReady: replicas - unavailable, maxRunning: replicas + surge }
+}

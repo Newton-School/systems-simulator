@@ -196,7 +196,7 @@ export function passNode(
   return {
     id,
     type,
-    category: 'network',
+    category: 'network-and-edge',
     label: id,
     position: { x: 150, y: 0 },
     queue: { workers: 10_000, capacity: 1_000_000, discipline: 'fifo' },
