@@ -47,7 +47,12 @@
     "test:e2e:ch05": "playwright test e2e/journeys/ch05-workload.spec.ts",
     "test:e2e:ch06": "playwright test e2e/journeys/ch06-compute.spec.ts",
     "test:e2e:ch07": "playwright test e2e/journeys/ch07-routing.spec.ts",
-    "test:e2e:ch08": "playwright test e2e/journeys/ch08-edges.spec.ts"
+    "test:e2e:ch08": "playwright test e2e/journeys/ch08-edges.spec.ts",
+    "test:e2e:ch09": "playwright test e2e/journeys/ch09-storage.spec.ts",
+    "test:e2e:ch10": "playwright test e2e/journeys/ch10-caching.spec.ts",
+    "test:e2e:ch11": "playwright test e2e/journeys/ch11-replication.spec.ts",
+    "test:e2e:ch12": "playwright test e2e/journeys/ch12-sharding.spec.ts",
+    "test:e2e:ch13": "playwright test e2e/journeys/ch13-messaging.spec.ts"
   },
   "dependencies": {
     "clsx": "^2.1.1",

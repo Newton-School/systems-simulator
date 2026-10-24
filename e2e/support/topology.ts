@@ -223,3 +223,37 @@ export function chain(opts: ChainOptions): TopologyJSON {
     }
   } as unknown as TopologyJSON
 }
+
+/**
+ * A node with an authored queue (workers, capacity) so the test controls c and K directly, with no instance
+ * model in the way. Data stores, caches, brokers and consumers use this when the chapter's arithmetic is
+ * "workers / service time".
+ */
+export function queueNode(
+  id: string,
+  type: string,
+  opts: {
+    workers?: number
+    capacity?: number
+    serviceMs?: number
+    timeoutMs?: number
+    category?: string
+    config?: Record<string, unknown>
+    resilience?: Record<string, unknown>
+  } = {}
+): Record<string, unknown> {
+  return {
+    id,
+    type,
+    category: opts.category ?? 'storage-and-data',
+    label: id,
+    position: { x: 300, y: 0 },
+    queue: { workers: opts.workers ?? 64, capacity: opts.capacity ?? 100_000, discipline: 'fifo' },
+    processing: {
+      distribution: { type: 'constant', value: opts.serviceMs ?? 1 },
+      timeout: opts.timeoutMs ?? 60_000
+    },
+    ...(opts.config ? { config: opts.config } : {}),
+    ...(opts.resilience ? { resilience: opts.resilience } : {})
+  }
+}

@@ -4,8 +4,13 @@
  */
 import { expect, test } from '@playwright/test'
 import {
+  cheHitRatio,
   erlangC,
   expectedAttempts,
+  harmonic,
+  maxExpQuantile,
+  quorumAvailability,
+  writesBeforeFull,
   kingmanWqSec,
   layeredAmplification,
   md1WqSec,
@@ -82,5 +87,31 @@ test.describe('oracle self-check against the reference chapters', () => {
 
   test('ORC-09 token bucket worked example: C=1, R=10, M=20 gives 0.1 s (ch02 4)', () => {
     expect(tokenBucketBurstSec(1, 20, 10)).toBeCloseTo(0.1, 9)
+  })
+
+  test('ORC-10 Che approximation: N=1000, s=1 gives 21.0%, 57.7%, 77.1% at C=10,100,300 (ch10 2.3)', () => {
+    expect(cheHitRatio(1000, 1, 10)).toBeCloseTo(0.21, 2)
+    expect(cheHitRatio(1000, 1, 100)).toBeCloseTo(0.577, 2)
+    expect(cheHitRatio(1000, 1, 300)).toBeCloseTo(0.771, 2)
+    expect(cheHitRatio(1000, 0.8, 100)).toBeCloseTo(0.378, 2)
+  })
+
+  test('ORC-11 quorum availability: 3 of 5 at p .99 is 0.99999015; 2 of 3 is 0.999702 (ch11 5)', () => {
+    expect(quorumAvailability(3, 2, 0.99)).toBeCloseTo(0.999702, 6)
+    expect(quorumAvailability(5, 3, 0.99)).toBeCloseTo(0.99999015, 8)
+    expect(quorumAvailability(1, 1, 0.99)).toBeCloseTo(0.99, 12)
+  })
+
+  test('ORC-12 scatter-gather: H10 = 2.93, H100 = 5.19, H1000 = 7.49; p99 of max at n=100 is 9.2 mu (ch12 7)', () => {
+    expect(harmonic(10)).toBeCloseTo(2.93, 2)
+    expect(harmonic(100)).toBeCloseTo(5.19, 2)
+    expect(harmonic(1000)).toBeCloseTo(7.49, 2)
+    expect(maxExpQuantile(1, 100, 0.99)).toBeCloseTo(9.2, 1)
+    expect(maxExpQuantile(1, 1, 0.99)).toBeCloseTo(4.6, 1)
+  })
+
+  test('ORC-13 a 100 KB store with 1 KB records at write amplification 2 takes 50 writes (ch09 9)', () => {
+    expect(writesBeforeFull(0.0001, 0, 1000, 2)).toBe(50)
+    expect(writesBeforeFull(0.0001, 0.00005, 1000, 2)).toBe(25)
   })
 })

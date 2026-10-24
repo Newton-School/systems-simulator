@@ -344,3 +344,84 @@ export function connectionsNeeded(rps: number, latencySec: number, streams: numb
 export function batchMeanWaitMs(recordsPerBatch: number, gapMs: number): number {
   return ((recordsPerBatch - 1) / 2) * gapMs
 }
+
+// ───────────────────── chapters 09 to 13: storage, caching, replication, sharding, messaging ─────────────────────
+
+/** Writes a store accepts before it is full: free bytes / (record bytes x write amplification), ch09 section 9. */
+export function writesBeforeFull(
+  capacityGb: number,
+  initialGb: number,
+  recordBytes: number,
+  writeAmplification: number
+): number {
+  return Math.floor(((capacityGb - initialGb) * 1e9) / (recordBytes * writeAmplification))
+}
+
+/**
+ * Che approximation of an LRU cache hit ratio under Zipf(s) over `size` keys with room for `capacity`
+ * items (ch10 section 2.3): find t with sum(1 - e^(-q_i t)) = capacity, then hit = sum(p_i (1 - e^(-q_i t))).
+ */
+export function cheHitRatio(size: number, s: number, capacity: number): number {
+  let norm = 0
+  for (let r = 1; r <= size; r += 1) norm += r ** -s
+  const p = (r: number) => r ** -s / norm
+  const filled = (t: number) => {
+    let sum = 0
+    for (let r = 1; r <= size; r += 1) sum += 1 - Math.exp(-p(r) * t)
+    return sum
+  }
+  let lo = 0
+  let hi = 1
+  while (filled(hi) < capacity) hi *= 2
+  for (let i = 0; i < 200; i += 1) {
+    const mid = (lo + hi) / 2
+    if (filled(mid) < capacity) lo = mid
+    else hi = mid
+  }
+  const t = (lo + hi) / 2
+  let hit = 0
+  for (let r = 1; r <= size; r += 1) hit += p(r) * (1 - Math.exp(-p(r) * t))
+  return hit
+}
+
+/** nth harmonic number: the mean of the max of n unit-mean exponentials (ch12 section 7). */
+export function harmonic(n: number): number {
+  let h = 0
+  for (let k = 1; k <= n; k += 1) h += 1 / k
+  return h
+}
+
+/** p-quantile of the max of n iid exponentials with mean mu: -mu ln(1 - p^(1/n)). */
+export function maxExpQuantile(mu: number, n: number, p: number): number {
+  return -mu * Math.log(1 - p ** (1 / n))
+}
+
+function choose(n: number, k: number): number {
+  let c = 1
+  for (let i = 1; i <= k; i += 1) c = (c * (n - k + i)) / i
+  return c
+}
+
+/** Probability that at least `need` of `n` replicas are up when each is up independently with probability p (ch11 section 5). */
+export function quorumAvailability(n: number, need: number, p: number): number {
+  let total = 0
+  for (let i = need; i <= n; i += 1) total += choose(n, i) * p ** i * (1 - p) ** (n - i)
+  return total
+}
+
+/**
+ * Probability that a follower read misses a write to the same key: some write committed less than `lagMs`
+ * (minus the read's own execution time) before the read, with writes to the key arriving as a Poisson process.
+ */
+export function staleReadProbability(
+  writesPerSecPerKey: number,
+  lagMs: number,
+  readMs = 0
+): number {
+  return 1 - Math.exp((-writesPerSecPerKey * Math.max(0, lagMs - readMs)) / 1000)
+}
+
+/** Probability a message with exponential(mean) processing outlives `limitMs`: the redelivery share (ch13). */
+export function redeliveryShare(meanMs: number, limitMs: number): number {
+  return Math.exp(-limitMs / meanMs)
+}
