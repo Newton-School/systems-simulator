@@ -62,4 +62,26 @@ describe('compareRunGraph', () => {
       'edited'
     )
   })
+
+  it('reports a changed link setting as an edit, but not a purely visual change', () => {
+    const link = (data: Record<string, unknown>) => [{ source: 'client', target: 'api', data }]
+    const run = snapshotRunGraph(nodes, link({ protocol: 'https', errorRate: 0 }))
+    expect(compareRunGraph(run, nodes, link({ protocol: 'https', errorRate: 0 }))).toBe('same')
+    expect(compareRunGraph(run, nodes, link({ protocol: 'grpc', errorRate: 0 }))).toBe('edited')
+    expect(compareRunGraph(run, nodes, link({ protocol: 'https', errorRate: 0.2 }))).toBe('edited')
+    // Auto layout routes and display-only styling do not change what a run does.
+    expect(
+      compareRunGraph(
+        run,
+        nodes,
+        link({
+          protocol: 'https',
+          errorRate: 0,
+          layoutRoute: { points: [1, 2] },
+          routingStyle: 'step',
+          displayProtocol: 'grpc'
+        })
+      )
+    ).toBe('same')
+  })
 })

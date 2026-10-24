@@ -404,6 +404,9 @@ interface InternalNodeMetrics {
   postWarmupServiceTimeSumMs: number
   postWarmupInSystemSum: number
   postWarmupInSystemSamples: number
+  /** ∫ inSystem dt after warmup (item·µs) and its window (µs); preferred over the samples. */
+  postWarmupInSystemAreaUs?: bigint
+  postWarmupWindowUs?: bigint
 }
 
 export interface NodeMetadata {
@@ -731,6 +734,16 @@ export class MetricsCollector {
   }
 
   /**
+   * Record a node's time-weighted in-system area after warmup, from the node's own integral.
+   * It supersedes the periodic snapshot average for L, which aliases with regular arrivals.
+   */
+  recordNodeInSystemArea(nodeId: string, areaUs: bigint, windowUs: bigint): void {
+    const node = this.ensureNodeMetrics(nodeId)
+    node.postWarmupInSystemAreaUs = areaUs
+    node.postWarmupWindowUs = windowUs
+  }
+
+  /**
    * Record a node's finalized busy-area integral (worker·µs) and worker count —
    * the single source of truth for utilization. Called once at run end.
    */
@@ -1046,10 +1059,18 @@ export class MetricsCollector {
             pwProcessed
           : 0
 
-      // Post-warmup L: time-average items in system over post-warmup snapshots
+      // Post-warmup L: the node's time-weighted in-system integral over the measured window
+      // (falls back to the snapshot average only when no integral was recorded)
       const pwInSystemSamples = metrics?.postWarmupInSystemSamples ?? 0
+      const pwWindowUs = metrics?.postWarmupWindowUs
       const postWarmupAvgInSystem =
-        pwInSystemSamples > 0 ? (metrics?.postWarmupInSystemSum ?? 0) / pwInSystemSamples : 0
+        metrics?.postWarmupInSystemAreaUs !== undefined && pwWindowUs !== undefined
+          ? pwWindowUs > 0n
+            ? Number(metrics.postWarmupInSystemAreaUs) / Number(pwWindowUs)
+            : 0
+          : pwInSystemSamples > 0
+            ? (metrics?.postWarmupInSystemSum ?? 0) / pwInSystemSamples
+            : 0
 
       result.set(nodeId, {
         nodeLabel: metadata?.label,

@@ -5,6 +5,7 @@ import {
   validateTopology,
   type ValidationError
 } from '../../../engine/validation/validator'
+import { connectorModeNotice } from '../../../engine/validation/connectorIgnoredSettings'
 import { describeZodIssue, withSubjects } from '../../../engine/validation/issueMessages'
 import { applyFallbackAutoLayout } from './autoLayout'
 import type { NestedFileData } from './nodeTransformers'
@@ -109,7 +110,19 @@ function structuralCanvasErrors(topology: TopologyJSON): ValidationError[] {
   return withSubjects(errors, topology)
 }
 
-export function deserializeTopology(input: unknown): TopologyImportResult {
+export interface DeserializeOptions {
+  /**
+   * The environment's edge model. In `connector` mode connections are plain wires, so network-only warnings
+   * (such as an unusually high concurrency limit) are dropped and a notice says which authored connection
+   * settings a run will ignore. Defaults to `network`, which validates the document on its own terms.
+   */
+  edgeModel?: 'network' | 'connector'
+}
+
+export function deserializeTopology(
+  input: unknown,
+  options: DeserializeOptions = {}
+): TopologyImportResult {
   if (!isRecord(input)) {
     return fail(
       'This is not a TopologyJSON document. Expected an object with id, name, global, nodes and edges.'
@@ -143,14 +156,18 @@ export function deserializeTopology(input: unknown): TopologyImportResult {
     return { success: false, errors: blocking }
   }
 
-  const validation = validateTopology(parsed.data)
+  const edgeModel = options.edgeModel ?? 'network'
+  const validation = validateTopology(parsed.data, { edgeModel })
   const topology = positionsMissing ? layoutTopology(parsed.data) : parsed.data
+  const labels = new Map(topology.nodes.map((node) => [node.id, node.label || node.id]))
+  const connectorNotice =
+    edgeModel === 'connector' ? connectorModeNotice(topology, (id) => labels.get(id) ?? id) : null
 
   return {
     success: true,
     topology,
     canvas: topologyToCanvasFileData(topology),
-    warnings: validation.warnings ?? [],
+    warnings: [...(validation.warnings ?? []), ...(connectorNotice ? [connectorNotice] : [])],
     problems: validation.valid ? [] : (validation.errors ?? []),
     nodesImported: topology.nodes.length,
     edgesImported: topology.edges.length,

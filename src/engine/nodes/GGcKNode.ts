@@ -157,6 +157,13 @@ export class GGcKNode {
   private cpuBusyAreaUs = 0
   private coreAreaUs = 0
   private lastAccrualUs = 0n
+  /**
+   * Time-weighted in-system area after warmup, ∫ inSystem dt (item·µs) — the honest L for
+   * Little's Law. Like `busyAreaUs` it is accrued at every state change, never point-sampled:
+   * a snapshot cadence that lines up with deterministic arrivals sees an empty system every time.
+   */
+  private inSystemAreaPostWarmupUs = 0n
+  private warmupUs = 0n
 
   private metrics: NodeMetrics = {
     totalArrivals: 0,
@@ -588,6 +595,11 @@ export class GGcKNode {
       return
     }
     const dt = now - this.lastAccrualUs
+    // Only the part of this interval after warmup counts toward L.
+    const postWarmupFrom = this.lastAccrualUs < this.warmupUs ? this.warmupUs : this.lastAccrualUs
+    if (now > postWarmupFrom) {
+      this.inSystemAreaPostWarmupUs += BigInt(this.inSystem()) * (now - postWarmupFrom)
+    }
     this.busyAreaUs += BigInt(this.activeWorkers) * dt
     this.capacityAreaUs += BigInt(this.maxWorkers) * dt
     if (this.cpuBoundFraction > 0) {
@@ -653,6 +665,16 @@ export class GGcKNode {
   /** Close the busy-area integral at the run horizon. Idempotent. */
   finalizeUtilization(nowUs: bigint): void {
     this.accrueBusy(nowUs)
+  }
+
+  /** Where warmup ends, so the in-system integral covers only the measured window. */
+  setWarmupUs(warmupUs: bigint): void {
+    this.warmupUs = warmupUs
+  }
+
+  /** ∫ inSystem dt after warmup (item·µs); divide by the measured window for L. */
+  getInSystemAreaPostWarmupUs(): bigint {
+    return this.inSystemAreaPostWarmupUs
   }
 
   /** ∫ activeWorkers dt (worker·µs) — divide by `getCapacityAreaUs()` for utilization. */

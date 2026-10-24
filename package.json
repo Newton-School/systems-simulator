@@ -37,7 +37,17 @@
     "test": "vitest run --root .",
     "test:perf": "RUN_PERF_TESTS=true vitest run --root .",
     "simulate": "tsx src/cli/index.ts",
-    "sim": "tsx src/cli/index.ts"
+    "sim": "tsx src/cli/index.ts",
+    "test:e2e": "playwright test",
+    "test:e2e:ch01": "playwright test e2e/oracles.spec.ts e2e/journeys/ch01-queueing.spec.ts",
+    "test:e2e:ch02": "playwright test e2e/journeys/ch02-reliability.spec.ts",
+    "typecheck:e2e": "tsc --noEmit -p e2e/tsconfig.json",
+    "test:e2e:ch03": "playwright test e2e/journeys/ch03-distributions.spec.ts",
+    "test:e2e:ch04": "playwright test e2e/journeys/ch04-discrete-event.spec.ts",
+    "test:e2e:ch05": "playwright test e2e/journeys/ch05-workload.spec.ts",
+    "test:e2e:ch06": "playwright test e2e/journeys/ch06-compute.spec.ts",
+    "test:e2e:ch07": "playwright test e2e/journeys/ch07-routing.spec.ts",
+    "test:e2e:ch08": "playwright test e2e/journeys/ch08-edges.spec.ts"
   },
   "dependencies": {
     "clsx": "^2.1.1",
@@ -50,6 +60,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.3",
+    "@playwright/test": "^1.64.1",
     "@types/node": "^22.19.17",
     "@types/react": "^19.1.13",
     "@types/react-dom": "^19.1.9",

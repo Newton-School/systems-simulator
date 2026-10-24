@@ -1,0 +1,9 @@
+{
+  "extends": "../tsconfig.web.json",
+  "compilerOptions": {
+    "types": ["node"],
+    "noEmit": true,
+    "baseUrl": ".."
+  },
+  "include": ["./**/*.ts", "../playwright.config.ts"]
+}

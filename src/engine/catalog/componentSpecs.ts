@@ -7,7 +7,7 @@ import type {
   SerializeContext,
   StructuralRole
 } from './nodeSpecTypes'
-import { buildDefaultResources, buildReproducingResources } from './resourceDefaults'
+import { buildDefaultResources } from './resourceDefaults'
 import { CACHE_COMPONENT_TYPES } from '../traits/cache'
 import {
   CONTENT_ROUTING_MATCH_FIELDS,
@@ -255,8 +255,8 @@ export function buildSeededSimulationConfig(
     queue: { workers, capacity, discipline: queueDiscipline },
     // Fresh palette nodes start from the curated per-type instance profile so a
     // generic API server, worker, cache, etc. lands with the intended execution
-    // model. Legacy/migrated nodes still use buildReproducingResources(...) to
-    // preserve older queue-authored behavior exactly.
+    // model. A node that authors a raw queue instead keeps it as written; only the
+    // fixture generator still wraps queues into instances (catalog/capacityModel.ts).
     resources: buildDefaultResources(componentType),
     processing: {
       distribution: { type: 'exponential', lambda: 1 / meanServiceMs },
@@ -803,13 +803,10 @@ function buildRuntimeNode(
   }
 
   const queue = data.sim?.queue
-  // Prefer authored resources (edited via the RESOURCES section); else reproduce
-  // the raw queue so the node stays cost-computable and byte-identical.
-  const resources =
-    data.sim?.resources ??
-    (queue
-      ? buildReproducingResources(spec.componentType, queue.workers, queue.capacity)
-      : undefined)
+  // Export exactly what the node authored. A node with a raw queue and no instance model stays that
+  // way: converting it here used to change its concurrency (1 worker became 64) and made the canvas
+  // disagree with every other way of running the same file. See catalog/capacityModel.ts.
+  const resources = data.sim?.resources
 
   return {
     id: ctx.nodeId,
