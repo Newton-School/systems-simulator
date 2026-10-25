@@ -168,9 +168,9 @@ test.describe('RT-04 video topologies and reconnect storms (ch19 sections 2 and 
     expect(sfuEgressMbps(50, 1.5)).toBeCloseTo(3675, 6)
   })
 
-  // Decision needed (ch19 open items): an `sfu-mcu` or `webrtc-mesh` node models a processing cost only; it has no
-  // per-participant bandwidth, so the difference between mesh, SFU and MCU is not visible in a run.
-  test.fixme('an SFU node with 50 participants at 1.5 Mbps reports 3,675 Mbps of egress', () => {
+  // Decision H2 (done): an `sfu-mcu` or `webrtc-mesh` node reports the room's bandwidth from `participants` and
+  // `bitrateMbps`, so mesh, SFU and MCU differ in a run.
+  test('an SFU node with 50 participants at 1.5 Mbps reports 3,675 Mbps of egress', () => {
     const sfu = computeNode('sfu', {
       serviceMs: 1,
       type: 'sfu-mcu',
@@ -180,11 +180,46 @@ test.describe('RT-04 video topologies and reconnect storms (ch19 sections 2 and 
     expect(out.perNode.sfu.traitCounters.egressMbps).toBeCloseTo(3675, 0)
   })
 
-  // Decision needed: held connections are a steady state; a reconnect storm after a restart is not modelled.
-  test.fixme('restarting a gateway makes its clients reconnect at once and costs their handshakes', () => {
-    const out = runEngine(gateway('rt04b', { heldConnections: 100_000 }))
-    expect(out.perNode.gw.traitCounters.reconnectHandshakes).toBe(100_000)
+  test('a mesh makes every participant upload N - 1 streams, an MCU one: same room, different bandwidth', () => {
+    const room = (type: string, videoMode?: string) =>
+      runEngine(
+        chain({
+          run: run(`rt04-${type}-${videoMode ?? 'default'}`),
+          nodes: [
+            computeNode('room', {
+              serviceMs: 1,
+              type,
+              config: { participants: 5, bitrateMbps: 1.5, ...(videoMode ? { videoMode } : {}) }
+            })
+          ],
+          edges: [tcp('source', 'room')]
+        })
+      ).perNode.room.traitCounters
+    expect(room('webrtc-mesh').perParticipantUploadMbps).toBeCloseTo(meshUploadMbps(5, 1.5), 9)
+    expect(room('sfu-mcu', 'mcu').egressMbps).toBeCloseTo(5 * 1.5, 9)
+    expect(room('sfu-mcu').egressMbps).toBeCloseTo(sfuEgressMbps(5, 1.5), 9)
   })
+
+  test('an egress limit sheds load in proportion to the overload', () => {
+    const out = runEngine(
+      chain({
+        run: run('rt04-limit', { rps: 200, durationMs: 20_000 }),
+        nodes: [
+          computeNode('sfu', {
+            serviceMs: 1,
+            type: 'sfu-mcu',
+            config: { participants: 50, bitrateMbps: 1.5, bandwidthLimitMbps: 1837.5 }
+          })
+        ],
+        edges: [tcp('source', 'sfu')]
+      })
+    )
+    // 3,675 Mbps wanted against 1,837.5: half the requests are refused.
+    expect(Math.abs(out.summary.errorRate - 0.5)).toBeLessThan(0.05)
+  })
+
+  // Decision H2: reconnect storms are not a separate mechanism. Clients that reconnect together are the retry and
+  // jitter behaviour of chapter 02 section 2 applied to the connection handshake, so a design chooses jittered backoff.
 })
 
 // ───────────────────────── 5. The browser agrees ─────────────────────────

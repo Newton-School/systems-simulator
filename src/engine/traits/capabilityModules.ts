@@ -16,6 +16,7 @@ import { healthAwareRoutingCapabilityModule } from './healthAwareRouting'
 import { idempotencyDedupCapabilityModule } from './idempotencyDedup'
 import { externalLatencyCapabilityModule } from './externalLatency'
 import { geoLatencyCapabilityModule } from './geoLatency'
+import { videoBandwidthCapabilityModule } from './videoBandwidth'
 import { certificateExpiryCapabilityModule } from './certificateExpiry'
 import { tieredRetrievalCapabilityModule } from './tieredRetrieval'
 import { cryptoCostCapabilityModule } from './cryptoCost'
@@ -1076,6 +1077,7 @@ export const TRAIT_CAPABILITY_MODULES: readonly NodeCapabilityModule[] = [
   ackAndReleaseCapabilityModule,
   externalLatencyCapabilityModule,
   geoLatencyCapabilityModule,
+  videoBandwidthCapabilityModule,
   certificateExpiryCapabilityModule,
   tieredRetrievalCapabilityModule,
   cryptoCostCapabilityModule,

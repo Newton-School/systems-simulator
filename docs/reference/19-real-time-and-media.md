@@ -82,7 +82,7 @@ N participants, each sending one stream of bitrate b:
 ## 9. Open items
 
 - Read directly: RFC 6455 (upgrade, framing, ping/pong) and AWS load-balancer idle timeouts. Not asserted: APNs and FCM rate limits, SFU/MCU scaling figures beyond the arithmetic in section 5, and a transcoding real-time-factor benchmark.
-- Decisions `[?]`: whether `sfu-mcu` and `webrtc-mesh` should model per-participant bandwidth or only a processing cost.
+- Decided and implemented: `sfu-mcu` and `webrtc-mesh` report the room's bandwidth from `participants` and `bitrateMbps` (`videoMode` sfu, mcu or mesh; `bandwidthLimitMbps` sheds load past the limit). Reconnect storms are not a separate mechanism: they are the retry and jitter behaviour of chapter 02 applied to the handshake.
 
 ## Sources
 
