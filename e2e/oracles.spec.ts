@@ -5,6 +5,15 @@
 import { expect, test } from '@playwright/test'
 import {
   burnRate,
+  dnsFailoverSeconds,
+  dnsMissRatio,
+  expectedDistinctKeys,
+  heartbeatCores,
+  heldConnections,
+  meshUploadMbps,
+  monthsToUtilization,
+  normalUtilizationForNPlusK,
+  sfuEgressMbps,
   canarySamples,
   captureProbability,
   cheHitRatio,
@@ -164,5 +173,32 @@ test.describe('oracle self-check against the reference chapters', () => {
       minReady: 8,
       maxRunning: 13
     })
+  })
+
+  test('ORC-19 connections: 16 GB at 32 KB holds 524,288; 100,000 pings per 30 s at 0.01 ms is 0.033 cores (ch19 2)', () => {
+    expect(heldConnections(1e9, null, 1, 16, 32)).toBe(524_288)
+    expect(heldConnections(100_000, 40_000, 1, 8, 32)).toBe(40_000)
+    expect(heartbeatCores(100_000, 30_000, 0.01)).toBeCloseTo(0.0333, 4)
+  })
+
+  test('ORC-20 video topologies: mesh N=5 at 1.5 Mbps uploads 6 Mbps; SFU N=50 sends 3,675 Mbps (ch19 5)', () => {
+    expect(meshUploadMbps(5, 1.5)).toBeCloseTo(6, 9)
+    expect(sfuEgressMbps(5, 1.5)).toBeCloseTo(30, 9)
+    expect(sfuEgressMbps(50, 1.5)).toBeCloseTo(3675, 6)
+  })
+
+  test('ORC-21 DNS: 1 request/s at 30 s TTL misses 3.2%; 0.01/s misses 77%; 30 s check + 60 s TTL moves in 90 s worst case (ch21)', () => {
+    expect(dnsMissRatio(1, 30)).toBeCloseTo(1 / 31, 9)
+    expect(dnsMissRatio(0.01, 30)).toBeCloseTo(0.769, 3)
+    expect(dnsFailoverSeconds(10, 3, 60, true)).toBe(90)
+    expect(dnsFailoverSeconds(10, 3, 60)).toBe(60)
+  })
+
+  test('ORC-22 headroom: 12 servers at an 80% target run at 73.3% (N+1) or 66.7% (N+2); 4.9 months to 80% at 10% growth (ch23)', () => {
+    expect(normalUtilizationForNPlusK(0.8, 12, 1)).toBeCloseTo(0.7333, 4)
+    expect(normalUtilizationForNPlusK(0.8, 12, 2)).toBeCloseTo(0.6667, 4)
+    expect(monthsToUtilization(0.5, 0.8, 0.1)).toBeCloseTo(4.93, 2)
+    expect(monthsToUtilization(0.5, 1, 0.1)).toBeCloseTo(7.27, 2)
+    expect(expectedDistinctKeys(1000, 6000)).toBeCloseTo(997.5, 1)
   })
 })

@@ -57,7 +57,12 @@
     "test:e2e:ch15": "playwright test e2e/journeys/ch15-security.spec.ts",
     "test:e2e:ch16": "playwright test e2e/journeys/ch16-observability.spec.ts",
     "test:e2e:ch17": "playwright test e2e/journeys/ch17-delivery.spec.ts",
-    "test:e2e:ch18": "playwright test e2e/journeys/ch18-data-ai.spec.ts"
+    "test:e2e:ch18": "playwright test e2e/journeys/ch18-data-ai.spec.ts",
+    "test:e2e:ch19": "playwright test e2e/journeys/ch19-realtime.spec.ts",
+    "test:e2e:ch20": "playwright test e2e/journeys/ch20-integration.spec.ts",
+    "test:e2e:ch21": "playwright test e2e/journeys/ch21-dns.spec.ts",
+    "test:e2e:ch22": "playwright test e2e/journeys/ch22-failures.spec.ts",
+    "test:e2e:ch23": "playwright test e2e/journeys/ch23-capacity.spec.ts"
   },
   "dependencies": {
     "clsx": "^2.1.1",

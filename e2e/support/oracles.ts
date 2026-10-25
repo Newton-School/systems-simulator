@@ -491,3 +491,66 @@ export function rollingBounds(replicas: number, surgePct: number, unavailablePct
   const unavailable = Math.floor((replicas * unavailablePct) / 100)
   return { surge, unavailable, minReady: replicas - unavailable, maxRunning: replicas + surge }
 }
+
+// ───────────────────── chapters 19 to 23: real-time, integration, DNS, failure, capacity ─────────────────────
+
+/** Connections a gateway fleet holds: the smallest of the offered, the per-instance cap and the RAM limit (ch19 section 2). */
+export function heldConnections(
+  offered: number,
+  perInstanceCap: number | null,
+  instances: number,
+  ramGbPerInstance: number,
+  kbPerConnection: number
+): number {
+  const ramCap = Math.floor((ramGbPerInstance * 1024 * 1024 * instances) / kbPerConnection)
+  const limitCap = perInstanceCap === null ? Infinity : perInstanceCap * instances
+  return Math.min(offered, limitCap, ramCap)
+}
+
+/** Cores kept busy by keep-alive pings: connections / interval x cost per ping (ch19 section 2). */
+export function heartbeatCores(held: number, intervalMs: number, costMs: number): number {
+  return (held / (intervalMs / 1000)) * (costMs / 1000)
+}
+
+/** Client upload (Mbps) in a mesh and server egress (Mbps) in an SFU, N participants at b Mbps (ch19 section 5). */
+export function meshUploadMbps(n: number, b: number): number {
+  return (n - 1) * b
+}
+export function sfuEgressMbps(n: number, b: number): number {
+  return n * (n - 1) * b
+}
+
+/** Distinct keys seen after n draws from k equally likely keys: k (1 - (1 - 1/k)^n). */
+export function expectedDistinctKeys(k: number, n: number): number {
+  return k * (1 - (1 - 1 / k) ** n)
+}
+
+/** Resolver cache miss ratio for Poisson requests at `lambdaPerSec` and a TTL in seconds (ch21 section 1). */
+export function dnsMissRatio(lambdaPerSec: number, ttlSec: number): number {
+  return 1 / (1 + lambdaPerSec * ttlSec)
+}
+
+/** Seconds from a failure until a client stops using the dead endpoint: detection + a fraction of the TTL (ch21 section 2). */
+export function dnsFailoverSeconds(
+  checkIntervalSec: number,
+  failures: number,
+  ttlSec: number,
+  worstCase = false
+): number {
+  return checkIntervalSec * failures + (worstCase ? ttlSec : ttlSec / 2)
+}
+
+/** Largest normal utilization that still meets `target` after losing k of n servers (ch23 section 2). */
+export function normalUtilizationForNPlusK(target: number, n: number, k: number): number {
+  return (target * (n - k)) / n
+}
+
+/** Months until demand growing g per month takes utilization u to u* (ch23 section 5). */
+export function monthsToUtilization(u: number, uTarget: number, g: number): number {
+  return Math.log(uTarget / u) / Math.log(1 + g)
+}
+
+/** Share of the hours an instance must be used for a reserved rate (as a fraction of on-demand) to win. */
+export function reservedBreakEven(multiplier: number): number {
+  return multiplier
+}
