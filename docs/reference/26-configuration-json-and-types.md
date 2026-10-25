@@ -1,9 +1,8 @@
 # 26. Configuration, JSON and types
 
-Marks: **[P]** primary, **[S]** secondary, **[K]** established knowledge, **[?]** needs an owner decision,
-**[repo]** read from the type definitions and validator (`src/engine/core/types.ts`,
-`src/engine/validation/validator.ts`). See [README](README.md).
+Marks: **[P]** primary, **[S]** secondary (fetched or searched), **[K]** established convention, definition or design judgement (no measured figure rests on it), **[D]** derived here from cited definitions or the chapter's own arithmetic, **[?]** needs an owner decision, **[repo]** read from the repository. See [README](README.md).
 
+**[repo]** here means read from the type definitions and validator (`src/engine/core/types.ts`, `src/engine/validation/validator.ts`).
 This chapter is the field reference for the document the engine runs: `TopologyJSON`. Unlike chapters 01 to 25 it
 describes the simulator's own contract, so each row gives the type, unit, range and what the field stands for in a
 real system, with the chapter that explains the real-world side. Fields the engine does not read are listed in section 9.

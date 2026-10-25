@@ -1,7 +1,6 @@
 # 01. Queueing and performance math
 
-Marks: **[P]** primary, **[S]** secondary, **[K]** from established knowledge, not yet source-checked,
-**[?]** needs an owner decision. See [README](README.md).
+Marks: **[P]** primary, **[S]** secondary (fetched or searched), **[K]** established convention, definition or design judgement (no measured figure rests on it), **[D]** derived here from cited definitions or the chapter's own arithmetic, **[?]** needs an owner decision, **[repo]** read from the repository. See [README](README.md).
 
 Every server-like node in the simulator is a queue with `c` servers (workers), finite room `K`, a service
 time distribution and a timeout. This chapter is the theory behind the numbers that node reports.
@@ -27,13 +26,12 @@ time distribution and a timeout. This chapter is the theory behind the numbers t
 
 Kendall notation `A/S/c/K`: arrival process / service distribution / servers / capacity. `M` = Markovian
 (Poisson arrivals or exponential service), `D` = deterministic, `G` = general. So `M/D/1` is Poisson
-arrivals, constant service time, one server; `G/G/c/K` is the general model the simulator implements. [K]
+arrivals, constant service time, one server; `G/G/c/K` is the general model the simulator implements. [S: Kendall notation, standard]
 
 ## 2. Operational laws (hold for any run, any distribution)
 
 These are bookkeeping identities over a measured interval. They are the best oracles because they need no
-assumptions about the distributions. [K] (Denning and Buzen, 1978, "operational analysis"). Sources to fetch:
-Harchol-Balter, _Performance Modeling and Design of Computer Systems_, chapters on operational laws.
+assumptions about the distributions. [D] Each follows from counting over a measurement interval T: with C completions and B busy time, U = B/T = (C/T)(B/C) = X·S, and the other rows are equally direct (Denning and Buzen, 1978, name this approach operational analysis).
 
 | Law               | Statement                                                                                 | Use as a test                                                                 |
 | ----------------- | ----------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
@@ -71,7 +69,7 @@ proof is J. D. C. Little, _Operations Research_ 9(3), 1961, doi 10.1287/opre.9.3
   Admitted rate = λ·(1 − P_K).
 - L must be a **time average** of the number in system, not an average of a few sampled snapshots. Snapshots
   taken between regular arrivals can all see an empty system. Poisson arrivals are safe because of PASTA
-  (Poisson Arrivals See Time Averages). [K]
+  (Poisson Arrivals See Time Averages). [S: standard queueing result; Wolff 1982]
 - Warmup transient: a short run that starts empty biases L and W low.
 
 **Worked example** [S]: 9 jobs waiting plus 1 in service = 10 in the system, throughput 50 /s, so
@@ -86,19 +84,19 @@ W = L/λ = 10/50 = 0.2 s. Store: 10 customers/hour, 0.5 hour each, so L = 5.
 
 ## 4. Single-server queues
 
-### 4.1 M/M/1 [K, standard result; verify in Harchol-Balter ch. 14 or Kleinrock vol. 1]
+### 4.1 M/M/1 [S: Wikipedia, M/M/1 queue]
 
 Poisson arrivals rate λ, exponential service rate μ, ρ = λ/μ < 1.
 
 - P(n in system) = (1 − ρ)ρⁿ
 - L = ρ / (1 − ρ), Lq = ρ² / (1 − ρ)
 - W = 1 / (μ − λ) = S / (1 − ρ), Wq = ρ / (μ − λ) = ρ·S / (1 − ρ)
-- Response time is exponential with mean W, so the p-th percentile is −W·ln(1 − p). Example p99 = 4.605·W.
+- Response time is exponential with mean W, so the p-th percentile is −W·ln(1 − p). Example p99 = 4.605·W. [D from the exponential response-time law, FCFS only]
 
 The 1/(1 − ρ) factor is the "hockey stick": at ρ = 0.5 W = 2·S; at 0.8 W = 5·S; at 0.9 W = 10·S; at 0.95 W = 20·S;
 as ρ → 1 it diverges. This is why saturation matters long before 100% utilization (also stated in the SRE book [P]).
 
-### 4.2 M/D/1 and M/G/1: Pollaczek-Khinchine [S for the form; K for the arithmetic]
+### 4.2 M/D/1 and M/G/1: Pollaczek-Khinchine [S: Wikipedia, M/G/1 queue, transform; means derived]
 
 For Poisson arrivals and general service with mean S and squared CV cₛ²:
 
@@ -131,7 +129,7 @@ E(Wq) ≈ [ρ / (1 − ρ)] · [(cₐ² + cₛ²) / 2] · τ (the "VUT" equation
 
 ## 5. Multi-server queues
 
-### 5.1 M/M/c and Erlang C [S: TU Berlin queueing text; Wolfram reference]
+### 5.1 M/M/c and Erlang C [S: Wikipedia, M/M/c queue; TU Berlin queueing text]
 
 Offered load A = λ/μ, utilization ρ = A/c < 1.
 
@@ -141,18 +139,18 @@ Offered load A = λ/μ, utilization ρ = A/c < 1.
 - Mean time in system: W = 1/μ + C / (c·μ − λ) [S]
 - Mean number waiting: Lq = C·ρ / (1 − ρ) [S]
 - Given that a customer waits, the wait is exponential with mean 1/(c·μ − λ). [S]
-- Relation to Erlang B: C = c·B / (c − A·(1 − B)). [S]
+- Relation to Erlang B: C = c·B / (c − A·(1 − B)). [D; checked numerically: c = 5, A = 3 gives B = 0.1101 and C = 0.2362 from both forms]
 
 Why this matters: **pooling**. One pool of c servers with a shared queue waits far less than c separate
 single-server queues with the same total load. This is the case for a load balancer plus shared queue versus
-random assignment. [K]
+random assignment. [D from the Erlang C formula: c = 2 at ρ = 0.8 waits 1.78 x S pooled against 4.0 x S as two separate M/M/1 queues]
 
-### 5.2 Erlang B (loss system, M/M/c/c) [S/K]
+### 5.2 Erlang B (loss system, M/M/c/c) [S: Wikipedia, Erlang (unit)]
 
 No waiting room. `B(c, A) = (A^c / c!) / (sum of A^k / k! for k = 0 to c)`. Stable recursion: B(0) = 1,
-B(n) = A·B(n − 1) / (n + A·B(n − 1)). [K]
+B(n) = A·B(n − 1) / (n + A·B(n − 1)). [S]
 
-### 5.3 M/M/c/K, finite capacity [S for the properties; K for the formula]
+### 5.3 M/M/c/K, finite capacity [S: Wikipedia, M/M/c queue, stationary probability of state K]
 
 Capacity K ≥ c (servers plus waiting slots). Unnormalised state weights:
 
@@ -175,7 +173,7 @@ Admitted rate λ_eff = 300 x (1 − 0.668) = **99.7 /s**, almost exactly the ser
 Average number in system L = Σ n·pₙ / 364 = (0 + 3 + 18 + 81 + 324 + 1215) / 364 = 1641 / 364 = **4.51**.
 Mean time in system W = L / λ_eff = 4.51 / 99.7 = **45 ms**. (This is the M/M/1/K version with exponential service. The
 project's probe used deterministic service, so its exact numbers differ; the shape, a nearly full node and
-rejecting about two thirds of arrivals, holds.) [K, hand-computed from the formula above]
+rejecting about two thirds of arrivals, holds.) [D, hand-computed from the formula above]
 
 **Testable expectations**
 
@@ -183,7 +181,7 @@ rejecting about two thirds of arrivals, holds.) [K, hand-computed from the formu
 - λ_eff x W = L must hold with λ_eff (admitted), not λ (offered).
 - Conservation: offered = admitted + rejected, at every node.
 - Timeouts: a request whose wait plus service exceeds the timeout is counted as a timeout, not a success; throughput
-  then falls below c·μ. [K]
+  then falls below c·μ. [D]
 
 ## 6. Latency distributions, percentiles and what to report
 
@@ -191,13 +189,13 @@ rejecting about two thirds of arrivals, holds.) [K, hand-computed from the formu
   requests taking about 5 s. [P: Google SRE book, "Monitoring Distributed Systems"]
 - Record latency as a histogram with exponentially spaced buckets. [P: same]
 - Track latency of successful and failed requests **separately**; a fast error lowers the mean while hurting users. [P]
-- **Do not average percentiles** across nodes or windows; merge the histograms and compute the percentile from the merge. [K]
+- **Do not average percentiles** across nodes or windows; merge the histograms and compute the percentile from the merge. [P: Prometheus histograms, chapter 16 section 3]
 - The tail comes from queueing and variability. Parallel fan-out makes it worse: if one request waits on n
   backends in parallel and each is slow with probability q, the request is slow with probability 1 − (1 − q)ⁿ.
-  With q = 1% and n = 100 that is 63%. [K, Dean and Barroso, "The Tail at Scale", CACM 2013, to fetch]
-- End-to-end latency along a chain = sum over hops of (queue wait + service + network). Means add; percentiles do not. [K]
+  With q = 1% and n = 100 that is 63%. [P: Dean and Barroso, "The Tail at Scale", CACM 2013, which gives the same example: 100 servers, 1 in 100 slow, 63% of requests over one second]
+- End-to-end latency along a chain = sum over hops of (queue wait + service + network). Means add; percentiles do not. [D: expectation is linear; percentiles of a sum are not sums of percentiles]
 - Coordinated omission: a closed-loop load generator that waits for each response before sending the next hides the
-  worst latencies. An open-loop generator (arrivals independent of responses) is what the simulator's sources should be. [K, Gil Tene]
+  worst latencies. An open-loop generator (arrivals independent of responses) is what the simulator's sources should be. [S: Gil Tene, "How NOT to Measure Latency" (QCon SF 2012 slides)]
 
 ## 7. The four golden signals [P: Google SRE book]
 
@@ -212,11 +210,11 @@ Further SRE guidance [P]: page on symptoms (what users feel), use causes to debu
 
 ## 8. Utilization, headroom and capacity arithmetic
 
-- Capacity of a node = c · μ = c / S. Maximum safe load = target utilization x capacity. [K]
+- Capacity of a node = c · μ = c / S. Maximum safe load = target utilization x capacity. [D]
 - Why headroom (typically 60 to 80%): wait grows as 1/(1 − ρ) (section 4.1), variability amplifies it (section 4.3),
   and you need spare for failures (N+1) and spikes. [K]
 - N+1: with n servers sharing load evenly, after one failure each survivor carries n/(n − 1) of its previous load.
-  4 servers at 75% become 100% when one dies. [K]
+  4 servers at 75% become 100% when one dies. [D]
 - **QuickCart worked example** (from this repository's `builder-walkthrough.md`; a stated modelling contract, not an external source):
   per-server capacity = workers / service time = 128 / 0.00128 s = 100,000 req/s. Peak 1,000,000 req/s with a hard
   utilization limit of 0.8 needs at least 1,000,000 / (0.8 x 100,000) = 12.5, round **up** to **13** servers.
@@ -229,15 +227,13 @@ Further SRE guidance [P]: page on symptoms (what users feel), use causes to debu
 - A single seeded run is one sample, not the truth. Compare to theory only with a tolerance, or average several seeds.
 - Discard a warmup period so the empty-start transient does not bias averages. State the warmup used.
 - Same seed, same inputs must give identical output (determinism). A different seed must give a different sample with the same expected value.
-- Confidence interval for a mean from n independent replications: mean ± t(n−1, 0.975)·s/√n. [K]
+- Confidence interval for a mean from n independent replications: mean ± t(n−1, 0.975)·s/√n. [S: standard Student-t interval]
 
 ## 10. Open items for this chapter
 
-- Fetch and cite: Little (1961); Harchol-Balter textbook chapters (operational laws, M/M/1, M/G/1); Kleinrock vol. 1; Dean and
-  Barroso, _The Tail at Scale_; Gil Tene on coordinated omission. Upgrade the `[K]` marks above to `[P]`.
-- Owner decision [?]: numeric tolerance policy for comparing a finite seeded run with a closed-form value.
-- Owner decision [?]: which node service-time distributions the simulator treats as "Poisson arrival" versus constant-rate arrivals
-  when applying the P-K formula, so the oracle matches the intended arrival process of each workload pattern.
+- Remaining `[K]` claims are the engineering rules of thumb in sections 8 and 9 (headroom 60 to 80%, replication confidence interval); they are conventions, not theorems.
+- Decision `[?]`: numeric tolerance policy for comparing a finite seeded run with a closed-form value (proposed in the decision sheet: 10% for runs of 60 s or more at ρ <= 0.8, widening near saturation).
+- Decision `[?]`: which workload patterns count as Poisson arrivals when applying the P-K formula (chapter 05 lists them).
 
 ## Sources
 
@@ -247,4 +243,10 @@ Further SRE guidance [P]: page on symptoms (what users feel), use causes to debu
 - [Google SRE book: Monitoring Distributed Systems](https://sre.google/sre-book/monitoring-distributed-systems/) [P]
 - [Wolff and Yao 2014, Little's Law with infinite waiting times](https://staff.stat.sinica.edu.tw/yao/file/art_253A10.1007_252Fs11134-013-9364-8.pdf) [S]
 - [Little 1961, A proof for the queuing formula L = λW](https://www.citedrive.com/en/discovery/a-proof-for-the-queuing-formula-ili-%CE%BBiwi) [P, cited only]
+- [M/M/1 queue, Wikipedia](https://en.wikipedia.org/wiki/M/M/1_queue) [S]
+- [M/G/1 queue, Wikipedia](https://en.wikipedia.org/wiki/M/G/1_queue) [S]
+- [M/M/c queue, Wikipedia](https://en.wikipedia.org/wiki/M/M/c_queue) [S]
+- [Erlang (unit), Wikipedia](<https://en.wikipedia.org/wiki/Erlang_(unit)>) [S]
+- [The Tail at Scale, Dean and Barroso, CACM 2013](https://www.barroso.org/publications/TheTailAtScale.pdf) [P]
+- [How NOT to Measure Latency, Gil Tene (QCon SF 2012)](https://qconsf.com/sf2012/dl/qcon-sanfran-2012/slides/GilTene_HowNotToMeasureLatency.pdf) [S]
 - [Technion lecture notes on G/G queues](https://serveng.technion.ac.il/files/Lectures/Lecture_GGQ's_FULL_Marked.pdf) [S]

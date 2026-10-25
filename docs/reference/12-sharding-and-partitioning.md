@@ -1,7 +1,6 @@
 # 12. Sharding and partitioning
 
-Marks: **[P]** primary, **[S]** secondary (fetched or searched), **[K]** established knowledge or derived here,
-not yet source-checked, **[?]** needs an owner decision. See [README](README.md).
+Marks: **[P]** primary, **[S]** secondary (fetched or searched), **[K]** established convention, definition or design judgement (no measured figure rests on it), **[D]** derived here from cited definitions or the chapter's own arithmetic, **[?]** needs an owner decision, **[repo]** read from the repository. See [README](README.md).
 
 Splitting data or traffic across machines so no single one carries it all: `sharding`, `hashing`, `shard-node`,
 `partition-node`, and the key-routing in chapter 07. Replication (copies of the same data) is chapter 11;
@@ -9,10 +8,10 @@ this chapter is about dividing **different** data.
 
 ## 1. Why shard, and the cost
 
-A single node has a ceiling on storage, writes per second and memory. **Sharding** divides the keyspace so each node holds and serves a part. [K]
+A single node has a ceiling on storage, writes per second and memory. **Sharding** divides the keyspace so each node holds and serves a part. [D: definition]
 
 - **Capacity scales with the number of shards only if load is even.** Total capacity = shards x per-shard capacity **at best**; in practice the limit is the **hottest shard**.
-- **Costs:** queries that span shards (fan-out, section 5), no cross-shard transactions without extra protocol, rebalancing work, operational complexity. Do not shard until one node cannot cope. [K]
+- **Costs:** queries that span shards (fan-out, section 5), no cross-shard transactions without extra protocol, rebalancing work, operational complexity. Do not shard until one node cannot cope. [D: each cost is a property of the design, not a measured figure]
 
 ## 2. How keys map to shards
 
@@ -24,22 +23,22 @@ A single node has a ceiling on storage, writes per second and memory. **Sharding
 | **Directory / lookup** | a table maps key (or key range) to shard   | flexible placement, rebalancing                      | the directory is a dependency and must itself scale                                |
 | **Geo / tenant**       | by region or customer                      | data locality, isolation                             | uneven tenants                                                                     |
 
-[K] Resize cost: adding a shard moves about **1 / (N + 1)** of the keys with consistent hashing (9 to 10 shards: 10%), but about **N / (N + 1)** with `hash mod n` (90%). [chapter 07, computed]
+[D] Resize cost: adding a shard moves about **1 / (N + 1)** of the keys with consistent hashing (9 to 10 shards: 10%), but about **N / (N + 1)** with `hash mod n` (90%). [chapter 07, computed]
 
 ## 3. Choosing a shard key
 
 A good key has **high cardinality** (many distinct values), **even access** (no value much hotter than others), and matches **how queries filter** so most queries touch one shard. [S: AWS DynamoDB partition-key guidance, K]
 
 - Bad: a date as the key when all today's writes share one value (one hot shard); a boolean; a country in a global app dominated by one country.
-- Fix hot keys by adding a **suffix** (key#0..key#k) and writing to a random one, then reading all k and merging: trades read cost for write spread. [K]
-- A **composite key** (tenant + id) isolates tenants and spreads load within one. [K]
+- Fix hot keys by adding a **suffix** (key#0..key#k) and writing to a random one, then reading all k and merging: trades read cost for write spread. [S: AWS DynamoDB partition-key guidance; the write-sharding pattern]
+- A **composite key** (tenant + id) isolates tenants and spreads load within one. [D]
 
 ## 4. Hot keys and skew
 
 Real access is skewed (Zipf, chapter 05). **Hashing the key spreads many keys evenly but cannot split one key.**
 
 - With Zipf s = 1.0 over 1,000 keys, the hottest key is **13.4%** of traffic. Over 20 shards, an even share is 5%, so the shard holding that key carries **at least 2.7x** its fair share however well the rest is balanced. [computed, chapter 05]
-- **Per-key limits are real:** DynamoDB throttles one partition above about **3,000 reads and 1,000 writes per second**; adaptive capacity and split-for-heat absorb moderate imbalance but **not** a single key above that ceiling. A key needing 25,000 writes/s needs the load spread over at least **25** key values. [S: AWS DynamoDB docs]
+- **Per-key limits are real:** DynamoDB throttles one partition above about **3,000 reads and 1,000 writes per second**; adaptive capacity absorbs imbalance as long as total traffic stays within the table's capacity and the partition maximum, and can isolate a hot item, but one item cannot exceed one partition's ceiling. A key needing 25,000 writes/s needs the load spread over at least **25** key values. [P: AWS DynamoDB burst and adaptive capacity page]
 - **Mitigations:** key suffixing, caching the hot items (chapter 10), replicating hot shards for reads, splitting the hot range.
 
 **Testable expectations**
@@ -54,8 +53,8 @@ A query that must consult all n shards finishes when the **slowest** responds, s
 
 - If shard latencies are independent exponentials with mean mu, **E[max] = mu x H_n** where H_n is the nth harmonic number. n = 1: 1.0 x mu; n = 10: **2.93 x**; n = 100: **5.19 x**; n = 1,000: **7.49 x**. For large n, H_n is about ln n + 0.577. [S: order statistics of exponentials; computed]
 - The **p99 of the maximum** grows too: for exponentials p99 of max = mu x (−ln(1 − 0.99^(1/n))): n = 1: 4.6 x; n = 10: 6.9 x; n = 100: **9.2 x**; n = 1,000: 11.5 x. [computed]
-- And a rare slow shard becomes the common case: if each shard is slow with probability q, a query across n shards is slow with probability 1 − (1 − q)^n; q = 1%, n = 100: **63%** (chapter 01 section 6, _The Tail at Scale_). [K]
-- **More shards do not make a scatter-gather query faster**; past a point they make its tail worse. Hedged requests, partial results and targeting only the shards that hold the data reduce it. [K]
+- And a rare slow shard becomes the common case: if each shard is slow with probability q, a query across n shards is slow with probability 1 − (1 − q)^n; q = 1%, n = 100: **63%** (chapter 01 section 6, _The Tail at Scale_). [P: Dean and Barroso, The Tail at Scale]
+- **More shards do not make a scatter-gather query faster**; past a point they make its tail worse. Hedged requests, partial results and targeting only the shards that hold the data reduce it. [P: Dean and Barroso, The Tail at Scale, hedged and tied requests]
 - The simulator models the consequence by adding a penalty drawn as the maximum of `shardCount` exponential samples of mean `perShardLatencyMs`. [repo]
 
 **Testable expectations**
@@ -66,9 +65,9 @@ A query that must consult all n shards finishes when the **slowest** responds, s
 ## 6. Rebalancing and resharding
 
 - Adding capacity means moving data: bytes moved = data x fraction moved; time = bytes / transfer rate while still serving traffic. 200 GB, 10% moved at 100 MB/s: **200 s** of background copy. [computed]
-- **Many small partitions** (more logical partitions than machines, e.g. 1,024 virtual shards over 10 machines) make rebalancing move whole partitions without re-hashing keys. [K]
+- **Many small partitions** (more logical partitions than machines, e.g. 1,024 virtual shards over 10 machines) make rebalancing move whole partitions without re-hashing keys. [D: the key-to-partition map is unchanged; only the partition-to-machine map moves]
 - **Hot shard splitting:** a shard whose traffic exceeds a threshold relative to the average (the simulator's `hotShardThresholdRatio`, with a minimum sample count) is split. [repo]
-- During a rebalance, routing must stay consistent (a key never served from two places) and a moved key's cache entries are cold. [K]
+- During a rebalance, routing must stay consistent (a key never served from two places) and a moved key's cache entries are cold. [D]
 
 ## 7. Partitions in messaging (preview of chapter 13)
 
@@ -76,9 +75,9 @@ A Kafka-style topic is divided into **partitions**; ordering holds **within** a 
 
 ## 8. Cross-shard operations
 
-- A **transaction touching several shards** needs a protocol (two-phase commit, sagas): extra round trips, blocking on failure, a coordinator. Cost grows with shards touched. [K]
-- **Joins** across shards require shipping data or co-locating related rows (same shard key). Choose the key so related data lives together. [K]
-- **Secondary indexes** are either local (query every shard) or global (a separate sharded index, updated asynchronously). [K]
+- A **transaction touching several shards** needs a protocol (two-phase commit, sagas): extra round trips, blocking on failure, a coordinator. Cost grows with shards touched. [D]
+- **Joins** across shards require shipping data or co-locating related rows (same shard key). Choose the key so related data lives together. [D]
+- **Secondary indexes** are either local (query every shard) or global (a separate sharded index, updated asynchronously). [D: definitions]
 
 ## 9. Simulator parameter map
 
@@ -101,10 +100,12 @@ A Kafka-style topic is divided into **partitions**; ordering holds **within** a 
 
 ## 11. Open items
 
-- Fetch and cite: the DynamoDB partition-key page (limits change); the Dean and Barroso paper's fan-out numbers; Vitess or Citus docs for resharding mechanics.
+- DynamoDB limits are quoted from AWS's burst and adaptive capacity page and change over time; Vitess and Citus resharding mechanics are not cited and none of this chapter's numbers depend on them.
 - Decisions `[?]`: how a split shard's keys are divided in the simulator and whether splitting is instantaneous.
 
 ## Sources
+
+- [DynamoDB burst and adaptive capacity](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/burst-adaptive-capacity.html) [P]
 
 - [DynamoDB partition-key design (uniform load)](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/bp-partition-key-uniform-load.html) [P]
 - [Consistent hashing, Wikipedia](https://en.wikipedia.org/wiki/Consistent_hashing) [S]

@@ -1,7 +1,6 @@
 # 22. Failure semantics and chaos
 
-Marks: **[P]** primary, **[S]** secondary (fetched or searched), **[K]** established knowledge or derived here,
-not yet source-checked, **[?]** needs an owner decision. See [README](README.md).
+Marks: **[P]** primary, **[S]** secondary (fetched or searched), **[K]** established convention, definition or design judgement (no measured figure rests on it), **[D]** derived here from cited definitions or the chapter's own arithmetic, **[?]** needs an owner decision, **[repo]** read from the repository. See [README](README.md).
 
 How components fail, how failure spreads, and how to inject it. Builds on chapter 02 (timeouts, retries, breakers,
 load shedding), chapter 07 (health checks), chapter 11 (failover) and chapter 14 (node and machine loss).
@@ -17,9 +16,9 @@ load shedding), chapter 07 (health checks), chapter 11 (failover) and chapter 14
 | **Degraded (slow, partial)**                      | success but slower, or some requests fail                   | service time multiplied for a fraction of requests         |
 | **Gray failure**                                  | works for some observers, fails for others                  | looks healthy to the checker, unhealthy to the application |
 
-- A real server failure is usually **silence**: clients keep the connection open and burn their whole timeout, so latency during an outage **walls at the timeout** rather than dropping. A fast refusal models only a TCP reset or a failure hidden by a load balancer. [K, consistent with chapter 02]
+- A real server failure is usually **silence**: clients keep the connection open and burn their whole timeout, so latency during an outage **walls at the timeout** rather than dropping. A fast refusal models only a TCP reset or a failure hidden by a load balancer. [D]
 - **Gray failure** (Huang et al., HotOS 2017) is defined by **differential observability**: the system's failure detectors report healthy while an application is experiencing failure. Subtle faults like severe slowness, random packet loss, flaky I/O and memory thrashing cause most major availability incidents in cloud systems, more than fail-stop failures. [S: abstract and summaries]
-- **Crash-restart** loses in-flight state; whether requests held at the moment of failure are reset or resume at recovery depends on the system (a hung connection may resume, a restarted process cannot). [K]
+- **Crash-restart** loses in-flight state; whether requests held at the moment of failure are reset or resume at recovery depends on the system (a hung connection may resume, a restarted process cannot). [D]
 
 ## 2. How failure spreads
 
@@ -47,12 +46,12 @@ A **cascading failure** grows over time through positive feedback: a partial fai
 
 - **Fault domains:** a region, availability zone or subnet failing takes every component placed in it; a component stays down until **every** domain containing it has recovered. [repo]
 - **Blast radius** is the share of users or capacity one fault can affect: cells, shards and zones shrink it. Losing one of 3 zones removes 1/3 of capacity and raises survivor load to 1.5x. [computed]
-- **Shared dependencies** (a DNS server, a certificate, a database) turn independent components into one failure. [K]
-- **Common-mode failure:** the same bad deployment or configuration reaches every replica (chapter 17). [K]
+- **Shared dependencies** (a DNS server, a certificate, a database) turn independent components into one failure. [D]
+- **Common-mode failure:** the same bad deployment or configuration reaches every replica (chapter 17). [D]
 
 ## 4. Chaos experiments
 
-Define a steady-state metric, hypothesise that it holds under a realistic fault, inject the fault with a limited blast radius and an abort condition, compare (chapter 17). A useful experiment names the fault type, the target, the start, the duration and what recovery looks like. [K]
+Define a steady-state metric, hypothesise that it holds under a realistic fault, inject the fault with a limited blast radius and an abort condition, compare (chapter 17). A useful experiment names the fault type, the target, the start, the duration and what recovery looks like. [P: Principles of Chaos Engineering]
 
 ## 5. Simulator parameter map
 
@@ -81,10 +80,12 @@ Define a steady-state metric, hypothesise that it holds under a realistic fault,
 
 ## 7. Open items
 
-- Fetch and cite: the full metastable-failure paper and the OSDI 2022 follow-up ("Metastable Failures in the Wild"); the gray-failure paper's own definition; AWS Builders' Library on avoiding fallback and on static stability.
+- Read directly: the gray-failure abstract (differential observability) and the Principles of Chaos Engineering. The metastable-failure claims rest on Brooker's summary and the SRE book; the HotOS 2021 paper's PDF could not be read as text. The AWS static-stability article is not cited.
 - Decisions `[?]`: whether health checks should be able to see a gray failure (a check that passes while requests fail) and whether a metastable-failure scenario should be a built-in template.
 
 ## Sources
+
+- [Principles of Chaos Engineering](https://principlesofchaos.org/) [P]
 
 - [Addressing Cascading Failures, Google SRE book](https://sre.google/sre-book/addressing-cascading-failures/) [P]
 - [Metastable Failures in Distributed Systems, HotOS 2021 (summary by Marc Brooker)](https://brooker.co.za/blog/2021/05/24/metastable/) [S]

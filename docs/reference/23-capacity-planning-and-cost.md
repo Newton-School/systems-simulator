@@ -1,7 +1,6 @@
 # 23. Capacity planning and cost
 
-Marks: **[P]** primary, **[S]** secondary (fetched or searched), **[K]** established knowledge or derived here,
-not yet source-checked, **[?]** needs an owner decision. See [README](README.md).
+Marks: **[P]** primary, **[S]** secondary (fetched or searched), **[K]** established convention, definition or design judgement (no measured figure rests on it), **[D]** derived here from cited definitions or the chapter's own arithmetic, **[?]** needs an owner decision, **[repo]** read from the repository. See [README](README.md).
 
 Sizing a system for load and failure, and pricing the result. Builds on chapter 01 (utilization and queueing, the
 QuickCart sizing), chapter 06 (instances and scaling limits), chapter 14 (autoscaling) and chapter 22 (survivor load).
@@ -9,10 +8,10 @@ QuickCart sizing), chapter 06 (instances and scaling limits), chapter 14 (autosc
 ## 1. Utilization targets and headroom
 
 Latency rises sharply as utilization approaches 1 (chapter 01), so a system is sized to run **well below** full:
-typical targets are 60% to 80% busy at the planning peak, lower for latency-sensitive tiers. [K]
+typical targets are 60% to 80% busy at the planning peak, lower for latency-sensitive tiers. [K: a planning convention, not a standard; the reason is the hockey stick of chapter 01]
 
 - Servers needed = ceil( peak rate / (per-server rate x target utilization) ). QuickCart: 1,000,000 req/s at 100,000 per server and a 0.8 target needs **13** servers (12 give 83.3%, 13 give 76.9%). [computed, chapter 01]
-- **Headroom** is the unused share, 1 - utilization; it is the price of absorbing bursts, failures and forecast error. [K]
+- **Headroom** is the unused share, 1 - utilization; it is the price of absorbing bursts, failures and forecast error. [D]
 
 ## 2. N+1 and N+2
 
@@ -29,8 +28,8 @@ Worked: 12 servers, target 80% after one failure: normal utilization <= 0.8 x 11
 
 Worked with the simulator's catalogue prices: an `m5.large` (2 vCPU, $0.096/h) running 100 ms requests serves 2 / 0.1 s = 20 req/s at full load, **14 req/s at 70%**: 50,400 requests per hour, so **$0.096 / 50,400 = $1.9 per million requests**. [computed from the catalogue]
 
-- Within one instance family price grows about linearly with size (`m5.xlarge` is $0.192 for 4 vCPU), so larger instances do not make a request cheaper; they cut the number of nodes (and per-node overhead) and raise the blast radius of one failure. [K, catalogue]
-- **Scaling limits** (Amdahl and USL, chapter 06) mean that past some size extra vCPUs add little; the cheapest design may use more, smaller instances. [K]
+- Within one instance family price grows about linearly with size (`m5.xlarge` is $0.192 for 4 vCPU), so larger instances do not make a request cheaper; they cut the number of nodes (and per-node overhead) and raise the blast radius of one failure. [S: AWS list prices as aggregated by DoiT and Holori, us-east-1: m5.large $0.096, m5.xlarge $0.192 per hour; catalogue prices match]
+- **Scaling limits** (Amdahl and USL, chapter 06) mean that past some size extra vCPUs add little; the cheapest design may use more, smaller instances. [D]
 
 ## 4. Pricing models
 
@@ -54,8 +53,8 @@ With demand growing by a fraction g per period and current utilization u, the ti
 
 Worked: 50% utilization today, 10% monthly growth, 80% target: ln(1.6) / ln(1.1) = **4.9 months**; to reach 100%: ln(2) / ln(1.1) = **7.3 months**. Capacity must be ordered before this date, allowing for provisioning time (chapter 14: minutes for a node, weeks for hardware). [computed]
 
-- **Load tests** find the real per-server limit; planning from a spreadsheet of CPU alone misses memory, connections, locks and downstream limits. [K]
-- Plan for the **peak**, not the mean: the diurnal ratio of peak to mean (chapter 05) sets the idle share of a statically sized fleet. [K]
+- **Load tests** find the real per-server limit; planning from a spreadsheet of CPU alone misses memory, connections, locks and downstream limits. [K: practice]
+- Plan for the **peak**, not the mean: the diurnal ratio of peak to mean (chapter 05) sets the idle share of a statically sized fleet. [D]
 
 ## 6. Where the money goes
 
@@ -67,7 +66,7 @@ Worked: 50% utilization today, 10% monthly growth, 80% target: ln(1.6) / ln(1.1)
 | Managed services | per request or per hour (consumption pricing)                   |
 | Observability    | log and trace volume (chapter 16: 5 MB/s of logs is 432 GB/day) |
 
-Cost is a function of the design, so it can be a constraint in a question: "meet the SLO under $X per hour". [K]
+Cost is a function of the design, so it can be a constraint in a question: "meet the SLO under $X per hour". [D]
 
 ## 7. Simulator parameter map
 
@@ -91,7 +90,7 @@ Cost is a function of the design, so it can be a constraint in a question: "meet
 
 ## 9. Open items
 
-- Fetch and cite: AWS EC2 pricing pages for reserved, savings plans and spot; the AWS Well-Architected cost optimisation pillar; Google SRE workbook chapter on capacity.
+- Read directly: the AWS EC2 pricing page (Savings Plans up to 72%, Spot up to 90%, chapter 06). List prices come from third-party aggregators; the Well-Architected cost pillar and the SRE capacity chapter are not cited.
 - Decisions `[?]`: whether the pricing multipliers should follow real discounts; whether to model egress and cross-zone transfer cost.
 
 ## Sources

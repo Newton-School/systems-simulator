@@ -1,7 +1,6 @@
 # 25. Architecture decisions
 
-Marks: **[P]** primary, **[S]** secondary (fetched or searched), **[K]** established knowledge or derived here,
-not yet source-checked, **[?]** needs an owner decision. See [README](README.md).
+Marks: **[P]** primary, **[S]** secondary (fetched or searched), **[K]** established convention, definition or design judgement (no measured figure rests on it), **[D]** derived here from cited definitions or the chapter's own arithmetic, **[?]** needs an owner decision, **[repo]** read from the repository. See [README](README.md).
 
 How a design choice is recorded and argued, and the trade-off tables behind the choices a system-design question
 asks for. Each table row points to the chapter holding the numbers.
@@ -20,7 +19,7 @@ Michael Nygard's architecture decision record has five parts: [S: Cognitect blog
 
 Practice: one or two pages, numbered sequentially and never reused, never deleted when reversed (marked superseded instead), kept in the repository beside the code. [S]
 
-A good ADR in a system-design answer names the **requirement** that forces the choice (a number: latency, rate, availability), the **options** considered, the **deciding trade-off** and the **cost accepted**. [K]
+A good ADR in a system-design answer names the **requirement** that forces the choice (a number: latency, rate, availability), the **options** considered, the **deciding trade-off** and the **cost accepted**. [K: design guidance, judgement not a measured figure]
 
 ## 2. How to decide: from requirements to numbers
 
@@ -52,7 +51,7 @@ A good ADR in a system-design answer names the **requirement** that forces the c
 | Latency                     | sum of path              | producer fast, end-to-end longer          |
 | Use when                    | the answer is needed now | work can complete later, bursts, fan-out  |
 
-**Push or pull (chapters 13, 19)**: push gives low latency and needs held connections or fan-out writes; pull is simple and stateless but wastes requests polling (a 5 s poll by 1,000,000 clients is 200,000 requests/s whether or not anything changed). [K, computed]
+**Push or pull (chapters 13, 19)**: push gives low latency and needs held connections or fan-out writes; pull is simple and stateless but wastes requests polling (a 5 s poll by 1,000,000 clients is 200,000 requests/s whether or not anything changed). [D, computed]
 
 **Where to cache (chapter 10)**
 
@@ -64,15 +63,15 @@ A good ADR in a system-design answer names the **requirement** that forces the c
 | Shared cache (Redis)     | database load              | a network hop, an extra dependency, stampedes |
 | Database buffer          | disk reads                 | fixed by memory                               |
 
-**Consistency level (chapter 11)**: strong or linearizable costs read latency (wait for the replica) and availability under partition; eventual is fast and available but returns stale reads with probability 1 - e^(-w x lag); read-your-writes sits between and is often enough for user-facing data. [K]
+**Consistency level (chapter 11)**: strong or linearizable costs read latency (wait for the replica) and availability under partition; eventual is fast and available but returns stale reads with probability 1 - e^(-w x lag); read-your-writes sits between and is often enough for user-facing data. [D]
 
-**Monolith or microservices (chapter 24)**: start monolithic unless independent scaling, team autonomy or fault isolation is a stated requirement; each split adds a hop, a failure mode and an operational cost. [K]
+**Monolith or microservices (chapter 24)**: start monolithic unless independent scaling, team autonomy or fault isolation is a stated requirement; each split adds a hop, a failure mode and an operational cost. [K: design guidance, judgement not a measured figure]
 
-**Queue or stream (chapter 13)**: a queue deletes on acknowledgement and shares work among consumers; a stream keeps a replayable log and lets several groups read independently. [K]
+**Queue or stream (chapter 13)**: a queue deletes on acknowledgement and shares work among consumers; a stream keeps a replayable log and lets several groups read independently. [K: design guidance, judgement not a measured figure]
 
-**Vertical or horizontal scaling (chapter 06)**: vertical is simple up to the largest instance and the USL peak; horizontal needs stateless services or partitioned state and a balancer. [K]
+**Vertical or horizontal scaling (chapter 06)**: vertical is simple up to the largest instance and the USL peak; horizontal needs stateless services or partitioned state and a balancer. [K: design guidance, judgement not a measured figure]
 
-**Build, buy or managed service (chapter 23)**: managed removes operations at a per-request price; self-run is cheaper at scale and costs engineers. [K]
+**Build, buy or managed service (chapter 23)**: managed removes operations at a per-request price; self-run is cheaper at scale and costs engineers. [K: design guidance, judgement not a measured figure]
 
 ## 4. Requirements that force a choice
 
@@ -101,7 +100,7 @@ A good ADR in a system-design answer names the **requirement** that forces the c
 
 ## 7. Open items
 
-- Fetch and cite: adr.github.io templates (MADR), the AWS Well-Architected trade-off guidance, the CAP/PACELC papers' consequences for choices.
+- The ADR structure is from Nygard's original post; MADR and the Well-Architected trade-off guidance are not cited, and the trade-off tables are design guidance, marked `[K]`, not measurements.
 - Decisions `[?]`: whether grading should accept a written justification (the question package has a `justify` field; see chapter 29) as evidence of a decision.
 
 ## Sources

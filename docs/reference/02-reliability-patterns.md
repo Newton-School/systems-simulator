@@ -1,7 +1,6 @@
 # 02. Reliability and resilience patterns
 
-Marks: **[P]** primary, **[S]** secondary, **[K]** from established knowledge or derived here, not yet source-checked,
-**[?]** needs an owner decision. See [README](README.md).
+Marks: **[P]** primary, **[S]** secondary (fetched or searched), **[K]** established convention, definition or design judgement (no measured figure rests on it), **[D]** derived here from cited definitions or the chapter's own arithmetic, **[?]** needs an owner decision, **[repo]** read from the repository. See [README](README.md).
 
 Patterns that decide what a node does when it is slow, failing or overloaded. In the simulator they are the
 behaviours carried by `timeout`, `retryBackoff`, `circuitBreaker`, `rateLimiter`, `bulkhead`, `loadShedding`,
@@ -19,10 +18,10 @@ backoff with jitter"]
   the matching percentile (p99.9). Add worst-case network latency for internet clients.
 - A too-tight timeout causes failures after deploys (example: a 20 ms timeout included new TLS setup).
 - A dead server usually produces **silence**, not an error: the caller burns its whole timeout. This is why latency during
-  an outage walls at the timeout instead of dropping. [K]
+  an outage walls at the timeout instead of dropping. [D: a caller that receives no reply waits its whole timeout]
 
 **Math.** If a downstream's latency has CDF F(t), timeout T gives false-timeout rate 1 − F(T). Timeout at p99 means 1%
-of healthy requests are abandoned. [K]
+of healthy requests are abandoned. [D]
 
 - Client availability when median latency equals the timeout is about 50%. [P: AWS load-shedding article]
 
@@ -46,8 +45,8 @@ connectivity). Delays can be fixed, incremental or exponential. Log early failur
 **idempotent** operations; otherwise a retry can execute the side effect twice (service processed the request but the
 response was lost). Client 4xx errors should generally not be retried unchanged; 5xx may succeed later.
 
-**Delay formulas** (base b, cap C, attempt n starting at 0). The AWS blog shows the formulas as images, so these come from
-knowledge of that post. [K, verify against the AWS Architecture Blog figures]
+**Delay formulas** (base b, cap C, attempt n starting at 0). The blog text does not state the formulas (they are images); these are read from the
+blog's own simulator source. [P: github.com/aws-samples/aws-arch-backoff-simulator, `backoff_simulator.py`]
 
 - No jitter: sleep = min(C, b·2ⁿ)
 - Full jitter: sleep = random(0, min(C, b·2ⁿ))
@@ -65,12 +64,12 @@ Decorrelated used more calls. Jitter does not change the N² growth of total wor
 - **Across layers multiplies:** 3 attempts per layer over 5 layers = 3⁵ = **243x** load on the database. Retry at one
   point in the stack. [P: AWS]
 - Expected attempts per call when each attempt fails independently with probability p and up to r retries are allowed:
-  E[attempts] = `p^0 + p^1 + ... + p^r` = (1 − p^(r+1)) / (1 − p). Example p = 0.5, r = 3: 1.875x load. If p → 1 it tends to 1 + r. [K derived]
+  E[attempts] = `p^0 + p^1 + ... + p^r` = (1 − p^(r+1)) / (1 − p). Example p = 0.5, r = 3: 1.875x load. If p → 1 it tends to 1 + r. [D]
 - **Retry budget:** allow retries from a token bucket (spend a token per retry, refill slowly); when empty, retry at a fixed
   low rate. This caps amplification. [P: AWS, the AWS SDK added it in 2016]
 
 **Failure modes:** retry storm (synchronized retries into a recovering service keep it down), thundering herd, metastable
-failure (load stays high after the trigger is gone because retries sustain it). [K]
+failure (load stays high after the trigger is gone because retries sustain it). [S: chapter 22 section 2, Bronson et al.]
 
 **Testable expectations**
 
@@ -103,7 +102,9 @@ as a deeper problem, allow manual trip/reset, and design clients for the failure
 
 **Math.** Fail-fast latency while open ≈ near zero (no call is made), versus a timeout T for each call without a breaker.
 Load on the dependency while open ≈ 0 plus probe calls. With rate-based tripping over a window of n calls and threshold θ,
-it opens when failures/n ≥ θ. [K]
+it opens when failures/n ≥ θ. [D]
+
+**Reference defaults (Resilience4j)** [P: resilience4j.readme.io]: failure-rate threshold 50%, count-based window of 100 calls, minimum 100 calls before the rate is evaluated, 60 s open, 10 permitted calls in the half-open state; the half-open breaker closes if both failure and slow-call rates fall below their thresholds and reopens otherwise. Treat these as one library's defaults, not a standard.
 
 **Testable expectations**
 
@@ -118,7 +119,7 @@ it opens when failures/n ≥ θ. [K]
 (client or gateway, smoothing outgoing traffic) and throttling (server rejecting excess) are related. [P: Microsoft Rate
 Limiting pattern]
 
-**Algorithms** [S: network and API references; formulas derived [K]]
+**Algorithms** [P: RFC 2697 for the token-bucket form; formulas derived [D]]
 
 - **Token bucket:** bucket capacity C tokens, refill rate R tokens/s. tokens(t) = min(C, tokens(t₀) + R·Δt). A request of
   cost n is admitted only if tokens ≥ n. Allows bursts up to C, long-run rate R.
@@ -189,7 +190,7 @@ waiting probability at the same total c is higher than a shared pool (Erlang C, 
 - Keep fast-failed requests out of latency metrics, or they will hide the real latency; shedding can also stop CPU-based autoscaling.
 - In deep call graphs retries multiply offered load exponentially.
 
-**Backpressure [K]:** the downstream signals upstream to slow (429/503, a full queue, TCP window, reactive streams
+**Backpressure [D]:** the downstream signals upstream to slow (429/503, a full queue, TCP window, reactive streams
 `request(n)`), moving the queue to where it can be bounded.
 
 **Testable expectations**
@@ -211,7 +212,7 @@ Endpoint Monitoring pattern]
   Exclude optional dependencies from the decision. Allow for startup before counting failures.
 - Evaluate status code, body and latency. Use thresholds (consecutive failures) so transient blips don't trigger action.
 - **Detection delay** ≈ probe interval x consecutive failures needed (+ one timeout). With a 1-minute interval and 3
-  failures, a dead instance keeps receiving traffic for about 2 to 3 minutes. [K derived; matches the Microsoft example of
+  failures, a dead instance keeps receiving traffic for about 2 to 3 minutes. [D; matches the Microsoft example of
   one-minute probes]
 - Cached probe results add a staleness window up to the cache TTL.
 - **Danger:** deep checks against a slow shared dependency can mark every instance unhealthy at once and remove all of them
@@ -256,12 +257,8 @@ optimistic until rows 1, 3 and 4 are closed.
 
 ## 10. Open items
 
-- Verify `[K]` formulas against AWS Architecture Blog jitter figures, and against a token-bucket reference (RFC 2697 / 2698
-  single/two-rate three-colour marker for the networking form).
-- Fetch Nygard, _Release It!_ (circuit breaker, bulkhead, timeouts, "stability patterns") and the Resilience4j documentation
-  for default parameter values.
-- Owner decisions [?]: half-open probe count and close criterion; deadline propagation; behaviour when all backends are
-  unhealthy; whether the simulated limiter is token bucket or leaky bucket.
+- Remaining `[K]`: none that carry a number; the Nygard stability patterns (_Release It!_) are cited indirectly through Fowler and Microsoft.
+- Owner decisions [?]: half-open probe count and close criterion (Resilience4j reference: 10 probes, close when both rates are below threshold); deadline propagation; behaviour when all backends are unhealthy; whether the simulated limiter is token bucket or leaky bucket.
 
 ## Sources
 
@@ -275,3 +272,6 @@ optimistic until rows 1, 3 and 4 are closed.
 - [Microsoft, Health Endpoint Monitoring pattern](https://learn.microsoft.com/en-us/azure/architecture/patterns/health-endpoint-monitoring) [P]
 - [Google SRE book, Monitoring Distributed Systems](https://sre.google/sre-book/monitoring-distributed-systems/) [P]
 - [Token bucket, Loyola University networking text](https://intronetworks.cs.luc.edu/current/html/tokenbucket.html) [S]
+- [Resilience4j CircuitBreaker](https://resilience4j.readme.io/docs/circuitbreaker) [P]
+- [RFC 2697: single rate three color marker](https://datatracker.ietf.org/doc/html/rfc2697) [P]
+- [aws-arch-backoff-simulator](https://github.com/aws-samples/aws-arch-backoff-simulator) [P]

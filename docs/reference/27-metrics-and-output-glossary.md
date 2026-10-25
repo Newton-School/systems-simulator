@@ -1,9 +1,8 @@
 # 27. Metrics and output glossary
 
-Marks: **[P]** primary, **[S]** secondary, **[K]** established knowledge, **[?]** needs an owner decision,
-**[repo]** read from the output types (`src/engine/metrics.ts`, `src/engine/analysis/output.ts`,
-`src/engine/analysis/verdict.ts`). See [README](README.md).
+Marks: **[P]** primary, **[S]** secondary (fetched or searched), **[K]** established convention, definition or design judgement (no measured figure rests on it), **[D]** derived here from cited definitions or the chapter's own arithmetic, **[?]** needs an owner decision, **[repo]** read from the repository. See [README](README.md).
 
+**[repo]** here means read from the output types (`src/engine/metrics.ts`, `src/engine/analysis/output.ts`, `src/engine/analysis/verdict.ts`).
 Every number a run reports, its exact definition and unit, and the real-world quantity it stands for. The
 mathematics behind them is chapter 01 (queueing) and chapter 16 (observability). Section 8 lists the known
 differences between a metric's name and what it computes, found while building the flows in `e2e/`.
@@ -107,4 +106,4 @@ These come from the flows in `e2e/README.md` (findings), kept here so a reader o
 ## 10. Open items
 
 - Decisions `[?]`: report asynchronous branches separately from user-facing requests; make `avgInSystem` the exact time average.
-- Fetch and cite: the Prometheus and OpenTelemetry metric naming conventions for the equivalent real-world signals.
+- Real-world equivalents are stated by definition (chapter 01 laws); Prometheus and OpenTelemetry naming conventions are not cited.

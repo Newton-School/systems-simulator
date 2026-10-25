@@ -1,7 +1,6 @@
 # 17. DevOps and delivery
 
-Marks: **[P]** primary, **[S]** secondary (fetched or searched), **[K]** established knowledge or derived here,
-not yet source-checked, **[?]** needs an owner decision. See [README](README.md).
+Marks: **[P]** primary, **[S]** secondary (fetched or searched), **[K]** established convention, definition or design judgement (no measured figure rests on it), **[D]** derived here from cited definitions or the chapter's own arithmetic, **[?]** needs an owner decision, **[repo]** read from the repository. See [README](README.md).
 
 The 7 `DevopsType`s: `artifact-repository`, `build-system`, `feature-flag-service`, `deployment-controller`,
 `chaos-engineering-framework`, `policy-as-code`, `pipeline-secrets`. Fault injection mechanics are chapter 22;
@@ -10,9 +9,9 @@ CI/CD runners as queues are chapter 14.
 ## 1. What delivery changes
 
 Every release is a controlled change to a running system. The delivery strategy decides how much of the fleet
-sees the change at once (the **blast radius**), how fast a bad change is noticed, and how fast it is undone. [K]
+sees the change at once (the **blast radius**), how fast a bad change is noticed, and how fast it is undone. [D]
 
-Expected harm from a bad release = share of traffic exposed x request rate x time until rollback. [K]
+Expected harm from a bad release = share of traffic exposed x request rate x time until rollback. [D]
 
 ## 2. Deployment strategies
 
@@ -25,28 +24,28 @@ Expected harm from a bad release = share of traffic exposed x request rate x tim
 
 - **Blue-green** (Fowler): two near-identical environments, one live and one for testing the next release; after testing the router sends all traffic to the new one and the old one idles; rollback is switching back. Separate schema changes from application releases so one database works with both versions. [S: martinfowler.com]
 - **Canary** (Fowler): deploy to infrastructure with no traffic, route a small set of users, then add servers and users gradually until everyone is on the new version; roll back by rerouting. A router picks the users: random sample, employees first, or by geography. [S: martinfowler.com]
-- **Rolling update** (Kubernetes Deployment): `maxSurge` and `maxUnavailable` default to **25%**; surge rounds **up** and unavailable rounds **down**. With 3 replicas: surge 1, unavailable 0, so there are always at least 3 ready and at most 4 running. [S, K: the Strategy section was not on the fetched text]
+- **Rolling update** (Kubernetes Deployment): `maxSurge` and `maxUnavailable` default to **25%**; surge rounds **up** and unavailable rounds **down**. With 3 replicas: surge 1, unavailable 0, so there are always at least 3 ready and at most 4 running. [P: Kubernetes Deployment docs: maxSurge defaults to 25% rounded up, maxUnavailable to 25% rounded down]
 
 Rolling worked example: 10 replicas, surge 25% (3), unavailable 25% (2): capacity never falls below **8 of 10**; each wave replaces up to about 5 pods and waits for readiness, so rollout time is roughly waves x (start-up + readiness delay). [computed]
 
-**Blue-green cost:** 2x the steady-state instances while both exist; hours of overlap multiply the instance bill by the overlap fraction. [K]
+**Blue-green cost:** 2x the steady-state instances while both exist; hours of overlap multiply the instance bill by the overlap fraction. [D]
 
 ## 3. Canary arithmetic
 
 - Canary at weight w of R requests/s receives w x R. At 5% of 1,000 req/s that is **50 req/s**. [computed]
 - Bad requests until rollback = w x R x t. A canary that fails everything for 60 s at 5% and 1,000 req/s causes **3,000** failed requests, against 60,000 for an all-at-once release. [computed]
-- **How long to detect a regression.** To tell an error rate p1 from p2 with about 80% power at 5% significance, each arm needs roughly n = 16 x p(1 - p) / delta^2 requests, with p the mean rate and delta the difference. Detecting 1% vs 2% (p = 1.5%, delta = 1%): n = 16 x 0.015 x 0.985 / 0.0001 = **about 2,400** canary requests, so **47 s** at 50 req/s. A latency regression needs more samples because latency is noisy. [K statistics, computed]
-- A canary that is too small (w very low) or too short never collects enough data; one that is too large exposes too many. [K]
-- Promotion needs automatic checks on the golden signals (chapter 16) compared with the baseline, not just "no crashes". [K]
+- **How long to detect a regression.** To tell an error rate p1 from p2 with about 80% power at 5% significance, each arm needs roughly n = 16 x p(1 - p) / delta^2 requests, with p the mean rate and delta the difference. Detecting 1% vs 2% (p = 1.5%, delta = 1%): n = 16 x 0.015 x 0.985 / 0.0001 = **about 2,400** canary requests, so **47 s** at 50 req/s. A latency regression needs more samples because latency is noisy. [D: Lehr's approximation for 80% power at a two-sided 5% level; computed]
+- A canary that is too small (w very low) or too short never collects enough data; one that is too large exposes too many. [D from the two formulas above]
+- Promotion needs automatic checks on the golden signals (chapter 16) compared with the baseline, not just "no crashes". [S: Google SRE workbook, canarying releases]
 
 ## 4. Feature flags
 
-A flag separates **deploy** from **release**: code ships dark and is turned on for a share of users. [K]
+A flag separates **deploy** from **release**: code ships dark and is turned on for a share of users. [S: Fowler, feature toggles]
 
-- **Evaluation** is local (an in-memory rule check, microseconds) when the SDK streams rules from the flag service; it is a **remote call per request** if the service is queried synchronously. [K]
-- **Percentage rollouts** hash a stable user id into a bucket, so a user keeps the same experience as the percentage rises. [K]
-- **Failure:** if the flag service is down, clients use cached rules or a hard-coded default; a default of "on" for a risky feature is a latent incident. [K]
-- Flags make rollback seconds, not minutes, but accumulate as debt if not removed. [K]
+- **Evaluation** is local (an in-memory rule check, microseconds) when the SDK streams rules from the flag service; it is a **remote call per request** if the service is queried synchronously. [D]
+- **Percentage rollouts** hash a stable user id into a bucket, so a user keeps the same experience as the percentage rises. [D]
+- **Failure:** if the flag service is down, clients use cached rules or a hard-coded default; a default of "on" for a risky feature is a latent incident. [D]
+- Flags make rollback seconds, not minutes, but accumulate as debt if not removed. [D]
 
 ## 5. Build, artifacts, policy and secrets
 
@@ -59,7 +58,7 @@ A flag separates **deploy** from **release**: code ships dark and is turned on f
 
 ## 6. Chaos engineering
 
-Run experiments to find weaknesses before they find you. The method: define a **steady state** metric, hypothesise it holds under a fault, inject a realistic fault with a **limited blast radius** and an **abort condition**, then compare. Typical faults: kill an instance, add latency, drop dependency calls, fail a zone. [K: Principles of Chaos Engineering, not fetched]
+Run experiments to find weaknesses before they find you. The method: define a **steady state** metric, hypothesise it holds under a fault, inject a realistic fault with a **limited blast radius** and an **abort condition**, then compare. Typical faults: kill an instance, add latency, drop dependency calls, fail a zone. [P: Principles of Chaos Engineering]
 
 The simulator's fault list is the same set (chapter 22), so a chaos experiment is a topology plus a fault and a pass/fail check on the steady-state metric.
 
@@ -85,10 +84,13 @@ The delivery components are mostly modelled as nodes on the path (latency, capac
 
 ## 10. Open items
 
-- Fetch and cite: the Kubernetes Deployment strategy section; Argo Rollouts or Flagger analysis; Principles of Chaos Engineering; DORA metrics.
+- Not read directly: Argo Rollouts and Flagger analysis, and the DORA metrics. The chaos-experiment steps follow the Principles of Chaos Engineering (define steady state, hypothesise, introduce real-world variables, try to disprove).
 - Decisions `[?]`: what the deployment-controller and feature-flag nodes should do inside the engine beyond routing.
 
 ## Sources
+
+- [Deployments, Kubernetes](https://kubernetes.io/docs/concepts/workloads/controllers/deployment/) [P]
+- [Principles of Chaos Engineering](https://principlesofchaos.org/) [P]
 
 - [BlueGreenDeployment, Martin Fowler](https://martinfowler.com/bliki/BlueGreenDeployment.html) [S]
 - [CanaryRelease, Martin Fowler](https://martinfowler.com/bliki/CanaryRelease.html) [S]

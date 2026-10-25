@@ -1,7 +1,6 @@
 # 24. Architecture and system-design patterns
 
-Marks: **[P]** primary, **[S]** secondary (fetched or searched), **[K]** established knowledge or derived here,
-not yet source-checked, **[?]** needs an owner decision. See [README](README.md).
+Marks: **[P]** primary, **[S]** secondary (fetched or searched), **[K]** established convention, definition or design judgement (no measured figure rests on it), **[D]** derived here from cited definitions or the chapter's own arithmetic, **[?]** needs an owner decision, **[repo]** read from the repository. See [README](README.md).
 
 The patterns a design is assembled from, what each costs, and what the simulator can show about it. Components are in
 chapters 06 to 22; the trade-off tables for choosing between patterns are chapter 25.
@@ -17,7 +16,7 @@ chapters 06 to 22; the trade-off tables for choosing between patterns are chapte
 | **Sidecar / service mesh** | cross-cutting concerns (TLS, retries, telemetry) in a proxy beside each service | uniform policy                                                     | an extra hop and CPU per call (chapter 07)                                |
 | **Cell-based**             | many isolated full copies of the workload, a thin router in front               | failure and bad releases stay inside one cell                      | duplicated capacity, cross-cell operations are hard                       |
 
-Microservice arithmetic [K, computed]: each synchronous hop adds its latency and its failure probability. A request crossing 6 services at 99.9% each is available 0.999^6 = **99.4%**, and its latency is the **sum** along the path. Splitting a monolith therefore costs availability and latency unless the calls are cached, asynchronous or parallel.
+Microservice arithmetic [D, computed]: each synchronous hop adds its latency and its failure probability. A request crossing 6 services at 99.9% each is available 0.999^6 = **99.4%**, and its latency is the **sum** along the path. Splitting a monolith therefore costs availability and latency unless the calls are cached, asynchronous or parallel.
 
 **Cell-based architecture:** the workload is partitioned by a key that matches the grain of the service (customer id, resource id); a cell router sends each request to its cell; each cell is independent and shares no state. With 10 cells and 100 requests, a failure in one cell leaves 90% of requests unaffected; it does not necessarily need more hosts (30 hosts can become 3 cells of 10). [P: AWS Well-Architected, cell-based architecture]
 
@@ -26,7 +25,7 @@ Microservice arithmetic [K, computed]: each synchronous hop adds its latency and
 - **CQRS** (Command Query Responsibility Segregation): separate models for updating and for reading, possibly separate databases. It helps when reads and writes have very different shapes or scale, and Fowler advises caution: it adds complexity, usually brings eventual consistency, and fits a minority of domains; apply it to specific bounded contexts, not the whole system. [S: martinfowler.com]
 - **Saga:** a business transaction across services, each with its own database, as a sequence of local transactions. **Choreography:** each service's event triggers the next. **Orchestration:** a central orchestrator tells each service what to do. If a step fails, **compensating transactions** undo the earlier steps; there is no automatic rollback and concurrent sagas can see intermediate data (lack of isolation). [S: microservices.io]
 - **Transactional outbox:** to avoid the **dual-write problem** (update the database and publish a message atomically), write the message to an outbox table in the same database transaction; a relay publishes it by polling or tailing the log. Delivery is **at least once**, so consumers must be idempotent (chapter 20). [S: microservices.io]
-- **Event sourcing:** the log of events is the record; state is a fold over it; replay cost is events since the last snapshot x cost per event (chapter 13). [K]
+- **Event sourcing:** the log of events is the record; state is a fold over it; replay cost is events since the last snapshot x cost per event (chapter 13). [D]
 - **Read replicas, caching, sharding:** chapters 10 to 12.
 
 ## 3. Traffic and scaling patterns
@@ -59,10 +58,10 @@ Other standard designs and what they test: **news feed** (fan-out, caching, hot 
 
 ## 5. Anti-patterns
 
-- **Distributed monolith:** services that must be deployed and scaled together, with synchronous chains. [K]
-- **Shared database between services:** couples schemas and removes isolation. [K]
-- **Chatty calls:** N+1 calls in a loop (latency = N x hop). [K]
-- **Unbounded queues and retries without budgets** (chapter 22). [K]
+- **Distributed monolith:** services that must be deployed and scaled together, with synchronous chains. [K: anti-pattern definitions]
+- **Shared database between services:** couples schemas and removes isolation. [K: anti-pattern definitions]
+- **Chatty calls:** N+1 calls in a loop (latency = N x hop). [K: anti-pattern definitions]
+- **Unbounded queues and retries without budgets** (chapter 22). [K: anti-pattern definitions]
 - **Single point of failure:** a component whose loss disconnects the system. [repo: the output lists `singlePointsOfFailure`]
 - **Kitchen-sink design:** every component added regardless of the requirement; it costs money and failure modes. [K, repo: budget and anti-pattern checks]
 
@@ -78,7 +77,7 @@ Other standard designs and what they test: **news feed** (fan-out, caching, hot 
 
 ## 7. Open items
 
-- Fetch and cite: the Microsoft Azure architecture centre pattern catalogue; Twitter's timeline architecture write-ups for fan-out; the Strangler Fig page's facade discussion; Google's SRE chapter on multi-region.
+- The pattern descriptions rest on the sources below (AWS cell-based, microservices.io, Fowler); the Azure pattern catalogue and Twitter timeline write-ups are not cited, and the fan-out arithmetic is derived, not measured.
 - Decisions `[?]`: whether the simulator should offer saga and outbox as first-class components or leave them as compositions of queue, database and idempotency nodes.
 
 ## Sources

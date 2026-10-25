@@ -1,7 +1,6 @@
 # 09. Storage and databases
 
-Marks: **[P]** primary, **[S]** secondary (fetched or searched), **[K]** established knowledge or derived here,
-not yet source-checked, **[?]** needs an owner decision. See [README](README.md).
+Marks: **[P]** primary, **[S]** secondary (fetched or searched), **[K]** established convention, definition or design judgement (no measured figure rests on it), **[D]** derived here from cited definitions or the chapter's own arithmetic, **[?]** needs an owner decision, **[repo]** read from the repository. See [README](README.md).
 
 The 19 `StorageType`s: `relational-db`, `nosql-db`, `object-storage`, `block-storage`, `distributed-file-system`,
 `in-memory-cache`, `search-index`, `time-series-db`, `columnar-db`, `graph-db`, `vector-db`, `data-warehouse`,
@@ -13,7 +12,7 @@ backup flows touch chapter 13.
 
 A store holds data durably and answers reads and writes. Its limits are always one of: **I/O operations per second**
 (IOPS), **bytes per second** (throughput), **CPU** (query execution, compression), **memory** (working set), **connections**,
-or **capacity** (bytes). A request is slow when it waits behind one of those. [K]
+or **capacity** (bytes). A request is slow when it waits behind one of those. [D: a request waits for its constrained resource, chapter 01]
 
 Anchor numbers [S: "latency numbers" list circa 2012; order of magnitude only]:
 
@@ -34,7 +33,7 @@ Rules of thumb that follow: memory is about 1,500x faster than an SSD random rea
 - **gp3** (general purpose SSD): baseline **3,000 IOPS and 125 MiB/s**, independent of volume size; provision up to 80,000 IOPS and 2,000 MiB/s; throughput scales 0.25 MiB/s per provisioned IOPS (2,000 MiB/s needs 8,000 IOPS); single-digit-millisecond latency; no burst credits. [P]
 - **gp2:** 3 IOPS per GiB (minimum 100, maximum 16,000), bursting to 3,000 IOPS from a credit bucket of 5.4 million credits. Burst duration = credits / (burst IOPS − baseline IOPS). A 100 GiB volume (300 IOPS baseline) bursts 5.4 M / 2,700 = **2,000 s** and needs 18,000 s to refill; a 750 GiB volume (2,250 baseline) bursts 7,200 s. [P, computed]
 - Worked: 3,000 IOPS at 16 KiB = **46.9 MiB/s**, so the IOPS limit binds first; to reach 125 MiB/s you need 8,000 IOPS at 16 KiB, 500 IOPS at 256 KiB, or 32,000 IOPS at 4 KiB. Small random I/O is IOPS-limited, large sequential I/O is throughput-limited. [computed]
-- **Queue depth (Little's Law, chapter 01).** A device that serves one 150 us random read at a time does 1 / 150 us = **6,667 IOPS** at queue depth 1; SSDs serve many in parallel, so throughput rises with queue depth until the device saturates. IOPS = outstanding requests / latency. [K, computed]
+- **Queue depth (Little's Law, chapter 01).** A device that serves one 150 us random read at a time does 1 / 150 us = **6,667 IOPS** at queue depth 1; SSDs serve many in parallel, so throughput rises with queue depth until the device saturates. IOPS = outstanding requests / latency. [D from Little's law, computed]
 - Saturation shows as latency rising with queue depth, exactly like any queue: expect the hockey stick (chapter 01 section 4.1).
 
 **Testable expectations**
@@ -54,18 +53,19 @@ Rules of thumb that follow: memory is about 1,500x faster than an SSD random rea
 
 - **Write path of an LSM-tree** (Cassandra, RocksDB, HBase): append to a write-ahead log, insert into an in-memory sorted buffer (memtable); when full, flush **sequentially** to disk as an immutable sorted file; updates write new entries and deletes write **tombstones**. **Compaction** merges files in the background. [S: Wikipedia LSM-tree]
 - **Compaction trade-off:** leveling (one run per level) gives fewer files to read but more rewriting (higher write amplification); tiering (several runs per level) gives less rewriting but reads must check more files. Write amplification under leveling is O(T x L / B) for size ratio T, L levels and B entries per page. [S]
-- **Bloom filters** let a lookup skip files that cannot contain the key. False-positive rate p = (1 − e^(−kn/m))^k: 10 bits per key with k = 7 gives **0.82%**; 8 bits with k = 6 gives 2.2%. [K, computed]
+- **Bloom filters** let a lookup skip files that cannot contain the key. False-positive rate p = (1 − e^(−kn/m))^k: 10 bits per key with k = 7 gives **0.82%**; 8 bits with k = 6 gives 2.2%; the optimum k = (m/n) ln 2, and about 9.6 bits per key gives 1%. [S: Wikipedia, Bloom filter; computed]
 - LSM favours **write-heavy** workloads (sequential I/O); mixed workloads can suffer because compaction competes for I/O and invalidates cached data. B-trees favour point reads and updates in place. [S]
-- Real effect on capacity: effective device write rate = application writes x write amplification. A 10 MB/s write load at amplification 10 needs 100 MB/s of disk. The simulator models this with a write-amplification setting on storage capacity. [K, repo config]
+- Real effect on capacity: effective device write rate = application writes x write amplification. A 10 MB/s write load at amplification 10 needs 100 MB/s of disk. The simulator models this with a write-amplification setting on storage capacity. [D, repo config] RocksDB's tuning guide gives a worked leveled-compaction estimate of 1 + 2 + 10 + 10 + 10 = 33 for a 500 GB database with a 10x level multiplier, and says universal compaction was introduced to reduce write amplification. [S: RocksDB wiki]
 - Typical defaults: 4 ms for a NoSQL point read and 7 ms for a write; 1 ms for a key-value read. [repo: storage profile]
 
 ## 5. Object, block and file storage
 
 - **Object storage (S3):** flat namespace of bucket + key; whole-object PUT and GET over HTTP; very high durability and capacity; **strong read-after-write consistency** for PUT and DELETE in all regions (since 2020): a read after a successful PUT returns the new data, a list after a PUT shows it; updates to one key are atomic; there are **no atomic updates across keys**; concurrent writes to a key resolve last-writer-wins. Bucket configuration remains eventually consistent. [P: AWS S3 docs]
-- Latency is tens of milliseconds per request (simulator default: a 24 ms read and a 36 ms write); throughput scales by issuing many parallel requests; per-request overhead makes many small objects costly. [K]
-- Durability design target of 11 nines for standard classes. [K, verify against the S3 storage-class page]
+- Latency is tens of milliseconds per request (simulator default: a 24 ms read and a 36 ms write); throughput scales by issuing many parallel requests; per-request overhead makes many small objects costly. [P: AWS S3 performance guide: roughly 100 to 200 ms for small objects and first byte, at least 5,500 GET and 3,500 PUT requests per second per prefix]
+  Known difference: the simulator's defaults (24 ms read) are several times faster than S3's documented first-byte latency; a design that leans on S3 latency will look better in the simulator than in practice.
+- Durability design target of 11 nines for standard classes. [P: AWS S3 storage classes: "designed to exceed 99.999999999%"; designed availability of Standard 99.99%]
 - **Block storage (EBS-like):** a raw volume attached to one instance; IOPS and throughput limits as in section 2. **Distributed file system (HDFS-style):** large files split into blocks replicated across nodes; high sequential throughput, poor for small files. [K]
-- **Archive storage:** cheap, slow retrieval (minutes to hours), minimum storage durations. **Backup service:** copies on a schedule; recovery point objective (RPO) = time since last backup; recovery time objective (RTO) = restore duration = data size / restore rate. [K]
+- **Archive storage:** cheap, slow retrieval (minutes to hours), minimum storage durations. **Backup service:** copies on a schedule; recovery point objective (RPO) = time since last backup; recovery time objective (RTO) = restore duration = data size / restore rate. [P: AWS S3 storage classes for archive retrieval (Glacier Flexible: minutes to hours, 90-day minimum; Deep Archive: 12 to 48 hours, 180-day minimum); definitions of RPO and RTO are standard]
   Worked: 2 TB restored at 200 MB/s takes 10,000 s, **2.8 hours**. [computed]
 
 ## 6. Analytical stores
@@ -89,7 +89,7 @@ Rules of thumb that follow: memory is about 1,500x faster than an SSD random rea
 
 ## 9. Capacity, replication and cost arithmetic
 
-- Raw size = rows x bytes per row; index overhead adds roughly 20% to 50%; **replication multiplies stored bytes**: 200 GB at 3 replicas is 600 GB. 10⁹ rows x 200 B = 200 GB. [K, computed]
+- Raw size = rows x bytes per row; index overhead adds roughly 20% to 50%; **replication multiplies stored bytes**: 200 GB at 3 replicas is 600 GB. 10⁹ rows x 200 B = 200 GB. [D; the 20% to 50% index overhead is a rule of thumb, not a standard]
 - Working set vs memory: if the hot set fits in memory most reads never touch disk (chapter 10); if not, hit ratio and tail latency fall sharply.
 - Per-operation cost differs by store model: provisioned instance-hours, per-request (consumption) pricing, and per-GB storage and egress. The simulator's cost model has instance-based, per-million-request and per-GB lines. [repo]
 
@@ -115,10 +115,16 @@ Rules of thumb that follow: memory is about 1,500x faster than an SSD random rea
 
 ## 12. Open items
 
-- Fetch and cite: S3 durability and per-prefix request rates (current), the HNSW paper's complexity statements, an LSM write-amplification source with concrete numbers (RocksDB wiki), DynamoDB-style per-partition limits (chapter 12).
+- HNSW complexity: the paper's abstract claims logarithmic scaling [P: arXiv 1603.09320]; no measured figures are asserted here. DynamoDB per-partition limits are in chapter 12.
 - Decisions `[?]`: whether the simulator should model index depth (reads costing more as data grows) and compaction stalls.
 
 ## Sources
+
+- [Amazon S3 storage classes](https://aws.amazon.com/s3/storage-classes/) [P]
+- [Optimizing Amazon S3 performance](https://docs.aws.amazon.com/AmazonS3/latest/userguide/optimizing-performance.html) [P]
+- [Bloom filter, Wikipedia](https://en.wikipedia.org/wiki/Bloom_filter) [S]
+- [RocksDB tuning guide](https://github.com/facebook/rocksdb/wiki/RocksDB-Tuning-Guide) [P]
+- [HNSW, Malkov and Yashunin](https://arxiv.org/abs/1603.09320) [P, abstract]
 
 - [B-tree, Wikipedia](https://en.wikipedia.org/wiki/B-tree) [S]
 - [Log-structured merge-tree, Wikipedia](https://en.wikipedia.org/wiki/Log-structured_merge-tree) [S]

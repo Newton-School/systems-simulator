@@ -1,7 +1,6 @@
 # 05. Traffic and workload patterns
 
-Marks: **[P]** primary, **[S]** secondary (fetched or searched), **[K]** established knowledge, not yet source-checked,
-**[?]** needs an owner decision. See [README](README.md).
+Marks: **[P]** primary, **[S]** secondary (fetched or searched), **[K]** established convention, definition or design judgement (no measured figure rests on it), **[D]** derived here from cited definitions or the chapter's own arithmetic, **[?]** needs an owner decision, **[repo]** read from the repository. See [README](README.md).
 
 What the traffic into a design looks like, how to describe it with numbers, and how each of the simulator's seven patterns
 should behave. Queueing results (chapter 01) are only as good as the arrival process they are fed.
@@ -17,7 +16,7 @@ should behave. Queueing results (chapter 01) are only as good as the arrival pro
 | Burstiness / index of dispersion   | variance of counts per window divided by the mean count; 1 for Poisson, > 1 for bursty                                  |
 | Arrival process vs service process | independent inputs of a queue; Kingman's formula uses c_a² and c_s² (chapter 01 section 4.3)                            |
 
-Total arrivals over a window = integral of the rate. For a piecewise-constant rate that is the sum of rate x duration. [K]
+Total arrivals over a window = integral of the rate. For a piecewise-constant rate that is the sum of rate x duration. [D]
 
 ## 2. The seven patterns
 
@@ -37,7 +36,7 @@ Total arrivals over a window = integral of the rate. For a piecewise-constant ra
 
 ### 2.3 Bursty (on/off)
 
-- Alternates between a **burst** phase at `burstRps` for `burstDuration` and a **normal** phase at base rate for `normalDuration`, repeating. [K, config fields below]
+- Alternates between a **burst** phase at `burstRps` for `burstDuration` and a **normal** phase at base rate for `normalDuration`, repeating. [repo, config fields below]
 - Mean rate = (burstRps x burstDuration + baseRps x normalDuration) / (burstDuration + normalDuration).
   Worked: burst 400 rps for 1 s, normal 50 rps for 3 s: mean = (400 + 150) / 4 = **137.5 rps**; peak-to-mean 2.91. [computed]
 - Counts per 1 s window alternate 400, 50, 50, 50 (plus noise), so variance between windows is about 22,969 against a Poisson variance of 137.5: the index of dispersion is about 168. This is far burstier than Poisson. [computed]
@@ -49,15 +48,15 @@ Total arrivals over a window = integral of the rate. For a piecewise-constant ra
 
 ### 2.4 Diurnal
 
-- Rate varies by hour of day: rate(h) = baseRps x multiplier(h), with 24 hourly multipliers and a `peakMultiplier`. [K, config]
+- Rate varies by hour of day: rate(h) = baseRps x multiplier(h), with 24 hourly multipliers and a `peakMultiplier`. [repo]
 - **Simulator behaviour (observed):** the 24 hourly values are stretched across the whole run, so one simulated day = the run duration. A 60 s run covers all 24 hours at 2.5 s per hour; the first hour's rate applies for the first 2.5 s.
 - Daily mean = baseRps x average of the 24 multipliers. Example: multipliers 1 + 0.5 sin(2 pi (h − 9) / 24): mean 1.0, peak 1.5, peak-to-mean 1.5.
-- Real daily cycles span roughly 2x to 10x between trough and peak for consumer services, and have weekly and event-driven (campaign, holiday) layers. [K]
+- Real daily cycles differ by service: a practitioner rule of thumb is a 3 to 4x ratio between daily maximum and minimum load (peak-to-mean about 1.6 to 1.7) for a global user base, and local-audience services swing more; weekly and event-driven (campaign, holiday) layers add to it. [S: Robust Perception, peak-to-mean ratio; Gribble et al., USITS 1997 trace study] Measure your own hourly logs before fixing a multiplier.
 - Test: arrivals in hour h are proportional to multiplier(h); the total over the run = baseRps x duration x mean multiplier. Because the day is stretched over the run, results for diurnal runs describe the shape of a day, not real-time seconds.
 
 ### 2.5 Spike
 
-- Base rate with a window starting at `spikeTime` lasting `spikeDuration` at `spikeRps`. [K, config]
+- Base rate with a window starting at `spikeTime` lasting `spikeDuration` at `spikeRps`. [repo]
 - Total = base x T + (spikeRps − base) x spikeDuration. Worked: base 100 rps, spike to 500 for 5 s in a 60 s run = 6,000 + 400 x 5 = **8,000** requests, average 133.3 rps. [computed]
 - Real analogues: a flash sale, a viral link, a retry storm after an outage, a cache expiry herd. The chaos "traffic spike" preset multiplies the rate for a window.
 - What to watch: queue depth builds during the spike at (spike rate − capacity) per second, and drains afterwards at (capacity − base rate) per second. Recovery time after the spike
@@ -68,12 +67,12 @@ Total arrivals over a window = integral of the rate. For a piecewise-constant ra
 
 - Rate ramps linearly from the **base rate** (`baseRps`) up to `peakRps` over `rampDuration`, then resets to the base, repeating. [observed]
 - Mean over whole ramps = (base + peak) / 2. Example: base 10, peak 200, ramp 10 s: mean 105 rps, 6,300 requests over 60 s. (A ramp from 0 would average peak / 2 = 100.) [computed]
-- Use: find the load at which a design breaks (the knee). Record the time at which error rate or latency first exceeds a threshold, then read the rate at that time: rate(t) = peak x t / ramp. [K]
+- Use: find the load at which a design breaks (the knee). Record the time at which error rate or latency first exceeds a threshold, then read the rate at that time: rate(t) = peak x t / ramp. [D]
 - Also models a slow ramp-up of traffic, such as a launch.
 
 ### 2.7 Replay
 
-- Re-issue a recorded arrival trace (timestamps and types). The only pattern with real burstiness and correlation structure built in. [K]
+- Re-issue a recorded arrival trace (timestamps and types). The only pattern with real burstiness and correlation structure built in. [D: a recorded trace carries the real inter-arrival dependence that synthetic patterns lack]
 - Mean rate and request mix equal the trace's. Reproducible for a fixed trace. Limit: cannot extrapolate to a rate or length the trace does not cover.
 
 ## 3. Open, closed and partly open workloads
@@ -97,8 +96,8 @@ The paper reports that the choice changes results a lot (scheduling policies, re
 
 ## 4. Request mix, size and key popularity
 
-- `requestDistribution`: a list of request types with weights summing to 1 and a size in bytes; each request gets a type by weighted choice. Expected share of type i = w_i. [K]
-- **Zipf popularity (hot keys).** When a keyspace has skew s, the key of rank r is drawn with probability proportional to r^(−s); the chance of the rank-r key is r^(−s) / H(N, s) where H is the sum of r^(−s) over the N ranks. [K]
+- `requestDistribution`: a list of request types with weights summing to 1 and a size in bytes; each request gets a type by weighted choice. Expected share of type i = w_i. [D]
+- **Zipf popularity (hot keys).** When a keyspace has skew s, the key of rank r is drawn with probability proportional to r^(−s); the chance of the rank-r key is r^(−s) / H(N, s) where H is the sum of r^(−s) over the N ranks. [S: Wikipedia, Zipf's law]
   For N = 1,000 keys: with s = 1.0, H = 7.485, so the top key gets **13.4%** of requests, the top 10 get **39.1%**, the top 100 get **69.3%** (uniform would give 0.1%, 1%, 10%). With s = 0.8: top key 6.5%, top 10 23.1%, top 100 52.6%. [computed]
   Consequence: a cache holding the top 100 keys serves about 69% of requests with s = 1.0. This is why a small cache earns a high hit rate and why one hot partition saturates first (chapter 10, chapter 12).
 - Size matters for bandwidth and transfer time: transmission delay = size / bandwidth (chapter 08).
@@ -152,11 +151,15 @@ How simulated time maps to the hours of the diurnal curve, and whether replay ac
 
 ## 10. Open items
 
-- Fetch and cite: the full Schroeder et al. paper (the eight principles); Fischer and Meier-Hellstern on the MMPP; a source for the real daily-peak ratios (section 2.4).
+- Schroeder et al. (open versus closed workloads) is cited from its abstract and summaries; the eight principles in full and the MMPP papers are not read directly, and the chapter relies on them only for the open/closed distinction and the idea of burst-state arrivals.
 - Add a closed-population source (N users, think time Z) if teaching closed-loop behaviour matters; then the interactive response time law is directly testable.
 - Owner decisions `[?]`: diurnal time mapping; whether to model heavy-tailed burst durations.
 
 ## Sources
+
+- [Zipf's law, Wikipedia](https://en.wikipedia.org/wiki/Zipf%27s_law) [S]
+- [Do you know your peak to mean ratio, Robust Perception](https://robustperception.io/do-you-know-your-peak-to-mean-ratio) [S]
+- [Gribble et al., trace analysis of a local-audience web service, USITS 1997](https://static.usenix.org/publications/library/proceedings/usits97/full_papers/gribble/gribble_html/node8.html) [S]
 
 - [Poisson distribution, Wikipedia](https://en.wikipedia.org/wiki/Poisson_distribution) [S]
 - [Exponential distribution, Wikipedia](https://en.wikipedia.org/wiki/Exponential_distribution) [S]

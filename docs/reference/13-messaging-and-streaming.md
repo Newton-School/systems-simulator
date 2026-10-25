@@ -1,7 +1,6 @@
 # 13. Messaging and streaming
 
-Marks: **[P]** primary, **[S]** secondary (fetched or searched), **[K]** established knowledge or derived here,
-not yet source-checked, **[?]** needs an owner decision. See [README](README.md).
+Marks: **[P]** primary, **[S]** secondary (fetched or searched), **[K]** established convention, definition or design judgement (no measured figure rests on it), **[D]** derived here from cited definitions or the chapter's own arithmetic, **[?]** needs an owner decision, **[repo]** read from the repository. See [README](README.md).
 
 The 7 `MessagingType`s: `queue`, `pub-sub`, `stream`, `event-bus`, `event-sourcing-store`, `message-broker`,
 `task-queue`. Related: change data capture (chapter 09), request batching and Kafka edges (chapter 08),
@@ -9,10 +8,10 @@ consumers as compute nodes (chapter 06), and idempotency (chapter 20).
 
 ## 1. Why put a broker between services
 
-A **broker** decouples producer and consumer in time, rate and failure: the producer hands off and continues; the consumer processes when ready; a burst waits in the buffer instead of overwhelming the consumer. [K]
+A **broker** decouples producer and consumer in time, rate and failure: the producer hands off and continues; the consumer processes when ready; a burst waits in the buffer instead of overwhelming the consumer. [D]
 
 - Price: another system to run, **at-least-once** delivery needing idempotent consumers, ordering limits, and added end-to-end latency (chapter 08: an asynchronous edge hides the downstream wait from the caller but not the load).
-- **Backpressure** is the alternative to an unbounded buffer: a bounded queue pushes back on producers (reject, block, or shed) so memory does not grow without limit. [K]
+- **Backpressure** is the alternative to an unbounded buffer: a bounded queue pushes back on producers (reject, block, or shed) so memory does not grow without limit. [D]
 
 ## 2. The shapes
 
@@ -26,7 +25,7 @@ A **broker** decouples producer and consumer in time, rate and failure: the prod
 | **Message broker**             | queues and exchanges with routing (AMQP-style)                   | per binding                                           | until consumed                        | enterprise integration          |
 | **Task queue**                 | one message to one worker with retries and scheduling            | workers                                               | until done                            | background jobs                 |
 
-[K] The simulator treats queue, stream, broker and background-worker node types as **asynchronous boundaries** (chapter 08): the producer is acknowledged at append and consumption is an independent flow. [repo]
+[repo] The simulator treats queue, stream, broker and background-worker node types as **asynchronous boundaries** (chapter 08): the producer is acknowledged at append and consumption is an independent flow. [repo]
 
 ## 3. Delivery guarantees
 
@@ -49,10 +48,10 @@ A received message is **hidden** for the visibility timeout (default **30 s** in
 ## 4. Consumer groups, partitions and ordering (Kafka-style)
 
 - A topic has **p partitions**. Each partition is an ordered log. **Ordering is guaranteed only within a partition.** A message key hashed to a partition keeps all messages of one key in order. [S/K]
-- A **consumer group** shares the work: each partition is read by **exactly one** consumer in the group at a time, so **parallelism is capped by p**: more consumers than partitions leaves the extras idle. Different groups each read everything independently. [K]
+- A **consumer group** shares the work: each partition is read by **exactly one** consumer in the group at a time, so **parallelism is capped by p**: more consumers than partitions leaves the extras idle. Different groups each read everything independently. [S: Conduktor, consumer groups and offsets]
 - **Offsets:** a consumer's position in each partition; committing it is what defines at-most-once or at-least-once (section 3). [S]
-- **Rebalance:** when consumers join or leave, partitions are reassigned and consumption **pauses** briefly; frequent rebalances look like a throughput dip. [K]
-- **Producer acknowledgement:** acks = 0 (do not wait: fastest, may lose), 1 (leader only: loses if the leader dies before replicating), all (every in-sync replica: safest, slowest). [K]
+- **Rebalance:** when consumers join or leave, partitions are reassigned and consumption **pauses** briefly; frequent rebalances look like a throughput dip. [D: no partition is consumed during reassignment]
+- **Producer acknowledgement:** acks = 0 (do not wait: fastest, may lose), 1 (leader only: loses if the leader dies before replicating), all (every in-sync replica: safest, slowest). [S: Conduktor, producer acks; with RF = 3 and min.insync.replicas = 2 one broker may fail]
 - **Partition count** is chosen for the maximum parallelism and throughput you will need; it is awkward to change later (it breaks key-to-partition mapping). Chapter 12 section 7.
 
 ## 5. Queue maths
@@ -60,7 +59,7 @@ A received message is **hidden** for the visibility timeout (default **30 s** in
 Every consumer set is a queue (chapter 01). Let producers arrive at rate lambda and consumers drain at rate c x mu.
 
 - **Backlog grows at (lambda − c mu)** when lambda exceeds consumer capacity; it drains at (c mu − lambda) when capacity exceeds arrivals. Producers at 1,200/s against a 1,000/s consumer fleet for 60 s leave **12,000 messages** of lag; if capacity then rises to 1,500/s with arrivals back at 1,000/s, it drains at 500/s in **24 s**. [computed]
-- **Lag in time = lag in messages / consume rate.** 12,000 messages at 1,000/s is 12 s behind real time. **Consumer lag** (messages behind the latest offset) is the key health metric. [K]
+- **Lag in time = lag in messages / consume rate.** 12,000 messages at 1,000/s is 12 s behind real time. **Consumer lag** (messages behind the latest offset) is the key health metric. [D]
 - **Consumers needed = arrival rate x processing time / target utilisation** (Little's Law): 10,000 msg/s x 50 ms / 0.7 = **714** concurrent workers. [computed]
 - **Stability:** a queue is stable only if lambda < c x mu. Below that, delay stays bounded and follows the formulas of chapter 01; above it, an unbounded backlog (or rejected messages if bounded) is the only outcome.
 - **Little's Law on the buffer:** messages in queue = arrival rate x time in queue. 1,000/s with a 5 s wait holds 5,000 messages.
@@ -79,17 +78,17 @@ Every consumer set is a queue (chapter 01). Let producers arrive at rate lambda 
 
 ## 6. Event sourcing, replay and snapshots
 
-- The **event log is the source of truth**; current state = fold of events. To recover, **replay** events from the start or from a **snapshot**. [K]
+- The **event log is the source of truth**; current state = fold of events. To recover, **replay** events from the start or from a **snapshot**. [D: definitions]
 - Replay time = events replayed x time per event. 10⁶ events at 0.01 ms each = **10 s**; with a snapshot every 10,000 events at most 10,000 are replayed: **0.1 s**. The snapshot interval trades storage and write cost for recovery time. [computed]
-- Events are immutable; corrections are new events; schemas evolve through a registry (chapter 09). [K]
+- Events are immutable; corrections are new events; schemas evolve through a registry (chapter 09). [D]
 
 ## 7. Windowing and stream processing
 
-Streaming analytics groups events into **windows**: tumbling (fixed, non-overlapping), sliding (overlapping), session (gaps). Events in a tumbling window of w seconds at rate r: r x w = 500/s x 10 s = **5,000**. Late events need a watermark or a lateness bound; state grows with window length and keys. [K, chapter 18]
+Streaming analytics groups events into **windows**: tumbling (fixed, non-overlapping), sliding (overlapping), session (gaps). Events in a tumbling window of w seconds at rate r: r x w = 500/s x 10 s = **5,000**. Late events need a watermark or a lateness bound; state grows with window length and keys. [D, chapter 18]
 
 ## 8. Change data capture
 
-CDC turns a database's change log into a stream, keeping derived stores in step without dual writes. Ordering is per key or partition; consumers must be idempotent and handle redelivery; a slow consumer lags without affecting the database. [K, chapter 09]
+CDC turns a database's change log into a stream, keeping derived stores in step without dual writes. Ordering is per key or partition; consumers must be idempotent and handle redelivery; a slow consumer lags without affecting the database. [D, chapter 09]
 
 ## 9. Failure modes
 
@@ -133,7 +132,7 @@ Known probe result recorded in the project: a stream with 200 produced and a slo
 
 ## 12. Open items
 
-- Fetch and cite: Kafka's own design documentation (delivery semantics, consumer groups); SQS developer guide pages for `maxReceiveCount` and FIFO deduplication; the Kafka transactions design doc; a source for rebalance cost.
+- Kafka's own design documentation could not be fetched as text; delivery, consumer-group and acks claims are cited to Conduktor's guides and the SQS developer guide (visibility timeout, read directly). A source for rebalance cost and the SQS FIFO deduplication window are not cited, and no figure here depends on them.
 - Decisions `[?]`: whether the stream and queue counters should be labelled "produced" and "delivered" (carried over from the engine probe notes).
 
 ## Sources

@@ -1,7 +1,6 @@
 # 08. Edges, protocols and network physics
 
-Marks: **[P]** primary, **[S]** secondary (fetched or searched), **[K]** established knowledge or derived here,
-not yet source-checked, **[?]** needs an owner decision. See [README](README.md).
+Marks: **[P]** primary, **[S]** secondary (fetched or searched), **[K]** established convention, definition or design judgement (no measured figure rests on it), **[D]** derived here from cited definitions or the chapter's own arithmetic, **[?]** needs an owner decision, **[repo]** read from the repository. See [README](README.md).
 
 An **edge** is the connection between two nodes. It carries a request over some distance, at some bandwidth,
 through some protocol, and it can lose or fail it. This chapter covers each of those, with the arithmetic.
@@ -11,7 +10,7 @@ Edge fields in the simulator: `mode`, `protocol`, `latency` (distribution and `p
 ## 1. The cost of one hop
 
 A request crossing an edge pays, in order: **connection setup** (if no warm connection), **transmission** (putting the bytes on the wire),
-**propagation** (the signal travelling), possible **queueing** at a busy link, and **retransmission** if packets are lost. [K]
+**propagation** (the signal travelling), possible **queueing** at a busy link, and **retransmission** if packets are lost. [D: the components of one hop]
 
 time per hop = setup + queue wait + size / bandwidth + propagation (+ loss recovery)
 
@@ -59,7 +58,7 @@ Comparison with the numbers above [computed]: `same-dc` (median 1.0 ms) is about
 
 ## 3. Transmission delay and bandwidth
 
-**transmission time = size / bandwidth.** [K]
+**transmission time = size / bandwidth.** [D: definition]
 
 - 1 KB at 1 Gbps = 8 us (the reference list says 10 us). 1 MB at 100 Mbps = **80 ms**. The simulator uses size_bytes / (Mbps x 125) ms, which gives 0.008 ms for 1,000 bytes at 1,000 Mbps. [computed]
 - A link is a **FIFO server**: transfers that arrive while an earlier one is still serialising wait. Throughput can never exceed bandwidth; offered load above it builds a queue exactly like a node (chapter 01).
@@ -75,8 +74,8 @@ Comparison with the numbers above [computed]: `same-dc` (median 1.0 ms) is about
 
 ## 4. TCP, TLS and what a new connection costs
 
-- **TCP** needs a three-way handshake: **1 round trip** before any data moves. [S: RFC 6928 context; K]
-- **TLS 1.2** adds **2 round trips**; **TLS 1.3** adds **1**; **TLS 1.3 resumption with 0-RTT** lets the client send data in its first flight (replayable, so only safe for requests that can be repeated). [S: secondary summaries of RFC 8446]
+- **TCP** needs a three-way handshake: **1 round trip** before any data moves. [S: RFC 9293 and RFC 6928 context]
+- **TLS 1.2** adds **2 round trips**; **TLS 1.3** adds **1**; **TLS 1.3 resumption with 0-RTT** lets the client send data in its first flight (replayable, so only safe for requests that can be repeated). [P: RFC 8446 sections 1.2 and 2.3 for the 1-RTT handshake and 0-RTT replay warning; the TLS 1.2 two round trips are standard and not re-read here]
 - So the time to the first response byte on a fresh HTTPS connection, with round-trip time R and a server that answers instantly [computed]:
 
 | Case                               | Round trips | At R = 60 ms | At R = 1 ms |
@@ -102,8 +101,8 @@ Comparison with the numbers above [computed]: `same-dc` (median 1.0 ms) is about
   **rate <= (MSS / RTT) x C / sqrt(p)**, with C about 1.22 (sqrt(3/2)) when every packet is acknowledged, 0.87 with delayed acks. It assumes light to moderate loss and no timeouts; Padhye et al. is more accurate above p of about 2%. [S]
 - Worked, MSS = 1,460 bytes, RTT = 50 ms [computed]: p = 0.01% gives **28.6 Mbit/s**; p = 0.1% gives **9.05 Mbit/s**; p = 1% gives **2.86 Mbit/s**, whatever the link capacity. Loss, not bandwidth, can be the limit on long paths.
 - A request of k packets is hit if any is lost: P = 1 − (1 − p)^k. With p = 1% and k = 10, **9.6%**. [computed] Large responses suffer more often than small ones.
-- Recovery waits for a timeout when there are too few later packets to trigger fast retransmit (typical minimum retransmission timeout around 200 ms on Linux), so a lost packet can cost far more than one round trip. [K]
-- UDP does no retransmission: a lost datagram is gone unless the application handles it (QUIC, DNS, games, real-time media). [K]
+- Recovery waits for a timeout when there are too few later packets to trigger fast retransmit (RFC 6298 recommends a 1 s minimum RTO, while Linux uses a 200 ms floor (`TCP_RTO_MIN`); tail-loss probes can recover sooner), so a lost packet can cost far more than one round trip. [P: RFC 6298; S: Linux kernel header via mailing-list citations]
+- UDP does no retransmission: a lost datagram is gone unless the application handles it (QUIC, DNS, games, real-time media). [P: RFC 9000 runs QUIC over UDP and supplies its own loss recovery]
 - **Simulator behaviour (observed, flows `E-08`):** a lost packet adds **one extra edge latency** (a fast-retransmit round trip) and never fails the request: at 20 ms latency and 10% loss about 10% of requests take 41 ms instead of 21 ms, and none fail. The probability a one-packet request is hit is p. The Mathis throughput bound is **not modelled**: loss never lowers delivered bandwidth, and a retransmission timeout (hundreds of ms) is not modelled either, so heavy-loss paths look better in the simulator than in reality (`E-08b`, parked).
 
 ## 6. Protocols
@@ -140,7 +139,7 @@ Connections needed = concurrent requests / requests per connection, and concurre
 | `streaming`    | long-lived, many messages        | no per-message setup                                                                          |
 | `conditional`  | taken only if a condition holds  | splits traffic by rule                                                                        |
 
-- Asynchronous does **not** remove load: the downstream still receives every message. It removes the caller's wait and decouples availability. [K]
+- Asynchronous does **not** remove load: the downstream still receives every message. It removes the caller's wait and decouples availability. [D: conservation of messages, chapter 13]
 - **Simulator behaviour (observed, flows `E-11`):** an asynchronous edge **forks a side branch** next to the synchronous continuation. The branch still loads its target (every request arrives there) and is reported as its **own request**, so a service with a 3 ms synchronous path and a 200 ms asynchronous side branch shows a blended p99 of about 200 ms while the user-facing path takes about 5 ms. Read per-branch latency, not the blended percentile, for user experience. If a node has **no** synchronous continuation, the asynchronous branch simply is the request and the caller waits. Queue and stream node types are asynchronous **by type** and detach the caller automatically. Two synchronous targets are a split (each request goes to one), not a fork.
 
 ## 8. Batching (Kafka-style)
@@ -158,7 +157,7 @@ A fan-out factor f multiplies the load a request creates downstream: one post wr
 
 ## 10. Errors on the wire
 
-- `errorRate` is the chance a request over this edge fails (for example a reset or refused connection); `packetLossRate` is the chance a packet is lost and must be retransmitted. They are different failures: errors fail requests, loss delays them. [K]
+- `errorRate` is the chance a request over this edge fails (for example a reset or refused connection); `packetLossRate` is the chance a packet is lost and must be retransmitted. They are different failures: errors fail requests, loss delays them. [D]
 - A failure rate e per hop gives a path success rate of the product of (1 − e) over hops. Five hops at 1% each: 95.1%. [computed: 0.99^5]
 
 ## 11. Simulator parameter map
@@ -191,10 +190,14 @@ A fan-out factor f multiplies the load a request creates downstream: one post wr
 
 ## 13. Open items
 
-- Fetch and cite: RFC 8446 and RFC 9113 text; Mathis et al. 1997; Kafka producer configuration page for defaults; AWS Network Manager inter-region latency figures; QUIC (RFC 9000) for the combined handshake.
+- RFC 9113 is read through a mailing-list copy and the Kafka producer `batch.size` default is unconfirmed; AWS inter-region latency figures are deliberately not asserted (section 2 gives only measured intra-region ranges).
 - Decisions `[?]`: one-way or round-trip meaning of path-type latency; whether to recalibrate `cross-zone`; how response transfer should be charged since responses do not traverse edges.
 
 ## Sources
+
+- [RFC 8446: TLS 1.3](https://datatracker.ietf.org/doc/html/rfc8446) [P]
+- [RFC 6298: Computing TCP's retransmission timer](https://datatracker.ietf.org/doc/html/rfc6298) [P]
+- [RFC 9000: QUIC](https://datatracker.ietf.org/doc/html/rfc9000) [P]
 
 - [Latency numbers every programmer should know (list, circa 2012)](https://gist.github.com/jboner/2841832) [S]
 - [Bandwidth-delay product, Wikipedia](https://en.wikipedia.org/wiki/Bandwidth-delay_product) [S]

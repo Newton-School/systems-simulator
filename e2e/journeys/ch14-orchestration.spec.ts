@@ -305,7 +305,7 @@ test.describe('K-02 a machine failure removes its pods now and replacements arri
     expect(errors('bin-pack')).toBeGreaterThan(errors('spread'))
   })
 
-  test('the Kubernetes default detection delay (40 s grace + 300 s toleration) is 340 s', () => {
+  test("the simulator's default detection delay (40 s grace + 300 s toleration; current Kubernetes uses a 50 s grace, see chapter 14 section 5) is 340 s", () => {
     const p = failing('bin-pack', { rescheduleDelayMs: undefined }, { rps: 5, durationMs: 420_000 })
     expect(p.meanRecoveryMs).toBe(340_000 + 1000)
   })

@@ -1,7 +1,6 @@
 # 16. Observability
 
-Marks: **[P]** primary, **[S]** secondary (fetched or searched), **[K]** established knowledge or derived here,
-not yet source-checked, **[?]** needs an owner decision. See [README](README.md).
+Marks: **[P]** primary, **[S]** secondary (fetched or searched), **[K]** established convention, definition or design judgement (no measured figure rests on it), **[D]** derived here from cited definitions or the chapter's own arithmetic, **[?]** needs an owner decision, **[repo]** read from the repository. See [README](README.md).
 
 The 9 `ObservabilityType`s: `centralized-logging`, `distributed-tracing`, `metrics-store`, `alerting-hook`,
 `dashboard`, `rum-monitoring`, `health-check-manager`, `safety-observability-mesh`, `profiling-service`. The
@@ -16,7 +15,7 @@ simulator's own output metrics are defined in chapter 27; health-check detection
 | **Traces**   | the path of one request across services as spans   | spans per request x request rate          | where time went        |
 | **Profiles** | where CPU or memory goes inside a process          | sampling frequency                        | optimising code        |
 
-[K] Observability is the ability to ask new questions of a running system from its outputs; monitoring is watching known failure signals.
+[D: definition] Observability is the ability to ask new questions of a running system from its outputs; monitoring is watching known failure signals.
 
 ## 2. The four golden signals
 
@@ -38,7 +37,7 @@ A histogram stores counts per bucket. `histogram_quantile` assumes observations 
 
 ## 4. SLIs, SLOs, error budgets and burn rate
 
-- **SLI:** a measured ratio, for example good requests / total requests. **SLO:** the target for it over a window, for example 99.9% over 30 days. The **error budget** is 1 - SLO. [K]
+- **SLI:** a measured ratio, for example good requests / total requests. **SLO:** the target for it over a window, for example 99.9% over 30 days. The **error budget** is 1 - SLO. [D: definition from the SRE book terms]
 - Budget in time: 30 days = 43,200 min, so 99% allows **432 min (7.2 h)**; 99.9% allows **43.2 min**; 99.99% allows **4.32 min**. [computed]
 - **Burn rate** is how fast the budget is consumed relative to the SLO: 1 means the whole budget lasts exactly the window. Budget consumed = burn rate x alert window / period. Time to exhaustion = period / burn rate: burn rate 2 gives 15 days, 10 gives 3 days, 1,000 gives 43 minutes. [P: Google SRE workbook, Alerting on SLOs]
 - **Error rate that burns at rate B** = B x (1 - SLO). For a 99.9% SLO, burn rate 14.4 is an error rate of **1.44%**. [P]
@@ -60,14 +59,14 @@ Alerting philosophy: page on **symptoms** (users affected), use causes for debug
 - Dapper kept overhead low and deployment ubiquitous by sampling and by instrumenting a small number of common libraries. [P: Dapper paper abstract]
 - **Capture probability.** With head sampling rate p, the chance of capturing at least one of k occurrences of a rare event is 1 - (1 - p)^k. At p = 1%, seeing it with 99% probability needs k >= **459** occurrences. [computed]
 - **Volume.** Log bytes/day = events/s x bytes x 86,400: 5,000 req/s x 1 KB is 5 MB/s = **432 GB/day**. Trace storage = request rate x spans per trace x bytes per span x sampling rate. [computed]
-- **Cardinality.** Metric cost grows with the product of label value counts; a per-user label turns a few series into millions. [K]
-- **Observer effect.** Synchronous logging or export adds latency to the request; asynchronous export through a bounded buffer drops events under overload instead, and the application is unaffected. [K]
+- **Cardinality.** Metric cost grows with the product of label value counts; a per-user label turns a few series into millions. [D]
+- **Observer effect.** Synchronous logging or export adds latency to the request; asynchronous export through a bounded buffer drops events under overload instead, and the application is unaffected. [D]
 
 ## 6. Health checks and real-user monitoring
 
-- A health check's **detection time** is interval x consecutive failures needed (chapter 02): 10 s x 3 = up to 30 s of traffic to a dead target. [K]
-- **RUM** measures what users experience in the browser (page load, errors) and is the only signal that includes the last mile; it is sampled and sent asynchronously. [K]
-- **Continuous profiling** typically costs a few percent CPU at sampling rates of tens of Hz. [K]
+- A health check's **detection time** is interval x consecutive failures needed (chapter 02): 10 s x 3 = up to 30 s of traffic to a dead target. [D]
+- **RUM** measures what users experience in the browser (page load, errors) and is the only signal that includes the last mile; it is sampled and sent asynchronously. [D]
+- **Continuous profiling** samples stacks at a fixed rate, so its CPU overhead is a function of that rate and is a deliberate trade for always-on visibility; no overhead figure is asserted here. [D]
 
 ## 7. Failure modes
 
@@ -100,7 +99,7 @@ Alerting philosophy: page on **symptoms** (users affected), use causes for debug
 
 ## 10. Open items
 
-- Fetch and cite: the OpenTelemetry sampling specification; the Dapper paper's measured overhead and sampling rate; Prometheus native-histogram accuracy.
+- Read directly: the SRE book and workbook pages, Prometheus histogram guidance and the Dapper abstract. The OpenTelemetry sampling specification is cited through vendor guides; no overhead or sampling-rate figure from Dapper is asserted.
 - Decisions `[?]`: whether the simulator should compute burn rate and SLO status directly in the output.
 
 ## Sources

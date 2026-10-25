@@ -1,7 +1,6 @@
 # 03. Probability and distributions
 
-Marks: **[P]** primary, **[S]** secondary (encyclopedia or course text, fetched), **[K]** established knowledge,
-not yet source-checked, **[?]** needs an owner decision. See [README](README.md).
+Marks: **[P]** primary, **[S]** secondary (fetched or searched), **[K]** established convention, definition or design judgement (no measured figure rests on it), **[D]** derived here from cited definitions or the chapter's own arithmetic, **[?]** needs an owner decision, **[repo]** read from the repository. See [README](README.md).
 
 Every service time, edge latency and arrival gap in the simulator is a random draw from a distribution.
 This chapter says what each of the 14 distributions is, what it is for, and what its mean, spread and
@@ -18,7 +17,7 @@ percentiles must be, so a draw can be checked against theory.
 | Support                                 | which values are possible                                       | Service times cannot be negative                             |
 | Quantile function Q(p)                  | inverse of the CDF                                              | Used both to read percentiles and to sample                  |
 
-Rules that hold for every distribution [K]:
+Rules that hold for every distribution [D: linearity of expectation; independence]:
 
 - The mean of a sum is the sum of the means. The variance of a sum of **independent** terms is the sum of the variances.
   Percentiles do **not** add (chapter 01 section 6).
@@ -29,11 +28,11 @@ Rules that hold for every distribution [K]:
 **Inverse-transform sampling [S: Wikipedia].** If U is uniform on [0, 1] and F is the target CDF, then X = F⁻¹(U) has CDF F, where
 F⁻¹(u) is the smallest x with F(x) >= u. Steps: draw u, apply the inverse CDF, return x. Closed forms exist for the
 exponential, Weibull, Pareto and uniform. Others use specialised methods (Box-Muller for the normal, rejection or
-multiplication methods for gamma, beta, binomial and Poisson). [K]
+multiplication methods for gamma, beta, binomial and Poisson). [S: Wikipedia, Inverse transform sampling; Box-Muller transform]
 
-**Pseudo-random generators [K].** A seeded generator gives a reproducible stream of uniforms: same seed, same
+**Pseudo-random generators [S: bryc, PRNGs.md].** A seeded generator gives a reproducible stream of uniforms: same seed, same
 sequence, same run. Good generators pass statistical test batteries; the simulator seeds a small-state generator
-from a string hash (the code names sfc32 and xmur3). Whether it passes the standard batteries (TestU01 / PractRand) is **[?]**.
+from a string hash (the code names sfc32 and xmur3). The reference collection reports sfc32 (128-bit state) passing PractRand and TestU01 Crush/BigCrush. xmur3 is only a string-to-seed hash and its author says it is not thoroughly tested; since it affects which stream a seed selects, not the statistical quality of the stream, this does not change any oracle.
 
 **Testable expectations**
 
@@ -50,14 +49,14 @@ Parameter names are taken from the config type; the formulas are the oracle.
 
 ### 3.1 Constant and deterministic
 
-- Every draw equals `value`. Mean = value, variance 0, CV 0. [K]
+- Every draw equals `value`. Mean = value, variance 0, CV 0. [D]
 - Real use: idealised fixed cost, a fixed timer, a calibrated mean when variability is not the point.
 - Effect in queues: lowest wait for a given load. M/D/1 waits half as long as M/M/1 (chapter 01 section 4.2).
 - Simulator: `constant` and `deterministic` are the same thing.
 
 ### 3.2 Uniform
 
-- Parameters `min`, `max`. pdf = 1 / (max − min) on [min, max]. Mean = (min + max) / 2. Variance = (max − min)² / 12. [K]
+- Parameters `min`, `max`. pdf = 1 / (max − min) on [min, max]. Mean = (min + max) / 2. Variance = (max − min)² / 12. [S: Wikipedia, Continuous uniform distribution]
 - Worked: min 10, max 30: mean 20, variance 33.3, sd 5.77, CV 0.289. Median 20. p99 = 10 + 0.99 x 20 = 29.8.
 - Real use: jitter ("0 to 100 ms of random delay"), no knowledge beyond the bounds. Rarely a good latency model.
 
@@ -107,8 +106,8 @@ Parameter names are taken from the config type; the formulas are the oracle.
 
 ### 3.8 Binomial (counts)
 
-- n trials each succeeding with probability p. Mean = n p, variance = n p (1 − p). [K]
-- Worked: n = 10, p = 0.3: mean 3, variance 2.1. As n grows with n p fixed it approaches Poisson. [K]
+- n trials each succeeding with probability p. Mean = n p, variance = n p (1 − p). [S: Wikipedia, Binomial distribution]
+- Worked: n = 10, p = 0.3: mean 3, variance 2.1. As n grows with n p fixed it approaches Poisson. [S: same]
 - Real use: number of failures among n replicas, number of cache hits in a batch.
 
 ### 3.9 Weibull
@@ -147,9 +146,9 @@ Parameter names are taken from the config type; the formulas are the oracle.
 
 ### 3.13 Empirical
 
-- Draw from observed data. Two modes in the config: `step` (resample the recorded values) and `linear` (interpolate between them). [K]
+- Draw from observed data. Two modes in the config: `step` (resample the recorded values) and `linear` (interpolate between them). [repo]
 - Step: the CDF is the empirical CDF; draws are only the recorded values. Linear: draws can fall between recorded values, which smooths the tail but can never exceed the recorded maximum.
-- Real use: replaying a production latency sample. Caveat: a sample has no tail beyond its largest value, so p99.99 of the model equals the sample max, not reality. [K]
+- Real use: replaying a production latency sample. Caveat: a sample has no tail beyond its largest value, so p99.99 of the model equals the sample max, not reality. [D]
 - Mean of draws converges to the sample mean (step) or very close to it (linear).
 
 ## 4. Choosing a distribution (what real latency looks like)
@@ -166,7 +165,7 @@ Parameter names are taken from the config type; the formulas are the oracle.
 | Network jitter with a known bound           | flat                      | uniform                                          |
 | A measured production sample                | whatever it is            | empirical                                        |
 
-Guide to CV [K]: CV < 1 smoother than Poisson (waits shorter than M/M); CV = 1 exponential; CV > 1 burstier, and the tail dominates waiting.
+Guide to CV [D from Kingman and Pollaczek-Khinchine, chapter 01]: CV < 1 smoother than Poisson (waits shorter than M/M); CV = 1 exponential; CV > 1 burstier, and the tail dominates waiting.
 
 ## 5. Simulator parameter map (config reference)
 
@@ -201,11 +200,14 @@ For N = 200,000 seeded draws, with tolerance about 3 sd / sqrt(N) on the mean an
 
 ## 7. Open items
 
-- Fetch and cite: a statistics text for the quantile and moment formulas marked `[K]` (uniform, binomial); the sfc32 and xmur3 generators and their test-battery results.
 - Owner decisions `[?]`: normal-draw truncation and clamping (3.4); Poisson and beta as durations (3.7, 3.11); mixture weights that do not sum to 1 (3.12).
 - The distribution-sampling flows are in `e2e/journeys/ch03-distributions.spec.ts`; the oracles are in this chapter.
 
 ## Sources
+
+- [Binomial distribution, Wikipedia](https://en.wikipedia.org/wiki/Binomial_distribution) [S]
+- [Continuous uniform distribution, Wikipedia](https://en.wikipedia.org/wiki/Continuous_uniform_distribution) [S]
+- [PRNGs (sfc32, xmur3), bryc](https://github.com/bryc/code/blob/master/jshash/PRNGs.md) [S]
 
 - [Exponential distribution, Wikipedia](https://en.wikipedia.org/wiki/Exponential_distribution) [S]
 - [Normal distribution, Wikipedia](https://en.wikipedia.org/wiki/Normal_distribution) [S]

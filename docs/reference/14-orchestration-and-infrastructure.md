@@ -1,7 +1,6 @@
 # 14. Orchestration and infrastructure
 
-Marks: **[P]** primary, **[S]** secondary (fetched or searched), **[K]** established knowledge or derived here,
-not yet source-checked, **[?]** needs an owner decision. See [README](README.md).
+Marks: **[P]** primary, **[S]** secondary (fetched or searched), **[K]** established convention, definition or design judgement (no measured figure rests on it), **[D]** derived here from cited definitions or the chapter's own arithmetic, **[?]** needs an owner decision, **[repo]** read from the repository. See [README](README.md).
 
 The 13 `OrchestrationType`s: `kubernetes-cluster`, `container-registry`, `service-registry`, `tool-registry`,
 `config-store`, `secrets-manager`, `cluster-autoscaler`, `agent-orchestrator`, `orchestrator-scheduler`,
@@ -12,7 +11,7 @@ The 13 `OrchestrationType`s: `kubernetes-cluster`, `container-registry`, `servic
 
 An orchestrator keeps a **desired state** (N replicas of a workload, each needing some CPU and memory) true on a
 fleet of machines. It is a set of control loops: observe, compare with the desired state, act. Every loop has a
-**period** and a **reaction lag**, so a response to a load change is never instant. [K]
+**period** and a **reaction lag**, so a response to a load change is never instant. [D]
 
 ## 2. Horizontal autoscaling (HPA)
 
@@ -31,7 +30,7 @@ Worked: 4 replicas at 90% against a 70% target: ceil(4 x 90 / 70) = ceil(5.14) =
 
 Time to scale out from 2 replicas to over 100 at the default policy: each step adds max(current, 4): 2 to 6 to 12 to 24 to 48 to 96 to 192, **6 steps = 90 s** of controller time, plus pod start-up and readiness for each wave. A spike faster than that overloads the service in the meantime. [computed]
 
-**Why autoscalers oscillate:** a lag in the loop plus a metric that responds to the action (more replicas lowers utilization) gives overshoot; the stabilization window and tolerance are the damping. [K]
+**Why autoscalers oscillate:** a lag in the loop plus a metric that responds to the action (more replicas lowers utilization) gives overshoot; the stabilization window and tolerance are the damping. [D]
 
 ## 3. Cluster autoscaling and node provisioning
 
@@ -41,7 +40,7 @@ The Cluster Autoscaler adds nodes when pods are **unschedulable** and removes no
 - A node is a scale-down candidate when its requested CPU and memory are under **50%** of allocatable (`--scale-down-utilization-threshold`, default 0.5) and every pod on it can move; it is removed after being unneeded for **10 minutes**. [P]
 - A new node is expected within **15 minutes** (`--max-node-provision-time`); on GCE it usually takes **3 to 4 minutes** until pods can schedule, about 5 minutes end to end. [P]
 
-So a traffic spike that needs new machines is served by the existing fleet for several minutes: the burst must be absorbed by headroom, queues or shedding, not by scaling. Scale-down is slow on purpose (10 minutes) to avoid flapping. [K]
+So a traffic spike that needs new machines is served by the existing fleet for several minutes: the burst must be absorbed by headroom, queues or shedding, not by scaling. Scale-down is slow on purpose (10 minutes) to avoid flapping. [D from the two bullets above]
 
 ## 4. Scheduling and bin packing
 
@@ -49,27 +48,29 @@ The scheduler places a pod only on a node with enough free **CPU and memory** (a
 
 - **Scoring strategies:** `LeastAllocated` spreads load across nodes; `MostAllocated` prefers highly utilized nodes (packs, helping scale-down of idle nodes); `RequestedToCapacityRatio` applies a configurable shape. Per-resource utilization is requested x 100 / capacity; the node score is the weighted average sum(score_i x weight_i) / sum(weight_i). [P: Kubernetes bin-packing docs]
 - **Fragmentation:** pods of 3 vCPU on 8 vCPU nodes fit **2 per node**, stranding 2 vCPU (25%). 10 such pods need **5 nodes**, not the 3.75 that the sums suggest. 3 nodes of 4 vCPU hold only three 3-vCPU pods, not four. [computed]
-- **Packing vs spreading:** packing needs fewer nodes (cost, scale-down) but concentrates pods, so one node failure takes a larger share of a workload; spreading across nodes and zones costs capacity but limits blast radius. [K]
-- Optimal bin packing is NP-hard; first-fit-decreasing uses at most about 11/9 of the optimum plus a constant. [K]
+- **Packing vs spreading:** packing needs fewer nodes (cost, scale-down) but concentrates pods, so one node failure takes a larger share of a workload; spreading across nodes and zones costs capacity but limits blast radius. [D]
+- Optimal bin packing is NP-hard; first-fit-decreasing uses at most 11/9 of the optimum plus 6/9 of a bin. [S: Wikipedia, Bin packing problem, citing Dósa 2007]
 
 ## 5. Node failure and recovery
 
-A node that stops reporting is marked **NotReady** after the node-monitor grace period (**40 s**), and its pods are evicted when their default not-ready toleration (**300 s**) runs out, so replacement pods start only after about **340 s**; then each needs scheduling room, an image pull and start-up. [S: Kubernetes taints docs, kube-controller-manager defaults; the 40 s and 300 s values were not on the fetched page text and are [K]]
+A node that stops reporting is marked **NotReady** after the node-monitor grace period (**50 s** in the current `kube-controller-manager` reference, 40 s in older releases), and its pods are evicted when their default not-ready toleration (**300 s**) runs out, so replacement pods start only after about **350 s** (340 s with the older grace period); then each needs scheduling room, an image pull and start-up. [P: Kubernetes kube-controller-manager reference, `--node-monitor-grace-period` default 50 s; Kubernetes taints docs, automatic `tolerationSeconds=300` for not-ready and unreachable]
 
-During the 40 s before NotReady the dead pods still sit in service endpoints, so a share of requests equal to (pods on the failed node / ready pods) errors out. A workload with all replicas on one node is down for the whole 340 s plus start-up. [K, computed]
+Known difference: the simulator's `rescheduleDelayMs` default is 340,000 ms (the older 40 s grace), so a design simulated at the default recovers 10 s sooner than a current Kubernetes cluster.
 
-**Image pull:** time = image size / bandwidth: 500 MB at 1 Gbps (125 MB/s) is 4 s; layers cached on the node cost nothing. A new node pulls every image cold. [K]
+During the 50 s before NotReady the dead pods still sit in service endpoints, so a share of requests equal to (pods on the failed node / ready pods) errors out. A workload with all replicas on one node is down for the whole 350 s plus start-up. [D]
+
+**Image pull:** time = image size / bandwidth: 500 MB at 1 Gbps (125 MB/s) is 4 s; layers cached on the node cost nothing. A new node pulls every image cold. [D]
 
 ## 6. The rest of the control plane
 
-| Component                         | What it does                         | What it costs the request path                                                                                              |
-| --------------------------------- | ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
-| Container registry                | stores images; serves pulls          | nothing at request time; adds to pod start-up (pull time); an outage blocks scale-out and replacement but not running pods  |
-| Service registry                  | lookup of healthy instances          | a stale entry sends traffic to a dead instance until its TTL or health check expires                                        |
-| Config store, secrets manager     | serve configuration and secrets      | read at start-up or refreshed on an interval; if read per request, it is a dependency with its own latency and availability |
-| CI/CD runner                      | executes builds and deploys          | a queue: builds arrive at rate lambda, each takes a runner for service time s; M/M/c applies (chapter 01)                   |
-| IaC engine, provisioner           | create machines and resources        | provisioning latency (VM boot about 1 to 2 min, managed database 5 to 20 min) [K]                                           |
-| Agent orchestrator, tool registry | route work among AI agents and tools | chapter 18                                                                                                                  |
+| Component                         | What it does                         | What it costs the request path                                                                                                                         |
+| --------------------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Container registry                | stores images; serves pulls          | nothing at request time; adds to pod start-up (pull time); an outage blocks scale-out and replacement but not running pods                             |
+| Service registry                  | lookup of healthy instances          | a stale entry sends traffic to a dead instance until its TTL or health check expires                                                                   |
+| Config store, secrets manager     | serve configuration and secrets      | read at start-up or refreshed on an interval; if read per request, it is a dependency with its own latency and availability                            |
+| CI/CD runner                      | executes builds and deploys          | a queue: builds arrive at rate lambda, each takes a runner for service time s; M/M/c applies (chapter 01)                                              |
+| IaC engine, provisioner           | create machines and resources        | provisioning latency (minutes; the simulator's `machineProvisionMs` default is 90 s; managed-service times are provider-specific and not asserted) [D] |
+| Agent orchestrator, tool registry | route work among AI agents and tools | chapter 18                                                                                                                                             |
 
 CI runner example: builds at 6 per hour, 10 minutes each, 2 runners: offered load a = 1 Erlang, utilization 0.5, Erlang C = 1/3, mean wait = C / (c x mu - lambda) = (1/3) / (12 - 6 per hour) = **3.3 minutes**. [computed]
 
@@ -91,7 +92,7 @@ CI runner example: builds at 6 per hour, 10 minutes each, 2 runners: offered loa
 | `autoscaleStep` (1)                                                | instances added or removed per tick            | HPA rate policy               |
 | `placementStrategy`                                                | `spread` or `bin-pack`                         | scheduler scoring             |
 | `podStartupMs` (5000)                                              | time from placement to ready                   | image pull + start            |
-| `rescheduleDelayMs` (340000)                                       | failure detection + eviction                   | 40 s + 300 s                  |
+| `rescheduleDelayMs` (340000)                                       | failure detection + eviction                   | 40 s + 300 s (50 s now)       |
 | `clusterMaxMachines`, `machineProvisionMs` (90000)                 | node limit, boot time                          | Cluster Autoscaler            |
 | `machineFailureAtMs`, `machineFailureCount`, `machineRecoveryAtMs` | scripted machine loss                          | node failure                  |
 | `scheduledOn`                                                      | the cluster a workload is placed on            | namespace / node pool         |
@@ -110,7 +111,7 @@ The simulator's autoscaler adds or removes `autoscaleStep` instances per tick to
 
 ## 10. Open items
 
-- Fetch and cite: the Kubernetes taints page's "taint based evictions" section and the node-monitor flags; the Cluster Autoscaler provisioning figures for other clouds.
+- Cluster Autoscaler provisioning figures for clouds other than GCE are not asserted.
 - Decisions `[?]`: whether the simulator's step autoscaler should follow the proportional HPA formula with tolerance and stabilization; whether scale-down should have a stabilization window.
 
 ## Sources

@@ -1,6 +1,6 @@
 # 28. Glossary
 
-Marks: **[K]** established knowledge (definitions are standard unless a chapter cites a source). See [README](README.md).
+Marks: **[P]** primary, **[S]** secondary (fetched or searched), **[K]** established convention, definition or design judgement (no measured figure rests on it), **[D]** derived here from cited definitions or the chapter's own arithmetic, **[?]** needs an owner decision, **[repo]** read from the repository. See [README](README.md).
 One line per term, with the chapter that explains it. Terms that are simulator settings are in `code font`.
 
 | Term                                            | Meaning                                                                                     | Ch         |

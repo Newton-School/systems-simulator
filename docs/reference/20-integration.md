@@ -1,7 +1,6 @@
 # 20. Integration
 
-Marks: **[P]** primary, **[S]** secondary (fetched or searched), **[K]** established knowledge or derived here,
-not yet source-checked, **[?]** needs an owner decision. See [README](README.md).
+Marks: **[P]** primary, **[S]** secondary (fetched or searched), **[K]** established convention, definition or design judgement (no measured figure rests on it), **[D]** derived here from cited definitions or the chapter's own arithmetic, **[?]** needs an owner decision, **[repo]** read from the repository. See [README](README.md).
 
 The 5 `IntegrationType`s: `webhook-gateway`, `llm-gateway`, `third-party-api-connector`, `payment-gateway`,
 `third-party-auth`. Related: retries and breakers (chapter 02), idempotency at consumers (chapter 13), LLM latency
@@ -10,13 +9,13 @@ The 5 `IntegrationType`s: `webhook-gateway`, `llm-gateway`, `third-party-api-con
 ## 1. A dependency you do not control
 
 A third-party call is a node whose **latency, availability, rate limit and failure modes belong to someone else**.
-You cannot add capacity to it, and its slowness becomes yours. [K]
+You cannot add capacity to it, and its slowness becomes yours. [D]
 
-- **Latency adds:** your response time includes theirs; your p99 is at least their p99 on the path. [K]
+- **Latency adds:** your response time includes theirs; your p99 is at least their p99 on the path. [D: the dependency is in series with the caller]
 - **Availability multiplies:** dependencies in series must all be up. Five dependencies at 99.9% each give 0.999^5 = **99.50%**, not 99.9%. [computed]
-- **Rate limits:** providers answer **429 Too Many Requests**, often with a `Retry-After` hint; the client must back off (chapter 02), queue, or shed. [K]
-- **Timeouts and breakers:** set a timeout well below your own caller's deadline and open a circuit breaker on repeated failure (chapter 02) so a slow provider does not hold all your workers (Little: concurrency = rate x their latency). [K]
-- **Fallbacks:** a cached answer, a second provider, or degraded behaviour. [K]
+- **Rate limits:** providers answer **429 Too Many Requests**, often with a `Retry-After` hint; the client must back off (chapter 02), queue, or shed. [P: RFC 6585 section 4 (429 Too Many Requests; MAY include Retry-After); RFC 9110 for Retry-After]
+- **Timeouts and breakers:** set a timeout well below your own caller's deadline and open a circuit breaker on repeated failure (chapter 02) so a slow provider does not hold all your workers (Little: concurrency = rate x their latency). [D]
+- **Fallbacks:** a cached answer, a second provider, or degraded behaviour. [D]
 
 ## 2. Payments and idempotency
 
@@ -28,9 +27,9 @@ A payment call that **times out** leaves the client not knowing whether the char
 - If a retry's parameters differ from the original's, the server **returns an error** rather than guessing.
 - Requests that failed validation or conflicted with a concurrent request are not saved, so they can be retried.
 
-Duplicate-charge arithmetic: with a timeout rate t on charge calls where the server had in fact processed the request, the fraction of charges duplicated by a blind retry is t x (share processed before the timeout). With idempotency keys the duplicate count is **zero** for retries inside the key lifetime. [K, computed]
+Duplicate-charge arithmetic: with a timeout rate t on charge calls where the server had in fact processed the request, the fraction of charges duplicated by a blind retry is t x (share processed before the timeout). With idempotency keys the duplicate count is **zero** for retries inside the key lifetime. [D]
 
-**Reconciliation:** when an outcome stays unknown, query the provider for the transaction by key before retrying, and run a periodic reconciliation job that matches your records to the provider's. [K]
+**Reconciliation:** when an outcome stays unknown, query the provider for the transaction by key before retrying, and run a periodic reconciliation job that matches your records to the provider's. [D]
 
 ## 3. Webhooks
 
@@ -46,13 +45,13 @@ Endpoint arithmetic: if a provider sends bursts of B events in a second and your
 
 ## 4. Authentication with a third party (OAuth/OIDC)
 
-- A sign-in redirects the user to the provider and back (several round trips and a token exchange), an interactive cost paid once per session. [K]
-- Access tokens are short-lived; a **refresh token** gets a new one. Validating a token locally (signature) is cheap, introspecting it is a network call per request unless cached (chapter 15). [K]
-- A provider outage blocks new sign-ins; existing valid tokens keep working until they expire. [K]
+- A sign-in redirects the user to the provider and back (several round trips and a token exchange), an interactive cost paid once per session. [D]
+- Access tokens are short-lived; a **refresh token** gets a new one. Validating a token locally (signature) is cheap, introspecting it is a network call per request unless cached (chapter 15). [S: RFC 7519 for local validation; OAuth 2.0 refresh tokens]
+- A provider outage blocks new sign-ins; existing valid tokens keep working until they expire. [D]
 
 ## 5. LLM gateways
 
-A gateway in front of one or more model providers: routing, caching, rate-limit handling, fallback to another provider, token accounting. Latency and cost are per token (chapter 18); a provider's tokens-per-minute limit is a rate limit as above. [K]
+A gateway in front of one or more model providers: routing, caching, rate-limit handling, fallback to another provider, token accounting. Latency and cost are per token (chapter 18); a provider's tokens-per-minute limit is a rate limit as above. [D]
 
 ## 6. Failure modes
 
@@ -85,10 +84,14 @@ A gateway in front of one or more model providers: routing, caching, rate-limit 
 
 ## 9. Open items
 
-- Fetch and cite: RFC 6585 (429) and RFC 9110 (`Retry-After`); the IETF idempotency-key header draft; an OAuth 2.0 (RFC 6749) summary; one payment provider's timeout guidance.
+- Read directly: RFC 6585 (429) and RFC 9110 (`Retry-After`). Not cited: the IETF idempotency-key header draft, RFC 6749 in full, and a payment provider's timeout guidance; the duplicate-charge arithmetic stands on its own definitions.
 - Decisions `[?]`: whether a provider's rate limit should be a setting on third-party nodes (the engine models its latency only).
 
 ## Sources
+
+- [RFC 6585: additional HTTP status codes](https://www.rfc-editor.org/rfc/rfc6585.txt) [P]
+- [RFC 9110: HTTP semantics](https://www.rfc-editor.org/rfc/rfc9110.txt) [P]
+- [RFC 7519: JSON Web Token](https://www.rfc-editor.org/rfc/rfc7519.txt) [P]
 
 - [Idempotent requests, Stripe API](https://docs.stripe.com/api/idempotent_requests) [P]
 - [Receive Stripe events in your webhook endpoint](https://docs.stripe.com/webhooks) [P]

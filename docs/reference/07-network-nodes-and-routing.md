@@ -1,7 +1,6 @@
 # 07. Network nodes and routing
 
-Marks: **[P]** primary, **[S]** secondary (fetched or searched), **[K]** established knowledge or derived here,
-not yet source-checked, **[?]** needs an owner decision. See [README](README.md).
+Marks: **[P]** primary, **[S]** secondary (fetched or searched), **[K]** established convention, definition or design judgement (no measured figure rests on it), **[D]** derived here from cited definitions or the chapter's own arithmetic, **[?]** needs an owner decision, **[repo]** read from the repository. See [README](README.md).
 
 The 17 `NetworkType`s: `load-balancer`, `load-balancer-l4`, `load-balancer-l7`, `global-traffic-manager`,
 `edge-router`, `nat-gateway`, `transit-gateway`, `vpn-gateway`, `cdn`, `api-gateway`, `service-mesh`,
@@ -11,7 +10,7 @@ links between nodes is chapter 08.
 
 ## 1. What these nodes do
 
-They sit **between** callers and servers and make one of five decisions. [K]
+They sit **between** callers and servers and make one of five decisions. [D: the classification used by this chapter]
 
 | Decision                                    | What it does                                                  | Nodes                                                                 |
 | ------------------------------------------- | ------------------------------------------------------------- | --------------------------------------------------------------------- |
@@ -27,10 +26,10 @@ The simulator gives each a default instance and a small default service time (L4
 
 ## 2. Layer 4 versus layer 7
 
-- **Layer 4 (transport)** balancers route on IP and port (TCP/UDP). They do not look inside the request, so they are fast and cheap, preserve connections end to end, and cannot route by URL. [K]
-- **Layer 7 (application)** balancers terminate the connection, parse HTTP or gRPC, and route on path, host or header; they can terminate TLS, retry, rewrite and authenticate. That costs more CPU per request. [K]
+- **Layer 4 (transport)** balancers route on IP and port (TCP/UDP). They do not look inside the request, so they are fast and cheap, preserve connections end to end, and cannot route by URL. [S: Wikipedia, Load balancing: content-aware switching routes on request content, which requires terminating the connection]
+- **Layer 7 (application)** balancers terminate the connection, parse HTTP or gRPC, and route on path, host or header; they can terminate TLS, retry, rewrite and authenticate. That costs more CPU per request. [S: same]
 - AWS describes the same split: an Application Load Balancer works on requests (layer 7), a Network Load Balancer on connections (layer 4), a Gateway Load Balancer for inline appliances. [P: AWS Elastic Load Balancing docs, structure only fetched]
-- Consequence for the model: an L7 node has a **higher service time** than an L4 node at the same load (simulator defaults 0.4 ms vs 0.15 ms), and **only L7 can split by request type**. [K]
+- Consequence for the model: an L7 node has a **higher service time** than an L4 node at the same load (simulator defaults 0.4 ms vs 0.15 ms), and **only L7 can split by request type**. [repo defaults; the split follows from the previous two bullets]
 
 **Testable expectations**
 
@@ -76,7 +75,7 @@ Servers and keys are hashed onto a ring; a key belongs to the first server clock
 
 Round robin over n identical servers with constant arrivals: each gets exactly 1/n. Weighted 3:1:1: shares 0.6, 0.2, 0.2. Random: shares near 1/n with sampling noise of sqrt(p (1 − p) / N).
 
-- Least-connections with one slow server (2x service time): the slow server receives about half the requests of a fast one, so queue lengths even out; round robin leaves the slow server saturated first. [K]
+- Least-connections with one slow server (2x service time): the slow server receives about half the requests of a fast one, so queue lengths even out; round robin leaves the slow server saturated first. [D: least-connections equalises in-flight work, so by Little's law the slow server completes half the rate]
 - Hash on key with Zipf keys (chapter 05): the hottest key's server carries at least that key's share. With s = 1.0 over 1,000 keys, one key is 13.4% of traffic, so a server holding it carries more than 13.4% however many servers there are. [computed]
 - Sticky: all requests from one client reach one server until it fails. **Simulator keys (observed):** `sticky` pins by `sessionId` (or the canonical key, or `stickyKeyField`); `ip-hash` pins by `clientIp` only, so a workload that sets sessions but no client address is not pinned by `ip-hash`.
 
@@ -84,17 +83,17 @@ Round robin over n identical servers with constant arrivals: each gets exactly 1
 
 See chapter 02 section 7. Detection delay (interval x consecutive failures) is the time a dead server still gets traffic.
 
-- After one of n equal servers is removed, each survivor carries n / (n − 1) of its previous load: 4 servers at 75% become 100%. [K]
+- After one of n equal servers is removed, each survivor carries n / (n − 1) of its previous load: 4 servers at 75% become 100%. [D]
 - Balancers use two signals: **active** probes and **passive** outlier detection (consecutive failures; NGINX `max_fails` default 1 within `fail_timeout`, then the server is skipped and re-probed with live traffic). [P: NGINX]
 - When every target is unhealthy a balancer either serves anyway or fails; the choice should be explicit. **[?]** The simulator **fails**: it rejects with `no_healthy_targets`.
 - **Ejection can amplify an overload (observed).** A server is ejected after a single failed attempt, for a window. At a mild overload of 10% (220 req/s into 200 req/s of capacity) a few rejections at each server eject both, and the balancer then rejects about 85% of traffic: goodput 33 req/s against 200 req/s of capacity. With health ejection off the same fleet serves 198.8 req/s. Real balancers soften this: Envoy's **panic threshold** serves to all hosts when too many are ejected; NGINX's `max_fails` and `fail_timeout` (default one failure for 10 s) behave like the simulator. Teaching consequence: a balancer with aggressive passive ejection can turn a slight overload into an outage, which is the retry-storm and metastable-failure story of chapter 22. Tracked as `N-16`.
 
 ## 5. API gateway, ingress controller and reverse proxy
 
-- **Reverse proxy:** accepts requests for backends, can terminate TLS, cache, compress, rate-limit. **Ingress controller:** the same role for a Kubernetes cluster, routing by host and path to services. **API gateway:** adds auth, quotas, request transformation and throttling in front of APIs. [K]
+- **Reverse proxy:** accepts requests for backends, can terminate TLS, cache, compress, rate-limit. **Ingress controller:** the same role for a Kubernetes cluster, routing by host and path to services. **API gateway:** adds auth, quotas, request transformation and throttling in front of APIs. [D: definitions]
 - **Throttling is a token bucket.** Amazon API Gateway limits steady-state rate and a burst per account and region, returns 429 when exceeded; historically 10,000 req/s with a burst of 5,000 (dated, check current quotas). [S: AWS announcement and docs]
   Token bucket maths: chapter 02 section 4.
-- Everything in the request path adds its own latency and its own failure probability; the path's availability is the product of the hops' availabilities. Three hops at 99.9% give 99.7%. [K]
+- Everything in the request path adds its own latency and its own failure probability; the path's availability is the product of the hops' availabilities. Three hops at 99.9% give 99.7%. [D]
 
 ## 6. CDN and caching proxies
 
@@ -103,7 +102,7 @@ See chapter 02 section 7. Detection delay (interval x consecutive failures) is t
 - Lifetime is controlled by `Cache-Control`: `s-maxage` for shared caches (CDN), `max-age` for browsers, `no-store` and `private` disable caching, and unnormalised query strings or varying headers fragment the cache. [S]
 - Hit ratio benchmarks vary by source (static content 95% to over 99%, personalised API responses 30% to 70%); treat as ranges, not targets. [S, disputed between sources]
 
-**Maths [K]**
+**Maths [D]**
 
 - Origin request rate = (1 − h) x total rate, where h is the hit ratio. At h = 0.95 the origin sees **5%** of traffic; at 0.99, **1%**. A CDN drop from 99% to 95% quintuples origin load.
 - Mean latency = h x t_edge + (1 − h) x (t_edge + t_origin). With t_edge 10 ms, t_origin 120 ms, h = 0.95: **16 ms**; at h = 0.50: 70 ms.
@@ -116,8 +115,8 @@ See chapter 02 section 7. Detection delay (interval x consecutive failures) is t
 
 ## 7. Service mesh and sidecar
 
-- A **service mesh** puts a proxy beside each service to give uniform mutual TLS, retries, circuit breaking and telemetry without changing application code. [K]
-- The tax: about 0.20 vCPU and 60 MB per 1,000 req/s per sidecar in Istio's published test; every call crosses two sidecars. [P: Istio docs]
+- A **service mesh** puts a proxy beside each service to give uniform mutual TLS, retries, circuit breaking and telemetry without changing application code. [S: Istio documentation]
+- The tax: about 0.20 vCPU and 60 MB per 1,000 req/s per sidecar in Istio 1.24's published test (earlier releases: 0.35 to 0.5 vCPU); every call crosses two sidecars. [P: Istio docs]
 - The simulator's `service-mesh` node is a small queue on the path (default 0.6 ms); behaviours such as retries and breakers are configured as resilience settings on the calling node (chapter 02).
 
 ## 8. NAT, VPN, transit gateway, edge router, NIC, network policy
@@ -131,11 +130,11 @@ See chapter 02 section 7. Detection delay (interval x consecutive failures) is t
 | High-performance NIC | faster network card (offload, RDMA)                    | removes the host as a network bottleneck                           |
 | Network policy       | allow or deny rules between workloads                  | adds a small per-packet check; blocks traffic that should not flow |
 
-Numeric limits differ by provider and change; fetch current quotas before using them as oracles. **[?]** All rows [K].
+Numeric limits differ by provider and change; fetch current quotas before using them as oracles. The rows describe roles, not numbers; no quota is asserted here.
 
 ## 9. Global traffic steering
 
-Directing users to the nearest or healthiest region (geo, latency, weighted and failover policies) is mostly DNS-based; see chapter 21. At the network layer **anycast** advertises one IP from many places so routing delivers users to the nearest. [K]
+Directing users to the nearest or healthiest region (geo, latency, weighted and failover policies) is mostly DNS-based; see chapter 21. At the network layer **anycast** advertises one IP from many places so routing delivers users to the nearest. [S: Wikipedia, Anycast]
 
 ## 10. Simulator parameter map
 
@@ -158,10 +157,16 @@ Directing users to the nearest or healthiest region (geo, latency, weighted and 
 
 ## 12. Open items
 
-- Fetch and cite: Mitzenmacher's survey; Karger et al. 1997; Envoy and HAProxy load-balancing docs; Maglev (Google) for hash-based balancing; provider quotas for NAT, VPN and transit.
+- Karger et al. 1997, Maglev, and the Envoy and HAProxy documentation are not read directly; consistent hashing is sourced from Wikipedia and measured in the e2e flows `N-06`. Provider quotas for NAT, VPN and transit are deliberately not asserted.
 - Decisions `[?]`: behaviour when all targets are unhealthy; whether least-connections counts connections or in-flight requests.
 
 ## Sources
+
+- [Multiple-choice allocation: Mitzenmacher, The Power of Two Choices in Randomized Load Balancing](https://www.eecs.harvard.edu/~michaelm/abstracts/mythesis.html) [P]
+- [Load balancing, Wikipedia](<https://en.wikipedia.org/wiki/Load_balancing_(computing)>) [S]
+- [Anycast, Wikipedia](https://en.wikipedia.org/wiki/Anycast) [S]
+- [NGINX HTTP load balancing (random two)](https://docs.nginx.com/nginx/admin-guide/load-balancer/http-load-balancer/) [P]
+- [Istio performance and scalability](https://istio.io/latest/docs/ops/deployment/performance-and-scalability/) [P]
 
 - [NGINX HTTP load balancing](https://nginx.org/en/docs/http/load_balancing.html) [P]
 - [Consistent hashing, Wikipedia](https://en.wikipedia.org/wiki/Consistent_hashing) [S]

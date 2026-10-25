@@ -1,7 +1,6 @@
 # 11. Replication, consistency and consensus
 
-Marks: **[P]** primary, **[S]** secondary (fetched or searched), **[K]** established knowledge or derived here,
-not yet source-checked, **[?]** needs an owner decision. See [README](README.md).
+Marks: **[P]** primary, **[S]** secondary (fetched or searched), **[K]** established convention, definition or design judgement (no measured figure rests on it), **[D]** derived here from cited definitions or the chapter's own arithmetic, **[?]** needs an owner decision, **[repo]** read from the repository. See [README](README.md).
 
 Covers the replication model, what a reader is allowed to see (consistency models), quorums, consensus (Raft),
 leader election, and locks and leases: `etcd-consul-kv`, `leader-election`, `distributed-lock`,
@@ -10,7 +9,7 @@ leader election, and locks and leases: `etcd-consul-kv`, `leader-election`, `dis
 ## 1. Why replicate, and what it costs
 
 - **Durability** (a copy survives a failed machine), **availability** (another copy keeps serving) and **read scale** (replicas answer reads). The price: copies can **disagree**, and keeping them in step costs latency.
-- The unavoidable trade: a write acknowledged to the client before all copies have it is fast but exposes **stale reads** and risks **lost writes** on failover; waiting for the copies is safe but slow, and unavailable if a copy is unreachable. [K]
+- The unavoidable trade: a write acknowledged to the client before all copies have it is fast but exposes **stale reads** and risks **lost writes** on failover; waiting for the copies is safe but slow, and unavailable if a copy is unreachable. [D: the CAP trade in section 4]
 
 ## 2. Primary-replica replication
 
@@ -26,11 +25,11 @@ One **primary** accepts writes and ships them to **replicas**. Choices:
 
 **Replication lag** is how far behind a replica is. Monitoring examples: warn at about 10 s, critical at about 60 s (rules of thumb). [S]
 
-**Math [K]**
+**Math [D]**
 
 - Write latency, quorum: with write quorum W of n copies (including the primary), the write waits for the **(W − 1)th fastest follower**. Round trips to followers of 1, 5 and 80 ms: a 2-of-3 quorum commits in about **1 ms** (the fastest follower); waiting for all takes **80 ms**. Five copies with follower round trips 1, 2, 60 and 70 ms and a majority of 3: the second-fastest follower, **2 ms**.
 - Staleness: a read arriving t after a write sees the old value if replication lag > t. With a fixed lag of 100 ms and reads uniformly spread over the 500 ms after a write, **20%** are stale. [computed]
-- Failover: a failed primary is replaced by promoting a replica; during promotion writes are rejected, and under async replication the writes the replica never received are lost (the **recovery point**). Window = detection time + promotion time. [K]
+- Failover: a failed primary is replaced by promoting a replica; during promotion writes are rejected, and under async replication the writes the replica never received are lost (the **recovery point**). Window = detection time + promotion time. [D]
 
 **Testable expectations**
 
@@ -87,11 +86,11 @@ For N replicas, write to W and read from R: **R + W > N** guarantees every read 
 ## 6. Consensus: Raft
 
 - **What it does:** a set of servers agree on one ordered log of commands so a replicated state machine behaves as one; it keeps going while a **majority** is available and **never returns an incorrect result** (it may stall instead). A cluster of n servers tolerates **floor((n − 1) / 2)** failures: 3 tolerates 1, 5 tolerates 2, 7 tolerates 3. [S: raft.github.io; derivation computed]
-- **Leader election:** followers that hear no heartbeat within a **randomised election timeout** become candidates and request votes; a majority makes a leader. Typical timeouts are **150 to 300 ms**, randomised to avoid split votes, and must be much larger than the time to broadcast a heartbeat and get replies (typical broadcast time 0.5 to 20 ms). [S: Wikipedia Raft; secondary]
-- **Commit rule:** an entry is committed once stored on a majority; the leader replies to the client then. **Commit latency = one round trip to the quickest majority** = the fastest follower in a 3-node cluster, the second-fastest in 5 (plus a disk sync on each). [S, K]
-- **Read consistency:** a leader read is linearizable only if it confirms it is still leader (a heartbeat round, a lease, or ReadIndex). [K]
-- **Availability gap during failover:** time without a leader = failure detection (up to one election timeout) + election. Plan for hundreds of milliseconds to seconds of write unavailability. [K]
-- Used by etcd and Consul (`etcd-consul-kv`, `coordination-service`); ZooKeeper uses a similar protocol (ZAB). Metadata that must be correct (locks, leader identity, configuration) belongs on such a store, not on a cache. [K]
+- **Leader election:** followers that hear no heartbeat within a **randomised election timeout** become candidates and request votes; a majority makes a leader. Typical timeouts are **150 to 300 ms**, randomised to avoid split votes, and must be much larger than the time to broadcast a heartbeat and get replies (broadcast time 0.5 to 20 ms, which puts the election timeout somewhere between 10 and 500 ms). [P: Ongaro and Ousterhout, In Search of an Understandable Consensus Algorithm, section 9.3: broadcastTime ≪ electionTimeout ≪ MTBF, "150–300ms" as the example interval]
+- **Commit rule:** an entry is committed once stored on a majority; the leader replies to the client then. **Commit latency = one round trip to the quickest majority** = the fastest follower in a 3-node cluster, the second-fastest in 5 (plus a disk sync on each). [P: Raft paper, an entry is committed once replicated on a majority; the latency reading is derived]
+- **Read consistency:** a leader read is linearizable only if it confirms it is still leader (a heartbeat round with a majority, or a lease). [P: Raft paper section 8: the leader exchanges heartbeats with a majority before answering a read-only request]
+- **Availability gap during failover:** time without a leader = failure detection (up to one election timeout) + election. The Raft paper states the system is unavailable for roughly the election timeout when the leader crashes (so tens to hundreds of milliseconds in a local cluster; deployments tuned for slow or wide-area links configure longer). [P]
+- Used by etcd and Consul (`etcd-consul-kv`, `coordination-service`); ZooKeeper uses a similar protocol (ZAB). Metadata that must be correct (locks, leader identity, configuration) belongs on such a store, not on a cache. [D: a cache can lose or evict the value; a consensus store cannot acknowledge a write it may lose]
 
 **Testable expectations**
 
@@ -105,11 +104,11 @@ For N replicas, write to W and read from R: **R + W > N** guarantees every read 
 - **The failure:** holder A takes a lease, **pauses** (garbage collection, VM stall) past its expiry, B takes the lease, A wakes still believing it holds it, and both write. Leases alone do not give mutual exclusion under pauses or clock drift. [S: Kleppmann on Redlock]
 - **Fencing tokens:** the lock service issues a monotonically increasing number with each grant; the **protected resource** rejects any write carrying a smaller number than one it has already seen. Needs the resource to cooperate. [S]
 - **Efficiency vs correctness:** for an efficiency lock (avoid duplicate work, an occasional double run is merely wasteful) almost any lock is fine; for a correctness lock (two holders corrupt data) use a consensus-backed service (ZooKeeper, etcd) and fencing. Redlock's safety depends on timing assumptions; Redis's author and Kleppmann agree fencing is stronger. [S]
-- **Contention math:** with n clients competing for one lock held for h seconds, the maximum rate of lock-protected work is 1 / h; a lock turns a parallel system into a serial one at that point (Amdahl, chapter 06). [K]
+- **Contention math:** with n clients competing for one lock held for h seconds, the maximum rate of lock-protected work is 1 / h; a lock turns a parallel system into a serial one at that point (Amdahl, chapter 06). [D]
 
 ## 8. Leader election
 
-A group picks one leader for a role (primary, scheduler, singleton job). It is a consensus problem: use the consensus store's lease (etcd, ZooKeeper ephemeral nodes) rather than rolling your own. Safe use requires that the leader stops acting when it can no longer prove it holds the lease, and that downstream accepts only the newest leader (fencing). [K]
+A group picks one leader for a role (primary, scheduler, singleton job). It is a consensus problem: use the consensus store's lease (etcd, ZooKeeper ephemeral nodes) rather than rolling your own. Safe use requires that the leader stops acting when it can no longer prove it holds the lease, and that downstream accepts only the newest leader (fencing). [S: Kleppmann, How to do distributed locking]
 
 ## 9. Conflict resolution when writes are accepted in several places
 
@@ -141,7 +140,7 @@ The simulator tracks a **version per key**: each write the leader finishes commi
 
 ## 12. Open items
 
-- Fetch and cite: the Raft paper (election timeout, broadcast time condition); Jepsen model definitions; the Dynamo paper's section 4; Kleppmann's _Designing Data-Intensive Applications_ chapters 5 and 9; Gilbert and Lynch's CAP proof.
+- Read directly: the Raft paper and Kleppmann's locking article. Cited through summaries: Jepsen model definitions, the Dynamo paper (Princeton notes), Gilbert and Lynch's CAP proof (Wikipedia). DDIA chapters 5 and 9 are not cited.
 - Decisions `[?]`: whether the simulator should model election and leader unavailability for quorum stores, and sloppy quorums.
 
 ## Sources
@@ -151,4 +150,5 @@ The simulator tracks a **version per key**: each write the leader finishes commi
 - [Jepsen: consistency models](https://jepsen.io/consistency/models) [P, relationships only]
 - [Dynamo (Princeton course notes on the SOSP 2007 paper)](https://www.cs.princeton.edu/courses/archive/spr22/cos418/docs/L10-dynamo.pdf) [S]
 - [Percona: MySQL high availability, stale reads and how to fix them](https://www.percona.com/blog/mysql-high-availability-stale-reads-and-how-to-fix-them/) [S]
-- [Kleppmann: how to do distributed locking (via summaries)](https://surfingcomplexity.blog/2025/03/03/locks-leases-fencing-tokens-fizzbee/) [S]
+- [Kleppmann: How to do distributed locking](https://martin.kleppmann.com/2016/02/08/how-to-do-distributed-locking.html) [P]
+- [Ongaro and Ousterhout, In Search of an Understandable Consensus Algorithm](https://raft.github.io/raft.pdf) [P]

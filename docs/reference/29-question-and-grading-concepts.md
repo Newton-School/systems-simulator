@@ -1,9 +1,8 @@
 # 29. Question and grading concepts
 
-Marks: **[P]** primary, **[S]** secondary, **[K]** established knowledge, **[?]** needs an owner decision,
-**[repo]** read from the question and grading types (`src/engine/analysis/question.ts`, `rubric.ts`, `structural.ts`,
-`gradingCriteria.ts`, `evaluationEnvelope.ts`, `src/engine/classroom/`). See [README](README.md).
+Marks: **[P]** primary, **[S]** secondary (fetched or searched), **[K]** established convention, definition or design judgement (no measured figure rests on it), **[D]** derived here from cited definitions or the chapter's own arithmetic, **[?]** needs an owner decision, **[repo]** read from the repository. See [README](README.md).
 
+**[repo]** here means read from the question and grading types (`src/engine/analysis/question.ts`, `rubric.ts`, `structural.ts`, `gradingCriteria.ts`, `evaluationEnvelope.ts`, `src/engine/classroom/`).
 How a design question is described, run and graded. Like chapters 26 and 27 this documents the simulator's own contract;
 what makes a good question comes from assessment practice (section 8). The numbers a rubric checks are chapter 27;
 the decisions a question asks for are chapter 25.

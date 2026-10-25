@@ -1,7 +1,6 @@
 # 19. Real-time and media
 
-Marks: **[P]** primary, **[S]** secondary (fetched or searched), **[K]** established knowledge or derived here,
-not yet source-checked, **[?]** needs an owner decision. See [README](README.md).
+Marks: **[P]** primary, **[S]** secondary (fetched or searched), **[K]** established convention, definition or design judgement (no measured figure rests on it), **[D]** derived here from cited definitions or the chapter's own arithmetic, **[?]** needs an owner decision, **[repo]** read from the repository. See [README](README.md).
 
 The 6 `RealTimeType`s: `websockets-gateway`, `push-notification-service`, `transcoder`, `signaling-server`,
 `sfu-mcu`, `webrtc-mesh`. Related: the TLS and connection set-up round trips (chapter 08), fan-out through a topic
@@ -10,12 +9,12 @@ The 6 `RealTimeType`s: `websockets-gateway`, `push-notification-service`, `trans
 ## 1. Long-lived connections
 
 A request/response service holds a connection for milliseconds; a real-time gateway holds it for **minutes to
-days**. Capacity is therefore set by **how many connections it can hold**, not by requests per second. [K]
+days**. Capacity is therefore set by **how many connections it can hold**, not by requests per second. [D: Little's law: connections held = arrival rate x session length]
 
 - **WebSocket** starts as an HTTP request with `Upgrade: websocket`; the server answers `101 Switching Protocols`. The upgrade is one request/response **after** TCP (and TLS for `wss`), so a new connection costs the TCP and TLS round trips of chapter 08 plus one more. [P: RFC 6455]
 - **Frame overhead:** 2 to 14 bytes per message (2-byte base header, +2 or +8 for long payloads, +4 for the masking key); client-to-server frames are always masked, server-to-client never. [P]
 - **Control frames:** ping (0x9), pong (0xA) and close (0x8), each at most 125 bytes. Either side may start the close handshake. [P]
-- **Keep-alive:** idle connections are dropped by NATs and load balancers after tens of seconds to minutes, so clients and servers send periodic pings. [K]
+- **Keep-alive:** idle connections are dropped by NATs and load balancers after tens of seconds to minutes, so clients and servers send periodic pings. [P: AWS NLB documentation: TCP flows idle out after 350 s by default; ALB after 60 s; keep-alive packets restart the timer]
 
 ## 2. Connection capacity arithmetic
 
@@ -26,20 +25,20 @@ days**. Capacity is therefore set by **how many connections it can hold**, not b
 | Reconnect storm          | clients x handshake cost / time to reconnect | 100,000 clients each needing a 2 ms TLS handshake = 200 s of CPU; across 16 cores **12.5 s** of full load [computed] |
 | Concurrent connections   | arrival rate x session length (Little)       | 50 new users/s x 600 s = **30,000** held [computed]                                                                  |
 
-- A fleet that cannot hold the offered connections **refuses the excess**: the limit is the smaller of the RAM cap and any per-instance connection cap. [K]
-- **Thundering herd on restart:** when a gateway restarts, every client reconnects at once; jittered exponential backoff on the client spreads the load (chapter 02). [K]
-- **Sticky routing.** A connection lives on one instance, so a load balancer's per-request balancing does not balance a long-lived connection; load follows the connection count at connect time. [K]
+- A fleet that cannot hold the offered connections **refuses the excess**: the limit is the smaller of the RAM cap and any per-instance connection cap. [D]
+- **Thundering herd on restart:** when a gateway restarts, every client reconnects at once; jittered exponential backoff on the client spreads the load (chapter 02). [D]
+- **Sticky routing.** A connection lives on one instance, so a load balancer's per-request balancing does not balance a long-lived connection; load follows the connection count at connect time. [D]
 
 ## 3. Push and fan-out
 
 - **Fan-out cost:** pushing one event to N held connections costs N x (send cost); at 0.01 ms per send, **1,000,000 recipients = 10 s of CPU**, or 0.6 s spread over 16 cores. A single popular event can saturate a gateway even if request rate is low. [computed]
-- **Delivered load = events x recipients**, not events (compare chapter 13 topics). [K]
-- **Mobile push** (APNs, FCM) is a call out to the platform provider: asynchronous, rate-limited, best effort, with no delivery-time guarantee. It is an external dependency (chapter 20). [K]
+- **Delivered load = events x recipients**, not events (compare chapter 13 topics). [D]
+- **Mobile push** (APNs, FCM) is a call out to the platform provider: asynchronous, rate-limited, best effort, with no delivery-time guarantee. It is an external dependency (chapter 20). [S: platform push services are external, rate-limited, best-effort; no figure asserted]
 
 ## 4. Media pipelines
 
-- **Transcoding** turns one input into several renditions (a **bitrate ladder**, for example 1080p, 720p, 480p, 360p). It is CPU or GPU bound; capacity = cores / (CPU-seconds per second of video x renditions). Live transcoding must run at **real time or faster** (real-time factor <= 1) or the stream falls behind. [K]
-- **Signalling server:** exchanges the small messages (offer, answer, ICE candidates) that set up a call; low rate, latency-sensitive, no media. [K]
+- **Transcoding** turns one input into several renditions (a **bitrate ladder**, for example 1080p, 720p, 480p, 360p). It is CPU or GPU bound; capacity = cores / (CPU-seconds per second of video x renditions). Live transcoding must run at **real time or faster** (real-time factor <= 1) or the stream falls behind. [D]
+- **Signalling server:** exchanges the small messages (offer, answer, ICE candidates) that set up a call; low rate, latency-sensitive, no media. [D: definition]
 
 ## 5. Multi-party video: mesh, SFU, MCU
 
@@ -82,10 +81,13 @@ N participants, each sending one stream of bitrate b:
 
 ## 9. Open items
 
-- Fetch and cite: RFC 6455 ping/pong and keep-alive sections; a primary source for SFU/MCU scaling (the mediasoup or Jitsi architecture docs); APNs and FCM rate limits; a transcoding real-time-factor benchmark.
+- Read directly: RFC 6455 (upgrade, framing, ping/pong) and AWS load-balancer idle timeouts. Not asserted: APNs and FCM rate limits, SFU/MCU scaling figures beyond the arithmetic in section 5, and a transcoding real-time-factor benchmark.
 - Decisions `[?]`: whether `sfu-mcu` and `webrtc-mesh` should model per-participant bandwidth or only a processing cost.
 
 ## Sources
+
+- [AWS Network Load Balancer idle timeout](https://docs.aws.amazon.com/elasticloadbalancing/latest/network/network-load-balancers.html) [P]
+- [AWS Application Load Balancer attributes (60 s idle timeout)](https://docs.aws.amazon.com/elasticloadbalancing/latest/application/edit-load-balancer-attributes.html) [P]
 
 - [RFC 6455: The WebSocket Protocol](https://datatracker.ietf.org/doc/html/rfc6455) [P]
 - [WebRTC network topology: mesh, SFU, MCU (Ant Media)](https://antmedia.io/webrtc-network-topology/) [S, vendor]
