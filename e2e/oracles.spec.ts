@@ -5,6 +5,11 @@
 import { expect, test } from '@playwright/test'
 import {
   burnRate,
+  fanoutWritesPerSec,
+  perSecondFromMonthly,
+  pollRate,
+  serialAvailability,
+  storageBytes,
   dnsFailoverSeconds,
   dnsMissRatio,
   expectedDistinctKeys,
@@ -200,5 +205,17 @@ test.describe('oracle self-check against the reference chapters', () => {
     expect(monthsToUtilization(0.5, 0.8, 0.1)).toBeCloseTo(4.93, 2)
     expect(monthsToUtilization(0.5, 1, 0.1)).toBeCloseTo(7.27, 2)
     expect(expectedDistinctKeys(1000, 6000)).toBeCloseTo(997.5, 1)
+  })
+
+  test('ORC-23 sizing: 100 M links a month is 39 writes/s; 6 B records of 500 B is 3 TB; 1 M followers is 1 M writes/s (ch24 3, 4)', () => {
+    expect(perSecondFromMonthly(100e6)).toBeCloseTo(38.58, 2)
+    expect(storageBytes(6e9, 500)).toBe(3e12)
+    expect(storageBytes(6e9, 500, 3)).toBe(9e12)
+    expect(fanoutWritesPerSec(1, 1_000_000)).toBe(1_000_000)
+  })
+
+  test('ORC-24 polling and microservices: 1 M clients every 5 s is 200,000 req/s; 6 hops at 99.9% is 99.4% (ch24 1, ch25 3)', () => {
+    expect(pollRate(1_000_000, 5)).toBe(200_000)
+    expect(serialAvailability(0.999, 6)).toBeCloseTo(0.994, 3)
   })
 })

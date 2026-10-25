@@ -34,6 +34,8 @@ A `QuestionPackage` (version 1.0) carries: [repo]
 
 A **case** is a set of **overrides** (`global`, `workload`, `faults`, `invariants`, optionally a chaos `experiment`) applied to the learner's topology; it carries no topology of its own because the design under test is the learner's. A suite is a named list of cases; `visibleToStudent` false makes it a hidden contest suite, and `dryRunCase` is a representative case the learner can run. [repo]
 
+**The stated scale is the load.** Where a case sets no rate of its own, the run uses the question's `prompt.scale.peakRps` as the base rate (and `readWriteRatio` as the read/write mix) in place of whatever the learner configured, so a design cannot be graded at a lower load than the problem states; a case's own `workload` override wins. [repo]
+
 Typical cases: the **steady** load, a **peak** or spike, a **fault** (a node or zone down), a **scaled** load. Running several cases catches designs that pass only the easy one. [K]
 
 Grading invariants (for example `perNode.maxUtilization <= 0.8`) are declared in a case, since learners never author them, and checked through an invariant rubric check. [repo]

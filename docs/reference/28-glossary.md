@@ -22,19 +22,19 @@ One line per term, with the chapter that explains it. Terms that are simulator s
 | **Bulkhead**                                    | per-compartment concurrency cap so one noisy workload cannot take every worker              | 02         |
 | **Burn rate**                                   | error-budget consumption speed relative to the SLO                                          | 16         |
 | **Cache stampede**                              | many concurrent misses for one key hitting the backend                                      | 10         |
-| **CAP / PACELC**                                | consistency, availability, partition tolerance trade-off, and its latency extension         | 11         |
 | **Canary**                                      | releasing to a small share of traffic first                                                 | 17         |
+| **CAP / PACELC**                                | consistency, availability, partition tolerance trade-off, and its latency extension         | 11         |
 | **Cardinality (metrics)**                       | number of distinct label combinations                                                       | 16         |
 | **CDC**                                         | change data capture: a stream of row changes                                                | 13         |
 | **Cell-based architecture**                     | isolated full copies of a workload behind a router                                          | 24         |
 | **Che approximation**                           | closed-form LRU hit ratio under independent requests                                        | 10         |
 | **Circuit breaker**                             | stops calling a failing dependency, then probes                                             | 02         |
 | **Coefficient of variation (CV)**               | standard deviation / mean; 0 deterministic, 1 exponential                                   | 01, 03     |
+| **Cold start**                                  | extra latency on first use (serverless, cold cache, restarted node)                         | 06, 22     |
 | **Compensating transaction**                    | an action that undoes a completed saga step                                                 | 24         |
+| **Connection pool**                             | a bounded set of reusable connections                                                       | 08, 09     |
 | **Consistent hashing**                          | keys and nodes on a ring so adding a node moves about 1/(N+1) of keys                       | 07, 12     |
 | **Consumer group**                              | consumers sharing a stream's partitions; each group reads everything                        | 13         |
-| **Cold start**                                  | extra latency on first use (serverless, cold cache, restarted node)                         | 06, 22     |
-| **Connection pool**                             | a bounded set of reusable connections                                                       | 08, 09     |
 | **CQRS**                                        | separate models for commands and queries                                                    | 24         |
 | **Dead-letter queue (DLQ)**                     | where messages go after too many failed deliveries                                          | 13         |
 | **Degraded**                                    | serving slowly or partly rather than down                                                   | 22         |
@@ -50,9 +50,9 @@ One line per term, with the chapter that explains it. Terms that are simulator s
 | **Fan-out (on write / on read)**                | copying a post to followers' feeds when written / assembling at read                        | 24         |
 | **Fault domain**                                | a region, zone or subnet that fails together                                                | 22         |
 | **Fencing token**                               | increasing number that lets a store reject a stale lock holder                              | 11         |
-| **Gray failure**                                | failure the health checker does not see but applications do                                 | 22         |
 | **Golden signals**                              | latency, traffic, errors, saturation                                                        | 16         |
 | **Goodput**                                     | successful work per second                                                                  | 27         |
+| **Gray failure**                                | failure the health checker does not see but applications do                                 | 22         |
 | **Hash ring**                                   | the structure behind consistent hashing                                                     | 12         |
 | **Head / tail sampling**                        | decide at the start of a trace / after it completes                                         | 16         |
 | **Headroom**                                    | unused capacity, 1 - utilization                                                            | 23         |
@@ -87,8 +87,8 @@ One line per term, with the chapter that explains it. Terms that are simulator s
 | **Outbox (transactional)**                      | message written in the same transaction as the data, relayed later                          | 24         |
 | **P-K formula**                                 | Pollaczek-Khinchine mean wait for M/G/1                                                     | 01         |
 | **Paranoia level**                              | how many WAF rules are active                                                               | 15         |
-| **Partition (stream)**                          | an ordered log segment; consumers get whole partitions                                      | 13         |
 | **Partition (network)**                         | a split in which nodes cannot talk                                                          | 11         |
+| **Partition (stream)**                          | an ordered log segment; consumers get whole partitions                                      | 13         |
 | **Poisson process**                             | memoryless arrivals at a constant rate                                                      | 03, 05     |
 | **Power of two choices**                        | pick two at random, take the less loaded                                                    | 07         |
 | **Priority / WFQ**                              | queue disciplines: by priority / weighted fair queueing (`queue.discipline`)                | 26         |
@@ -111,8 +111,8 @@ One line per term, with the chapter that explains it. Terms that are simulator s
 | **Shard / shard key**                           | a partition of data / the field that picks it                                               | 12         |
 | **SLI / SLO / SLA**                             | measured indicator / internal target / contractual promise                                  | 16         |
 | **Snapshot (event store)**                      | saved state that bounds replay                                                              | 13         |
-| **Spot instance**                               | discounted capacity the provider can reclaim                                                | 23         |
 | **SPOF**                                        | single point of failure                                                                     | 24, 27     |
+| **Spot instance**                               | discounted capacity the provider can reclaim                                                | 23         |
 | **Stale read**                                  | a read that misses a newer write                                                            | 11         |
 | **Strangler fig**                               | gradual replacement of a legacy system                                                      | 24         |
 | **Structural rule**                             | a graph-shape requirement checked before simulation                                         | 29         |

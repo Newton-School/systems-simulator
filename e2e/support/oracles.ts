@@ -554,3 +554,32 @@ export function monthsToUtilization(u: number, uTarget: number, g: number): numb
 export function reservedBreakEven(multiplier: number): number {
   return multiplier
 }
+
+// ───────────────────── chapters 24 to 29: patterns, decisions, sizing ─────────────────────
+
+const SECONDS_PER_MONTH = 30 * 24 * 3600
+
+/** Average events per second from a monthly total (ch24 section 4). */
+export function perSecondFromMonthly(perMonth: number): number {
+  return perMonth / SECONDS_PER_MONTH
+}
+
+/** Bytes stored: records x bytes x replication factor. */
+export function storageBytes(records: number, bytesPerRecord: number, replication = 1): number {
+  return records * bytesPerRecord * replication
+}
+
+/** Feed writes per second under fan-out on write: posts per second x followers. */
+export function fanoutWritesPerSec(postsPerSec: number, followers: number): number {
+  return postsPerSec * followers
+}
+
+/** Requests per second from clients polling at a fixed interval. */
+export function pollRate(clients: number, intervalSec: number): number {
+  return clients / intervalSec
+}
+
+/** Availability of k independent serial hops. */
+export function serialAvailability(perHop: number, hops: number): number {
+  return perHop ** hops
+}

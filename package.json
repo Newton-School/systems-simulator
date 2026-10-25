@@ -62,7 +62,13 @@
     "test:e2e:ch20": "playwright test e2e/journeys/ch20-integration.spec.ts",
     "test:e2e:ch21": "playwright test e2e/journeys/ch21-dns.spec.ts",
     "test:e2e:ch22": "playwright test e2e/journeys/ch22-failures.spec.ts",
-    "test:e2e:ch23": "playwright test e2e/journeys/ch23-capacity.spec.ts"
+    "test:e2e:ch23": "playwright test e2e/journeys/ch23-capacity.spec.ts",
+    "test:e2e:ch24": "playwright test e2e/journeys/ch24-patterns.spec.ts",
+    "test:e2e:ch25": "playwright test e2e/journeys/ch25-decisions.spec.ts",
+    "test:e2e:ch26": "playwright test e2e/journeys/ch26-config.spec.ts",
+    "test:e2e:ch27": "playwright test e2e/journeys/ch27-metrics.spec.ts",
+    "test:e2e:ch28": "playwright test e2e/journeys/ch28-glossary.spec.ts",
+    "test:e2e:ch29": "playwright test e2e/journeys/ch29-grading.spec.ts"
   },
   "dependencies": {
     "clsx": "^2.1.1",

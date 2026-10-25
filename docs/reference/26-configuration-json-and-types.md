@@ -80,7 +80,7 @@ Top level: `id`, `name`, `version` (strings), `global`, `nodes`, `edges`; option
 | ------------- | -------------------------------------------------- | ---------------------------------------------------------------------------------------- |
 | `id`, `label` | string                                             | unique id, display name                                                                  |
 | `type`        | one of the 131 component types (chapters 06 to 22) | decides the behaviour and default profile                                                |
-| `category`    | one of the 14 categories                           | grouping; must be valid for the type                                                     |
+| `category`    | one of the 14 categories                           | grouping; any of the 14 is accepted for any type, it is not checked against the type     |
 | `role`        | `source`, `processor`, `storage`, `router`, `sink` | structural role (optional)                                                               |
 | `position`    | {x, y}                                             | canvas position, no effect on a run                                                      |
 | `provider`    | string                                             | vendor label, no effect on behaviour                                                     |
@@ -185,7 +185,7 @@ Requests carry `metadata`: `sessionId`, the keyspace field, `clientIp`, `origin`
 
 ## 10. Testable expectations (summary)
 
-- A document that violates a range in this chapter is rejected with the field named; an unknown component type or a category invalid for the type is rejected.
+- A document that violates a range in this chapter is rejected with the field named; an unknown component type or an unknown category value is rejected.
 - The same document and seed produce the same output.
 - A field marked "not read" has no effect on any output.
 - Weights, probabilities and fractions outside their ranges are rejected.
