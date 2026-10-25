@@ -239,37 +239,30 @@ test.describe('O-06 a reported percentile is the percentile of the latencies (ch
 })
 
 test.describe('O-06b percentiles of slow requests (ch16 section 3)', () => {
-  // Tracked gap (finding 29): the latency histogram tops out at 1 s ("the global timeout is a hard ceiling"), but
-  // timeouts are configurable to minutes. Every percentile and the max of a service slower than 1 s read 1,003.5 ms
-  // while the mean is right: a 5 s service has a p99 of 1 s.
-  for (const serviceMs of [2000, 5000]) {
-    test.fail(
-      `a constant ${serviceMs} ms service reports p50, p99 and max of ${serviceMs} ms`,
-      () => {
-        const out = runEngine(
-          chain({
-            run: run(`o06b-${serviceMs}`, { rps: 5, durationMs: 60_000, timeoutMs: 120_000 }),
-            nodes: [
-              queueNode('svc', 'microservice', {
-                category: 'compute',
-                serviceMs,
-                workers: 1000,
-                timeoutMs: 120_000
-              })
-            ],
-            edges: [tcp('source', 'svc')]
-          })
-        )
-        expect(relErr(out.summary.latency.mean, serviceMs)).toBeLessThan(0.01)
-        for (const q of [
-          out.summary.latency.p50,
-          out.summary.latency.p99,
-          out.summary.latency.max
-        ]) {
-          expect(relErr(q, serviceMs)).toBeLessThan(0.02)
-        }
+  // Finding 29 (fixed): the latency histogram topped out at 1 s ("the global timeout is a hard ceiling"), but
+  // timeouts are configurable to minutes, so every percentile and the max of a service slower than 1 s read
+  // 1,003.5 ms while the mean was right. The range now reaches about 18 minutes.
+  for (const serviceMs of [2000, 5000, 20_000]) {
+    test(`a constant ${serviceMs} ms service reports p50, p99 and max of ${serviceMs} ms`, () => {
+      const out = runEngine(
+        chain({
+          run: run(`o06b-${serviceMs}`, { rps: 5, durationMs: 60_000, timeoutMs: 120_000 }),
+          nodes: [
+            queueNode('svc', 'microservice', {
+              category: 'compute',
+              serviceMs,
+              workers: 1000,
+              timeoutMs: 120_000
+            })
+          ],
+          edges: [tcp('source', 'svc')]
+        })
+      )
+      expect(relErr(out.summary.latency.mean, serviceMs)).toBeLessThan(0.01)
+      for (const q of [out.summary.latency.p50, out.summary.latency.p99, out.summary.latency.max]) {
+        expect(relErr(q, serviceMs)).toBeLessThan(0.02)
       }
-    )
+    })
   }
 
   test('below 1 s the histogram is within its stated 1% (200 ms reads 199.7 ms)', () => {

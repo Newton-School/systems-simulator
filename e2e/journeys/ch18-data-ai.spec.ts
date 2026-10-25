@@ -106,6 +106,7 @@ test.describe('T-01 an LLM response takes per-token time x output tokens (ch18 s
   test('500 output tokens at 20 ms per token: 10 s of generation on top of the 100 ms first-token cost', () => {
     const out = llm('t01', 20, 500)
     expect(relErr(out.summary.latency.mean, 100 + 500 * 20)).toBeLessThan(0.01)
+    expect(relErr(out.summary.latency.p50, 100 + 500 * 20)).toBeLessThan(0.02)
   })
 
   test('doubling the output tokens doubles the generation part', () => {
@@ -278,7 +279,7 @@ test.describe('T-03 the browser shows the LLM latency the engine computed', () =
     const uiMs = Number(m![1].replace(/,/g, '')) * (m![2] === 's' ? 1000 : 1)
     expect(relErr(uiMs, out.summary.latency.p50)).toBeLessThan(0.02)
     // Theory for the value itself (100 ms + 500 tokens x 20 ms = 10.1 s) is asserted on the mean here; the percentile
-    // is checked in ch16 O-06b, where it is tracked (finding 29).
+    // is checked in ch16 O-06b (finding 29, fixed).
     expect(relErr(out.summary.latency.mean, 100 + 500 * 20)).toBeLessThan(0.01)
   })
 })

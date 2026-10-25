@@ -89,7 +89,6 @@ These come from the flows in `e2e/README.md` (findings), kept here so a reader o
 
 | Metric                                            | Caveat                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `latency.p50/p95/p99/max`                         | the histogram tops out at 1 s (1,003.5 ms): any latency above 1 s is reported as 1,003.5 ms while the mean is exact (finding 29)                                                                                                                                                                                                                                                                                        |
 | latency of a leaf asynchronous branch             | when the only edge out of a service is asynchronous, the request is reported as ending at the target, with that target's latency (finding 27)                                                                                                                                                                                                                                                                           |
 | `avgInSystem`                                     | a 1 Hz sampled mean whose first sample (t = 0) is always an empty system, so it reads low by about 1 / duration in seconds; the Little's-law check uses the exact time average (finding 16)                                                                                                                                                                                                                             |
 | `totalRequests`                                   | counts requests that reached an outcome, not requests generated; in-flight requests at the cutoff are separate (finding 7)                                                                                                                                                                                                                                                                                              |
@@ -100,12 +99,12 @@ These come from the flows in `e2e/README.md` (findings), kept here so a reader o
 ## 9. Testable expectations (summary)
 
 - Reported throughput = successes / post-warmup duration; error rate = failures / total; they add up with the outcome counts.
-- A reported percentile is the percentile of the underlying successful latencies (within the histogram's 1% resolution below 1 s).
+- A reported percentile is the percentile of the underlying successful latencies (within the histogram's 1% resolution, from 1 microsecond to about 18 minutes).
 - Utilization stays within 0 to 1; Little's law and conservation checks hold for a healthy run.
 - Each failure appears under exactly one cause and one locus; `failuresByLocus` shares sum to 1.
 - The same document and seed give identical output.
 
 ## 10. Open items
 
-- Decisions `[?]`: raise the histogram ceiling to the longest configured timeout; report asynchronous branches separately from user-facing requests; make `avgInSystem` the exact time average.
+- Decisions `[?]`: report asynchronous branches separately from user-facing requests; make `avgInSystem` the exact time average.
 - Fetch and cite: the Prometheus and OpenTelemetry metric naming conventions for the equivalent real-world signals.
