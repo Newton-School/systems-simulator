@@ -75,7 +75,7 @@ describe('GGcKNode.resizeConcurrency', () => {
   })
 })
 
-function nodeWith(config: Record<string, unknown>): ComponentNode {
+function nodeWith(config: Record<string, unknown>, instanceCount = 1): ComponentNode {
   return {
     id: 'svc',
     type: 'microservice',
@@ -84,7 +84,7 @@ function nodeWith(config: Record<string, unknown>): ComponentNode {
     position: { x: 0, y: 0 },
     queue: { workers: 1, capacity: 10, discipline: 'fifo' },
     processing: { distribution: { type: 'constant', value: 5 }, timeout: 1000 },
-    resources: { instanceCount: 1 } as never,
+    resources: { instanceCount } as never,
     config
   } as ComponentNode
 }
@@ -217,5 +217,71 @@ describe('GGcKNode scale-down drain', () => {
     expect(node.getState().queueLength).toBe(1)
     const { started } = node.resizeConcurrency(2, 256, 1_000n)
     expect(started.map((r) => r.id)).toEqual(['a'])
+  })
+})
+
+describe("autoscaler policy 'hpa' (Kubernetes rule)", () => {
+  const hpa = {
+    autoscalePolicy: 'hpa',
+    autoscaleMinInstances: 1,
+    autoscaleMaxInstances: 100,
+    autoscaleTargetUtilization: 0.7
+  }
+  function hpaTick(
+    node: ComponentNode,
+    state: Map<string, unknown>,
+    utilization: number,
+    atSeconds: number
+  ): number {
+    const store = {
+      get: <T>(k: string) => state.get(k) as T | undefined,
+      set: <T>(k: string, v: T) => void state.set(k, v)
+    }
+    const nodeState: NodeState = {
+      id: 'svc',
+      status: 'busy',
+      activeWorkers: 1,
+      queueLength: 0,
+      utilization,
+      totalInSystem: 1
+    }
+    const out = autoscalerTrait.onTick?.({
+      node,
+      clock: BigInt(atSeconds) * 1_000_000n,
+      state: store,
+      nodeState
+    }) as { scaleInstancesTo: number }
+    return out.scaleInstancesTo
+  }
+
+  it('syncs every 15 s by default', () => {
+    expect(autoscalerTrait.tickIntervalMs?.(nodeWith(hpa))).toBe(15_000)
+  })
+
+  it('scales to ceil(current x utilization / target): 4 replicas at 90% against 70% need 6', () => {
+    const state = new Map<string, unknown>()
+    expect(hpaTick(nodeWith({ ...hpa }, 4), state, 0.9, 0)).toBe(6)
+  })
+
+  it('does nothing inside the 10% tolerance band: 4 replicas at 76% against 70% stay at 4', () => {
+    const state = new Map<string, unknown>()
+    expect(hpaTick(nodeWith({ ...hpa }, 4), state, 0.76, 0)).toBe(4)
+  })
+
+  it('adds at most max(100%, 4) per period: 2 replicas at 700% load reach 6, then 12', () => {
+    const state = new Map<string, unknown>()
+    const node = nodeWith({ ...hpa }, 2)
+    expect(hpaTick(node, state, 7, 0)).toBe(6)
+    expect(hpaTick(node, state, 7, 15)).toBe(12)
+  })
+
+  it('waits out the 300 s scale-down window before removing anything', () => {
+    const state = new Map<string, unknown>()
+    const node = nodeWith({ ...hpa }, 10)
+    // At 30% against 70% the proportional answer is 5, but the window still holds the recommendation of 10.
+    expect(hpaTick(node, state, 0.3, 0)).toBe(10)
+    expect(hpaTick(node, state, 0.3, 150)).toBe(10)
+    expect(hpaTick(node, state, 0.3, 299)).toBe(10)
+    expect(hpaTick(node, state, 0.3, 301)).toBe(5)
   })
 })

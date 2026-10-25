@@ -10,6 +10,16 @@ const DEFAULT_TARGET_UTILIZATION = 0.7
 const DEFAULT_COOLDOWN_MS = 5000
 const DEFAULT_STEP = 1
 const CURRENT_INSTANCES_KEY = 'autoscaler.currentInstances'
+const RECOMMENDATIONS_KEY = 'autoscaler.recommendations'
+
+// Kubernetes HPA defaults (chapter 14 section 2): 15 s sync, 10% tolerance, a 300 s scale-down stabilization
+// window, scale-up by at most max(100% of replicas, 4 pods) per period.
+const HPA_SYNC_PERIOD_MS = 15_000
+const HPA_TOLERANCE = 0.1
+const HPA_SCALE_DOWN_WINDOW_MS = 300_000
+const HPA_SCALE_UP_MIN_PODS = 4
+
+type Recommendation = { atUs: bigint; desired: number }
 
 function asPositiveNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null
@@ -46,9 +56,12 @@ export const autoscalerTrait: NodeBehaviourTrait = {
     if (!bounds(node.config)) {
       return null
     }
-    return asPositiveNumber(node.config?.['autoscaleCooldownMs']) ?? DEFAULT_COOLDOWN_MS
+    return (
+      asPositiveNumber(node.config?.['autoscaleCooldownMs']) ??
+      (node.config?.['autoscalePolicy'] === 'hpa' ? HPA_SYNC_PERIOD_MS : DEFAULT_COOLDOWN_MS)
+    )
   },
-  onTick: ({ node, state, nodeState }) => {
+  onTick: ({ node, state, nodeState, clock }) => {
     const b = bounds(node.config)
     if (!b) {
       return
@@ -66,7 +79,36 @@ export const autoscalerTrait: NodeBehaviourTrait = {
     let next = current
     let scaledUp = 0
     let scaledDown = 0
-    if (util > target && current < b.max) {
+    if (node.config?.['autoscalePolicy'] === 'hpa') {
+      // The proportional rule: desired = ceil(current x observed / target), inside a 10% tolerance band
+      // nothing happens, scale-up is rate limited, and scale-down takes the highest recommendation of the
+      // stabilization window so a brief dip removes nothing.
+      const ratio = util / target
+      const rawDesired =
+        Math.abs(ratio - 1) <= HPA_TOLERANCE ? current : Math.max(1, Math.ceil(current * ratio))
+      // Before the first sync the fleet was running at its current size, which counts as the first recommendation.
+      const history = store?.get<Recommendation[]>(RECOMMENDATIONS_KEY) ?? [
+        { atUs: clock, desired: current }
+      ]
+      history.push({ atUs: clock, desired: rawDesired })
+      const windowMs =
+        asPositiveNumber(node.config?.['autoscaleScaleDownWindowMs']) ?? HPA_SCALE_DOWN_WINDOW_MS
+      const windowStart = clock - BigInt(Math.round(windowMs * 1000))
+      while (history.length > 1 && history[0].atUs < windowStart) history.shift()
+      store?.set(RECOMMENDATIONS_KEY, history)
+      let desired = rawDesired
+      if (rawDesired < current) {
+        desired = Math.max(...history.map((r) => r.desired))
+      }
+      if (desired > current) {
+        const limit = current + Math.max(current, HPA_SCALE_UP_MIN_PODS)
+        next = clamp(Math.min(desired, limit), b.min, b.max)
+        scaledUp = next > current ? 1 : 0
+      } else if (desired < current) {
+        next = clamp(desired, b.min, b.max)
+        scaledDown = next < current ? 1 : 0
+      }
+    } else if (util > target && current < b.max) {
       next = clamp(current + step, b.min, b.max)
       scaledUp = 1
     } else if (util < target * 0.5 && current > b.min) {
@@ -143,6 +185,25 @@ export const autoscalerCapabilityModule: NodeCapabilityModule = {
             why: 'How often the loop evaluates — also the reaction lag before capacity changes.'
           },
           {
+            path: 'sim.autoscalePolicy',
+            type: 'select',
+            label: 'Policy',
+            options: ['step', 'hpa'],
+            altitude: 'advanced',
+            why: "'step' adds or removes a fixed number of instances per cooldown. 'hpa' follows the Kubernetes rule: desired = ceil(current x utilization / target), a 10% tolerance, fast scale-up and a 300 s scale-down window; its sync period defaults to 15 s."
+          },
+          {
+            path: 'sim.autoscaleScaleDownWindowMs',
+            type: 'input',
+            inputType: 'number',
+            label: 'Scale-down window',
+            unit: 'ms',
+            min: 0,
+            altitude: 'advanced',
+            placeholder: `Default ${HPA_SCALE_DOWN_WINDOW_MS}ms`,
+            why: 'HPA policy only: scale-down uses the highest recommendation within this window.'
+          },
+          {
             path: 'sim.autoscaleStep',
             type: 'input',
             inputType: 'number',
@@ -161,7 +222,8 @@ export const autoscalerCapabilityModule: NodeCapabilityModule = {
   metrics: { counters: ['autoscaleUps', 'autoscaleDowns'] },
   honesty: {
     simulates: [
-      'a utilization-target control loop that resizes effective concurrency every cooldown (reaction-lagged), bounded by min/max'
+      'a utilization-target control loop that resizes effective concurrency every cooldown (reaction-lagged), bounded by min/max',
+      "the Kubernetes HPA rule under autoscalePolicy 'hpa': ceil(current x utilization / target), 10% tolerance, rate-limited scale-up, 300 s scale-down window"
     ],
     notModeled: [
       'predictive/scheduled scaling, per-instance warm-up cost on scale-up (compose with coldStart), or cluster-level bin-packing'

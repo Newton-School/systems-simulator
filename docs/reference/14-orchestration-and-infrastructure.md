@@ -88,6 +88,7 @@ CI runner example: builds at 6 per hour, 10 minutes each, 2 runners: offered loa
 | `autoscaleTargetUtilization` (0.7)                                 | target utilization                             | HPA target                    |
 | `autoscaleCooldownMs` (5000)                                       | loop period                                    | sync period (15 s)            |
 | `autoscaleStep` (1)                                                | instances added or removed per tick            | HPA rate policy               |
+| `autoscalePolicy` (`step`), `autoscaleScaleDownWindowMs` (300000)  | `step` or `hpa`; the HPA scale-down window     | HPA rule and stabilization    |
 | `placementStrategy`                                                | `spread` or `bin-pack`                         | scheduler scoring             |
 | `podStartupMs` (5000)                                              | time from placement to ready                   | image pull + start            |
 | `rescheduleDelayMs` (350000)                                       | failure detection + eviction                   | 50 s + 300 s                  |
@@ -110,7 +111,7 @@ The simulator's autoscaler adds or removes `autoscaleStep` instances per tick to
 ## 10. Open items
 
 - Cluster Autoscaler provisioning figures for clouds other than GCE are not asserted.
-- Decisions `[?]`: whether the simulator's step autoscaler should follow the proportional HPA formula with tolerance and stabilization; whether scale-down should have a stabilization window.
+- Decided and implemented: `autoscalePolicy: 'hpa'` follows the proportional rule with a 10% tolerance, a rate-limited scale-up and a 300 s scale-down window (`autoscaleScaleDownWindowMs`), with a 15 s sync period by default. The step autoscaler stays the default, so existing designs are unchanged.
 
 ## Sources
 

@@ -304,6 +304,9 @@ function scalarTraitDetail(
   return detail
 }
 
+/** Fault type for a gray failure: a share of real requests fail while health checks still pass. */
+export const GRAY_FAILURE_FAULT_TYPE = 'gray-failure'
+
 /** Request metadata set once a delivery's visibility timeout expired and it was redelivered. */
 const QUEUE_VISIBILITY_EXPIRED_KEY = '__queueVisibilityExpired'
 
@@ -329,6 +332,14 @@ export class SimulationEngine {
   private readonly nodeDefinitionsById = new Map<string, ComponentNode>()
   private readonly traitsByNodeId = new Map<string, readonly NodeBehaviourTrait[]>()
   private readonly nodeErrorRateById = new Map<string, number>()
+  /**
+   * Gray failures (chapter 22 section 1): windows in which a node fails a share of its real requests while
+   * every health check still passes. Added to the node's own error rate.
+   */
+  private readonly grayFailureWindows = new Map<
+    string,
+    Array<{ fromUs: bigint; untilUs: bigint | null; rate: number }>
+  >()
   private readonly nodeTimeoutUsById = new Map<string, bigint>()
   private readonly nodeFailureSpecById = new Map<string, NodeFailureSpec>()
   private readonly debugInvariants: boolean
@@ -604,6 +615,7 @@ export class SimulationEngine {
     }
 
     this.scheduleConfiguredFaults(scheduler)
+    this.scheduleFailureModes(scheduler)
   }
 
   /**
@@ -616,6 +628,47 @@ export class SimulationEngine {
    * A `cache-flush` fault is not a failure: it empties a cache node at `atMs`
    * (see `scheduleCacheFlush` in traits/cache.ts for how each hit model reacts).
    */
+  /**
+   * Random failures from a node's `failureModes` (decision G1). A critical mode with an `mtbf` and `mttr` alternates
+   * up and down: time to failure and time to repair are exponential with those means, drawn from a stream of their
+   * own (named by the seed and the node) so adding or removing another node never changes them. The node then fails
+   * as a silent dead server, like any other chaos fault. Modes with other severities are not injected.
+   */
+  private scheduleFailureModes(scheduler: EventScheduler): void {
+    const durationUs = msToMicro(this.topology.global.simulationDuration)
+    for (const node of this.topology.nodes) {
+      for (const [index, mode] of (node.failureModes ?? []).entries()) {
+        if (mode.severity !== 'critical') continue
+        const mtbfMs = mode.mtbf
+        const mttrMs = mode.mttr
+        if (
+          !(typeof mtbfMs === 'number' && mtbfMs > 0 && typeof mttrMs === 'number' && mttrMs > 0)
+        ) {
+          continue
+        }
+        const rng = createRandom(`${this.topology.global.seed}:failure-mode:${node.id}:${index}`)
+        const exponentialMs = (meanMs: number) => -meanMs * Math.log(1 - rng.next())
+        let at = 0n
+        for (;;) {
+          at += msToMicro(exponentialMs(mtbfMs))
+          if (at >= durationUs) break
+          scheduler.schedule(
+            createEvent(
+              'node-failure',
+              node.id,
+              '',
+              { failureSpec: DEFAULT_CHAOS_FAILURE_SPEC },
+              at
+            )
+          )
+          at += msToMicro(Math.max(0.001, exponentialMs(mttrMs)))
+          if (at >= durationUs) break
+          scheduler.schedule(createEvent('node-recovery', node.id, '', {}, at))
+        }
+      }
+    }
+  }
+
   private scheduleConfiguredFaults(scheduler: EventScheduler): void {
     for (const fault of this.topology.faults ?? []) {
       if (!this.nodes.has(fault.targetId)) {
@@ -634,6 +687,21 @@ export class SimulationEngine {
           atUs: msToMicro(atMs),
           untilUs: msToMicro(atMs + durationMs)
         })
+        continue
+      }
+      if (fault.faultType === GRAY_FAILURE_FAULT_TYPE) {
+        // Not a node failure: the node stays "healthy" to checks and fails `errorRate` of its real requests.
+        const rate =
+          typeof params.errorRate === 'number' ? Math.min(0.99, Math.max(0, params.errorRate)) : 0.3
+        const durationMs = typeof params.durationMs === 'number' ? params.durationMs : 0
+        const windows = this.grayFailureWindows.get(fault.targetId) ?? []
+        windows.push({
+          fromUs: msToMicro(atMs),
+          untilUs:
+            fault.duration !== 'permanent' && durationMs > 0 ? msToMicro(atMs + durationMs) : null,
+          rate
+        })
+        this.grayFailureWindows.set(fault.targetId, windows)
         continue
       }
       const spec = parseFailureSpec(params) ?? DEFAULT_CHAOS_FAILURE_SPEC
@@ -3963,8 +4031,13 @@ export class SimulationEngine {
   }
 
   private shouldFailAtNode(nodeId: string): boolean {
-    const nodeErrorRate = this.nodeErrorRateById.get(nodeId)
-    if (!nodeErrorRate || nodeErrorRate <= 0) return false
+    let nodeErrorRate = this.nodeErrorRateById.get(nodeId) ?? 0
+    for (const window of this.grayFailureWindows.get(nodeId) ?? []) {
+      if (this.clock >= window.fromUs && (window.untilUs === null || this.clock < window.untilUs)) {
+        nodeErrorRate = 1 - (1 - nodeErrorRate) * (1 - window.rate)
+      }
+    }
+    if (nodeErrorRate <= 0) return false
     return this.distributions.random() < nodeErrorRate
   }
 

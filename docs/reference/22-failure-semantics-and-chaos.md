@@ -63,6 +63,7 @@ Define a steady-state metric, hypothesise that it holds under a realistic fault,
 | `degradation { fraction, serviceTimeMultiplier }`   | share of requests affected and how much slower                                                                                                                                |
 | `atMs`, `durationMs`, `duration: permanent / fixed` | when the fault starts and for how long                                                                                                                                        |
 | fault `targetId` = location                         | fails every component in a region, availability zone or subnet                                                                                                                |
+| `gray-failure` fault, `errorRate`                   | the node stays healthy to checks and fails that share of its real requests for the window (added to its own `nodeErrorRate`)                                                  |
 | `cache-flush` fault                                 | empties a cache (chapter 10)                                                                                                                                                  |
 | cluster `machineFailureAtMs`                        | scripted machine loss (chapter 14)                                                                                                                                            |
 
@@ -81,7 +82,7 @@ Define a steady-state metric, hypothesise that it holds under a realistic fault,
 ## 7. Open items
 
 - Read directly: the gray-failure abstract (differential observability) and the Principles of Chaos Engineering. The metastable-failure claims rest on Brooker's summary and the SRE book; the HotOS 2021 paper's PDF could not be read as text. The AWS static-stability article is not cited.
-- Decisions `[?]`: whether health checks should be able to see a gray failure (a check that passes while requests fail) and the metastable-failure scenario is now a built-in sample (`src/engine/__samples__/topology/metastable-retry-storm.json`: a 3 s spike, retries as the sustaining loop; flow `F-08`).
+- Decided and implemented: a gray failure (a check that passes while requests fail) is a `gray-failure` fault with `errorRate` (flow `F-09`), and the metastable-failure scenario is now a built-in sample (`src/engine/__samples__/topology/metastable-retry-storm.json`: a 3 s spike, retries as the sustaining loop; flow `F-08`).
 
 ## Sources
 

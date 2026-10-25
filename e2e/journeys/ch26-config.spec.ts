@@ -211,10 +211,11 @@ test.describe('CFG-03 a document and a seed give one run (ch26 section 2, chapte
 // ───────────────────────── 4. Declared fields that must do something ─────────────────────────
 
 test.describe('CFG-04 fields the chapter lists as declared but not read (ch26 section 9)', () => {
-  // Tracked gaps (finding 37): `failureModes` and `scaling` are validated and documented as an intent, but nothing in
-  // the engine reads them (decisions G1 and G2 below).
+  // Finding 37: `failureModes` now injects failures (G1) and `scaling` warns that it is not applied (G2).
 
-  test.fail(
+  // Finding 37, failureModes part (fixed, decision G1): a critical mode with an MTBF and MTTR fails and recovers at
+  // random, exponential in both, so a node is down MTTR / (MTBF + MTTR) of the time.
+  test(
     'failureModes: a node with an MTBF of 5 s and an MTTR of 1 s is down about 1/6 of the time',
     () => {
       const doc = chain({

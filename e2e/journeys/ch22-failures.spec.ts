@@ -356,6 +356,47 @@ test.describe('F-07 a restarted node comes back cold (ch22 section 1)', () => {
   })
 })
 
+test.describe('F-09 a gray failure passes the health check but fails real requests (ch22 section 1)', () => {
+  // Decision G3 (done): a `gray-failure` fault makes a node fail `errorRate` of its real requests while checks still
+  // pass, so the balancer keeps sending it its share. One of two servers fails half its requests for 10 s of 30 s: the
+  // error share is 1/2 (its share of traffic) x 1/2 (its failure rate) x 10/30 (the window) = 8.3%.
+  const gray = (errorRate: number) =>
+    runEngine(
+      chain({
+        run: run(`f09-${errorRate}`, { rps: 200, durationMs: 30_000, timeoutMs: 1000 }),
+        nodes: [
+          passNode('lb', 'load-balancer', {
+            routingStrategy: 'round-robin',
+            healthCheckEnabled: true
+          }),
+          server('a'),
+          server('b')
+        ],
+        edges: [tcp('source', 'lb'), tcp('lb', 'a'), tcp('lb', 'b')],
+        faults: [
+          {
+            targetId: 'a',
+            faultType: 'gray-failure',
+            timing: 'deterministic',
+            duration: 'fixed',
+            params: { atMs: 10_000, durationMs: 10_000, errorRate }
+          }
+        ]
+      })
+    )
+
+  test("half of one server's requests fail for a third of the run: 8.3% of all requests", () => {
+    const out = gray(0.5)
+    expect(Math.abs(out.summary.errorRate - 1 / 12)).toBeLessThan(0.015)
+    // The balancer never took it out: it kept receiving its half of the traffic.
+    expect(relErr(out.perNode.a.totalArrived, out.perNode.b.totalArrived)).toBeLessThan(0.05)
+  })
+
+  test('a gray failure of rate 0 changes nothing', () => {
+    expect(gray(0).summary.errorRate).toBe(0)
+  })
+})
+
 test.describe('F-08 a brief overload can leave a system failed after the trigger ends (ch22 section 2)', () => {
   // Decision G4 (done): the metastable-retry-storm sample. A 1-worker, 10 ms server (capacity 100/s) fed 70/s has a 3 s
   // spike to 200/s at 10 s. Its queue fills, requests hit the 300 ms node timeout, and the gateway retries them four

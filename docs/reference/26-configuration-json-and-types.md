@@ -173,14 +173,14 @@ Requests carry `metadata`: `sessionId`, the keyspace field, `clientIp`, `origin`
 
 ## 9. Fields declared but not read
 
-| Field                                                 | Status                                                                                                                         |
-| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `failureModes` (mtbf, mttr, trigger)                  | validated, but nothing in the engine reads it: random failures at a mean time between failures are not generated; use `faults` |
-| `scaling` (horizontal/vertical, thresholds, cooldown) | not read; the autoscaler reads `config.autoscale*` (chapter 14)                                                                |
-| `resources.workersPerInstance`, `queueSlots`          | accepted for compatibility, **not read**; the validator warns                                                                  |
-| `resources.replicas`, `cpu`, `memory`, `maxReplicas`  | deprecated aliases (`replicas` is read as `instanceCount`)                                                                     |
-| `dependencies` (critical, optional)                   | used by grading rules, not by the run                                                                                          |
-| `presentation`, `position`, `provider`                | authoring only                                                                                                                 |
+| Field                                                 | Status                                                                                                                                                                                         |
+| ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `failureModes` (mtbf, mttr, trigger)                  | **read**: a `critical` mode with `mtbf` and `mttr` injects random failures (exponential up and down times, a stream of its own per node and mode); other severities and `trigger` are not read |
+| `scaling` (horizontal/vertical, thresholds, cooldown) | policy fields not read (the import warns that the node does not scale); only `scaling.coldStartPenalty` is read; the autoscaler reads `config.autoscale*` (chapter 14)                         |
+| `resources.workersPerInstance`, `queueSlots`          | accepted for compatibility, **not read**; the validator warns                                                                                                                                  |
+| `resources.replicas`, `cpu`, `memory`, `maxReplicas`  | deprecated aliases (`replicas` is read as `instanceCount`)                                                                                                                                     |
+| `dependencies` (critical, optional)                   | used by grading rules, not by the run                                                                                                                                                          |
+| `presentation`, `position`, `provider`                | authoring only                                                                                                                                                                                 |
 
 ## 10. Testable expectations (summary)
 
@@ -191,5 +191,5 @@ Requests carry `metadata`: `sessionId`, the keyspace field, `clientIp`, `origin`
 
 ## 11. Open items
 
-- Decisions `[?]`: whether the unread fields should be removed, implemented (`failureModes` as random failure injection), or flagged at import.
+- Decided: `failureModes` is implemented as random failure injection, the `scaling` policy fields are flagged at import, and the other unread fields keep their warnings.
 - Cite: the JSON schema generated from the validator, once exported, as the machine-readable version of this chapter.

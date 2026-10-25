@@ -158,12 +158,31 @@ test.describe('A-03 scale-down is conservative (ch14 section 2)', () => {
     expect(finalInstances).toBeLessThanOrEqual(needed + 1)
   })
 
-  // Tracked gap (finding 23): the HPA takes the highest recommendation of the last 300 s before scaling down, so the
-  // first removal cannot happen before 300 s; the simulator removes an instance on the first tick.
-  test.fail('the first scale-down waits for the 300 s stabilization window', () => {
-    const w = workersOver(out, 'srv')
+  // Finding 23 (fixed as an opt-in, decision F1): with `autoscalePolicy: 'hpa'` the first scale-down waits for the 300 s
+  // stabilization window and follows ceil(current x utilization / target); the default step policy is unchanged.
+  test('with the HPA policy the first scale-down waits for the 300 s stabilization window', () => {
+    const s = computeNode('srv', {
+      serviceMs: 100,
+      config: {
+        autoscalePolicy: 'hpa',
+        autoscaleMinInstances: 1,
+        autoscaleMaxInstances: 20,
+        autoscaleTargetUtilization: 0.7
+      }
+    })
+    ;(s.resources as Record<string, unknown>).instanceCount = 12
+    const hpa = runEngine(
+      chain({
+        run: run('a03h', { rps: 20, durationMs: 400_000 }),
+        nodes: [s],
+        edges: [tcp('source', 'srv')]
+      })
+    )
+    const w = workersOver(hpa, 'srv')
     const first = w.findIndex((x) => x < w[0])
     expect(first).toBeGreaterThanOrEqual(300)
+    // Then the proportional answer in one step: 2 busy servers' worth of load needs 2 instances.
+    expect(w.at(-1)! / 2).toBe(replicasNeeded(2, 0.7, 2))
   })
 })
 
