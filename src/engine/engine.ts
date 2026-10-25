@@ -98,6 +98,7 @@ import {
   NodeFailureSpec,
   parseFailureSpec
 } from './nodes/failure'
+import { BATCHING_COMPONENT_TYPES, BATCHING_DEFAULT_WINDOW_MS } from './traits/batching'
 import {
   CACHE_COMPONENT_TYPES,
   CACHE_FLUSH_FAULT_TYPE,
@@ -332,6 +333,8 @@ export class SimulationEngine {
   private readonly nodeDefinitionsById = new Map<string, ComponentNode>()
   private readonly traitsByNodeId = new Map<string, readonly NodeBehaviourTrait[]>()
   private readonly nodeErrorRateById = new Map<string, number>()
+  /** Recent arrival times at nodes that batch, to estimate how long a batch takes to fill. */
+  private readonly batchArrivals = new Map<string, bigint[]>()
   /** Independent random streams, one per node or edge and purpose, so changing one part of a design does not shift the draws of another (decision A4). */
   private readonly randomStreams = new Map<string, Distributions>()
   /** Edges with a `weightSchedule`, and the weight each has before its first step. */
@@ -2812,7 +2815,8 @@ export class SimulationEngine {
     const protocolOverheadMs =
       edge.protocolOverheadMs ??
       getProtocolLatencyOverheadMs(edge.protocol) * (edge.mode === 'streaming' ? 0.25 : 1)
-    const totalLatencyMs = propagationMs + transmissionMs + protocolOverheadMs
+    const batchWaitMs = this.batchFormationWaitMs(edge.target)
+    const totalLatencyMs = propagationMs + transmissionMs + protocolOverheadMs + batchWaitMs
     return {
       transitUs: msToMicro(totalLatencyMs),
       transmissionMs,
@@ -2825,7 +2829,7 @@ export class SimulationEngine {
         connectionWaitMs: 0,
         slotWaitMs: 0,
         handshakeMs: 0,
-        batchWaitMs: 0
+        batchWaitMs
       }
     }
   }
@@ -2995,6 +2999,34 @@ export class SimulationEngine {
    * load and can saturate. The extra deliveries are recorded on the source node as
    * `fanoutAmplifiedWrites` so the amplification is measurable/gradable.
    */
+  /**
+   * How long an item waits for its batch to fill at a batching node (decision E2): a uniformly arriving item waits
+   * half the time the batch is open. The batch is open until it holds `batchSize` items (about (batchSize - 1) /
+   * arrival rate) or the window passes, whichever is first, so a saturated node (batches fill at once) adds almost
+   * nothing and a trickle adds half the window. The wait delays the item without holding a worker.
+   */
+  private batchFormationWaitMs(targetNodeId: string): number {
+    const target = this.nodeDefinitionsById.get(targetNodeId)
+    if (!target || !(BATCHING_COMPONENT_TYPES as readonly string[]).includes(target.type)) return 0
+    const config = target.config
+    const size = config?.['batchSize']
+    if (typeof size !== 'number' || size <= 1) return 0
+    const configuredWindow = config?.['batchWindowMs']
+    const windowMs =
+      typeof configuredWindow === 'number' && configuredWindow >= 0
+        ? configuredWindow
+        : BATCHING_DEFAULT_WINDOW_MS
+    const log = this.batchArrivals.get(targetNodeId) ?? []
+    const oneSecondAgo = this.clock - 1_000_000n
+    while (log.length > 0 && log[0] < oneSecondAgo) log.shift()
+    const ratePerSecond = log.length
+    log.push(this.clock)
+    this.batchArrivals.set(targetNodeId, log)
+    const fillMs =
+      ratePerSecond > 0 ? ((size - 1) / ratePerSecond) * 1000 : Number.POSITIVE_INFINITY
+    return Math.min(windowMs, fillMs) / 2
+  }
+
   /** Sets each scheduled edge's weight to its latest step at the current time (staged rollouts). */
   private applyWeightSchedules(): void {
     const nowMs = Number(this.clock) / 1000

@@ -190,20 +190,16 @@ test.describe('B-01 batching amortises the fixed cost and adds the formation wai
     })
   }
 
-  // Tracked gap (finding 28): batching is charged as extra time on each request, formation wait included, so a worker
-  // is held for the wait. At saturation batches fill at once and a batch of 8 at 40 ms serves 200 req/s;
-  // the engine serves about 1 / (0.5 + 5 + 5) ms = 95 req/s.
-  test.fail(
-    'a saturated batch of 8 at 40 ms per batch serves about 200 requests per second',
-    () => {
-      const out = batch('b01-sat', 8, { rps: 400, durationMs: 30_000 })
-      const windows = out.summary.latencyWindows.filter(
-        (w) => w.windowStartMs >= 5000 && w.windowEndMs <= 25_000
-      )
-      const rate = windows.reduce((a, w) => a + w.successCount, 0) / windows.length
-      expect(relErr(rate, 200)).toBeLessThan(0.1)
-    }
-  )
+  // Finding 28 (fixed, decision E2): the formation wait is latency that does not hold a worker, so at saturation, when
+  // batches fill at once, a batch of 8 at 40 ms serves about 200 req/s (1 / (0.5 + 5) ms = 182 with the 0.5 ms base).
+  test('a saturated batch of 8 at 40 ms per batch serves about 200 requests per second', () => {
+    const out = batch('b01-sat', 8, { rps: 400, durationMs: 30_000 })
+    const windows = out.summary.latencyWindows.filter(
+      (w) => w.windowStartMs >= 5000 && w.windowEndMs <= 25_000
+    )
+    const rate = windows.reduce((a, w) => a + w.successCount, 0) / windows.length
+    expect(relErr(rate, 200)).toBeLessThan(0.1)
+  })
 })
 
 // ───────────────────────── 4. Batch jobs ─────────────────────────

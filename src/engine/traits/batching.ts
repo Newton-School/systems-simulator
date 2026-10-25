@@ -7,8 +7,10 @@ export const BATCHING_COMPONENT_TYPES = [
   'gpu-node'
 ] as const satisfies readonly ComponentType[]
 
+export const BATCHING_DEFAULT_WINDOW_MS = 50
+
 const DEFAULT_BATCH_SIZE = 10
-const DEFAULT_BATCH_WINDOW_MS = 50
+const DEFAULT_BATCH_WINDOW_MS = BATCHING_DEFAULT_WINDOW_MS
 const DEFAULT_FIXED_COST_MS = 20
 
 function asPositiveNumber(value: unknown): number | null {
@@ -46,16 +48,16 @@ export const batchingTrait: NodeBehaviourTrait = {
       asNonNegativeNumber(node.config?.['batchWindowMs']) ?? DEFAULT_BATCH_WINDOW_MS
     const fixedCostMs = asNonNegativeNumber(node.config?.['fixedCostMs']) ?? DEFAULT_FIXED_COST_MS
 
-    // Average wait for a uniformly-arriving item is half the formation window.
-    const formationWaitMs = batchWindowMs / 2
+    // The worker is held for the item's share of the batch's work only. The formation wait (how long an item
+    // sits waiting for its batch to fill) is latency that does not hold a worker, so the engine charges it on the
+    // way in (`batchFormationWaitMs` in engine.ts), as the smaller of the window and the time to fill the batch.
     const amortizedFixedMs = fixedCostMs / batchSize
-    const penaltyMs = formationWaitMs + amortizedFixedMs
-    addPenalty(request, penaltyMs)
+    addPenalty(request, amortizedFixedMs)
     return {
       action: 'continue',
       payload: {
         batchSize,
-        batchFormationWaitMs: formationWaitMs,
+        batchWindowMs,
         amortizedFixedMs,
         metricCounters: { itemsBatched: 1 }
       }

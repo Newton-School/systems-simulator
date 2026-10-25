@@ -58,15 +58,15 @@ describe('capacityLimit trait', () => {
 })
 
 describe('batching trait', () => {
-  it('adds formation wait + amortized fixed cost, and is cheaper per item at larger batches', () => {
+  it('charges the worker its share of the batch cost, cheaper per item at larger batches (the formation wait is charged on the way in)', () => {
     const small = { metadata: {} }
     batchingTrait.beforeArrival?.({
       node: makeNode('gpu-node', { batchSize: 2, batchWindowMs: 50, fixedCostMs: 20 }),
       request: small as never,
       clock: 0n
     })
-    // wait 50/2=25 + fixed 20/2=10 => 35
-    expect(penalty(small)).toBeCloseTo(35)
+    // fixed 20/2 = 10 per item (the wait for the batch to fill does not hold the worker)
+    expect(penalty(small)).toBeCloseTo(10)
 
     const large = { metadata: {} }
     batchingTrait.beforeArrival?.({
@@ -74,7 +74,8 @@ describe('batching trait', () => {
       request: large as never,
       clock: 0n
     })
-    // wait 25 + fixed 20/20=1 => 26  (amortized cost falls with batch size)
+    // fixed 20/20 = 1 per item: the amortized cost falls with batch size
+    expect(penalty(large)).toBeCloseTo(1)
     expect(penalty(large)).toBeLessThan(penalty(small))
   })
 

@@ -67,11 +67,12 @@ A feature store serves the same features for **training** and for **inference**:
 
 ## 7. Simulator parameter map
 
-| Setting                        | Meaning                                                                               |
-| ------------------------------ | ------------------------------------------------------------------------------------- |
-| `windowMs`                     | processing-time tumbling window length; one aggregate per window                      |
-| `msPerToken`, `outputTokens`   | latency added per request = msPerToken x outputTokens                                 |
-| model serving and stream nodes | queue and service time like any node; batching via the batching settings (chapter 13) |
+| Setting                                                                        | Meaning                                                                                                                                                                                                                                                                                                                      |
+| ------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `windowMs`                                                                     | processing-time tumbling window length; one aggregate per window                                                                                                                                                                                                                                                             |
+| `msPerToken`, `outputTokens`                                                   | latency added per request = msPerToken x outputTokens                                                                                                                                                                                                                                                                        |
+| model serving and stream nodes                                                 | queue and service time like any node                                                                                                                                                                                                                                                                                         |
+| `batchSize`, `batchWindowMs`, `fixedCostMs` (on `batch-worker` and `gpu-node`) | each item holds a worker for its base time plus `fixedCostMs / batchSize`; the wait for its batch to fill is `min(batchWindowMs, (batchSize - 1) / arrival rate) / 2`, charged on the way in and holding no worker. A saturated node (batches fill at once) is limited by the amortised cost, a trickle adds half the window |
 
 [repo] Windowing is processing-time only; event-time windows, watermarks and late-data handling are deliberately not modelled. Token cost latency is `msPerToken` x `outputTokens`; set `msFirstToken` to split it into a prefill time plus `msPerToken` for each token after the first.
 
@@ -86,7 +87,7 @@ A feature store serves the same features for **training** and for **inference**:
 ## 9. Open items
 
 - Not read in full: the Dataflow model paper and a model-serving batching reference; the vLLM paper is cited for the KV-cache limit only (abstract). No throughput figure for LLM serving is asserted.
-- Decided: first-token and per-token latency are split (`msFirstToken`); event-time windows and late data are not modelled.
+- Decided: first-token and per-token latency are split (`msFirstToken`); batching is real batch formation (the wait holds no worker, see section 7); event-time windows and late data are not modelled.
 
 ## Sources
 
