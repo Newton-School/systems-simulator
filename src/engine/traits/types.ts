@@ -156,6 +156,8 @@ export interface TraitFilterRoutesContext extends TraitContext {
   candidates: ResolveRoute[]
   getNode?: (nodeId: string) => ComponentNode | undefined
   isTargetHealthy?: (nodeId: string) => boolean
+  /** How long a target has been down, in microseconds; undefined when it is not in an open failure window. */
+  unhealthyForUs?: (nodeId: string) => bigint | undefined
   isEdgeHealthy?: (edge: EdgeDefinition) => boolean
   /** Request-aware estimate from the active topology's network model. */
   estimateRouteLatencyMs?: (edge: EdgeDefinition, request: Request) => number

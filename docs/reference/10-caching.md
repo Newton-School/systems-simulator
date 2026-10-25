@@ -103,7 +103,7 @@ When a popular entry expires or the cache is flushed, **many requests miss toget
 
 - A **cache that is down serves nothing**: every request becomes a miss, so store load jumps from (1 − h) x rate to the **full rate**. At h = 0.95 that is a **20x** load increase, usually enough to take the store down too. This is why caches must not be the only capacity (plan the store for the cold-cache case or protect it). [D]
 - A down cache must **not** keep answering its remembered hits (a bug this project fixed): after the failure time the hit counter must stop.
-- **Fallback policy:** on a cache failure a client may fail, fall back to the store (risking overload), or serve stale data. The default is a decision. **[?]**
+- **Fallback policy:** on a cache failure a client may fail, fall back to the store (risking overload), or serve stale data. Decided: a cache that fails fast is bypassed, so the caller reaches the store behind it and the store takes the full request rate (`onCacheFailure: 'fail'` restores the refusal); a silent failure (blackhole, hang) is still waited out, and a cache with nothing behind it still refuses.
 - Warm-up after restart or flush: hit ratio starts at 0 and recovers as popular keys reload; recovery time depends on request rate and key popularity. [D]
 
 ## 7. Simulator parameter map
@@ -130,7 +130,7 @@ When a popular entry expires or the cache is flushed, **many requests miss toget
 ## 9. Open items
 
 - Che et al. is cited through its arXiv summary (1202.3974); the Facebook memcache paper's lease result (peak database query rate 17K/s without leases, 1.3K/s with, for one set of keys over a week) is read in the paper itself; Redis approximates LRU by sampling (`maxmemory-samples`, 5 by default) and its documentation reports little difference from true LRU under power-law access.
-- Decisions `[?]`: default fallback behaviour for a down cache; write-back with data loss on failure is not modelled (decided).
+- Decided: the default fallback for a down cache is the bypass above; write-back with data loss on failure is not modelled (decided).
 
 ## Sources
 

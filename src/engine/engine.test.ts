@@ -894,7 +894,7 @@ describe('SimulationEngine', () => {
     expect(nodeFailedRejections).toBeGreaterThan(0)
   })
 
-  it('health-aware routing rejects when no healthy targets remain', () => {
+  it('health-aware routing panics to the failed target when no healthy targets remain', () => {
     const topology = makeTopology({
       global: { simulationDuration: 250, defaultTimeout: 1_000, traceSampleRate: 1 },
       nodes: [makeNode('source'), makeRouterNode('lb'), makeNode('worker-a')],
@@ -918,8 +918,8 @@ describe('SimulationEngine', () => {
       expect.arrayContaining([
         expect.objectContaining({
           type: 'request-rejected',
-          nodeId: 'lb',
-          reasonCode: 'no_healthy_targets'
+          nodeId: 'worker-a',
+          reasonCode: 'node_failed'
         })
       ])
     )

@@ -225,7 +225,7 @@ Endpoint Monitoring pattern]
 - A failed backend keeps receiving a share of traffic until the detection delay passes; those requests fail or time out.
   After removal, the survivors carry n/(n − 1) of their previous load (chapter 01 section 8).
 - Recovery: the backend rejoins after the configured number of consecutive successes. Decided: the backend rejoins after the configured number of consecutive successful probes (the Health Check Manager's `healthyThreshold`).
-- All backends unhealthy: the router's documented behaviour (serve anyway, or reject) must be what the UI shows. [?]
+- All backends unhealthy: the simulator's router serves anyway (panic mode, chapter 07 section 4); it rejects only when it has no targets.
 
 ## 8. How the patterns combine (expected interactions)
 
@@ -244,14 +244,11 @@ Endpoint Monitoring pattern]
 The chapter describes real systems. These are the known places the simulator is simpler. Each has a
 tracked test in `e2e/journeys/ch02-reliability.spec.ts`; delete the note when its test starts passing. Rows are removed as they are fixed.
 
-| #   | Chapter says                                                                 | Simulator does today                                                                                                                                                                                  | Tracked by                 |
-| --- | ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------- |
-| 1   | A configured circuit breaker stops calls to a failing dependency (section 3) | It gates only on `sidecar`, `service-mesh` and `circuit-breaker-controller`. On other nodes the setting is accepted but inert. The validator now warns at import.                                     | `R-03d` (warning is live)  |
-| 2   | Detection delay is about probe interval x consecutive failures (section 7)   | A balancer's own `healthCheckEnabled` removes a failed backend instantly. A Health Check Manager node that monitors the backends does model the delay (interval x unhealthy threshold; flow `R-07d`). | `R-07c` (expected failure) |
+| #   | Chapter says                                                                 | Simulator does today                                                                                                                                              | Tracked by                |
+| --- | ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
+| 1   | A configured circuit breaker stops calls to a failing dependency (section 3) | It gates only on `sidecar`, `service-mesh` and `circuit-breaker-controller`. On other nodes the setting is accepted but inert. The validator now warns at import. | `R-03d` (warning is live) |
 
-Teaching consequence: a student who adds retries and then kills the backend silently will see no
-amplification in the simulator, while real systems amplify. Treat results for those scenarios as
-optimistic until row 2 is closed. Retries now cover a node's own timeout (when budget remains in the request) and compound across layers: k nested layers of n attempts send n^k calls (flows `R-02c`, `F-05`).
+Rows are removed as the simulator closes them: retries cover a node's own timeout and compound across layers (flows `R-02c`, `F-05`), and a balancer's health check takes an interval and a failure threshold (`healthCheckIntervalMs`, `healthCheckFailureThreshold`, flow `R-07c`; unset keeps instant removal).
 
 ## 10. Open items
 

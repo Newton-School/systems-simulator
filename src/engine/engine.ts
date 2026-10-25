@@ -1202,7 +1202,10 @@ export class SimulationEngine {
       return
     }
 
-    const routes = this.expandFanoutRoutes(routeResult.routes, sourceNodeId)
+    const routes = this.expandFanoutRoutes(
+      this.bypassFailedCaches(routeResult.routes, request),
+      sourceNodeId
+    )
     if (routes.length === 0) {
       if (this.nodes.has(sourceNodeId)) {
         this.eventQueue.insert(
@@ -1867,7 +1870,10 @@ export class SimulationEngine {
       return
     }
 
-    const routes = this.expandFanoutRoutes(routeResult.routes, event.nodeId)
+    const routes = this.expandFanoutRoutes(
+      this.bypassFailedCaches(routeResult.routes, request),
+      event.nodeId
+    )
     if (routes.length === 0) {
       this.maybeRecordCircuitBreakerOutcomeAtNode(event.nodeId, request, true)
       this.eventQueue.insert(
@@ -2907,6 +2913,36 @@ export class SimulationEngine {
    * load and can saturate. The extra deliveries are recorded on the source node as
    * `fanoutAmplifiedWrites` so the amplification is measurable/gradable.
    */
+  /**
+   * A cache that has failed fast (reject mode) is bypassed (decision D5): its caller reaches the cache's own
+   * downstream instead, so the store behind it sees the full request rate, which is what a cache outage does.
+   * A cache with `onCacheFailure: 'fail'`, or one with nothing behind it, still refuses.
+   */
+  private bypassFailedCaches(routes: ResolveRoute[], request: Request): ResolveRoute[] {
+    let changed = false
+    const out: ResolveRoute[] = []
+    for (const route of routes) {
+      const cache = this.nodeDefinitionsById.get(route.targetNodeId)
+      if (
+        cache &&
+        (CACHE_COMPONENT_TYPES as readonly string[]).includes(cache.type) &&
+        cache.config?.['onCacheFailure'] !== 'fail' &&
+        !this.isNodeHealthyInstant(cache.id) &&
+        this.failureSpecByNode.get(cache.id)?.mode === 'reject'
+      ) {
+        const downstream = this.resolveRoutes(cache.id, request)
+        if (!downstream.rejectionReason && downstream.routes.length > 0) {
+          this.metrics.recordNodeTraitCounters(cache.id, { cacheBypassed: 1 })
+          out.push(...downstream.routes)
+          changed = true
+          continue
+        }
+      }
+      out.push(route)
+    }
+    return changed ? out : routes
+  }
+
   private expandFanoutRoutes(routes: ResolveRoute[], sourceNodeId: string): ResolveRoute[] {
     let amplified = 0
     let hasFanout = false
@@ -4398,6 +4434,10 @@ export class SimulationEngine {
     return this.routing.resolveTargetResult(sourceNodeId, request, {
       clock: this.clock,
       isTargetHealthy: (nodeId) => this.isNodeHealthy(nodeId),
+      unhealthyForUs: (nodeId) => {
+        const open = this.statusWindows.find((w) => w.componentId === nodeId && w.endUs === null)
+        return open ? this.clock - open.startUs : undefined
+      },
       isEdgeHealthy: (edge) => this.isEdgeHealthy(edge),
       getInFlight: (nodeId) => this.nodes.get(nodeId)?.getState().totalInSystem ?? 0,
       getResponseTimeMs: (nodeId) => this.nodes.get(nodeId)?.getState().meanServiceTimeMs ?? 0,

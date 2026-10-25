@@ -334,14 +334,23 @@ test.describe('C-08 a failed cache answers nothing (ch10 section 6)', () => {
     ).toBe(true)
   })
 
-  // Decision needed (open item in chapter 10, docs/cache-fallback-proposal.md): a cache-aside client whose cache is
-  // down calls the database, so the database sees the full request rate. The simulator fails the request instead.
-  test.fixme('the database sees the full request rate after the cache fails', () => {
+  // Decision D5 (done): a client whose cache has failed fast reaches the store behind it, so the database sees the
+  // full request rate. `onCacheFailure: 'fail'` on the cache restores the old refusal.
+  test('the database sees the full request rate after the cache fails', () => {
     const out = runEngine(down)
     const lateToDb = out.requestOutcomes.filter(
       (o) => o.createdAtMs >= FAIL_AT && o.status === 'success'
     ).length
     expect(lateToDb).toBeGreaterThan(0.9 * 200 * 20)
+  })
+
+  test("with onCacheFailure: 'fail' the cache refuses instead", () => {
+    const strict = structuredClone(down) as typeof down
+    ;(strict.nodes[1] as unknown as { config: Record<string, unknown> }).config.onCacheFailure =
+      'fail'
+    const out = runEngine(strict)
+    const late = out.requestOutcomes.filter((o) => o.createdAtMs >= FAIL_AT)
+    expect(late.filter((o) => o.status === 'success').length).toBeLessThan(0.1 * late.length)
   })
 })
 

@@ -66,7 +66,12 @@ describe('getNodeConfigSections', () => {
     const processing = sections.find((section) => section.id === 'processing')
     const contentRouting = sections.find((section) => section.id === 'routing.content:forbidden')
 
-    expect(routing?.fields.map((field) => field.label)).toEqual(['Strategy', 'Health checks'])
+    expect(routing?.fields.map((field) => field.label)).toEqual([
+      'Strategy',
+      'Health checks',
+      'Check interval',
+      'Failures before removal'
+    ])
     expect(queueing?.title).toBe('Forwarding')
     // Workers/capacity are now DERIVED from the instance (shown read-only in the
     // RESOURCES note); only the queue discipline remains authored here.

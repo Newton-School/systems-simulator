@@ -376,7 +376,9 @@ test.describe('health checks and overload (ch07 section 4, ch02 section 7)', () 
     expect(relErr(fleet('n14', 600, false).summary.throughput, 200)).toBeLessThan(0.05)
   })
 
-  test('N-15 when every server has failed the balancer rejects with no_healthy_targets (current behaviour; ch07 section 4 asks for an explicit choice)', () => {
+  // Decision C3 (done): with every target unhealthy the balancer panics to all of them (Envoy-style) and the failed
+  // servers refuse, so errors come from the servers (node_failed) rather than from an empty healthy set.
+  test("N-15 when every server has failed the balancer serves anyway: the failures are the servers' own", () => {
     const out = runEngine(
       chain({
         run: run('n15', { durationMs: 20_000 }),
@@ -395,19 +397,16 @@ test.describe('health checks and overload (ch07 section 4, ch02 section 7)', () 
         }))
       })
     )
-    expect(out.perNode.lb.rejectionsByReason['no_healthy_targets']).toBeGreaterThan(0)
+    expect(out.perNode.lb.rejectionsByReason['no_healthy_targets'] ?? 0).toBe(0)
+    expect(out.perNode.lb.traitCounters['healthPanicRoutes']).toBeGreaterThan(0)
+    expect(out.perNode.b0.rejectionsByReason['node_failed']).toBeGreaterThan(0)
     expect(out.summary.errorRate).toBeGreaterThan(0.7)
   })
 
-  // Tracked gap. With health ejection on, a 10% overload (220 req/s against 200) makes a few rejections at each
-  // server, a server is ejected for a window after one failure, and soon both are out: goodput falls to about
-  // 33 req/s, 15% of capacity, with 85% of requests rejected as no_healthy_targets. Real balancers soften this
-  // (Envoy's panic threshold serves anyway when too many hosts are ejected). `test.fail` passes while it is true and
-  // fails once ejection stops amplifying a mild overload, which is the cue to remove the annotation.
-  test.fail(
-    'N-16 a mildly overloaded fleet should keep serving near capacity, not be ejected into an outage',
-    () => {
-      expect(fleet('n16', 220, true).summary.throughput).toBeGreaterThan(0.8 * 200)
-    }
-  )
+  // Finding 9 (fixed by decision C3): with health ejection on, a 10% overload (220 req/s against 200) used to eject both
+  // servers for a window after one failure each and collapse goodput to about 33 req/s. With panic mode the balancer
+  // serves from all servers when all look unhealthy, so a mild overload keeps serving near capacity.
+  test('N-16 a mildly overloaded fleet keeps serving near capacity instead of being ejected into an outage', () => {
+    expect(fleet('n16', 220, true).summary.throughput).toBeGreaterThan(0.8 * 200)
+  })
 })

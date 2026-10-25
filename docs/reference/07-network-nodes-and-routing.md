@@ -85,8 +85,8 @@ See chapter 02 section 7. Detection delay (interval x consecutive failures) is t
 
 - After one of n equal servers is removed, each survivor carries n / (n − 1) of its previous load: 4 servers at 75% become 100%. [D]
 - Balancers use two signals: **active** probes and **passive** outlier detection (consecutive failures; NGINX `max_fails` default 1 within `fail_timeout`, then the server is skipped and re-probed with live traffic). [P: NGINX]
-- When every target is unhealthy a balancer either serves anyway or fails; the choice should be explicit. **[?]** The simulator **fails**: it rejects with `no_healthy_targets`.
-- **Ejection can amplify an overload (observed).** A server is ejected after a single failed attempt, for a window. At a mild overload of 10% (220 req/s into 200 req/s of capacity) a few rejections at each server eject both, and the balancer then rejects about 85% of traffic: goodput 33 req/s against 200 req/s of capacity. With health ejection off the same fleet serves 198.8 req/s. Real balancers soften this: Envoy's **panic threshold** serves to all hosts when too many are ejected; NGINX's `max_fails` and `fail_timeout` (default one failure for 10 s) behave like the simulator. Teaching consequence: a balancer with aggressive passive ejection can turn a slight overload into an outage, which is the retry-storm and metastable-failure story of chapter 22. Tracked as `N-16`.
+- When every target is unhealthy a balancer either serves anyway or fails; the choice should be explicit. Decided: the simulator **serves anyway** (panic mode, as Envoy does when too many hosts are ejected): with every target unhealthy it routes to all of them, and the failed ones refuse with their own errors. It rejects with `no_healthy_targets` only when it has no targets at all.
+- **Ejection and overload.** A server is ejected after a single failed attempt, for a window; with every server ejected the balancer serves from all of them (panic mode), so a mild overload no longer becomes an outage (flow `N-16`: a 10% overload keeps serving near capacity).
 
 ## 5. API gateway, ingress controller and reverse proxy
 
@@ -138,14 +138,14 @@ Directing users to the nearest or healthiest region (geo, latency, weighted and 
 
 ## 10. Simulator parameter map
 
-| Setting                                    | Meaning                                                                                                                                         |
-| ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `routingStrategy`                          | `round-robin`, `weighted`, `random`, `least-conn`, `least-response-time`, `p2c`, `sticky`, `ip-hash`, `broadcast`, `conditional`, `passthrough` |
-| edge `weight`                              | relative weight for the `weighted` strategy                                                                                                     |
-| edge `condition`                           | expression for `conditional` routing (L7 only in practice)                                                                                      |
-| `healthCheckEnabled`                       | remove unhealthy targets from routing (default on)                                                                                              |
-| `config.routingKeyField`, `stickyKeyField` | request field used for hash and sticky routing                                                                                                  |
-| content routing rules                      | route by request type, path or header                                                                                                           |
+| Setting                                    | Meaning                                                                                                                                                                                                      |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `routingStrategy`                          | `round-robin`, `weighted`, `random`, `least-conn`, `least-response-time`, `p2c`, `sticky`, `ip-hash`, `broadcast`, `conditional`, `passthrough`                                                              |
+| edge `weight`                              | relative weight for the `weighted` strategy                                                                                                                                                                  |
+| edge `condition`                           | expression for `conditional` routing (L7 only in practice)                                                                                                                                                   |
+| `healthCheckEnabled`                       | remove unhealthy targets from routing (default on); `healthCheckIntervalMs` and `healthCheckFailureThreshold` keep a just-failed target in rotation for interval x threshold before removal (unset: instant) |
+| `config.routingKeyField`, `stickyKeyField` | request field used for hash and sticky routing                                                                                                                                                               |
+| content routing rules                      | route by request type, path or header                                                                                                                                                                        |
 
 ## 11. Testable expectations (summary)
 
@@ -158,7 +158,7 @@ Directing users to the nearest or healthiest region (geo, latency, weighted and 
 ## 12. Open items
 
 - Karger et al. 1997, Maglev, and the Envoy and HAProxy documentation are not read directly; consistent hashing is sourced from Wikipedia and measured in the e2e flows `N-06`. Provider quotas for NAT, VPN and transit are deliberately not asserted.
-- Decisions `[?]`: behaviour when all targets are unhealthy; (decided: least-connections counts in-flight requests).
+- Decided: all targets unhealthy means panic mode (see section 4), and least-connections counts in-flight requests.
 
 ## Sources
 

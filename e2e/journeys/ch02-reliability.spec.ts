@@ -444,9 +444,9 @@ test.describe('R-07 health-aware load balancing: survivors carry n/(n-1) of the 
 
 test.describe('R-07c health detection delay (ch02 7)', () => {
   // A real balancer keeps sending traffic to a dead backend until probes notice: detection delay is
-  // roughly probe interval x consecutive failures. A balancer's own `healthCheckEnabled` is instant (a declared
-  // simplification, parked for a decision: finding 4), but a Health Check Manager that monitors the backends does
-  // model the delay, and the first flow below checks it. The second is the tracked gap for the balancer's own check.
+  // roughly probe interval x consecutive failures. A balancer takes `healthCheckIntervalMs` and
+  // `healthCheckFailureThreshold` (decision C5; unset keeps the instant removal), and a Health Check Manager that
+  // monitors the backends models the delay too; the flows below check both.
   const RPS = 100
   const INTERVAL_MS = 1000
   const THRESHOLD = 3
@@ -483,33 +483,30 @@ test.describe('R-07c health detection delay (ch02 7)', () => {
     expect(failures).toBeLessThan(high * 1.1)
   })
 
-  test.fail(
-    'THEORY a failed backend keeps receiving its share for interval x threshold before it is removed',
-    () => {
-      const out = runEngine(
-        chain({
-          run: run('r07c', { rps: RPS, durationMs: 30_000, timeoutMs: 1000 }),
-          nodes: [
-            passNode('lb', 'load-balancer-l7', {
-              healthCheckEnabled: true,
-              healthCheckIntervalMs: INTERVAL_MS,
-              healthCheckFailureThreshold: THRESHOLD
-            }),
-            computeNode('a', { serviceMs: 5, timeoutMs: 1000 }),
-            computeNode('b', { serviceMs: 5, timeoutMs: 1000 })
-          ],
-          edges: [
-            ['source', 'lb'],
-            ['lb', 'a'],
-            ['lb', 'b']
-          ],
-          faults: [fault('a', { atMs: TF * 1000, mode: 'reject' })]
-        })
-      )
-      // Half the traffic hits the dead node for the whole detection window.
-      const expectedFailures = (RPS / 2) * ((INTERVAL_MS * THRESHOLD) / 1000)
-      const failures = out.summary.errorRate * out.summary.totalRequests
-      expect(relErr(failures, expectedFailures)).toBeLessThan(0.2)
-    }
-  )
+  test('THEORY a failed backend keeps receiving its share for interval x threshold before it is removed', () => {
+    const out = runEngine(
+      chain({
+        run: run('r07c', { rps: RPS, durationMs: 30_000, timeoutMs: 1000 }),
+        nodes: [
+          passNode('lb', 'load-balancer-l7', {
+            healthCheckEnabled: true,
+            healthCheckIntervalMs: INTERVAL_MS,
+            healthCheckFailureThreshold: THRESHOLD
+          }),
+          computeNode('a', { serviceMs: 5, timeoutMs: 1000 }),
+          computeNode('b', { serviceMs: 5, timeoutMs: 1000 })
+        ],
+        edges: [
+          ['source', 'lb'],
+          ['lb', 'a'],
+          ['lb', 'b']
+        ],
+        faults: [fault('a', { atMs: TF * 1000, mode: 'reject' })]
+      })
+    )
+    // Half the traffic hits the dead node for the whole detection window.
+    const expectedFailures = (RPS / 2) * ((INTERVAL_MS * THRESHOLD) / 1000)
+    const failures = out.summary.errorRate * out.summary.totalRequests
+    expect(relErr(failures, expectedFailures)).toBeLessThan(0.2)
+  })
 })
