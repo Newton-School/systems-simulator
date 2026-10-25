@@ -351,16 +351,23 @@ test.describe('R-05 bulkhead: a slow class cannot starve a fast one; its admitte
     expect(p99(latencies(withB, 'read'))).toBeLessThan(30)
   })
 
-  test('THEORY capped class throughput = slots / service time = 4 / 0.2 s = 20 per second; the rest is rejected', () => {
+  // Poisson arrivals at 40 reports/s, each holding one of 4 slots for 0.2 s with no waiting room: a loss system with
+  // offered load A = 40 x 0.2 = 8 Erlangs. Erlang B (insensitive to the service-time distribution) gives the
+  // blocked share B(4, 8) = 0.575, so 40 x (1 - B) = 17 reports/s are served, below the naive 4 / 0.2 = 20 that a
+  // perfectly regular arrival stream would get.
+  test('THEORY capped class: Erlang B(4, 8) = 57.5% of reports are rejected, the rest served at 40 x (1 - B) per second', () => {
     const out = runEngine(build({ report: 4 }, 'r05-rate'))
     const windowSec = 55
     const served = latencies(out, 'report').length / windowSec
-    expect(relErr(served, 4 / 0.2)).toBeLessThan(0.1)
+    let b = 1
+    for (let n = 1; n <= 4; n += 1) b = (8 * b) / (n + 8 * b)
+    expect(Math.abs(b - 0.575)).toBeLessThan(0.001)
     expect(out.perNode.srv.rejectionsByReason['bulkhead_full']).toBeGreaterThan(0)
-    // Offered 40/s, served 20/s: about half of the reports are rejected.
     const reportRows = out.requestOutcomes.filter((r) => r.requestType === 'report')
     const rejected = reportRows.filter((r) => r.reasonCode === 'bulkhead_full').length
-    expect(relErr(rejected / reportRows.length, 0.5)).toBeLessThan(0.15)
+    const share = rejected / reportRows.length
+    expect(Math.abs(share - b)).toBeLessThan(4 * Math.sqrt((b * (1 - b)) / reportRows.length))
+    expect(relErr(served, 40 * (1 - b))).toBeLessThan(0.1)
   })
 })
 

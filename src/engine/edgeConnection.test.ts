@@ -335,7 +335,8 @@ describe('Kafka producer batching on edges (#181 task 7)', () => {
 
   function summarize(output: ReturnType<typeof run>) {
     const metric = underTest(output)
-    const refused = output.summary.rejectedRequests
+    // A Kafka edge is asynchronous: its records are background branches, so refusals are counted there.
+    const refused = output.summary.backgroundBranches.failed
     return {
       delivered: metric.totalSuccessfulTransits,
       refused,

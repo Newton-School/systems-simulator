@@ -327,6 +327,11 @@ interface EdgeBreakdownAccumulator {
 }
 
 export interface SimulationSummary {
+  /**
+   * Asynchronous side branches, kept out of every other figure here: how many finished, how many failed, and the
+   * mean latency of the finished ones. See `Request.metadata.__background`.
+   */
+  backgroundBranches: { completed: number; failed: number; meanLatencyMs: number }
   totalRequests: number
   /** Requests injected by the workload generator after the warmup period. */
   postWarmupTotalRequests: number
@@ -423,6 +428,8 @@ export interface NodeMetadata {
 }
 
 interface FailureMetricsContext {
+  /** Id of the request that ended, so a background branch can be told from a user request. */
+  requestId?: string
   requestCreatedAt?: bigint
   nodeArrivalTime?: bigint
   edgeInTimeUs?: bigint
@@ -492,6 +499,15 @@ export class MetricsCollector {
   private totalRequests = 0
   /** Requests whose createdAt >= warmup — used for the summary global count. */
   private postWarmupTotalRequests = 0
+  /**
+   * Asynchronous side branches (decision E3): work a request forks onto an asynchronous edge. They are not the user's
+   * request, so they stay out of the summary's totals, error rate and latency, and are counted here instead. Node
+   * counters still include them: the work happens.
+   */
+  private readonly backgroundRequestIds = new Set<string>()
+  private backgroundCompleted = 0
+  private backgroundFailed = 0
+  private backgroundLatencySumMs = 0
   private successfulRequests = 0
   private postWarmupSuccessfulRequests = 0
   private failedRequests = 0
@@ -527,7 +543,30 @@ export class MetricsCollector {
     }
   }
 
+  /** Register a request as a background branch; call before it can finish. */
+  markBackground(requestId: string): void {
+    this.backgroundRequestIds.add(requestId)
+  }
+
+  private recordBackgroundOutcome(success: boolean, latencyMs: number): void {
+    if (success) {
+      this.backgroundCompleted++
+      this.backgroundLatencySumMs += latencyMs
+    } else {
+      this.backgroundFailed++
+    }
+  }
+
+  private isBackground(requestId: string | undefined): boolean {
+    return requestId !== undefined && this.backgroundRequestIds.has(requestId)
+  }
+
   recordRequest(request: CompletedRequest): void {
+    if (this.isBackground(request.id)) {
+      this.recordBackgroundOutcome(request.status === 'success', request.totalLatency)
+      this.recordCompletedSpans(request.spans)
+      return
+    }
     this.totalRequests++
 
     if (request.status === 'success') {
@@ -605,17 +644,26 @@ export class MetricsCollector {
     const arrivalTime = context.nodeArrivalTime ?? context.requestCreatedAt
     const observationPoint = context.observationPoint ?? 'node'
 
-    this.totalRequests++
-    this.failedRequests++
-    this.rejectedRequests++
-    if (this.isPostWarmup(context.requestCreatedAt)) {
-      this.postWarmupTotalRequests++
+    const background = this.isBackground(context.requestId)
+    if (background) {
+      this.recordBackgroundOutcome(false, 0)
+    } else {
+      this.totalRequests++
+      this.failedRequests++
+      this.rejectedRequests++
+      if (this.isPostWarmup(context.requestCreatedAt)) {
+        this.postWarmupTotalRequests++
+      }
+      // Split the blended "rejected" bucket: a full queue (overload), a dead node,
+      // and an edge drop are different failures and get their own cause.
+      const rejectionCause = classifyRejectionCause(reason)
+      this.recordTerminalLatency(
+        rejectionCause,
+        context.requestCreatedAt,
+        context.terminationTimeUs
+      )
+      this.recordFailureLocus(rejectionCause, context)
     }
-    // Split the blended "rejected" bucket: a full queue (overload), a dead node,
-    // and an edge drop are different failures and get their own cause.
-    const rejectionCause = classifyRejectionCause(reason)
-    this.recordTerminalLatency(rejectionCause, context.requestCreatedAt, context.terminationTimeUs)
-    this.recordFailureLocus(rejectionCause, context)
 
     this.recordFailedAfterService(
       this.recordCompletedSpans(context.completedSpans ?? [], {
@@ -642,18 +690,22 @@ export class MetricsCollector {
    * @param context.nodeArrivalTime   Time the request reached this node. Used for per-node
    *                                  post-warmup arrival/timeout gating.
    */
-  recordTimeout(_requestId: string, nodeId: string, context: FailureMetricsContext = {}): void {
+  recordTimeout(requestId: string, nodeId: string, context: FailureMetricsContext = {}): void {
     const arrivalTime = context.nodeArrivalTime ?? context.requestCreatedAt
     const observationPoint = context.observationPoint ?? 'node'
 
-    this.totalRequests++
-    this.failedRequests++
-    this.timedOutRequests++
-    if (this.isPostWarmup(context.requestCreatedAt)) {
-      this.postWarmupTotalRequests++
+    if (this.isBackground(requestId)) {
+      this.recordBackgroundOutcome(false, 0)
+    } else {
+      this.totalRequests++
+      this.failedRequests++
+      this.timedOutRequests++
+      if (this.isPostWarmup(context.requestCreatedAt)) {
+        this.postWarmupTotalRequests++
+      }
+      this.recordTerminalLatency('timeout', context.requestCreatedAt, context.terminationTimeUs)
+      this.recordFailureLocus('timeout', context)
     }
-    this.recordTerminalLatency('timeout', context.requestCreatedAt, context.terminationTimeUs)
-    this.recordFailureLocus('timeout', context)
 
     this.recordFailedAfterService(
       this.recordCompletedSpans(context.completedSpans ?? [], {
@@ -679,25 +731,29 @@ export class MetricsCollector {
    * the per-cause breakdown never blends distinct failure shapes.
    */
   recordConnectionReset(
-    _requestId: string,
+    requestId: string,
     nodeId: string,
     context: FailureMetricsContext = {}
   ): void {
     const arrivalTime = context.nodeArrivalTime ?? context.requestCreatedAt
     const observationPoint = context.observationPoint ?? 'node'
 
-    this.totalRequests++
-    this.failedRequests++
-    this.connectionResetRequests++
-    if (this.isPostWarmup(context.requestCreatedAt)) {
-      this.postWarmupTotalRequests++
+    if (this.isBackground(requestId)) {
+      this.recordBackgroundOutcome(false, 0)
+    } else {
+      this.totalRequests++
+      this.failedRequests++
+      this.connectionResetRequests++
+      if (this.isPostWarmup(context.requestCreatedAt)) {
+        this.postWarmupTotalRequests++
+      }
+      this.recordTerminalLatency(
+        'connection_reset',
+        context.requestCreatedAt,
+        context.terminationTimeUs
+      )
+      this.recordFailureLocus('connection_reset', context)
     }
-    this.recordTerminalLatency(
-      'connection_reset',
-      context.requestCreatedAt,
-      context.terminationTimeUs
-    )
-    this.recordFailureLocus('connection_reset', context)
 
     this.recordFailedAfterService(
       this.recordCompletedSpans(context.completedSpans ?? [], {
@@ -973,6 +1029,12 @@ export class MetricsCollector {
 
     return {
       totalRequests: this.totalRequests,
+      backgroundBranches: {
+        completed: this.backgroundCompleted,
+        failed: this.backgroundFailed,
+        meanLatencyMs:
+          this.backgroundCompleted > 0 ? this.backgroundLatencySumMs / this.backgroundCompleted : 0
+      },
       postWarmupTotalRequests: this.postWarmupTotalRequests,
       postWarmupSuccessfulRequests: this.postWarmupSuccessfulRequests,
       postWarmupFailedRequests,

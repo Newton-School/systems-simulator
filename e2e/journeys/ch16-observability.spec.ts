@@ -111,16 +111,12 @@ test.describe('O-01 telemetry that cannot keep up never touches the user path (c
 })
 
 test.describe('O-01b a collector at the end of the only path must not become the user latency (ch16 section 5)', () => {
-  // Tracked gap (finding 27): when the only edge out of a service is asynchronous, the request is reported as ending at
-  // the collector. The user's own 5 ms response disappears from the results and the export (25 ms, or 80 ms when the
-  // collector queues) becomes the reported latency.
-  test.fail(
-    'svc -> logs (async) and nothing else: the user-facing latency is still the 5 ms of svc',
-    () => {
-      const out = runEngine(withLogs('o01c', { telemetryAsyncIngest: true }, {}, true))
-      expect(out.summary.latency.mean).toBeLessThan(6)
-    }
-  )
+  // Finding 27 (fixed, decision E3): when the only edge out of a service is asynchronous, the user's request completes at
+  // the service and the export is a background branch, so the user-facing latency is the service's own 5 ms.
+  test('svc -> logs (async) and nothing else: the user-facing latency is still the 5 ms of svc', () => {
+    const out = runEngine(withLogs('o01c', { telemetryAsyncIngest: true }, {}, true))
+    expect(out.summary.latency.mean).toBeLessThan(6)
+  })
 })
 
 test.describe('O-02 head sampling exports p of the events (ch16 section 5)', () => {

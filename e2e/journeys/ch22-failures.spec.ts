@@ -122,9 +122,13 @@ test.describe('F-02 a degraded node is slower for its fraction and loses nothing
         })
       )
       expect(out.summary.errorRate).toBe(0)
-      expect(
-        relErr(out.summary.latency.mean, 10 * (1 - fraction + fraction * multiplier))
-      ).toBeLessThan(0.05)
+      // Each request is slow with probability f, so its time is base x (1 + (m - 1) B): the mean of n of them has
+      // a relative standard error of (m - 1) sqrt(f (1 - f)) / ((1 - f + f m) sqrt(n)). Allow 4 of them.
+      const mean = 1 - fraction + fraction * multiplier
+      const se =
+        ((multiplier - 1) * Math.sqrt(fraction * (1 - fraction))) /
+        (mean * Math.sqrt(out.summary.successfulRequests))
+      expect(relErr(out.summary.latency.mean, 10 * mean)).toBeLessThan(Math.max(0.01, 4 * se))
     })
   }
 })

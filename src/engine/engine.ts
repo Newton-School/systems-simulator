@@ -305,6 +305,17 @@ function scalarTraitDetail(
   return detail
 }
 
+/** Nodes that acknowledge a producer at append and deliver separately; an asynchronous edge into one keeps that lifecycle. */
+const MESSAGING_BOUNDARY_TYPES = [
+  'queue',
+  'stream',
+  'message-broker',
+  'pub-sub',
+  'event-bus',
+  'event-sourcing-store',
+  'task-queue'
+] as const
+
 /** Fault type for a gray failure: a share of real requests fail while health checks still pass. */
 export const GRAY_FAILURE_FAULT_TYPE = 'gray-failure'
 
@@ -1301,7 +1312,7 @@ export class SimulationEngine {
       return
     }
 
-    const routedRequests = this.prepareRequestsForRoutes(request, routes.length)
+    const routedRequests = this.prepareRequestsForRoutes(request, routes, sourceNodeId)
     for (let i = 0; i < routes.length; i++) {
       const route = routes[i]
       const routedRequest = routedRequests[i]
@@ -1964,7 +1975,7 @@ export class SimulationEngine {
       return
     }
 
-    const routedRequests = this.prepareRequestsForRoutes(request, routes.length)
+    const routedRequests = this.prepareRequestsForRoutes(request, routes, event.nodeId)
     for (let i = 0; i < routes.length; i++) {
       const route = routes[i]
       const routedRequest = routedRequests[i]
@@ -2244,6 +2255,7 @@ export class SimulationEngine {
       this.clock
     )
     this.metrics.recordRejection(event.nodeId, reason, {
+      requestId: request.id,
       requestCreatedAt: request.createdAt,
       nodeArrivalTime,
       edgeInTimeUs:
@@ -3150,17 +3162,53 @@ export class SimulationEngine {
     return expanded
   }
 
-  private prepareRequestsForRoutes(request: Request, routeCount: number): Request[] {
-    if (routeCount <= 1) {
-      return [request]
+  /**
+   * One request per route. Routes over a synchronous edge carry the user's request (the first one) or a fork of
+   * it. Routes over an asynchronous edge always carry a *background branch*: a clone flagged `__background`, kept
+   * out of the summary's totals and latency (decision E3). When every route is asynchronous the user's request
+   * has nothing left to wait for, so it completes at this node.
+   */
+  private prepareRequestsForRoutes(
+    request: Request,
+    routes: ResolveRoute[],
+    fromNodeId: string
+  ): Request[] {
+    // A messaging node (queue, stream, broker, topic) already has its own asynchronous-acknowledgement lifecycle:
+    // the producer is released at append and delivery is a separate flow, so the edge into it is left as it was.
+    const isAsync = (route: ResolveRoute) => {
+      if (route.edge.mode !== 'asynchronous') return false
+      const type = this.nodeDefinitionsById.get(route.targetNodeId)?.type
+      return !(type !== undefined && (MESSAGING_BOUNDARY_TYPES as readonly string[]).includes(type))
+    }
+    const asyncCount = routes.filter(isAsync).length
+    const syncCount = routes.length - asyncCount
+    if (asyncCount === 0) {
+      if (routes.length <= 1) return [request]
+      return routes.map((_, i) => (i === 0 ? request : this.cloneRequestForBranch(request)))
     }
 
-    const routedRequests: Request[] = [request]
-    for (let i = 1; i < routeCount; i++) {
-      routedRequests.push(this.cloneRequestForBranch(request))
+    const out: Request[] = []
+    let userRequestUsed = false
+    for (const route of routes) {
+      if (isAsync(route)) {
+        const branch = this.cloneRequestForBranch(request)
+        branch.metadata.__background = true
+        this.metrics.markBackground(branch.id)
+        out.push(branch)
+      } else if (!userRequestUsed) {
+        userRequestUsed = true
+        out.push(request)
+      } else {
+        out.push(this.cloneRequestForBranch(request))
+      }
     }
-
-    return routedRequests
+    if (syncCount === 0) {
+      // Nothing synchronous is left, so the user's response is ready now.
+      this.eventQueue.insert(
+        createEvent('request-complete', fromNodeId, request.id, { request }, this.clock)
+      )
+    }
+    return out
   }
 
   /** Assigns one consumer-group owner to each stream delivery branch. */

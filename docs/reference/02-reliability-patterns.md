@@ -170,6 +170,7 @@ waiting probability at the same total c is higher than a shared pool (Erlang C, 
 
 - Overload one class: its latency rises and rejections appear in its partition only; other classes' latency stays flat.
 - With no bulkhead the same overload degrades all classes.
+- A class capped at k slots with Poisson arrivals and no waiting room is a loss system: with offered load A = rate x service time, the rejected share is Erlang B(k, A), not the naive 1 - k / A (k = 4, A = 8 rejects 57.5%, not 50%). [D; flow `R-05`]
 - Idle capacity in one partition is **not** used by another (that's the trade-off).
 
 ## 6. Load shedding and goodput

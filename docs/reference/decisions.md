@@ -111,3 +111,15 @@ chapter, no code.
 **56 decisions.** At the recommendations: 20 small (a day or less), 14 medium (a few days), 2 large (a week or more), 13 doc-only (a sentence in a chapter), 7 no.
 The two large ones, E2 (batching) and E3 (async branch reporting), change reported numbers for many designs and
 should be reviewed against the question bank first.
+
+## Tracker
+
+All 56 decisions are implemented or documented. One differs from the sheet:
+
+- **D7** (a data store's typed processing time wins): not applied as accepted. Every raw JSON node carries a
+  `processing` block as boilerplate, so a placeholder 1 ms on a database would silently bypass its storage profile
+  (three existing tests broke). The storage profile stays in charge and the import now warns when a typed time is
+  ignored. Say if you want the other behaviour.
+- **G2** (remove the `scaling` block): `scaling.coldStartPenalty` is read by serverless functions, so the block stays
+  and the import warns that its policy fields are not applied.
+- **H2** (reconnect storms): documented as the retry and jitter behaviour of chapter 02, not a separate mechanism.

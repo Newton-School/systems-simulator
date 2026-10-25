@@ -22,10 +22,11 @@ function run(collectorConfig: Record<string, unknown>) {
 }
 
 describe('telemetrySink trait', () => {
-  it('off: a full collector rejects events and they count as failed requests', () => {
+  it("off: a full collector rejects events; they fail as background work, never as the user's requests", () => {
     const out = run({})
     expect(out.perNode.logs.rejectionsByReason.capacity_exceeded).toBe(446)
-    expect(out.summary.failedRequests).toBe(446)
+    expect(out.summary.failedRequests).toBe(0)
+    expect(out.summary.backgroundBranches.failed).toBe(446)
   })
 
   it('fire-and-forget: the same overload drops events, measured, with no failed requests', () => {

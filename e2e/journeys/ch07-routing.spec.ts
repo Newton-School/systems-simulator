@@ -84,9 +84,12 @@ test.describe('who gets how many requests (ch07 section 3)', () => {
       { weights: [3, 1, 1] }
     )
     const shares = arrivals.map((a) => a / total)
-    expect(Math.abs(shares[0] - 0.6)).toBeLessThan(0.01)
-    expect(Math.abs(shares[1] - 0.2)).toBeLessThan(0.01)
-    expect(Math.abs(shares[2] - 0.2)).toBeLessThan(0.01)
+    // Each pick is a draw from the weights, so a share is binomial: within 4 standard errors of its weight.
+    for (const [i, p] of [0.6, 0.2, 0.2].entries()) {
+      expect(Math.abs(shares[i] - p), `server ${i}`).toBeLessThan(
+        4 * Math.sqrt((p * (1 - p)) / total)
+      )
+    }
   })
 
   test('N-03 random sends each server about 1/n, within 3 standard errors', () => {

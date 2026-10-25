@@ -397,12 +397,16 @@ test.describe('E-11 an asynchronous edge forks a side branch; it does not remove
     expect(latencyAt('b')).toBeGreaterThan(195)
   })
 
-  test('the branch is reported as its own request, so the blended percentiles show the background work', () => {
+  // Decision E3 (done): the asynchronous branch is background work with its own series, so the user-facing totals and
+  // percentiles are the user's request alone, and the 200 ms of the branch shows in `backgroundBranches`.
+  test('the branch is reported on its own, so the user-facing percentiles stay at the user path', () => {
     const out = forked()
-    // Two reported requests per generated one, less the few background branches still running at the cutoff.
-    expect(out.summary.totalRequests).toBeGreaterThan(2 * 1500 - 30)
-    expect(out.summary.totalRequests).toBeLessThanOrEqual(2 * 1500)
-    expect(out.summary.latency.p99).toBeGreaterThan(195) // the user-facing path is about 5 ms
+    expect(out.summary.totalRequests).toBeGreaterThan(1500 - 30)
+    expect(out.summary.totalRequests).toBeLessThanOrEqual(1500)
+    expect(out.summary.latency.p99).toBeLessThan(10) // the user-facing path is about 5 ms
+    // The background branches that finished (all but the few still running at the cutoff), at about 200 ms each.
+    expect(out.summary.backgroundBranches.completed).toBeGreaterThan(1500 - 30)
+    expect(Math.abs(out.summary.backgroundBranches.meanLatencyMs - 200)).toBeLessThan(15)
   })
 
   test('two synchronous targets are a split, not a fork: each request goes to one of them', () => {
