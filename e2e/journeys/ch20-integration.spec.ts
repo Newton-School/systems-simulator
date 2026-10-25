@@ -157,7 +157,9 @@ test.describe('INT-03 an idempotency key makes a repeat inside the window a no-o
     const executed = out.requestOutcomes.filter((o) => o.nodeId === 'pay' && o.status === 'success')
     const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length
     expect(mean(dup.map((o) => o.latencyMs))).toBeLessThan(5)
-    expect(mean(executed.map((o) => o.latencyMs))).toBeGreaterThan(100)
+    // 1 ms store lookup + the provider's own 5 ms + 100 ms of provider latency: the lookup's service time must not
+    // follow the request into the payment node (finding 22)
+    expect(Math.abs(mean(executed.map((o) => o.latencyMs)) - 106)).toBeLessThan(2)
   })
 })
 

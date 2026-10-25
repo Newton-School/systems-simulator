@@ -134,10 +134,9 @@ test.describe('T-01 an LLM response takes per-token time x output tokens (ch18 s
 })
 
 test.describe('T-02 sequential model calls add their latencies (ch18 section 5)', () => {
-  // Tracked gap (finding 22): a latency penalty set by one node is charged again at every node after it.
-  // Five sequential 4 s calls (200 tokens at 20 ms) should take 5 x (4 s + 100 ms); the engine charges the
-  // first call's 4 s five times, the second's four times, and so on.
-  test.fail('an agent making 5 sequential 4 s model calls takes about 20.5 s', () => {
+  // Finding 22 (fixed): a latency penalty set by one node was charged again at every node after it. Five
+  // sequential 4 s calls (200 tokens at 20 ms) take 5 x (4 s + 100 ms).
+  test('an agent making 5 sequential 4 s model calls takes about 20.5 s', () => {
     const ids = ['s1', 's2', 's3', 's4', 's5']
     const out = runEngine(
       chain({

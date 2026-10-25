@@ -182,16 +182,16 @@ test.describe('SEC-03 an encryption call costs its CPU time (ch15 section 4)', (
     expect(out.perNode.guard.traitCounters.cryptoOps).toBe(out.perNode.guard.totalArrived)
   })
 
-  // Tracked gap (finding 22): a latency penalty set by a node is charged again at every node after it, because the
-  // request keeps it in its metadata. 8 ms of crypto in front of one 1 ms service should cost 8 ms once.
-  test.fail('the crypto time is paid once, not again at each service after the KMS', () => {
+  // Finding 22 (fixed): a latency penalty set by a node was charged again at every node after it, because the
+  // request kept it in its metadata. 8 ms of crypto in front of one 1 ms service costs 8 ms once.
+  test('the crypto time is paid once, not again at each service after the KMS', () => {
     const out = kms('sec03b', [
       queueNode('backend', 'microservice', { category: 'compute', serviceMs: 1, workers: 64 })
     ])
     expect(Math.abs(out.summary.latency.mean - (1 + 8 + 1))).toBeLessThan(0.3)
   })
 
-  test.fail('an inspection hop in front of four services costs its 10 ms once', () => {
+  test('an inspection hop in front of four services costs its 10 ms once', () => {
     const ids = ['b0', 'b1', 'b2', 'b3']
     const out = runEngine(
       chain({
