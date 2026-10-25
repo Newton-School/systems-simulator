@@ -3,7 +3,9 @@
 Every open `[?]` item in the reference chapters and every simulator-versus-reality finding that needs a product call,
 grouped, with a recommendation. Effort: **S** a day or less, **M** a few days, **L** a week or more.
 
-**How to answer:** reply with `accept all`, or `accept all except D3, D7` and say what you want for those. Anything you
+**Status: all 56 recommendations accepted.** Items are closed as they are implemented or documented; the tracker at the end of this file says which are done.
+
+**How to answer (used):** reply with `accept all`, or `accept all except D3, D7` and say what you want for those. Anything you
 mark **no** gets deleted from the chapters (so the PDF stops saying it is open); anything you mark **yes** becomes a
 change with a unit test and a flow, like the thirteen in `42ffa23`. Items marked **doc** need only a sentence in the
 chapter, no code.
