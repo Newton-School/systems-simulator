@@ -256,6 +256,17 @@ export const replicationCapabilityModule: NodeCapabilityModule = {
             altitude: 'advanced'
           },
           {
+            path: 'sim.electionTimeoutMs',
+            type: 'input',
+            inputType: 'number',
+            label: 'Election timeout',
+            unit: 'ms',
+            min: 0,
+            visible: isReplicationEnabled,
+            altitude: 'advanced',
+            why: 'Quorum stores only. When the leader is down the store is unavailable for this long, then, if a majority of the members is up, the first healthy member in Replica members becomes the leader. Empty means no election.'
+          },
+          {
             path: 'sim.replicaMembers',
             type: 'input',
             inputType: 'text',

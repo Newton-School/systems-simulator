@@ -287,6 +287,59 @@ test.describe('R-05 a failover window is unavailability of rps x window requests
   })
 })
 
+test.describe('R-09 a quorum store elects a new leader after the election timeout (ch11 section 6)', () => {
+  // Decision G5 (done): with electionTimeoutMs the store is unavailable that long after the leader fails, then, with a
+  // majority up, the first healthy member leads. p fails at 5 s, the timeout is 2 s, 100 writes/s: 200 refused, then none.
+  const cluster = (electionTimeoutMs?: number) => {
+    const members = 'p,r1,r2'
+    const config = (extra: Record<string, unknown> = {}) => ({
+      writeAckPolicy: 'quorum',
+      replicaMembers: members,
+      ...(electionTimeoutMs ? { electionTimeoutMs } : {}),
+      ...extra
+    })
+    return runEngine(
+      chain({
+        run: run(`r09-${electionTimeoutMs ?? 'none'}`, {
+          rps: 100,
+          pattern: 'constant',
+          durationMs: 20_000
+        }),
+        nodes: [
+          datastore('p', 'leader', config()),
+          datastore('r1', 'follower', config()),
+          datastore('r2', 'follower', config())
+        ],
+        edges: [['source', 'p', tcp()]],
+        faults: [
+          {
+            targetId: 'p',
+            faultType: 'node-failure',
+            timing: 'deterministic',
+            duration: 'permanent',
+            params: { atMs: 5000, mode: 'reject' }
+          }
+        ],
+        requestDistribution: [{ type: 'write', weight: 1, sizeBytes: 100 }]
+      })
+    )
+  }
+  const failed = (out: ReturnType<typeof runEngine>, from: number, to: number) =>
+    out.requestOutcomes.filter(
+      (o) => o.createdAtMs >= from && o.createdAtMs < to && o.status === 'rejected'
+    ).length
+
+  test('2 s election timeout: about 200 writes refused, none after the new leader is elected', () => {
+    const out = cluster(2000)
+    expect(Math.abs(failed(out, 5000, 7000) - 200)).toBeLessThan(10)
+    expect(failed(out, 7100, 19_000)).toBe(0)
+  })
+
+  test('without an election timeout the old leader stays the only door and the store stays down', () => {
+    expect(failed(cluster(), 8000, 19_000)).toBeGreaterThan(1000)
+  })
+})
+
 // ───────────────────────── 4. Tracked gaps ─────────────────────────
 
 test.describe('R-06 a quorum write waits for the replicas (ch11 sections 3 and 5)', () => {

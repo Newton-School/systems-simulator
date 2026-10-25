@@ -1271,7 +1271,7 @@ export class SimulationEngine {
     }
 
     const routes = this.expandFanoutRoutes(
-      this.bypassFailedCaches(routeResult.routes, request),
+      this.redirectFailedLeaders(this.bypassFailedCaches(routeResult.routes, request)),
       sourceNodeId
     )
     if (routes.length === 0) {
@@ -1939,7 +1939,7 @@ export class SimulationEngine {
     }
 
     const routes = this.expandFanoutRoutes(
-      this.bypassFailedCaches(routeResult.routes, request),
+      this.redirectFailedLeaders(this.bypassFailedCaches(routeResult.routes, request)),
       event.nodeId
     )
     if (routes.length === 0) {
@@ -3008,6 +3008,52 @@ export class SimulationEngine {
       }
       out.push(route)
     }
+    return changed ? out : routes
+  }
+
+  /**
+   * Leader election for a quorum store (decision G5). While its leader is down the store is unavailable for the
+   * election timeout (`electionTimeoutMs`, default none); after it, if a majority of the members is still up, the
+   * first healthy member in `replicaMembers` is the new leader and requests addressed to the old leader go to it.
+   * Without a majority there is no election and the requests keep failing.
+   */
+  private redirectFailedLeaders(routes: ResolveRoute[]): ResolveRoute[] {
+    let changed = false
+    const out = routes.map((route) => {
+      const leader = this.nodeDefinitionsById.get(route.targetNodeId)
+      const timeoutMs = leader?.config?.['electionTimeoutMs']
+      if (
+        !leader ||
+        leader.config?.['replicationEnabled'] !== true ||
+        leader.config?.['writeAckPolicy'] !== 'quorum' ||
+        typeof timeoutMs !== 'number' ||
+        timeoutMs <= 0 ||
+        this.isNodeHealthyInstant(leader.id)
+      ) {
+        return route
+      }
+      const down = this.statusWindows.find((w) => w.componentId === leader.id && w.endUs === null)
+      if (!down || this.clock - down.startUs < msToMicro(timeoutMs)) return route
+      const members = String(leader.config?.['replicaMembers'] ?? '')
+        .split(',')
+        .map((id) => id.trim())
+        .filter(Boolean)
+      const healthy = members.filter((id) => this.isNodeHealthyInstant(id))
+      if (healthy.length < Math.floor(members.length / 2) + 1) return route
+      const elected = healthy.find((id) => id !== leader.id)
+      if (!elected) return route
+      const electedDefinition = this.nodeDefinitionsById.get(elected)
+      if (electedDefinition && electedDefinition.config?.['replicationRole'] !== 'leader') {
+        // The elected follower takes the leader role (so it accepts writes) for the rest of the run.
+        this.nodeDefinitionsById.set(elected, {
+          ...electedDefinition,
+          config: { ...electedDefinition.config, replicationRole: 'leader' }
+        })
+        this.metrics.recordNodeTraitCounters(elected, { leaderElected: 1 })
+      }
+      changed = true
+      return { ...route, targetNodeId: elected }
+    })
     return changed ? out : routes
   }
 
