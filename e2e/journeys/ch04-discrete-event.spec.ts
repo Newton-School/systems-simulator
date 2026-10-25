@@ -243,21 +243,16 @@ test.describe('common random numbers (ch04 section 3)', () => {
     return a - b
   }
 
-  // Tracked gap. The chapter says common random numbers only work when streams are synchronised: the same draw
-  // must serve the same purpose in both runs. The engine draws service times from one shared stream at the moment
-  // service starts, so a design with more workers starts services earlier and every later draw lands on a different
-  // request. Pairing seeds then buys nothing (paired sd 3.5 ms against 3.1 ms independent in the first run).
-  // `test.fail` passes while that is true and fails once streams are made independent, which is the cue to remove it.
-  test.fail(
-    'E-13 the same seed for both designs gives a tighter comparison than independent seeds',
-    () => {
-      const paired = Array.from({ length: 12 }, (_, i) => diff(`crn-${i}`, `crn-${i}`))
-      const independent = Array.from({ length: 12 }, (_, i) => diff(`ind-a-${i}`, `ind-b-${i}`))
-      // Both estimate the same difference; pairing should reduce the noise (ch04 section 3 is cautious: no guarantee).
-      expect(Math.abs(mean(paired) - mean(independent))).toBeLessThan(3 * sd(independent))
-      expect(sd(paired)).toBeLessThan(sd(independent))
-    }
-  )
+  // Finding 6 (fixed, decision A4): service times, edge draws, node errors and trait draws come from independent
+  // streams per node or edge, so a design with more workers no longer shifts every later draw onto a different
+  // request, and pairing seeds does reduce the noise of a comparison (chapter 04 section 3).
+  test('E-13 the same seed for both designs gives a tighter comparison than independent seeds', () => {
+    const paired = Array.from({ length: 12 }, (_, i) => diff(`crn-${i}`, `crn-${i}`))
+    const independent = Array.from({ length: 12 }, (_, i) => diff(`ind-a-${i}`, `ind-b-${i}`))
+    // Both estimate the same difference; pairing should reduce the noise (ch04 section 3 is cautious: no guarantee).
+    expect(Math.abs(mean(paired) - mean(independent))).toBeLessThan(3 * sd(independent))
+    expect(sd(paired)).toBeLessThan(sd(independent))
+  })
 })
 
 test.describe('what the user sees (ch04 sections 5 and 9)', () => {

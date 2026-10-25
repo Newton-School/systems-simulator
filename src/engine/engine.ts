@@ -332,6 +332,8 @@ export class SimulationEngine {
   private readonly nodeDefinitionsById = new Map<string, ComponentNode>()
   private readonly traitsByNodeId = new Map<string, readonly NodeBehaviourTrait[]>()
   private readonly nodeErrorRateById = new Map<string, number>()
+  /** Independent random streams, one per node or edge and purpose, so changing one part of a design does not shift the draws of another (decision A4). */
+  private readonly randomStreams = new Map<string, Distributions>()
   /** Edges with a `weightSchedule`, and the weight each has before its first step. */
   private readonly scheduledWeightEdges: EdgeDefinition[] = []
   private readonly initialEdgeWeight = new Map<string, number | undefined>()
@@ -505,7 +507,7 @@ export class SimulationEngine {
       // idle feature grades as 0 and an absent one stays unresolved.
       const featureSeeds = featureCounterSeeds(normalized, resolvedTraits)
       if (featureSeeds) this.metrics.recordNodeTraitCounters(node.id, featureSeeds)
-      const runtimeNode = new GGcKNode(normalized, this.distributions, scheduler)
+      const runtimeNode = new GGcKNode(normalized, this.streamFor(`service:${node.id}`), scheduler)
       runtimeNode.setWarmupUs(msToMicro(Math.max(0, topology.global.warmupDuration)))
       if (normalized.type === 'queue') {
         // A delivery that is still being processed when its visibility timeout expires reappears
@@ -2799,7 +2801,10 @@ export class SimulationEngine {
     sizeBytes = request.sizeBytes
   ): { transitUs: bigint; transmissionMs: number; components: EdgeLatencyBreakdownSample } {
     const latencyDistribution = this.edgeLatencyDistribution(edge, request)
-    const propagationMs = Math.max(0, this.distributions.fromConfig(latencyDistribution))
+    const propagationMs = Math.max(
+      0,
+      this.streamFor(`edge:${edge.id}`).fromConfig(latencyDistribution)
+    )
     // Mbps -> bytes per ms is x125; see network/linkTransmission.ts.
     const transmissionMs = transmissionTimeMs(sizeBytes, edge.bandwidth)
     // Streaming links reuse an already-open channel, so only a small framing
@@ -3418,7 +3423,7 @@ export class SimulationEngine {
         continue
       }
       const delayMs = computeRetryDelayMs(retryCounts[candidateId] ?? 0, config, () =>
-        this.distributions.random()
+        this.streamFor(`retry:${candidateId}`).random()
       )
       if (this.clock + msToMicro(delayMs) >= request.deadline) {
         this.metrics.recordNodeTraitCounters(candidateId, { retryBudgetExhausted: 1 })
@@ -4042,7 +4047,10 @@ export class SimulationEngine {
     const policy = this.securityPolicyByNodeId.get(nodeId)
     if (!policy) return false
 
-    if (policy.droppedPackets > 0 && this.distributions.random() < policy.droppedPackets) {
+    if (
+      policy.droppedPackets > 0 &&
+      this.streamFor(`security:${nodeId}`).random() < policy.droppedPackets
+    ) {
       this.traceAdmission(request, nodeId, 'security', 'dropped', {
         reasonCode: 'security_dropped',
         policy: { blockRate: policy.blockRate, droppedPackets: policy.droppedPackets }
@@ -4060,7 +4068,7 @@ export class SimulationEngine {
       return true
     }
 
-    if (policy.blockRate > 0 && this.distributions.random() < policy.blockRate) {
+    if (policy.blockRate > 0 && this.streamFor(`security:${nodeId}`).random() < policy.blockRate) {
       this.traceAdmission(request, nodeId, 'security', 'rejected', {
         reasonCode: 'security_blocked',
         policy: { blockRate: policy.blockRate, droppedPackets: policy.droppedPackets }
@@ -4108,7 +4116,7 @@ export class SimulationEngine {
       }
     }
     if (nodeErrorRate <= 0) return false
-    return this.distributions.random() < nodeErrorRate
+    return this.streamFor(`error:${nodeId}`).random() < nodeErrorRate
   }
 
   private getTraitStateStore(nodeId: string): TraitStateStore {
@@ -4188,7 +4196,7 @@ export class SimulationEngine {
       const payload = trait.onTick({
         node,
         clock: this.clock,
-        random: () => this.distributions.random(),
+        random: () => this.streamFor(`trait:${event.nodeId}`).random(),
         state: this.getTraitStateStore(event.nodeId),
         sharedState: this.getSharedTraitStateStore(),
         nodeState: this.nodes.get(event.nodeId)?.getState()
@@ -4573,6 +4581,21 @@ export class SimulationEngine {
     return edge.packetLossRate < 1 && edge.errorRate < 1
   }
 
+  /**
+   * The random stream for a purpose (`service:<node>`, `edge:<edge>`, ...), seeded from the run seed and the key.
+   * Streams are independent of each other and of the order other parts of the design draw, which is what makes
+   * common random numbers work: the same seed gives the same arrivals and the same service-time draws to each
+   * request even when a design change moves other work around.
+   */
+  private streamFor(key: string): Distributions {
+    let stream = this.randomStreams.get(key)
+    if (!stream) {
+      stream = new Distributions(createRandom(`${this.topology.global.seed}:${key}`))
+      this.randomStreams.set(key, stream)
+    }
+    return stream
+  }
+
   private resolveRoutes(sourceNodeId: string, request: Request) {
     this.applyWeightSchedules()
     return this.routing.resolveTargetResult(sourceNodeId, request, {
@@ -4930,7 +4953,7 @@ export class SimulationEngine {
       // latency (the path-type defaults are round-trip figures).
       const rttMs = Math.max(
         0,
-        this.distributions.fromConfig(this.edgeLatencyDistribution(edge, request))
+        this.streamFor(`edge:${edge.id}`).fromConfig(this.edgeLatencyDistribution(edge, request))
       )
       handshakeUs = msToMicro(grant.handshakeRtts * rttMs)
       this.connectionPools.markReady(grant.lease, Number(this.clock + handshakeUs), effective)
@@ -5289,7 +5312,7 @@ export class SimulationEngine {
 
     const transit = this.sampleEdgeTransit(edge, request)
     let retransmitted = false
-    if (this.distributions.random() < edge.packetLossRate) {
+    if (this.streamFor(`edge:${edge.id}`).random() < edge.packetLossRate) {
       if (isReliableProtocol(edge.protocol)) {
         // TCP-style retransmission: the payload crosses the link a second time.
         retransmitted = true
@@ -5321,7 +5344,7 @@ export class SimulationEngine {
       }
     }
 
-    if (this.distributions.random() < edge.errorRate) {
+    if (this.streamFor(`edge:${edge.id}`).random() < edge.errorRate) {
       emitEdgeFlowEvent('edge-error', this.clock, waitedUs, 'edge_error_rate')
       this.eventQueue.insert(
         createEvent(
@@ -5603,8 +5626,8 @@ export class SimulationEngine {
     const lead = live[0].request
     const transit = this.sampleEdgeTransit(edge, lead, batch.bytes)
     // Kafka runs over TCP, so a lost packet is retransmitted, never dropped.
-    const retransmitted = this.distributions.random() < edge.packetLossRate
-    if (this.distributions.random() < edge.errorRate) {
+    const retransmitted = this.streamFor(`edge:${edge.id}`).random() < edge.packetLossRate
+    if (this.streamFor(`edge:${edge.id}`).random() < edge.errorRate) {
       rejectAll('edge_error_rate')
       return
     }
@@ -5683,7 +5706,7 @@ export class SimulationEngine {
         node,
         request,
         clock: this.clock,
-        random: () => this.distributions.random(),
+        random: () => this.streamFor(`trait:${nodeId}`).random(),
         state: this.getTraitStateStore(nodeId),
         sharedState: this.getSharedTraitStateStore(),
         nodeState: this.nodes.get(nodeId)?.getState(),
@@ -5736,7 +5759,7 @@ export class SimulationEngine {
         node,
         request,
         clock: this.clock,
-        random: () => this.distributions.random(),
+        random: () => this.streamFor(`trait:${nodeId}`).random(),
         state: this.getTraitStateStore(nodeId),
         sharedState: this.getSharedTraitStateStore(),
         nodeState: this.nodes.get(nodeId)?.getState()

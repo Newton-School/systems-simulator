@@ -58,7 +58,7 @@ start the next waiter, forward the response). A failure injects `node-failure` a
 **Testable expectations**
 
 - Same seed, same topology: byte-identical summary. Different seed: different summary, same expectation.
-- Replaying with the same seed after adding an unrelated, disconnected node should not change results if streams are independent; if it does, the generator is a single shared stream. **[?]**
+- Replaying with the same seed after adding an unrelated, disconnected node does not change results, because service times, edge draws, node errors and trait draws come from independent streams per node or edge and purpose (named by the run seed and the part). [repo]
 
 ## 4. Terminating versus steady-state questions
 
@@ -156,7 +156,7 @@ intervals separate. Never compare two single runs and call the smaller number "b
 ## 10. Simulator scope
 
 Modelled: next-event loop in integer microseconds, a seeded generator, per-node queues (c servers, finite capacity K), warmup, request-budget and saturation stop conditions,
-an analytic fall-back above an event-count ceiling. Decided: the tie-break order is documented in section 2, independent per-node random streams are being added (decision A4), and a confidence interval stays in the test tooling rather than the user-facing output.
+an analytic fall-back above an event-count ceiling. Decided: the tie-break order is documented in section 2, independent per-node and per-edge random streams are implemented (decision A4), and a confidence interval stays in the test tooling rather than the user-facing output.
 
 ## 11. Open items
 
