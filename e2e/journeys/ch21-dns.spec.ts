@@ -243,14 +243,14 @@ test.describe('DNS-06 a cached answer outlives the endpoint, so failover is dete
 // ───────────────────────── 3. Geo latency and certificates ─────────────────────────
 
 test.describe('DNS-07 a traffic manager, CDN or edge router adds its distance latency (ch21 section 3)', () => {
-  // Tracked gap (finding 31): the geo-latency module is never registered with the capability modules, so
-  // `regionLatencyMs` does nothing on any node. It is only exercised by a unit test that calls the trait directly.
+  // Finding 31 (fixed): the geo-latency module is registered with the capability modules, so `regionLatencyMs`
+  // takes effect on these three node types.
   for (const [type, label] of [
     ['global-traffic-manager', 'traffic manager'],
     ['edge-router', 'edge router'],
     ['cdn', 'CDN']
   ] as const) {
-    test.fail(`a ${label} with 40 ms of region latency adds 40 ms`, () => {
+    test(`a ${label} with 40 ms of region latency adds 40 ms`, () => {
       const node = queueNode('geo', type, {
         category: 'network-and-edge',
         serviceMs: 0.1,

@@ -128,7 +128,7 @@ Multi-leader and leaderless systems must reconcile concurrent writes: **last-wri
 | `readLatency`, `writeLatency`             | separate read and write service times                                                                              |
 | lock settings                             | `leaseMs`, `acquireMs`, `fencing`, `lockKeyField`                                                                  |
 
-The simulator tracks a **version per key**: each write the leader finishes commits a new version; a follower applies it `replicationLagMs` later; a read returns the newest version its node has applied. It counts stale reads, read-your-writes violations and monotonic-read violations, and checks single-key register linearizability on the recorded history. [repo]
+The simulator tracks a **version per key**: each write the leader finishes commits a new version; a follower applies it `replicationLagMs` later; a read returns the newest version its node has applied. A quorum write (`writeAckPolicy: quorum`) adds the replication wait to the write time and is acknowledged by W = floor(N/2) + 1 copies, so a given follower is already current at commit with probability (W − 1) / (N − 1) and otherwise applies it after the lag; this needs `replicaMembers` on every member so the cluster size is known, otherwise every follower is treated as current. It counts stale reads, read-your-writes violations and monotonic-read violations, and checks single-key register linearizability on the recorded history. [repo]
 
 ## 11. Testable expectations (summary)
 

@@ -137,28 +137,28 @@ test.describe('M-03 redelivery follows P(processing > limit) (ch13 section 3)', 
     expect(out.summary.timedOutRequests).toBeGreaterThan(0)
   })
 
-  // Tracked gap (finding 20): the visibility timeout is only the delay before a redelivery. In a real queue (SQS) it is the
-  // time a consumer has to finish: a message still being processed when it expires reappears and is delivered again,
-  // so a visibility timeout shorter than the processing time produces duplicates even though no attempt failed.
-  test.fail(
-    'a visibility timeout of 200 ms against exponential processing (mean 100 ms) redelivers 13.5% of messages',
-    () => {
-      const out = build(
-        'm03c',
-        {
-          deliverySemantics: 'at-least-once',
-          visibilityTimeoutMs: LIMIT_MS,
-          maxReceiveCount: 5
-        },
-        // The consumer is given far longer than the visibility timeout to finish.
-        5000
-      )
-      const q =
-        (out.perNode.q.traitCounters.queueRedeliveries ?? 0) /
-        out.perNode.q.traitCounters.queueAccepted
-      expect(q).toBeGreaterThan(0.1)
-    }
-  )
+  // Finding 20 (fixed): the visibility timeout is the time a consumer has to finish. A message still being processed
+  // when it expires reappears and is delivered again, so a visibility timeout shorter than the processing time
+  // produces duplicates even though no attempt failed (SQS).
+  test('a visibility timeout of 200 ms against exponential processing (mean 100 ms) redelivers 13.5% of messages', () => {
+    const out = build(
+      'm03c',
+      {
+        deliverySemantics: 'at-least-once',
+        visibilityTimeoutMs: LIMIT_MS,
+        maxReceiveCount: 5
+      },
+      // The consumer is given far longer than the visibility timeout to finish.
+      5000
+    )
+    const q =
+      (out.perNode.q.traitCounters.queueRedeliveries ?? 0) /
+      out.perNode.q.traitCounters.queueAccepted
+    // Each delivery outlives the timeout with p = e^-2 = 13.5%; a message is received at most 5 times, so the
+    // expected redeliveries per message are p + p^2 + p^3 + p^4 = 0.156.
+    const p = redeliveryShare(MEAN_MS, LIMIT_MS)
+    expect(Math.abs(q - (p + p ** 2 + p ** 3 + p ** 4))).toBeLessThan(0.015)
+  })
 })
 
 test.describe('M-04 a message is dead-lettered after maxReceiveCount failures (ch13 section 3)', () => {

@@ -108,16 +108,16 @@ When a popular entry expires or the cache is flushed, **many requests miss toget
 
 ## 7. Simulator parameter map
 
-| Setting                        | Meaning                                                                                                                              |
-| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
-| `cacheModel`                   | `declared-rate` (a fixed hit rate you set) or `derived-lru` (hit ratio emerges from an LRU over the workload's keys)                 |
-| `cacheHitRate`                 | the declared hit probability (declared-rate model)                                                                                   |
-| `cacheHitLatencyMs`            | time to answer a hit                                                                                                                 |
-| `cacheRamMb`, `valueSizeBytes` | cache capacity in entries = RAM / value size (derived-LRU model)                                                                     |
-| `requestCollapsing`            | collapse concurrent misses for the same key into one backing request                                                                 |
-| `ttlSeconds`, `cacheEngine`    | expiry and engine (redis, memcached)                                                                                                 |
-| cache flush fault              | empties a cache at a time; declared-rate caches miss every arrival for the re-warm duration; derived-LRU caches re-warm from traffic |
-| node failure                   | a failed cache answers no hits                                                                                                       |
+| Setting                        | Meaning                                                                                                                                                                                                  |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `cacheModel`                   | `declared-rate` (a fixed hit rate you set) or `derived-lru` (hit ratio emerges from an LRU over the workload's keys)                                                                                     |
+| `cacheHitRate`                 | the declared hit probability (declared-rate model)                                                                                                                                                       |
+| `cacheHitLatencyMs`            | time to answer a hit                                                                                                                                                                                     |
+| `cacheRamMb`, `valueSizeBytes` | cache capacity in entries = RAM / value size (derived-LRU model)                                                                                                                                         |
+| `requestCollapsing`            | collapse concurrent misses for the same key into one backing request                                                                                                                                     |
+| `ttlSeconds`, `cacheEngine`    | expiry and engine (redis, memcached). In the derived-LRU model an entry expires `ttlSeconds` after it was filled (hits do not extend it); unset or 0 means no expiry; the declared-rate model ignores it |
+| cache flush fault              | empties a cache at a time; declared-rate caches miss every arrival for the re-warm duration; derived-LRU caches re-warm from traffic                                                                     |
+| node failure                   | a failed cache answers no hits                                                                                                                                                                           |
 
 ## 8. Testable expectations (summary)
 

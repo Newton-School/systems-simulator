@@ -178,6 +178,12 @@ export class GGcKNode {
 
   private readonly distributions: Distributions
   private readonly scheduler: EventScheduler
+  /**
+   * Called when a request starts service, with the start time and the service time it was given.
+   * The engine uses it to schedule events that depend on how long a delivery is held (a queue's
+   * visibility timeout expiring before the consumer finishes).
+   */
+  serviceStartObserver?: (request: Request, startUs: bigint, serviceUs: bigint) => void
 
   constructor(config: ComponentNode, distributions: Distributions, scheduler: EventScheduler) {
     if (!config.queue) {
@@ -874,6 +880,7 @@ export class GGcKNode {
     // every task occupies its worker for real time on the clock, so queueing and
     // Little's Law hold.
     const serviceTimeMicro = BigInt(Math.max(1, Math.round(serviceTimeMs * 1000)))
+    this.serviceStartObserver?.(request, currentTime, serviceTimeMicro)
 
     this.scheduler.schedule(
       createEvent(

@@ -3,7 +3,8 @@ import { SERVICE_TIME_LATENCY_PENALTY_MS_KEY } from './serviceTimeOverride'
 import type { NodeBehaviourTrait, NodeCapabilityModule } from './types'
 
 export const CRYPTO_COST_COMPONENT_TYPES = [
-  'kms-storage'
+  'kms-storage',
+  'kms-security'
 ] as const satisfies readonly ComponentType[]
 
 const DEFAULT_CRYPTO_MS = 5

@@ -5,7 +5,7 @@ import {
   type ConsensusProtocol,
   type ReplicaMember
 } from '../semantics/v2StateMachines'
-import { SERVICE_TIME_DISTRIBUTION_OVERRIDE_KEY } from './serviceTimeOverride'
+import { SERVICE_TIME_LATENCY_PENALTY_MS_KEY } from './serviceTimeOverride'
 import type { NodeBehaviourTrait, NodeCapabilityModule, TraitStateStore } from './types'
 import type { CanvasNodeDataV2 } from '../catalog/nodeSpecTypes'
 
@@ -171,7 +171,11 @@ export const replicationTrait: NodeBehaviourTrait = {
       }
     }
     if (request.type === 'write' && ackPolicy === 'quorum' && lagMs > 0) {
-      request.metadata[SERVICE_TIME_DISTRIBUTION_OVERRIDE_KEY] = { type: 'constant', value: lagMs }
+      // The commit waits for the replicas on top of the local write, so the wait is added to whatever
+      // service time the node has (a storage profile sets that later and must not overwrite it).
+      const existingPenalty = request.metadata[SERVICE_TIME_LATENCY_PENALTY_MS_KEY]
+      request.metadata[SERVICE_TIME_LATENCY_PENALTY_MS_KEY] =
+        (typeof existingPenalty === 'number' ? existingPenalty : 0) + lagMs
       return {
         action: 'continue',
         payload: {

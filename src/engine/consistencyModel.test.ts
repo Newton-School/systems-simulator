@@ -157,6 +157,37 @@ describe('consistency model (engine integration)', () => {
     expect(strongMs - eventualMs).toBeCloseTo(s.catchUpWaitMs / s.followerReads, 0)
   })
 
+  it('a quorum write makes only the acknowledging followers current: W - 1 of N - 1 of them', () => {
+    const topology = (leaderConfig: Record<string, unknown>): TopologyJSON => {
+      const base = primaryReplicaTopology({ model: 'eventual' })
+      return {
+        ...base,
+        nodes: base.nodes.map((n) => {
+          if (n.id === 'primary') return { ...n, config: { ...n.config, ...leaderConfig } }
+          // Every member names the same replica set, so they share one dataset.
+          const members = leaderConfig.replicaMembers
+          return members && n.id === 'replica'
+            ? { ...n, config: { ...n.config, replicaMembers: members } }
+            : n
+        })
+      }
+    }
+    const stale = (leaderConfig: Record<string, unknown>) =>
+      run(topology(leaderConfig)).consistency!.staleReads
+    const leaderOnly = stale({})
+    // 3 copies, W = 2: this follower is one of the 2 followers, 1 of which acknowledged, so about half its reads
+    // that fall inside the lag window still miss the newest version.
+    const quorumOfThree = stale({
+      writeAckPolicy: 'quorum',
+      replicaMembers: 'primary,replica,replica-2'
+    })
+    expect(leaderOnly).toBeGreaterThan(100)
+    expect(quorumOfThree / leaderOnly).toBeGreaterThan(0.3)
+    expect(quorumOfThree / leaderOnly).toBeLessThan(0.7)
+    // With no member list the cluster size is unknown and every follower is treated as current.
+    expect(stale({ writeAckPolicy: 'quorum' })).toBe(0)
+  })
+
   it('read-your-writes removes RYW violations at a measured latency cost', () => {
     const eventual = run(primaryReplicaTopology({ model: 'eventual', sessions: 5 }))
     const ryw = run(primaryReplicaTopology({ model: 'read-your-writes', sessions: 5 }))

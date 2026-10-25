@@ -17,7 +17,7 @@ import {
   VCPU,
   WORKERS_PER_VCPU
 } from '../support/oracles'
-import { chain, computeNode, passNode, type RunSpec } from '../support/topology'
+import { chain, computeNode, passNode, queueNode, type RunSpec } from '../support/topology'
 import { deriveNodeConcurrency } from '../../src/engine/nodes/resourceDerivation'
 import { nodeCostPerHour } from '../../src/engine/analysis/cost'
 import type { ComponentNode } from '../../src/engine/core/types'
@@ -317,17 +317,34 @@ test.describe('serverless (ch06 section 6)', () => {
     runEngine(
       chain({
         run: run(seed, { rps: 20, ...over }),
-        nodes: [computeNode('fn', { type: 'serverless-function', serviceMs: 50, config })]
+        // Authored queue of 64 workers: the worker pool is the function's set of execution environments.
+        nodes: [
+          queueNode('fn', 'serverless-function', {
+            category: 'compute',
+            workers: 64,
+            serviceMs: 50,
+            config
+          })
+        ]
       })
     )
 
-  test('C-09 the first request pays the cold start; later requests do not', () => {
+  test('C-09 each concurrent environment pays one cold start; once warm, requests do not', () => {
     const out = fn(
       'c09',
-      { coldStartLatency: { type: 'constant', value: 800 }, idleTimeoutMs: 60_000 },
+      {
+        coldStartLatency: { type: 'constant', value: 800 },
+        idleTimeoutMs: 60_000,
+        maxConcurrency: 100
+      },
       { durationMs: 20_000 }
     )
-    expect(out.perNode.fn.traitCounters['coldStarts']).toBe(1)
+    // The first request holds its environment for 800 + 50 ms, so the 20 req/s arriving in that window each need
+    // an environment of their own: arrivals at 0, 50, ..., 800 ms is 17 cold starts. After that one warm
+    // environment serves the steady 20 req/s (50 ms each, concurrency about 1).
+    const cold = out.perNode.fn.traitCounters['coldStarts']
+    expect(cold).toBeGreaterThanOrEqual(16)
+    expect(cold).toBeLessThanOrEqual(18)
     expect(relErr(out.summary.latency.max, 800 + 50)).toBeLessThan(0.03)
     expect(relErr(out.summary.latency.p50, 50)).toBeLessThan(0.05)
   })
@@ -377,21 +394,17 @@ test.describe('serverless (ch06 section 6)', () => {
     expect(slow.perNode.fn.rejectionsByReason['max_concurrency_exceeded']).toBeGreaterThan(0)
   })
 
-  // Tracked gap. Real Lambda creates one execution environment per concurrent request, so a burst of 16
-  // simultaneous requests during init pays 16 cold starts. The simulator treats the whole node as warm or cold,
-  // so the same burst records a single cold start and the rest queue behind it.
-  test.fail(
-    'C-12 a burst of concurrent requests during init cold-starts one environment each',
-    () => {
-      const out = fn(
-        'c12',
-        { coldStartLatency: { type: 'constant', value: 800 }, maxConcurrency: 100 },
-        { rps: 20, durationMs: 2000 }
-      )
-      // 20 req/s over the 800 ms init window puts about 16 requests in flight, each needing its own environment.
-      expect(out.perNode.fn.traitCounters['coldStarts']).toBeGreaterThanOrEqual(10)
-    }
-  )
+  // Finding 10 (fixed). Real Lambda creates one execution environment per concurrent request, so a burst of 16
+  // simultaneous requests during init pays 16 cold starts. Each concurrent slot is warm or cold on its own.
+  test('C-12 a burst of concurrent requests during init cold-starts one environment each', () => {
+    const out = fn(
+      'c12',
+      { coldStartLatency: { type: 'constant', value: 800 }, maxConcurrency: 100 },
+      { rps: 20, durationMs: 2000 }
+    )
+    // 20 req/s over the 800 ms init window puts about 16 requests in flight, each needing its own environment.
+    expect(out.perNode.fn.traitCounters['coldStarts']).toBeGreaterThanOrEqual(10)
+  })
 })
 
 test('C-13 each hop adds its service time and its protocol overhead: end-to-end mean = sum of services + sum of overheads (ch06 section 7, ch08 section 1)', () => {

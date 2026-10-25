@@ -1104,10 +1104,14 @@ export class MetricsCollector {
           metrics && metrics.totalProcessed > 0
             ? (metrics.queueWaitSumMs + metrics.serviceTimeSumMs) / metrics.totalProcessed
             : 0,
+        // The exact time average over the measured window when the integral exists. The 1 Hz
+        // snapshot average always includes the empty system at t = 0, so it reads low by 1 / duration.
         avgInSystem:
-          metrics && metrics.inSystemSamples > 0
-            ? metrics.inSystemSum / metrics.inSystemSamples
-            : 0,
+          metrics?.postWarmupInSystemAreaUs !== undefined && pwWindowUs !== undefined
+            ? postWarmupAvgInSystem
+            : metrics && metrics.inSystemSamples > 0
+              ? metrics.inSystemSum / metrics.inSystemSamples
+              : 0,
         peakQueueLength: metrics?.peakQueueLength ?? 0,
         peakInSystem: metrics?.peakInSystem ?? 0,
         finalInSystem: metrics?.finalInSystem ?? 0,

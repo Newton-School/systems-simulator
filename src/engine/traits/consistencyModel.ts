@@ -84,6 +84,42 @@ function writesWaitForQuorum(config: Record<string, unknown> | undefined): boole
   return config?.['replicationEnabled'] === true && config?.['writeAckPolicy'] === 'quorum'
 }
 
+function memberCount(config: Record<string, unknown> | undefined): number {
+  const members = config?.['replicaMembers']
+  return typeof members === 'string'
+    ? new Set(
+        members
+          .split(',')
+          .map((id) => id.trim())
+          .filter(Boolean)
+      ).size
+    : 0
+}
+
+/**
+ * Share of followers that already hold a write at commit. A quorum write is acknowledged by W = floor(N/2) + 1
+ * copies, the leader and W - 1 followers, so a given follower is current with probability (W - 1) / (N - 1) and
+ * is otherwise behind by the replication lag. Without a member list the cluster size is unknown, so every
+ * follower is treated as current (the leader-only case has no acknowledged followers).
+ */
+function quorumFollowerShare(config: Record<string, unknown> | undefined): number {
+  if (!writesWaitForQuorum(config)) return 0
+  const n = memberCount(config)
+  if (n < 3) return 1
+  const w = Math.floor(n / 2) + 1
+  return (w - 1) / (n - 1)
+}
+
+/** Deterministic value in [0, 1) for one (replica set, key, version, follower) so a run is reproducible. */
+function followerDraw(groupId: string, key: string, version: number, followerId: string): number {
+  let h = 2166136261
+  for (const ch of `${groupId}|${key}|${version}|${followerId}`) {
+    h ^= ch.charCodeAt(0)
+    h = Math.imul(h, 16777619)
+  }
+  return (h >>> 0) / 4294967296
+}
+
 /**
  * Which nodes hold the same data. An explicit replica-member list is one
  * replica set; without one, every tracked node of the same component type is
@@ -113,8 +149,8 @@ function asKey(value: unknown): string | null {
 interface CommittedVersion {
   version: number
   commitAtUs: number
-  /** Quorum-acknowledged: followers already hold it at commit. */
-  onFollowersAtCommit: boolean
+  /** Share of followers that hold it at commit (quorum acknowledgement); the rest apply it after the lag. */
+  followerShareAtCommit: number
 }
 
 interface HistoryOp {
@@ -390,14 +426,24 @@ function latestCommitted(state: KeyState, atUs: number): CommittedVersion | null
   return found >= 0 ? commits[found] : null
 }
 
-function applyAtUs(commit: CommittedVersion, lagUs: number): number {
-  return commit.onFollowersAtCommit ? commit.commitAtUs : commit.commitAtUs + lagUs
+function applyAtUs(
+  commit: CommittedVersion,
+  lagUs: number,
+  follower: { groupId: string; key: string; nodeId: string }
+): number {
+  const current =
+    commit.followerShareAtCommit >= 1 ||
+    (commit.followerShareAtCommit > 0 &&
+      followerDraw(follower.groupId, follower.key, commit.version, follower.nodeId) <
+        commit.followerShareAtCommit)
+  return current ? commit.commitAtUs : commit.commitAtUs + lagUs
 }
 
 /** Newest version a follower with `lagUs` has applied at `atUs` (0 = initial). */
-function appliedOnFollower(state: KeyState, atUs: number, lagUs: number): number {
+function appliedOnFollower(state: KeyState, atUs: number, lagUs: number, nodeId: string): number {
+  const follower = { groupId: state.groupId, key: state.key, nodeId }
   for (let i = state.commits.length - 1; i >= 0; i -= 1) {
-    if (applyAtUs(state.commits[i], lagUs) <= atUs) return state.commits[i].version
+    if (applyAtUs(state.commits[i], lagUs, follower) <= atUs) return state.commits[i].version
   }
   return 0
 }
@@ -481,7 +527,7 @@ export const consistencyModelTrait: NodeBehaviourTrait = {
     }
     const commit = commitOf(state, required)
     if (!commit) return { action: 'continue' }
-    const readyAtUs = applyAtUs(commit, lagUsOf(node.config))
+    const readyAtUs = applyAtUs(commit, lagUsOf(node.config), { groupId, key, nodeId: node.id })
     if (readyAtUs <= nowUs) return { action: 'continue' }
 
     request.metadata[SERVICE_TIME_WAIT_UNTIL_US_KEY] = readyAtUs
@@ -532,7 +578,7 @@ export const consistencyModelTrait: NodeBehaviourTrait = {
       state.commits.push({
         version,
         commitAtUs: nowUs,
-        onFollowersAtCommit: writesWaitForQuorum(node.config)
+        followerShareAtCommit: quorumFollowerShare(node.config)
       })
       const op = book.record(state, {
         kind: 'write',
@@ -563,7 +609,7 @@ export const consistencyModelTrait: NodeBehaviourTrait = {
     const observed =
       role === 'leader'
         ? (latestCommitted(state, nowUs)?.version ?? 0)
-        : appliedOnFollower(state, nowUs, lagUsOf(node.config))
+        : appliedOnFollower(state, nowUs, lagUsOf(node.config), node.id)
     const stamped = request.metadata[newestAtArrivalKey(node)]
     delete request.metadata[newestAtArrivalKey(node)]
     const newestAtArrival =

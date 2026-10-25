@@ -242,18 +242,17 @@ Endpoint Monitoring pattern]
 ## 9. Where the simulator differs from this chapter
 
 The chapter describes real systems. These are the known places the simulator is simpler. Each has a
-tracked test in `e2e/journeys/ch02-reliability.spec.ts`; delete the note when its test starts passing.
+tracked test in `e2e/journeys/ch02-reliability.spec.ts`; delete the note when its test starts passing. Rows are removed as they are fixed.
 
-| #   | Chapter says                                                                                                   | Simulator does today                                                                                                                                                                                                                            | Tracked by                        |
-| --- | -------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------- |
-| 1   | Retries cover transient faults, including timeouts (section 2)                                                 | Retries fire only for `node_failed`, `node_error_rate`, `circuit_breaker_open`, `lock_contended` and `connection_reset`. A timeout (blackholed backend) is **not** retried, so a retry policy gives no protection against a silent dead server. | `R-02c` (parked, decision needed) |
-| 2   | A configured circuit breaker stops calls to a failing dependency (section 3)                                   | It gates only on `sidecar`, `service-mesh` and `circuit-breaker-controller`. On other nodes the setting is accepted but inert. The validator now warns at import.                                                                               | `R-03d` (warning is live)         |
-| 3   | Detection delay is about probe interval x consecutive failures (section 7)                                     | A failed backend is removed from routing instantly. No traffic reaches it after the fault.                                                                                                                                                      | `R-07c` (expected failure)        |
-| 4   | Retries multiply across layers (section 2): 3 layers of 4 attempts send 4^3 = 64 calls to a failing dependency | Only the node directly upstream of the failure retries; a second and third layer with the same policy add nothing, so the retry-storm hazard cannot arise.                                                                                      | `F-05` (expected failure)         |
+| #   | Chapter says                                                                 | Simulator does today                                                                                                                                                                                                                            | Tracked by                        |
+| --- | ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------- |
+| 1   | Retries cover transient faults, including timeouts (section 2)               | Retries fire only for `node_failed`, `node_error_rate`, `circuit_breaker_open`, `lock_contended` and `connection_reset`. A timeout (blackholed backend) is **not** retried, so a retry policy gives no protection against a silent dead server. | `R-02c` (parked, decision needed) |
+| 2   | A configured circuit breaker stops calls to a failing dependency (section 3) | It gates only on `sidecar`, `service-mesh` and `circuit-breaker-controller`. On other nodes the setting is accepted but inert. The validator now warns at import.                                                                               | `R-03d` (warning is live)         |
+| 3   | Detection delay is about probe interval x consecutive failures (section 7)   | A balancer's own `healthCheckEnabled` removes a failed backend instantly. A Health Check Manager node that monitors the backends does model the delay (interval x unhealthy threshold; flow `R-07d`).                                           | `R-07c` (expected failure)        |
 
 Teaching consequence: a student who adds retries and then kills the backend silently will see no
 amplification in the simulator, while real systems amplify. Treat results for those scenarios as
-optimistic until rows 1, 3 and 4 are closed.
+optimistic until rows 1 and 3 are closed. (Retries across layers now compound: k nested layers of n attempts send n^k calls, flow `F-05`.)
 
 ## 10. Open items
 

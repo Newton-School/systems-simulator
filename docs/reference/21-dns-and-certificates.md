@@ -62,7 +62,7 @@ Route 53, as a reference, offers these policies: **simple** (one resource), **fa
 | `dnsCacheTtlSeconds` (30) | how long an answer is cached per host or request type                                                             |
 | `dnsGeoTargets`           | origin to target mapping for geolocation                                                                          |
 | edge `weight`             | weight of a weighted answer; an unset or non-positive weight counts as 1                                          |
-| `regionLatencyMs`         | extra latency by origin region on CDN, traffic manager and edge router                                            |
+| `regionLatencyMs`         | fixed extra latency per request on a CDN, traffic manager or edge router (the distance to the serving region)     |
 
 [repo] `certificate-distro` carries no behaviour of its own: no expiry, renewal or rollout is modelled.
 

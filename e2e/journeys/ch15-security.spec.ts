@@ -243,9 +243,9 @@ test.describe("SEC-04 a remote validation dependency is Little's law (ch15 secti
 // ───────────────────────── 3. The chapter's other controls (tracked gaps) ─────────────────────────
 
 test.describe('SEC-05 the WAF, firewall, KMS and identity types do what the chapter says (ch15 sections 1, 3 and 4)', () => {
-  // Tracked gap (finding 24): the inspection trait applies to network-policy and policy-engine only. A node typed
-  // `waf` or `firewall` accepts no block rate or inspection time, so the WAF of a design blocks nothing and scans for free.
-  test.fail('a WAF with a 20% block rate blocks about 20% of requests', () => {
+  // Finding 24 (fixed): the inspection trait applies to `waf` and `firewall` as well as network-policy and
+  // policy-engine, so a WAF's block rate and scan time take effect.
+  test('a WAF with a 20% block rate blocks about 20% of requests', () => {
     const out = runEngine(
       guarded(
         'sec05a',
@@ -259,24 +259,24 @@ test.describe('SEC-05 the WAF, firewall, KMS and identity types do what the chap
     expect(Math.abs(out.summary.errorRate - 0.2)).toBeLessThan(0.03)
   })
 
-  test.fail('a firewall with a 20% block rate blocks about 20% of requests', () => {
+  test('a firewall with a 20% block rate blocks about 20% of requests', () => {
     const out = runEngine(
       guarded('sec05b', 'firewall', SEC, { blockRate: 0.2 }, {}, { durationMs: 30_000 })
     )
     expect(Math.abs(out.summary.errorRate - 0.2)).toBeLessThan(0.03)
   })
 
-  // Tracked gap (finding 25): the crypto-cost trait applies to `kms-storage` only; the security category's
-  // `kms-security` accepts no crypto time.
-  test.fail('a security KMS with 8 ms of crypto adds 8 ms per request', () => {
+  // Finding 25 (fixed): the crypto-cost trait applies to `kms-security` as well as `kms-storage`.
+  test('a security KMS with 8 ms of crypto adds 8 ms per request', () => {
     const out = runEngine(guarded('sec05c', 'kms-security', SEC, { cryptoMs: 8 }))
     expect(Math.abs(out.summary.latency.mean - 10)).toBeLessThan(0.3)
   })
 
-  // Tracked gap (finding 26): authentication is enforced on `api-gateway` and `auth-service` only; an
-  // `identity-provider` or `iam-rbac` node in front of a service lets every unauthenticated request through.
+  // Finding 26 (partly fixed): authentication is enforced on `identity-provider` and `iam-rbac` as well as
+  // `api-gateway` and `auth-service`. The IAM policy rules themselves (default deny, explicit deny wins) are still
+  // not modelled; see chapter 15 section 2.
   for (const type of ['identity-provider', 'iam-rbac']) {
-    test.fail(`${type} refuses a request with no credential`, () => {
+    test(`${type} refuses a request with no credential`, () => {
       const out = runEngine(
         guarded('sec05d', type, SEC, { authenticationEnabled: true }, {}, { durationMs: 5000 })
       )

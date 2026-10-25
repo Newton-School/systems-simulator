@@ -225,10 +225,9 @@ test.describe('PT-05 a single point of failure is found (ch24 section 5)', () =>
     expect(ids).toContain('b')
   })
 
-  // Tracked gap (finding 36): the detector treats any other node of the same type as a fall-back peer, but two
-  // different services in series are not redundant with each other. The last `microservice` is not reported, though
-  // losing it ends every request.
-  test.fail('two services in series: both are single points of failure', () => {
+  // Finding 36 (fixed): two services of the same type in series are not redundant with each other, so the last
+  // `microservice` is reported too.
+  test('two services in series: both are single points of failure', () => {
     const ids = spofs(['microservice', 'microservice'])
     expect(ids).toContain('a')
     expect(ids).toContain('b')

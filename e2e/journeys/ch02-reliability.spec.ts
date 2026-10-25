@@ -411,13 +411,44 @@ test.describe('R-07 health-aware load balancing: survivors carry n/(n-1) of the 
 
 test.describe('R-07c health detection delay (ch02 7)', () => {
   // A real balancer keeps sending traffic to a dead backend until probes notice: detection delay is
-  // roughly probe interval x consecutive failures. The simulator removes it instantly, so this is a
-  // tracked gap. `test.fail` passes while the gap exists and fails loudly once it is closed, which is the
-  // cue to delete the annotation. The config names below are the proposal; unknown keys are ignored today.
+  // roughly probe interval x consecutive failures. A balancer's own `healthCheckEnabled` is instant (a declared
+  // simplification, parked for a decision: finding 4), but a Health Check Manager that monitors the backends does
+  // model the delay, and the first flow below checks it. The second is the tracked gap for the balancer's own check.
   const RPS = 100
   const INTERVAL_MS = 1000
   const THRESHOLD = 3
   const TF = 10
+
+  test('a Health Check Manager keeps a failed backend in rotation for about interval x threshold', () => {
+    const out = runEngine(
+      chain({
+        run: run('r07d', { rps: RPS, durationMs: 30_000, timeoutMs: 1000 }),
+        nodes: [
+          passNode('lb', 'load-balancer-l7', { healthCheckEnabled: true }),
+          computeNode('a', { serviceMs: 5, timeoutMs: 1000 }),
+          computeNode('b', { serviceMs: 5, timeoutMs: 1000 }),
+          passNode('hcm', 'health-check-manager', {
+            monitoredNodes: ['a', 'b'],
+            checkIntervalMs: INTERVAL_MS,
+            unhealthyThreshold: THRESHOLD
+          })
+        ],
+        edges: [
+          ['source', 'lb'],
+          ['lb', 'a'],
+          ['lb', 'b']
+        ],
+        faults: [fault('a', { atMs: TF * 1000, mode: 'reject' })]
+      })
+    )
+    // The failure is noticed by the third failing probe, between (threshold - 1) and threshold intervals later;
+    // half the traffic goes to the dead node meanwhile.
+    const failures = out.summary.errorRate * out.summary.totalRequests
+    const low = (RPS / 2) * (((THRESHOLD - 1) * INTERVAL_MS) / 1000)
+    const high = (RPS / 2) * ((THRESHOLD * INTERVAL_MS) / 1000)
+    expect(failures).toBeGreaterThan(low * 0.9)
+    expect(failures).toBeLessThan(high * 1.1)
+  })
 
   test.fail(
     'THEORY a failed backend keeps receiving its share for interval x threshold before it is removed',

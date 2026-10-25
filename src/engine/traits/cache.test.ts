@@ -168,6 +168,48 @@ describe('cacheTrait', () => {
       expect(outcomes.slice(5)).toEqual(['hit', 'hit', 'hit', 'hit', 'hit'])
     })
 
+    describe('ttlSeconds', () => {
+      function accessAt(
+        node: ComponentNode,
+        state: ReturnType<typeof makeState>,
+        key: string,
+        clock: bigint
+      ) {
+        const request = requestWithKey(key)
+        const decision = cacheTrait.beforeArrival?.({ node, request, clock, state })
+        if (decision?.action === 'continue') {
+          cacheTrait.afterTerminal?.({ node, request, clock, state, status: 'success' })
+        }
+        return (decision?.payload as { cacheOutcome?: string })?.cacheOutcome
+      }
+
+      it('expires an entry once the TTL has passed since it was filled', () => {
+        const node = makeNode('in-memory-cache', { ...lruConfig, ttlSeconds: 1 })
+        const state = makeState()
+        expect(accessAt(node, state, 'k', 0n)).toBe('miss')
+        expect(accessAt(node, state, 'k', 999_999n)).toBe('hit')
+        expect(accessAt(node, state, 'k', 1_000_000n)).toBe('miss') // expired, refilled here
+        expect(accessAt(node, state, 'k', 1_500_000n)).toBe('hit')
+      })
+
+      it('counts the TTL from the fill, so hits do not extend it', () => {
+        const node = makeNode('in-memory-cache', { ...lruConfig, ttlSeconds: 1 })
+        const state = makeState()
+        accessAt(node, state, 'k', 0n)
+        accessAt(node, state, 'k', 600_000n) // hit
+        expect(accessAt(node, state, 'k', 1_100_000n)).toBe('miss')
+      })
+
+      it('never expires entries when the TTL is unset or 0', () => {
+        for (const config of [lruConfig, { ...lruConfig, ttlSeconds: 0 }]) {
+          const node = makeNode('in-memory-cache', config)
+          const state = makeState()
+          accessAt(node, state, 'k', 0n)
+          expect(accessAt(node, state, 'k', 3_600_000_000n)).toBe('hit')
+        }
+      })
+    })
+
     it('falls back to the declared model when the request has no key', () => {
       const node = makeNode('in-memory-cache', { ...lruConfig, cacheHitRate: 1 })
       const decision = cacheTrait.beforeArrival?.({

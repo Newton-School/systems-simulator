@@ -199,36 +199,41 @@ test.describe('F-04 losing one of N equal servers raises the survivors to rho x 
 
 test.describe('F-05 retries multiply the load on the failing dependency (ch22 section 2)', () => {
   const retry = { maxAttempts: 4, baseDelay: 1, maxDelay: 2, multiplier: 1, jitter: false }
+  // The failing dependency is the last node; each node before it calls the next, so a, b and c are three layers.
   const layered = (seed: string, withRetry: string[]) =>
     runEngine(
       chain({
         run: run(seed, { rps: 2, durationMs: 20_000, timeoutMs: 5000 }),
-        nodes: ['a', 'b', 'c'].map((id) =>
+        nodes: ['a', 'b', 'c', 'd'].map((id) =>
           computeNode(id, {
             serviceMs: 1,
             resilience: withRetry.includes(id) ? { retry } : undefined
           })
         ),
-        edges: [tcp('source', 'a'), tcp('a', 'b'), tcp('b', 'c')],
-        faults: [fault('c', { atMs: 0, mode: 'reject' }, 'permanent')]
+        edges: [tcp('source', 'a'), tcp('a', 'b'), tcp('b', 'c'), tcp('c', 'd')],
+        faults: [fault('d', { atMs: 0, mode: 'reject' }, 'permanent')]
       })
     )
+  const callsToDependency = (out: ReturnType<typeof layered>) =>
+    out.perNode.d.totalArrived / out.summary.totalRequests
 
   test('one layer of 4 attempts sends 4 calls to the failing dependency per request', () => {
-    const out = layered('f05a', ['b'])
-    expect(relErr(out.perNode.c.totalArrived / out.summary.totalRequests, 4)).toBeLessThan(0.05)
+    expect(relErr(callsToDependency(layered('f05a', ['c'])), 4)).toBeLessThan(0.05)
   })
 
   test('with retries off the dependency sees exactly one call per request', () => {
     const out = layered('f05b', [])
-    expect(out.perNode.c.totalArrived).toBe(out.perNode.a.totalArrived)
+    expect(out.perNode.d.totalArrived).toBe(out.perNode.a.totalArrived)
   })
 
-  // Tracked gap (finding 34): only the node directly upstream of the failure retries. A second and third layer with the
-  // same policy add nothing, so three layers of 4 attempts produce 4 calls where the SRE book's example is 4^3 = 64.
-  test.fail('three layers of 4 attempts send 64 calls to a dependency that always fails', () => {
-    const out = layered('f05c', ['a', 'b', 'c'])
-    expect(relErr(out.perNode.c.totalArrived / out.summary.totalRequests, 64)).toBeLessThan(0.1)
+  // Finding 34 (fixed): a caller whose retries are spent passes the failure up, and the caller above it retries the
+  // whole downstream call, so attempts multiply: 4^k calls for k layers (the SRE book's example is 4^3 = 64).
+  test('two layers of 4 attempts send 16 calls', () => {
+    expect(relErr(callsToDependency(layered('f05c2', ['b', 'c'])), 16)).toBeLessThan(0.05)
+  })
+
+  test('three layers of 4 attempts send 64 calls to a dependency that always fails', () => {
+    expect(relErr(callsToDependency(layered('f05c', ['a', 'b', 'c'])), 64)).toBeLessThan(0.05)
   })
 })
 
@@ -305,9 +310,9 @@ test.describe('F-06 a zone outage fails exactly what is placed in the zone (ch22
 // ───────────────────────── 4. Restarts and spreading failure ─────────────────────────
 
 test.describe('F-07 a restarted node comes back cold (ch22 section 1)', () => {
-  // Tracked gap (finding 33): a node that fails and recovers keeps its in-memory state, so a restarted cache serves
-  // hits from its old contents. A crash-restart (recoveryPolicy reset) should start with an empty cache and re-warm.
-  test.fail('a cache restarted at 20 s misses on most lookups right after it returns', () => {
+  // Finding 33 (fixed): a cache that crash-restarts (recoveryPolicy reset) comes back empty and re-warms from
+  // traffic, like a `cache-flush` fault.
+  test('a cache restarted at 20 s misses on most lookups right after it returns', () => {
     const out = runEngine(
       chain({
         run: run('f07', { rps: 500, durationMs: 40_000, timeoutMs: 2000 }),
@@ -343,7 +348,11 @@ test.describe('F-07 a restarted node comes back cold (ch22 section 1)', () => {
       )
       return rows.filter((o) => o.cacheOutcome === 'hit').length / rows.length
     }
-    expect(ratio(23_000, 23_300)).toBeLessThan(ratio(10_000, 20_000) * 0.5)
+    // Cold start over Zipf (s = 1, 1,000 keys): in the first n requests a lookup hits only if its key already
+    // appeared, which for n = 150 (0.3 s at 500/s) is 42% on a reference model, against about 77% when warm.
+    const cold = ratio(23_000, 23_300)
+    expect(Math.abs(cold - 0.424)).toBeLessThan(0.08)
+    expect(cold).toBeLessThan(ratio(10_000, 20_000) * 0.7)
   })
 })
 

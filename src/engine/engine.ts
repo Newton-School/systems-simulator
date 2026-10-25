@@ -99,6 +99,7 @@ import {
   parseFailureSpec
 } from './nodes/failure'
 import {
+  CACHE_COMPONENT_TYPES,
   CACHE_FLUSH_FAULT_TYPE,
   DEFAULT_CACHE_FLUSH_REWARM_MS,
   scheduleCacheFlush
@@ -303,6 +304,9 @@ function scalarTraitDetail(
   return detail
 }
 
+/** Request metadata set once a delivery's visibility timeout expired and it was redelivered. */
+const QUEUE_VISIBILITY_EXPIRED_KEY = '__queueVisibilityExpired'
+
 export class SimulationEngine {
   onProgress?: (percent: number, eventsProcessed: number) => void
   onSnapshot?: (snapshot: TimeSeriesSnapshot) => void
@@ -331,6 +335,8 @@ export class SimulationEngine {
   private readonly securityPolicyByNodeId = new Map<string, SecurityPolicyConfig>()
   private readonly nodeLimitsById = new Map<string, { workers: number; capacity: number }>()
   private readonly nodeUnhealthyUntilUs = new Map<string, bigint>()
+  /** The spec of each node's current failure, so recovery knows whether the process restarted. */
+  private readonly failureSpecByNode = new Map<string, NodeFailureSpec>()
   private readonly healthCheckManagerConfigById = new Map<string, HealthCheckManagerConfig>()
   private readonly probedNodeIds = new Set<string>()
   private readonly probeStateByNodeId = new Map<string, ProbeState>()
@@ -480,6 +486,30 @@ export class SimulationEngine {
       if (featureSeeds) this.metrics.recordNodeTraitCounters(node.id, featureSeeds)
       const runtimeNode = new GGcKNode(normalized, this.distributions, scheduler)
       runtimeNode.setWarmupUs(msToMicro(Math.max(0, topology.global.warmupDuration)))
+      if (normalized.type === 'queue') {
+        // A delivery that is still being processed when its visibility timeout expires reappears
+        // and is delivered again, whether or not the first consumer eventually finishes.
+        runtimeNode.serviceStartObserver = (request, startUs, serviceUs) => {
+          const delivery = readQueueDeliveryConfig(normalized)
+          if (
+            delivery.deliverySemantics === 'at-most-once' ||
+            delivery.visibilityTimeoutUs <= 0n ||
+            readQueueDeliveryOriginNodeId(request) !== normalized.id ||
+            serviceUs <= delivery.visibilityTimeoutUs
+          ) {
+            return
+          }
+          scheduler.schedule(
+            createEvent(
+              'queue-visibility-expire',
+              normalized.id,
+              request.id,
+              { request },
+              startUs + delivery.visibilityTimeoutUs
+            )
+          )
+        }
+      }
       this.nodes.set(node.id, runtimeNode)
       // Report limits against the DERIVED effective c/K (what the node actually
       // ran with), not the vestigial authored queue — so utilization, saturation
@@ -1119,6 +1149,9 @@ export class SimulationEngine {
         break
       case 'cluster-schedule':
         this.handleClusterSchedule(event)
+        break
+      case 'queue-visibility-expire':
+        this.handleQueueVisibilityExpire(event)
         break
       default:
         // Other event types are integrated in later tickets.
@@ -2156,6 +2189,7 @@ export class SimulationEngine {
       }
     }
     this.nodeUnhealthyUntilUs.set(event.nodeId, this.clock + LOAD_BALANCER_UNHEALTHY_COOLDOWN_US)
+    this.failureSpecByNode.set(event.nodeId, spec)
     // Open a failure window for the status timeline (idempotent: don't stack if
     // already open for this node).
     if (!this.statusWindows.some((w) => w.componentId === event.nodeId && w.endUs === null)) {
@@ -2206,6 +2240,23 @@ export class SimulationEngine {
       // scheduled); their original timeouts stay live and race those completions.
     }
     this.nodeUnhealthyUntilUs.delete(event.nodeId)
+    // A crash-restart loses in-memory state: a cache comes back empty and re-warms (the same
+    // treatment as a `cache-flush` fault). Degraded mode and `resume` recovery keep the process.
+    const failedWith = this.failureSpecByNode.get(event.nodeId)
+    this.failureSpecByNode.delete(event.nodeId)
+    const recoveredType = this.topology.nodes.find((n) => n.id === event.nodeId)?.type
+    if (
+      failedWith &&
+      failedWith.mode !== 'degraded' &&
+      failedWith.recoveryPolicy === 'reset' &&
+      recoveredType !== undefined &&
+      (CACHE_COMPONENT_TYPES as readonly string[]).includes(recoveredType)
+    ) {
+      scheduleCacheFlush(this.getTraitStateStore(event.nodeId), {
+        atUs: this.clock,
+        untilUs: this.clock + msToMicro(DEFAULT_CACHE_FLUSH_REWARM_MS)
+      })
+    }
     // Close the open failure window for this node.
     const open = this.statusWindows.find((w) => w.componentId === event.nodeId && w.endUs === null)
     if (open) {
@@ -2995,7 +3046,22 @@ export class SimulationEngine {
     return attempt
   }
 
-  private maybeScheduleQueueDeliveryFollowUp(request: Request): void {
+  /** The visibility timeout ran out while a consumer still held the message: it is delivered again. */
+  private handleQueueVisibilityExpire(event: SimulationEvent): void {
+    const request = this.getRequest(event)
+    if (!request || this.terminalStatusByRequestId.has(request.id)) {
+      return
+    }
+    request.metadata[QUEUE_VISIBILITY_EXPIRED_KEY] = true
+    this.maybeScheduleQueueDeliveryFollowUp(request, 0n)
+  }
+
+  private maybeScheduleQueueDeliveryFollowUp(request: Request, delayUs?: bigint): void {
+    // A message that already reappeared when its timeout expired is not redelivered a second time
+    // when the first consumer later fails.
+    if (delayUs === undefined && request.metadata[QUEUE_VISIBILITY_EXPIRED_KEY] === true) {
+      return
+    }
     const queueNodeId = readQueueDeliveryOriginNodeId(request)
     if (!queueNodeId) {
       return
@@ -3036,7 +3102,7 @@ export class SimulationEngine {
       this.scheduleQueueDeliveryAttempt(
         request,
         queueNodeId,
-        this.clock + delivery.visibilityTimeoutUs,
+        this.clock + (delayUs ?? delivery.visibilityTimeoutUs),
         {
           branchOfRequestId: request.id,
           retryCount: (request.retryCount ?? 0) + 1
@@ -3128,6 +3194,18 @@ export class SimulationEngine {
     }
   }
 
+  /** The distinct nodes the request has passed through, in order of first visit. */
+  private retryChain(request: Request): string[] {
+    return [...new Set(request.path)]
+  }
+
+  /** The direct caller first, then each caller above it. */
+  private retryOwnerCandidates(request: Request, directOwnerNodeId: string): string[] {
+    const chain = this.retryChain(request)
+    const at = chain.indexOf(directOwnerNodeId)
+    return at < 0 ? [directOwnerNodeId] : chain.slice(0, at + 1).reverse()
+  }
+
   private maybeScheduleRetryAttempt(
     request: Request,
     event: SimulationEvent,
@@ -3138,31 +3216,48 @@ export class SimulationEngine {
       return false
     }
 
-    const retryOwnerNodeId = this.resolveRetryOwnerNodeId(request, event, observationPoint)
+    const directOwnerNodeId = this.resolveRetryOwnerNodeId(request, event, observationPoint)
+    if (!directOwnerNodeId) {
+      return false
+    }
+
+    // Retries nest: a caller whose own retries are spent (or that has none) passes the failure to
+    // the caller above it, which retries the whole downstream call, so attempts multiply across layers.
+    const retryCounts = (request.retryCountByNode ??= {})
+    let retryOwnerNodeId: string | null = null
+    let retryDelayMs = 0
+    for (const candidateId of this.retryOwnerCandidates(request, directOwnerNodeId)) {
+      const candidate = this.nodeDefinitionsById.get(candidateId)
+      const config = candidate ? readRetryBackoffConfig(candidate) : null
+      if (!config) {
+        continue
+      }
+      if ((retryCounts[candidateId] ?? 0) + 1 >= config.maxAttempts) {
+        this.metrics.recordNodeTraitCounters(candidateId, { retryBudgetExhausted: 1 })
+        continue
+      }
+      const delayMs = computeRetryDelayMs(retryCounts[candidateId] ?? 0, config, () =>
+        this.distributions.random()
+      )
+      if (this.clock + msToMicro(delayMs) >= request.deadline) {
+        this.metrics.recordNodeTraitCounters(candidateId, { retryBudgetExhausted: 1 })
+        continue
+      }
+      retryOwnerNodeId = candidateId
+      retryDelayMs = delayMs
+      break
+    }
     if (!retryOwnerNodeId) {
       return false
     }
 
-    const retryOwnerNode = this.nodeDefinitionsById.get(retryOwnerNodeId)
-    const retryConfig = retryOwnerNode ? readRetryBackoffConfig(retryOwnerNode) : null
-    if (!retryOwnerNode || !retryConfig) {
-      return false
-    }
-
-    const attemptsSoFar = (request.retryCount ?? 0) + 1
-    if (attemptsSoFar >= retryConfig.maxAttempts) {
-      this.metrics.recordNodeTraitCounters(retryOwnerNodeId, { retryBudgetExhausted: 1 })
-      return false
-    }
-
-    const retryDelayMs = computeRetryDelayMs(request.retryCount ?? 0, retryConfig, () =>
-      this.distributions.random()
-    )
     const retryAtUs = this.clock + msToMicro(retryDelayMs)
-    if (retryAtUs >= request.deadline) {
-      this.metrics.recordNodeTraitCounters(retryOwnerNodeId, { retryBudgetExhausted: 1 })
-      return false
+    // A retry re-runs everything below its owner, so the retry budgets of deeper callers start over.
+    const ownerDepth = this.retryChain(request).indexOf(retryOwnerNodeId)
+    for (const deeperId of this.retryChain(request).slice(ownerDepth + 1)) {
+      delete retryCounts[deeperId]
     }
+    retryCounts[retryOwnerNodeId] = (retryCounts[retryOwnerNodeId] ?? 0) + 1
 
     this.releaseRequestLockLeases(request)
     // The failed attempt's error came back over its connections; free them.

@@ -103,20 +103,20 @@ CDC turns a database's change log into a stream, keeping derived stores in step 
 
 ## 10. Simulator parameter map
 
-| Setting                                                  | Meaning                                                            |
-| -------------------------------------------------------- | ------------------------------------------------------------------ |
-| node type `queue`, `stream`, `message-broker`, `pub-sub` | asynchronous boundary; producer acknowledged at append             |
-| `queue.workers`, `processing.distribution` on the queue  | consumer concurrency and processing time (backlog grows when slow) |
-| `deliverySemantics`                                      | at-most-once, at-least-once or similar delivery setting            |
-| `visibilityTimeoutMs`, `maxReceiveCount`, `dlqNodeId`    | redelivery, poison-message limit, dead-letter target               |
-| `partitionCount`, `partitionKeyField`                    | stream partitions and the key that selects one                     |
-| `consumerGroup`, `consumerGroupMode`                     | competing consumers within a group, independent groups             |
-| `retentionMs`                                            | how long the log is kept                                           |
-| `consumerOrdering`                                       | `parallel`, `per-partition`, `per-key`                             |
-| batching `batchSize`, `batchWindowMs`, `fixedCostMs`     | micro-batching of consumer work                                    |
-| `snapshotEvery`, `replayCostPerEventMs`                  | event-sourcing replay cost                                         |
-| `windowMs`                                               | streaming window length                                            |
-| dedup `dedupKeyField`, `dedupWindowMs`                   | idempotency at the consumer (chapter 20)                           |
+| Setting                                                  | Meaning                                                                                                                                                                                 |
+| -------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| node type `queue`, `stream`, `message-broker`, `pub-sub` | asynchronous boundary; producer acknowledged at append                                                                                                                                  |
+| `queue.workers`, `processing.distribution` on the queue  | consumer concurrency and processing time (backlog grows when slow)                                                                                                                      |
+| `deliverySemantics`                                      | at-most-once, at-least-once or similar delivery setting                                                                                                                                 |
+| `visibilityTimeoutMs`, `maxReceiveCount`, `dlqNodeId`    | a delivery still being processed when the timeout expires is delivered again (the first consumer's later failure does not redeliver it twice); poison-message limit; dead-letter target |
+| `partitionCount`, `partitionKeyField`                    | stream partitions and the key that selects one                                                                                                                                          |
+| `consumerGroup`, `consumerGroupMode`                     | competing consumers within a group, independent groups                                                                                                                                  |
+| `retentionMs`                                            | how long the log is kept                                                                                                                                                                |
+| `consumerOrdering`                                       | `parallel`, `per-partition`, `per-key`                                                                                                                                                  |
+| batching `batchSize`, `batchWindowMs`, `fixedCostMs`     | micro-batching of consumer work                                                                                                                                                         |
+| `snapshotEvery`, `replayCostPerEventMs`                  | event-sourcing replay cost                                                                                                                                                              |
+| `windowMs`                                               | streaming window length                                                                                                                                                                 |
+| dedup `dedupKeyField`, `dedupWindowMs`                   | idempotency at the consumer (chapter 20)                                                                                                                                                |
 
 Known probe result recorded in the project: a stream with 200 produced and a slow consumer shows 99 committed and 101 lag, summing to the produced count. A queue's metrics count the producer-side ack and the consumer-side delivery separately, which reads as roughly double the arrivals and half the service time. [repo: `docs/engine-probe-findings.md`, section 3]
 

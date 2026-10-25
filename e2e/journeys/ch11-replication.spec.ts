@@ -290,9 +290,9 @@ test.describe('R-05 a failover window is unavailability of rps x window requests
 // ───────────────────────── 4. Tracked gaps ─────────────────────────
 
 test.describe('R-06 a quorum write waits for the replicas (ch11 sections 3 and 5)', () => {
-  // Tracked gap (finding 18): on a relational or NoSQL store the storage profile sets the write time after
-  // replication does, so a quorum acknowledgement adds no latency whatever the lag.
-  test.fail('with a 40 ms replication lag a quorum write takes at least 40 ms', () => {
+  // Finding 18 (fixed): the quorum wait is added to the write time rather than set as the service time, so a
+  // storage profile can no longer overwrite it.
+  test('with a 40 ms replication lag a quorum write takes at least 40 ms', () => {
     const out = runEngine(
       chain({
         run: run('r06', { rps: 50, pattern: 'constant', durationMs: 5000 }),
@@ -312,10 +312,10 @@ test.describe('R-06 a quorum write waits for the replicas (ch11 sections 3 and 5
 })
 
 test.describe('R-07 R + W <= N can read stale data even with a quorum write (ch11 section 5)', () => {
-  // Tracked gap (finding 19): a quorum acknowledgement makes every follower current at commit, which is W = N.
-  // With 3 replicas, W = 2 and reads from one replica (R = 1), R + W = 3 is not greater than N: the replica that did
-  // not acknowledge can still be behind.
-  test.fail('3 replicas, quorum write, read from one replica: some reads are stale', () => {
+  // Finding 19 (fixed): a quorum write is acknowledged by W = floor(N/2) + 1 copies, so a given follower is current
+  // at commit with probability (W - 1) / (N - 1) and otherwise behind by the lag. With 3 replicas, W = 2 and reads
+  // from one replica (R = 1), R + W = 3 is not greater than N: about half the follower reads are stale.
+  test('3 replicas, quorum write, read from one replica: some reads are stale', () => {
     const t = replicated('r07', {
       lagMs: 80,
       model: 'eventual',

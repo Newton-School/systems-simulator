@@ -284,22 +284,19 @@ test.describe('C-06 request collapsing: one backing request per key, not one per
 // ───────────────────────── 5. Expiry (tracked gap) ─────────────────────────
 
 test.describe('C-07 entries expire after their TTL (ch10 section 3)', () => {
-  // Tracked gap (finding 17): ttlSeconds is topology intent only. With 100 uniform keys at 1 request/s each and a
-  // TTL of 0.1 s an entry is almost never still alive at the next request (about 10%); the simulator keeps it forever.
-  test.fail(
-    'a TTL much shorter than the gap between requests to a key keeps the hit ratio low',
-    () => {
-      const out = runEngine(
-        cacheChain(
-          'c07',
-          { ...DERIVED(1000), ttlSeconds: 0.1 },
-          { rps: 100, durationMs: 40_000 },
-          { keyspace: { size: 100, skew: 0 }, dbMs: 1 }
-        )
+  // Finding 17 (fixed): ttlSeconds expires a derived-LRU entry that long after it was filled. With 100 uniform
+  // keys at 1 request/s each and a TTL of 0.1 s an entry is almost never still alive at the next request (about 10%).
+  test('a TTL much shorter than the gap between requests to a key keeps the hit ratio low', () => {
+    const out = runEngine(
+      cacheChain(
+        'c07',
+        { ...DERIVED(1000), ttlSeconds: 0.1 },
+        { rps: 100, durationMs: 40_000 },
+        { keyspace: { size: 100, skew: 0 }, dbMs: 1 }
       )
-      expect(hitRatio(out, 10_000)).toBeLessThan(0.3)
-    }
-  )
+    )
+    expect(hitRatio(out, 10_000)).toBeLessThan(0.3)
+  })
 })
 
 // ───────────────────────── 6. A failed cache ─────────────────────────

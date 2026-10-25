@@ -93,9 +93,16 @@ export const coldStartTrait: NodeBehaviourTrait = {
       }
     }
 
-    const key = 'cold-start:last-request-at-us'
-    const lastRequestAt = state?.get<bigint>(key)
-    state?.set(key, clock)
+    // One execution environment per concurrent request: a request that arrives while k others are in
+    // service needs the (k + 1)th environment, which is warm only if that slot served something within the
+    // idle timeout. A burst therefore pays one cold start per new concurrent environment, up to the node's concurrency
+    // (its worker pool is its set of environments).
+    const key = 'cold-start:slot-last-used-us'
+    const slots = state?.get<bigint[]>(key) ?? []
+    const slot = Math.min(nodeState?.activeWorkers ?? 0, config.maxConcurrency - 1)
+    const lastRequestAt: bigint | undefined = slots[slot]
+    slots[slot] = clock
+    state?.set(key, slots)
 
     if (lastRequestAt !== undefined && clock - lastRequestAt <= msToMicro(config.idleTimeoutMs)) {
       return {

@@ -62,7 +62,7 @@ Other standard designs and what they test: **news feed** (fan-out, caching, hot 
 - **Shared database between services:** couples schemas and removes isolation. [K: anti-pattern definitions]
 - **Chatty calls:** N+1 calls in a loop (latency = N x hop). [K: anti-pattern definitions]
 - **Unbounded queues and retries without budgets** (chapter 22). [K: anti-pattern definitions]
-- **Single point of failure:** a component whose loss disconnects the system. [repo: the output lists `singlePointsOfFailure`]
+- **Single point of failure:** a component whose loss disconnects the system. [repo: the output lists `singlePointsOfFailure`; a same-type node counts as a fall-back only when it is a parallel peer, so two services of one type in series are both reported]
 - **Kitchen-sink design:** every component added regardless of the requirement; it costs money and failure modes. [K, repo: budget and anti-pattern checks]
 
 ## 6. Testable expectations (summary)

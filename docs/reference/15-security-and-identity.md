@@ -61,11 +61,11 @@ A web application firewall matches requests against rules. The OWASP Core Rule S
 
 ## 6. Simulator parameter map
 
-| Setting                                                                            | Meaning                                                                                                           |
-| ---------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `authenticationEnabled`, `authTokenField`, `authStatusField`, `authRequiredScopes` | token present, valid, unexpired and carrying the scopes; otherwise rejected with a missing/invalid/expired reason |
-| `inspectionMs`, `blockRate`                                                        | WAF-style scan latency per request and a fraction blocked (`inspection_blocked`)                                  |
-| `cryptoMs`                                                                         | CPU cost of an encrypt/verify/sign per request, added to service time                                             |
+| Setting                                                                            | Meaning                                                                                                                                                                                                                                             |
+| ---------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `authenticationEnabled`, `authTokenField`, `authStatusField`, `authRequiredScopes` | token present, valid, unexpired and carrying the scopes (enforced on `api-gateway`, `auth-service`, `identity-provider` and `iam-rbac`; the IAM policy evaluation rules are not modelled); otherwise rejected with a missing/invalid/expired reason |
+| `inspectionMs`, `blockRate`                                                        | WAF-style scan latency per request and a fraction blocked (`inspection_blocked`), on `waf`, `firewall`, `network-policy` and `policy-engine`                                                                                                        |
+| `cryptoMs`                                                                         | CPU cost of an encrypt/verify/sign per request, added to service time, on `kms-storage` and `kms-security`                                                                                                                                          |
 
 [repo] The trait takes the credential from request metadata, so a workload models a population of valid, expired and invalid callers.
 

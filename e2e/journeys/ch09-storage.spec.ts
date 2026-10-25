@@ -224,10 +224,9 @@ test.describe('S-06 connections in use = query rate x query time (ch09 section 3
     expect(relErr(check.observedL, 10)).toBeLessThan(0.01)
   })
 
-  // Tracked gap (finding 16): the node's avgInSystem is a 1 Hz sampled gauge whose first sample, at t = 0, is
-  // always an empty system, so a steady 10 reads 9.5 over 20 s and 9.0 over 10 s. Little's law needs the
-  // time average.
-  test.fail('the per-node average in system equals the time average (bias of 1 / duration)', () => {
+  // Finding 16 (fixed): avgInSystem was a 1 Hz sampled gauge whose first sample, at t = 0, is always an empty
+  // system, so a steady 10 read 9.5 over 20 s. It is now the time average over the measured window.
+  test('the per-node average in system equals the time average (bias of 1 / duration)', () => {
     const out = sixHundred()
     expect(relErr(out.perNode.db.avgInSystem, 10)).toBeLessThan(0.01)
   })

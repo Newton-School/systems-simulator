@@ -111,6 +111,19 @@ describe("Little's Law check: known issues", () => {
     expect(littles.observedL).toBeLessThan(0.6)
   })
 
+  // The reported avgInSystem used to be a 1 Hz snapshot average that always included the empty system at t = 0.
+  it("reports avgInSystem as the time average that Little's law uses", () => {
+    const { node, littles } = run({
+      capacity: 10,
+      rps: 50,
+      pattern: 'constant',
+      durationMs: 10_000,
+      warmupMs: 0
+    })
+    expect(Math.abs(node.avgInSystem - littles.observedL)).toBeLessThan(0.01)
+    expect(node.avgInSystem).toBeGreaterThan(0.45)
+  })
+
   it('does not flag a server with no waiting room (K = 1) under overload', () => {
     const { littles } = run({
       capacity: 1,

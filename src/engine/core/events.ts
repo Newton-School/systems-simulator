@@ -33,6 +33,7 @@ export type EventType =
   | 'trait-tick'
   | 'edge-batch-flush'
   | 'cluster-schedule'
+  | 'queue-visibility-expire'
 
 /**
  * Priorities for tie-breaking when two events share the same timestamp.
@@ -136,6 +137,8 @@ export interface Request {
   phaseRecord?: RequestPhaseRecord
   stateTimeline?: RequestStateTransition[]
   retryCount: number
+  /** Retries each retrying node has spent on this request, keyed by node id (nested retries compound). */
+  retryCountByNode?: Record<string, number>
   metadata: Record<string, unknown>
   /** Typed client population selected by the workload generator. */
   origin?: {
@@ -229,6 +232,7 @@ function getDefaultPriority(type: EventType): number {
     case 'broker-recovery':
     case 'trait-tick':
     case 'cluster-schedule':
+    case 'queue-visibility-expire':
       return EventPriority.SYSTEM
 
     default: {
