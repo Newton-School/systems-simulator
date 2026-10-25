@@ -113,7 +113,7 @@ function sortRoutesStable(routes: ResolveRoute[]): ResolveRoute[] {
   return [...routes].sort((a, b) => a.targetNodeId.localeCompare(b.targetNodeId))
 }
 
-export const dnsRoutingPolicyTrait: NodeBehaviourTrait = {
+const dnsRoutingPolicyBase: NodeBehaviourTrait = {
   name: 'dns.routing-policy',
   beforeArrival: ({ node, request, clock, state }) => {
     const { cacheTtlSeconds } = readDnsConfig(node)
@@ -249,6 +249,49 @@ export const dnsRoutingPolicyTrait: NodeBehaviourTrait = {
   }
 }
 
+/**
+ * Resolver caches (decision G10). With `dnsResolvers` set, each request is made by one of that many resolvers, and
+ * a resolver keeps the answer it got for the TTL: a failover or a weight change reaches it only when its entry
+ * expires, so traffic keeps going to a dead target for up to the TTL and the worst case is the TTL. Unset keeps the
+ * answer fresh on every request.
+ */
+export const dnsRoutingPolicyTrait: NodeBehaviourTrait = {
+  ...dnsRoutingPolicyBase,
+  filterRoutes: (context) => {
+    const base = dnsRoutingPolicyBase.filterRoutes!
+    const resolvers = asPositiveNumber(context.node.config?.['dnsResolvers'])
+    if (resolvers === null || context.candidates.length <= 1 || !context.state) {
+      return base(context)
+    }
+    const { cacheTtlSeconds } = readDnsConfig(context.node)
+    const resolver = Math.min(
+      Math.floor(resolvers) - 1,
+      Math.floor((context.random?.() ?? Math.random()) * Math.floor(resolvers))
+    )
+    const key = `dns-answer:${resolver}`
+    const cached = context.state.get<{ targetNodeId: string; expiresAt: bigint }>(key)
+    if (cached && cached.expiresAt > context.clock) {
+      const route = context.candidates.find((c) => c.targetNodeId === cached.targetNodeId)
+      if (route) {
+        return {
+          routes: [route],
+          decision: 'resolver-cache-hit',
+          payload: { targetNodeId: route.targetNodeId, metricCounters: { dnsResolverCacheHits: 1 } }
+        }
+      }
+    }
+    const fresh = base(context)
+    const target = (Array.isArray(fresh) ? fresh : fresh.routes)[0]?.targetNodeId
+    if (target !== undefined) {
+      context.state.set(key, {
+        targetNodeId: target,
+        expiresAt: context.clock + msToMicro(cacheTtlSeconds * 1000)
+      })
+    }
+    return fresh
+  }
+}
+
 export const dnsRoutingPolicyCapabilityModule: NodeCapabilityModule = {
   name: 'dns.routing-policy',
   appliesTo: DNS_ROUTING_COMPONENT_TYPES,
@@ -265,6 +308,15 @@ export const dnsRoutingPolicyCapabilityModule: NodeCapabilityModule = {
             label: 'DNS routing policy',
             options: ['simple', 'weighted', 'failover', 'latency-based', 'geolocation'],
             why: 'Controls how this resolver chooses among multiple DNS answers.'
+          },
+          {
+            path: 'sim.dnsResolvers',
+            type: 'input',
+            inputType: 'number',
+            label: 'Resolver caches',
+            min: 1,
+            altitude: 'advanced',
+            why: 'Number of resolvers that each cache an answer for the TTL. A failover reaches a resolver only when its cached answer expires. Empty means every request resolves fresh.'
           },
           {
             path: 'sim.dnsCacheTtlSeconds',

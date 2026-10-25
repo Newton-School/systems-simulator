@@ -56,15 +56,17 @@ Route 53, as a reference, offers these policies: **simple** (one resource), **fa
 
 ## 6. Simulator parameter map
 
-| Setting                   | Meaning                                                                                                           |
-| ------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `dnsRoutingPolicy`        | `simple`, `weighted`, `failover`, `latency-based` or `geolocation` on `internal-dns` and `global-traffic-manager` |
-| `dnsCacheTtlSeconds` (30) | how long an answer is cached per host or request type                                                             |
-| `dnsGeoTargets`           | origin to target mapping for geolocation                                                                          |
-| edge `weight`             | weight of a weighted answer; an unset or non-positive weight counts as 1                                          |
-| `regionLatencyMs`         | fixed extra latency per request on a CDN, traffic manager or edge router (the distance to the serving region)     |
+| Setting                                             | Meaning                                                                                                                                                    |
+| --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `dnsRoutingPolicy`                                  | `simple`, `weighted`, `failover`, `latency-based` or `geolocation` on `internal-dns` and `global-traffic-manager`                                          |
+| `dnsCacheTtlSeconds` (30)                           | how long an answer is cached per host or request type                                                                                                      |
+| `dnsResolvers`                                      | number of resolvers that each cache an answer for the TTL: a failover reaches a resolver only when its entry expires (unset: every request resolves fresh) |
+| `certificateValidUntilMs`, `certificateRenewedAtMs` | on `certificate-distro`: when the certificate expires and when a replacement is in place                                                                   |
+| `dnsGeoTargets`                                     | origin to target mapping for geolocation                                                                                                                   |
+| edge `weight`                                       | weight of a weighted answer; an unset or non-positive weight counts as 1                                                                                   |
+| `regionLatencyMs`                                   | fixed extra latency per request on a CDN, traffic manager or edge router (the distance to the serving region)                                              |
 
-[repo] `certificate-distro` carries no behaviour of its own: no expiry, renewal or rollout is modelled.
+[repo] `certificate-distro` models expiry: from `certificateValidUntilMs` every request through it fails with `certificate_expired`, until `certificateRenewedAtMs` if one is set (the gap is the margin automation has to renew in). Renewal automation and partial rollout are not modelled.
 
 ## 7. Testable expectations (summary)
 
@@ -78,7 +80,7 @@ Route 53, as a reference, offers these policies: **simple** (one resource), **fa
 ## 8. Open items
 
 - Read directly: RFC 2308 (negative caching) and RFC 2181 (TTL). RFC 1034 and 1035, the Route 53 pages and the Let's Encrypt FAQ are cited as before; no measurement of resolvers ignoring TTLs is asserted.
-- Decisions `[?]`: whether certificate expiry and rollout should be modelled (the node type exists but is inert).
+- Decided and implemented: certificate expiry (`certificateValidUntilMs`, `certificateRenewedAtMs`); rollout across terminators is not modelled.
 
 ## Sources
 

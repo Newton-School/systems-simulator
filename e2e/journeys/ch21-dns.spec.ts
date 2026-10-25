@@ -201,38 +201,43 @@ test.describe('DNS-05 an answer is cached for its TTL (ch21 section 1)', () => {
 })
 
 test.describe('DNS-06 a cached answer outlives the endpoint, so failover is detection + TTL (ch21 section 2)', () => {
-  // Tracked gap (finding 32): the cache only counts hits and misses; the routing choice is made again for every request,
-  // so the moment the primary is marked unhealthy traffic moves, whatever the TTL. With a 30 s TTL a client that has
-  // cached the primary keeps sending to it for up to 30 s.
-  test.fail(
-    'with a 30 s TTL, requests still go to the dead primary for a while after it fails',
-    () => {
-      const out = runEngine(
-        resolver(
-          'dns06',
-          { dnsRoutingPolicy: 'failover', dnsCacheTtlSeconds: 30 },
-          { a: { weight: 10 }, b: { weight: 1 } },
-          {},
-          {
-            faults: [
-              {
-                targetId: 'a',
-                faultType: 'node-failure',
-                timing: 'deterministic',
-                duration: 'permanent',
-                params: { atMs: 20_000, mode: 'reject' }
-              }
-            ]
-          }
-        )
+  // Finding 32 (fixed, decision G10): with `dnsResolvers` set each request comes from one resolver that keeps its answer
+  // for the TTL, so after the primary fails requests still go to it until the entry expires (here the entries were filled
+  // at the start, so they expire at 30 s); without it every request resolves fresh and traffic moves at once.
+  const failover = (extra: Record<string, unknown>) =>
+    runEngine(
+      resolver(
+        'dns06',
+        { dnsRoutingPolicy: 'failover', dnsCacheTtlSeconds: 30, ...extra },
+        { a: { weight: 10 }, b: { weight: 1 } },
+        {},
+        {
+          faults: [
+            {
+              targetId: 'a',
+              faultType: 'node-failure',
+              timing: 'deterministic',
+              duration: 'permanent',
+              params: { atMs: 20_000, mode: 'reject' }
+            }
+          ]
+        }
       )
-      const justAfter = out.requestOutcomes.filter(
-        (o) => o.createdAtMs >= 20_500 && o.createdAtMs < 25_000
-      )
-      const failedShare = justAfter.filter((o) => o.status !== 'success').length / justAfter.length
-      expect(failedShare).toBeGreaterThan(0.5)
-    }
-  )
+    )
+  const failedShare = (out: ReturnType<typeof failover>, from: number, to: number) => {
+    const rows = out.requestOutcomes.filter((o) => o.createdAtMs >= from && o.createdAtMs < to)
+    return rows.filter((o) => o.status !== 'success').length / rows.length
+  }
+
+  test('with resolver caches and a 30 s TTL, requests keep going to the dead primary until the entries expire', () => {
+    const out = failover({ dnsResolvers: 4 })
+    expect(failedShare(out, 20_500, 29_000)).toBeGreaterThan(0.9)
+    expect(failedShare(out, 31_000, 40_000)).toBeLessThan(0.05)
+  })
+
+  test('without resolver caches the failover is immediate whatever the TTL', () => {
+    expect(failedShare(failover({}), 20_500, 25_000)).toBeLessThan(0.05)
+  })
 
   test('the arithmetic the chapter gives: 10 s checks x 3 failures + 60 s TTL is 90 s worst case, 60 s on average', () => {
     expect(dnsFailoverSeconds(10, 3, 60, true)).toBe(90)
@@ -270,10 +275,9 @@ test.describe('DNS-07 a traffic manager, CDN or edge router adds its distance la
 })
 
 test.describe('DNS-08 certificates expire and renew (ch21 section 4)', () => {
-  // Decision needed (ch21 open items): `certificate-distro` carries no behaviour; an expired certificate would fail
-  // every new connection at one instant, and the margin between renewal and expiry (30 days for a 90-day certificate
-  // renewed at 60) is what automation has to recover in.
-  test.fixme('new connections through a node whose certificate has expired fail', () => {
+  // Decision G9 (done): `certificateValidUntilMs` expires the certificate at one instant, and a `certificateRenewedAtMs`
+  // after it ends the outage; the gap is the margin automation has to recover in.
+  test('new connections through a node whose certificate has expired fail', () => {
     const cert = queueNode('cert', 'certificate-distro', {
       category: 'dns-and-certs',
       serviceMs: 1,
@@ -289,6 +293,27 @@ test.describe('DNS-08 certificates expire and renew (ch21 section 4)', () => {
     )
     const late = out.requestOutcomes.filter((o) => o.createdAtMs >= 12_000)
     expect(late.every((o) => o.status !== 'success')).toBe(true)
+  })
+
+  test('a renewal ends the outage: failures only between expiry and renewal', () => {
+    const cert = queueNode('cert', 'certificate-distro', {
+      category: 'dns-and-certs',
+      serviceMs: 1,
+      workers: 64,
+      config: { certificateValidUntilMs: 10_000, certificateRenewedAtMs: 15_000 }
+    })
+    const out = runEngine(
+      chain({
+        run: run('dns08b', { pattern: 'constant' }),
+        nodes: [cert],
+        edges: [tcp('source', 'cert')]
+      })
+    )
+    const bucket = (from: number, to: number) =>
+      out.requestOutcomes.filter((o) => o.createdAtMs >= from && o.createdAtMs < to)
+    expect(bucket(0, 10_000).every((o) => o.status === 'success')).toBe(true)
+    expect(bucket(10_000, 15_000).every((o) => o.status === 'rejected')).toBe(true)
+    expect(bucket(15_000, 25_000).every((o) => o.status === 'success')).toBe(true)
   })
 })
 

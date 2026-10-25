@@ -215,19 +215,16 @@ test.describe('CFG-04 fields the chapter lists as declared but not read (ch26 se
 
   // Finding 37, failureModes part (fixed, decision G1): a critical mode with an MTBF and MTTR fails and recovers at
   // random, exponential in both, so a node is down MTTR / (MTBF + MTTR) of the time.
-  test(
-    'failureModes: a node with an MTBF of 5 s and an MTTR of 1 s is down about 1/6 of the time',
-    () => {
-      const doc = chain({
-        run: run('cfg04a', { rps: 100, durationMs: 120_000 }),
-        nodes: [computeNode('a', { serviceMs: 5 })],
-        edges: [tcp('source', 'a')]
-      }) as Loose
-      doc.nodes[1].failureModes = [{ mode: 'crash', severity: 'critical', mtbf: 5000, mttr: 1000 }]
-      const out = runEngine(doc as TopologyJSON)
-      expect(Math.abs(out.summary.errorRate - 1 / 6)).toBeLessThan(0.05)
-    }
-  )
+  test('failureModes: a node with an MTBF of 5 s and an MTTR of 1 s is down about 1/6 of the time', () => {
+    const doc = chain({
+      run: run('cfg04a', { rps: 100, durationMs: 120_000 }),
+      nodes: [computeNode('a', { serviceMs: 5 })],
+      edges: [tcp('source', 'a')]
+    }) as Loose
+    doc.nodes[1].failureModes = [{ mode: 'crash', severity: 'critical', mtbf: 5000, mttr: 1000 }]
+    const out = runEngine(doc as TopologyJSON)
+    expect(Math.abs(out.summary.errorRate - 1 / 6)).toBeLessThan(0.05)
+  })
 
   // Decision G2: the scaling policy fields are not applied, so the import says so instead of letting a design
   // look like it scales (only `scaling.coldStartPenalty` is read, by a serverless function).
