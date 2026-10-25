@@ -167,6 +167,45 @@ test.describe('D-04 a deployment controller should simulate a rollout by itself 
   })
 })
 
+test.describe('D-06 a weight schedule stages a rollout (ch17 section 2, decision H4)', () => {
+  // The canary edge steps 0 -> 5% -> 25% -> 100% of the traffic. A bad canary hurts in proportion to the weight it has
+  // at that moment, so staging bounds the harm: failing from 0 s costs 0, then 5%, then 25%, then 100% of each stage.
+  const staged = () =>
+    chain({
+      run: run('d06', { rps: 200, durationMs: 40_000 }),
+      nodes: [
+        passNode('lb', 'load-balancer', { routingStrategy: 'weighted', healthCheckEnabled: false }),
+        version('stable'),
+        version('canary')
+      ],
+      edges: [
+        tcp('source', 'lb'),
+        tcp('lb', 'stable', { weight: 95 }),
+        tcp('lb', 'canary', {
+          weight: 0,
+          weightSchedule: [
+            { atMs: 10_000, weight: 5 },
+            { atMs: 20_000, weight: 31.67 },
+            { atMs: 30_000, weight: 95 }
+          ]
+        })
+      ],
+      faults: badFor(40)
+    })
+  const failedShare = (out: ReturnType<typeof runEngine>, from: number, to: number) => {
+    const rows = out.requestOutcomes.filter((o) => o.createdAtMs >= from && o.createdAtMs < to)
+    return rows.filter((o) => o.status !== 'success').length / rows.length
+  }
+
+  test('the failed share steps with the weight: 0, 5%, 25%, 50%', () => {
+    const out = runEngine(staged())
+    expect(failedShare(out, 0, 10_000)).toBe(0)
+    expect(Math.abs(failedShare(out, 10_500, 19_500) - 0.05)).toBeLessThan(0.015)
+    expect(Math.abs(failedShare(out, 20_500, 29_500) - 0.25)).toBeLessThan(0.025)
+    expect(Math.abs(failedShare(out, 30_500, 39_500) - 0.5)).toBeLessThan(0.03)
+  })
+})
+
 // ───────────────────────── 3. The browser agrees ─────────────────────────
 
 test.describe('D-05 the browser shows the harm the engine computed for a bad canary', () => {

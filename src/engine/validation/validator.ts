@@ -459,6 +459,12 @@ export const EdgeDefinitionSchema = z.object({
   packetLossRate: z.number().min(0).max(1),
   errorRate: z.number().min(0).max(1),
   weight: z.number().optional(),
+  weightSchedule: z
+    .array(z.object({ atMs: z.number().nonnegative(), weight: z.number().nonnegative() }))
+    .refine((steps) => steps.every((s, i) => i === 0 || s.atMs >= steps[i - 1].atMs), {
+      message: 'Weight schedule times must not decrease.'
+    })
+    .optional(),
   condition: z.string().optional(),
   fanoutFactor: z.number().int().positive().optional(),
   connection: z

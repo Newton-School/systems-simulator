@@ -514,6 +514,11 @@ export interface EdgeDefinition {
    */
   errorRate: number
   weight?: number // relative weight for weighted routing
+  /**
+   * Staged rollout: the weight changes over simulated time. Each step sets `weight` from `atMs` on; before the
+   * first step the edge keeps `weight`. A canary is a v2 edge stepping 1 -> 5 -> 25 -> 100 against a fixed v1 edge.
+   */
+  weightSchedule?: Array<{ atMs: number; weight: number }>
   condition?: string // JS expression string for conditional edges
   /**
    * Fan-out amplification: each request delivered over this edge is amplified into

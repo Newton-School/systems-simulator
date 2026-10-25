@@ -72,7 +72,7 @@ The simulator's fault list is the same set (chapter 22), so a chaos experiment i
 
 ## 8. Simulator scope
 
-The delivery components are mostly modelled as nodes on the path (latency, capacity, failure) and as scenarios using faults and instance counts. A rollout over time, percentage routing between two versions and an automatic promotion decision are expressed with routing weights and scheduled faults. [?] Owner to confirm what a "deployment controller" node should simulate by itself.
+The delivery components are mostly modelled as nodes on the path (latency, capacity, failure) and as scenarios using faults and instance counts. A rollout over time, percentage routing between two versions and an automatic promotion decision are expressed with routing weights (which can step over time with an edge's `weightSchedule`) and scheduled faults. Decided: a "deployment controller" node does not simulate a rollout by itself; the schedule on the edges does.
 
 ## 9. Testable expectations (summary)
 
@@ -85,7 +85,7 @@ The delivery components are mostly modelled as nodes on the path (latency, capac
 ## 10. Open items
 
 - Not read directly: Argo Rollouts and Flagger analysis, and the DORA metrics. The chaos-experiment steps follow the Principles of Chaos Engineering (define steady state, hypothesise, introduce real-world variables, try to disprove).
-- Decisions `[?]`: what the deployment-controller and feature-flag nodes should do inside the engine beyond routing.
+- Decided and implemented: an edge takes a `weightSchedule` (`[{atMs, weight}]`), so a canary or blue-green cut-over steps its share of traffic over simulated time (flow `D-06`). The deployment-controller and feature-flag nodes stay routing and latency components.
 
 ## Sources
 

@@ -332,6 +332,9 @@ export class SimulationEngine {
   private readonly nodeDefinitionsById = new Map<string, ComponentNode>()
   private readonly traitsByNodeId = new Map<string, readonly NodeBehaviourTrait[]>()
   private readonly nodeErrorRateById = new Map<string, number>()
+  /** Edges with a `weightSchedule`, and the weight each has before its first step. */
+  private readonly scheduledWeightEdges: EdgeDefinition[] = []
+  private readonly initialEdgeWeight = new Map<string, number | undefined>()
   /**
    * Gray failures (chapter 22 section 1): windows in which a node fails a share of its real requests while
    * every health check still passes. Added to the node's own error rate.
@@ -462,6 +465,12 @@ export class SimulationEngine {
     this.distributions = new Distributions(rng)
     this.geoLatency = new GeoLatencyResolver(topology)
     this.routing = new RoutingTable(topology.edges, rng, topology.nodes, traitResolver)
+    for (const edge of topology.edges) {
+      if (edge.weightSchedule && edge.weightSchedule.length > 0) {
+        this.scheduledWeightEdges.push(edge)
+        this.initialEdgeWeight.set(edge.id, edge.weight)
+      }
+    }
     this.metrics = new MetricsCollector({
       warmupDuration: topology.global.warmupDuration,
       nodes: topology.nodes.map((node) => ({
@@ -2981,6 +2990,19 @@ export class SimulationEngine {
    * load and can saturate. The extra deliveries are recorded on the source node as
    * `fanoutAmplifiedWrites` so the amplification is measurable/gradable.
    */
+  /** Sets each scheduled edge's weight to its latest step at the current time (staged rollouts). */
+  private applyWeightSchedules(): void {
+    const nowMs = Number(this.clock) / 1000
+    for (const edge of this.scheduledWeightEdges) {
+      let weight = this.initialEdgeWeight.get(edge.id)
+      for (const step of edge.weightSchedule ?? []) {
+        if (step.atMs <= nowMs) weight = step.weight
+        else break
+      }
+      edge.weight = weight
+    }
+  }
+
   /**
    * A cache that has failed fast (reject mode) is bypassed (decision D5): its caller reaches the cache's own
    * downstream instead, so the store behind it sees the full request rate, which is what a cache outage does.
@@ -4550,6 +4572,7 @@ export class SimulationEngine {
   }
 
   private resolveRoutes(sourceNodeId: string, request: Request) {
+    this.applyWeightSchedules()
     return this.routing.resolveTargetResult(sourceNodeId, request, {
       clock: this.clock,
       isTargetHealthy: (nodeId) => this.isNodeHealthy(nodeId),
