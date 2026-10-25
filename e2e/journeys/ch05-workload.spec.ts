@@ -11,7 +11,7 @@ import { indexOfDispersion, mean } from '../support/stats'
 import { createRandom } from '../../src/engine/stochastic/random'
 import { WorkloadGenerator } from '../../src/engine/workload'
 import type { TopologyJSON, WorkloadProfile } from '../../src/engine/core/types'
-import { instanceServer } from '../support/topology'
+import { chain, instanceServer, queueNode } from '../support/topology'
 
 type Out = ReturnType<typeof runEngine>
 
@@ -389,9 +389,36 @@ test.describe('what the user sees (ch05 sections 2 and 6)', () => {
   })
 })
 
-// Tracked gap from chapter 05 section 8 (decision B4, in progress): `fixme` documents it without running.
-test.fixme('W-14 closed population: N users with think time Z; R = N / X - Z holds (ch05 section 3)', () => {
-  // The simulator has only open sources. A closed source needs a user count and a think time.
+// Decision B4 (done): a closed population. N users each issue a request, wait for it, think for Z, and repeat, so
+// the interactive response time law R = N / X - Z holds and the offered load falls as the server slows.
+test('W-14 closed population: N users with think time Z; R = N / X - Z holds (ch05 section 3)', () => {
+  const closed = (users: number) => {
+    const t = chain({
+      run: {
+        name: `w14-${users}`,
+        rps: 1,
+        pattern: 'constant',
+        durationMs: 120_000,
+        warmupMs: 20_000,
+        seed: `w14-${users}`,
+        timeoutMs: 120_000
+      },
+      nodes: [queueNode('srv', 'microservice', { category: 'compute', workers: 1, serviceMs: 100 })]
+    }) as TopologyJSON
+    t.workload = {
+      ...t.workload!,
+      pattern: 'closed',
+      closed: { users, thinkTimeMs: 1000 }
+    } as WorkloadProfile
+    return runEngine(t)
+  }
+  // One worker at 100 ms serves 10 req/s. 30 users saturate it: X = 10, so R = 30 / 10 - 1 = 2 s.
+  const out = closed(30)
+  const x = out.perNode.srv.postWarmupProcessed / 100
+  expect(Math.abs(x - 10)).toBeLessThan(0.3)
+  expect(relErr(out.summary.latency.mean, (30 / x) * 1000 - 1000)).toBeLessThan(0.05)
+  // Doubling the users raises R to (60 / 10 - 1) s = 5 s: the load that arrives falls as the server slows.
+  expect(relErr(closed(60).summary.latency.mean, 5000)).toBeLessThan(0.08)
 })
 
 // Decision B5 (added): `trace` carries the recorded arrivals of a `replay` workload.

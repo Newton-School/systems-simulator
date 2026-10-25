@@ -3618,6 +3618,8 @@ export class SimulationEngine {
     reasonCode?: string | null
   ): void {
     this.resolveTerminalTraitOutcomes(request, status, reasonCode)
+    // A closed user's request is over: it thinks, then issues the next. Side branches are not user requests.
+    if (!request.id.includes('::')) this.workload?.requestFinished(this.clock)
     // The response (or failure) has returned, so held connection streams free.
     this.releaseConnectionLeases(request.id)
     this.tracer.setTerminalReason(request.id, reasonCode)

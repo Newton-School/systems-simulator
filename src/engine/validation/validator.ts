@@ -570,7 +570,16 @@ const TrafficOriginSchema = z
 
 export const WorkloadProfileSchema = z.object({
   sourceNodeId: z.string().min(1),
-  pattern: z.enum(['constant', 'poisson', 'bursty', 'diurnal', 'spike', 'sawtooth', 'replay']),
+  pattern: z.enum([
+    'constant',
+    'poisson',
+    'bursty',
+    'diurnal',
+    'spike',
+    'sawtooth',
+    'replay',
+    'closed'
+  ]),
 
   baseRps: z.number().positive(),
 
@@ -623,6 +632,10 @@ export const WorkloadProfileSchema = z.object({
       hourlyMultipliers: DiurnalHourlyMultipliersSchema,
       startHour: z.number().min(0).max(24).optional()
     })
+    .optional(),
+
+  closed: z
+    .object({ users: z.number().int().positive(), thinkTimeMs: z.number().nonnegative() })
     .optional(),
 
   trace: z

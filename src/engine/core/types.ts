@@ -604,7 +604,15 @@ export interface WorkloadStopCondition {
 
 export interface WorkloadProfile {
   sourceNodeId: string
-  pattern: 'constant' | 'poisson' | 'bursty' | 'diurnal' | 'spike' | 'sawtooth' | 'replay'
+  pattern:
+    | 'constant'
+    | 'poisson'
+    | 'bursty'
+    | 'diurnal'
+    | 'spike'
+    | 'sawtooth'
+    | 'replay'
+    | 'closed'
   /** When the run stops (time, request count, or early on saturation). Default: duration. */
   stopCondition?: WorkloadStopCondition
   /**
@@ -638,6 +646,12 @@ export interface WorkloadProfile {
      */
     startHour?: number
   }
+  /**
+   * `closed` only: a fixed population of `users`. Each issues a request, waits for it to finish (success or failure),
+   * thinks for `thinkTimeMs`, and issues the next, so arrivals depend on completions and the offered load falls
+   * as the system slows (the interactive response time law R = N / X - Z holds). `baseRps` is not used.
+   */
+  closed?: { users: number; thinkTimeMs: number }
   /**
    * `replay` only: the recorded arrivals, in order. Each entry is a time in ms from the start of the run and,
    * optionally, the request type (one of `requestDistribution`). When set, the arrivals are exactly these and

@@ -503,7 +503,9 @@ export class MetricsCollector {
 
   constructor(config: {
     warmupDuration: number
-    nodes?: Array<Pick<ComponentNode, 'id' | 'label' | 'slo' | 'type'>>
+    nodes?: Array<
+      Pick<ComponentNode, 'id' | 'label' | 'slo'> & Partial<Pick<ComponentNode, 'type'>>
+    >
     edges?: Array<{ id: string; source: string; target: string }>
   }) {
     this.warmupDurationMs = Math.max(0, config.warmupDuration)

@@ -58,6 +58,14 @@ export class WorkloadGenerator {
   initialize(startTime: bigint): void {
     this.startTime = startTime
     this.initialized = true
+    if (this.config.pattern === 'closed' && this.config.closed) {
+      // Each user starts its first think at a different offset so the population is not one synchronised wave.
+      const { users, thinkTimeMs } = this.config.closed
+      for (let i = 0; i < users; i++) {
+        this.scheduleRequestGeneratedAt(startTime + msToMicro((i * thinkTimeMs) / users))
+      }
+      return
+    }
     const firstAtMs = this.config.trace?.[0]?.atMs
     this.scheduleRequestGeneratedAt(
       this.config.pattern === 'replay' && firstAtMs !== undefined
@@ -76,6 +84,15 @@ export class WorkloadGenerator {
     this.scheduleNext(currentTime)
     this.traceIndex += 1
     return request
+  }
+
+  /**
+   * Closed workloads only: a user's request has finished, so after its think time the user issues the next one.
+   * Open patterns ignore completions.
+   */
+  requestFinished(currentTime: bigint): void {
+    if (this.config.pattern !== 'closed' || !this.config.closed) return
+    this.scheduleRequestGeneratedAt(currentTime + msToMicro(this.config.closed.thinkTimeMs))
   }
 
   private scheduleNext(currentTime: bigint): void {
@@ -111,6 +128,10 @@ export class WorkloadGenerator {
     const baseRps = this.config.baseRps
 
     switch (this.config.pattern) {
+      case 'closed':
+        // Arrivals follow completions (requestFinished), not a rate.
+        return Number.NaN
+
       case 'constant':
         return this.intervalForRps(baseRps)
 

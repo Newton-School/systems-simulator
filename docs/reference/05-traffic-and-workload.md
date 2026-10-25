@@ -141,7 +141,7 @@ Over a 60 s run at seed S, with tolerance about 3 sd / sqrt(N) on counts:
 
 ## 8. Simulator scope
 
-Seven patterns, weighted request types, Zipf keyspaces, sessions and a request-budget stop. Sources are **open** (arrivals independent of completions). A closed-population source (N users with think time) is being added (decision B4).
+Eight patterns (seven open and one closed), weighted request types, Zipf keyspaces, sessions and a request-budget stop. Sources are **open** (arrivals independent of completions). A closed-population source (`pattern: closed`, `closed: {users, thinkTimeMs}`) is available: each user issues a request, waits for it to finish, thinks, and repeats.
 The diurnal curve spans the whole run by default; set `diurnal.startHour` to use real time from that hour instead (a 2 h run from 14 sees hours 14 and 15). A `replay` workload takes a `trace` of `{atMs, type?}` entries and issues exactly those arrivals, then ends; without a trace it is a constant rate.
 
 ## 9. Findings from the tests
@@ -152,8 +152,7 @@ The diurnal curve spans the whole run by default; set `diurnal.startHour` to use
 ## 10. Open items
 
 - Schroeder et al. (open versus closed workloads) is cited from its abstract and summaries; the eight principles in full and the MMPP papers are not read directly, and the chapter relies on them only for the open/closed distinction and the idea of burst-state arrivals.
-- Add a closed-population source (N users, think time Z) if teaching closed-loop behaviour matters; then the interactive response time law is directly testable.
-- Decided: heavy-tailed burst durations are not modelled. The replay `trace` field and the diurnal `startHour` (decisions B5 and B6) are implemented; the closed-population source (B4) is next.
+- Decided: heavy-tailed burst durations are not modelled. The closed-population source, the replay `trace` field and the diurnal `startHour` (decisions B4 to B6) are implemented.
 
 ## Sources
 
