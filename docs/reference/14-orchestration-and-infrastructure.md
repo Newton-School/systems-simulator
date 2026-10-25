@@ -3,7 +3,7 @@
 Marks: **[P]** primary, **[S]** secondary (fetched or searched), **[K]** established knowledge or derived here,
 not yet source-checked, **[?]** needs an owner decision. See [README](README.md).
 
-The 12 `OrchestrationType`s: `kubernetes-cluster`, `container-registry`, `service-registry`, `tool-registry`,
+The 13 `OrchestrationType`s: `kubernetes-cluster`, `container-registry`, `service-registry`, `tool-registry`,
 `config-store`, `secrets-manager`, `cluster-autoscaler`, `agent-orchestrator`, `orchestrator-scheduler`,
 `ci-cd-runner`, `iac-engine`, `container-runtime`, `provisioner`. Horizontal scaling of one service
 (autoscaler) lives here too; per-instance capacity is chapter 06.
