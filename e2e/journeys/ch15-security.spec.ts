@@ -285,6 +285,23 @@ test.describe('SEC-05 the WAF, firewall, KMS and identity types do what the chap
   }
 })
 
+test.describe('SEC-07 a KMS answers a limited number of requests per second (ch15 section 4)', () => {
+  // Decision G6: `kmsQuotaRps` throttles callers past the quota. With 200 req/s offered to a 100 req/s quota,
+  // about half are refused as `kms_throttled`; the rest pay the crypto time.
+  const run200 = (config: Record<string, unknown>) =>
+    runEngine(guarded('sec07', 'kms-security', SEC, config, {}, { rps: 200, durationMs: 20_000 }))
+
+  test('200 req/s into a 100 req/s quota: about half are throttled', () => {
+    const out = run200({ kmsQuotaRps: 100, cryptoMs: 2 })
+    expect(Math.abs(out.summary.errorRate - 0.5)).toBeLessThan(0.03)
+    expect(reasons(out)).toContain('kms_throttled')
+  })
+
+  test('a quota above the offered rate throttles nothing', () => {
+    expect(run200({ kmsQuotaRps: 400, cryptoMs: 2 }).summary.errorRate).toBe(0)
+  })
+})
+
 // ───────────────────────── 4. The browser agrees ─────────────────────────
 
 test.describe('SEC-06 the browser shows the refusals the engine computed', () => {

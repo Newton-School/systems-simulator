@@ -95,8 +95,11 @@ for (const dir of process.argv.slice(2)) {
   for (const d of warns) console.log(`${YELLOW}⚠ authoring ${d.code}${RESET}: ${d.message}`)
 
   // Reference -> everything checkable should pass
+  let refTests: Array<{ id: string; name: string; passed: boolean }> | null = null
+  let gamedTests: Array<{ id: string; name: string; passed: boolean }> | null = null
   try {
     const ref = gradeRows(pkg, refPath, answers)
+    refTests = ref.tests
     const failed = ref.tests.filter((t) => !t.passed)
     if (failed.length === 0) {
       console.log(`${GREEN}✓ reference PASSES all ${ref.totalTests} tests${RESET}`)
@@ -114,6 +117,7 @@ for (const dir of process.argv.slice(2)) {
   // Gamed -> at least one test must fail
   try {
     const gamed = gradeRows(pkg, gamedPath, gamedAnswers)
+    gamedTests = gamed.tests
     const failed = gamed.tests.filter((t) => !t.passed)
     if (failed.length > 0) {
       console.log(
@@ -130,6 +134,19 @@ for (const dir of process.argv.slice(2)) {
   } catch (e) {
     hadFailure = true
     console.log(`${RED}✗ gamed errored:${RESET} ${(e as Error).message}`)
+  }
+
+  // Discrimination: which checks tell the reference from the gamed design? A check both pass cannot catch this
+  // gamed design (it may still catch another wrong design), so a question where most checks are shared is thin.
+  if (refTests && gamedTests) {
+    const gamedById = new Map(gamedTests.map((t) => [t.id, t.passed]))
+    const comparable = refTests.filter((t) => t.passed && gamedById.has(t.id))
+    const separating = comparable.filter((t) => gamedById.get(t.id) === false)
+    const shared = comparable.filter((t) => gamedById.get(t.id) === true)
+    console.log(
+      `${DIM}  discrimination: ${separating.length}/${comparable.length} checks separate the reference from the gamed design` +
+        `${shared.length ? `; shared (do not separate): ${shared.map((t) => t.id).join(', ')}` : ''}${RESET}`
+    )
   }
 }
 

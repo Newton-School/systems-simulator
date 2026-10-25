@@ -73,7 +73,7 @@ A feature store serves the same features for **training** and for **inference**:
 | `msPerToken`, `outputTokens`   | latency added per request = msPerToken x outputTokens                                 |
 | model serving and stream nodes | queue and service time like any node; batching via the batching settings (chapter 13) |
 
-[repo] Windowing is processing-time only; event-time windows, watermarks and late-data handling are deliberately not modelled. Token cost latency does not distinguish prefill from decode.
+[repo] Windowing is processing-time only; event-time windows, watermarks and late-data handling are deliberately not modelled. Token cost latency is `msPerToken` x `outputTokens`; set `msFirstToken` to split it into a prefill time plus `msPerToken` for each token after the first.
 
 ## 8. Testable expectations (summary)
 
@@ -86,7 +86,7 @@ A feature store serves the same features for **training** and for **inference**:
 ## 9. Open items
 
 - Not read in full: the Dataflow model paper and a model-serving batching reference; the vLLM paper is cited for the KV-cache limit only (abstract). No throughput figure for LLM serving is asserted.
-- Decisions `[?]`: whether to model event-time windows and late data; whether to split first-token and per-token latency.
+- Decided: first-token and per-token latency are split (`msFirstToken`); event-time windows and late data are not modelled.
 
 ## Sources
 

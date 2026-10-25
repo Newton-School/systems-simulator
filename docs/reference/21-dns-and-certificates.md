@@ -72,7 +72,7 @@ Route 53, as a reference, offers these policies: **simple** (one resource), **fa
 - A cached answer is reused for the TTL and re-resolved afterwards: resolutions per name over a run = run time / TTL.
 - Cache miss ratio follows 1 / (1 + lambda x TTL).
 - After a primary fails, failover moves traffic only once detection and TTL have elapsed.
-- Geolocation sends each origin to its mapped target; `[?]` what an unmapped origin does needs a defined answer (a default record).
+- Geolocation sends each origin to its mapped target; an unmapped origin goes to the first answer by name (a default record), and the import warns about any origin with no target (decision G11).
 - A certificate past its expiry fails new connections; renewal margin = lifetime - renewal point.
 
 ## 8. Open items

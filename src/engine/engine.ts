@@ -2050,8 +2050,14 @@ export class SimulationEngine {
       this.maybeRecordCircuitBreakerOutcome(request, event.nodeId, false)
     }
     this.maybeScheduleQueueDeliveryFollowUp(request)
-    const timeoutReason =
-      typeof event.data.reason === 'string' ? event.data.reason : 'deadline_exceeded'
+    // A node's own timeout firing before the request's deadline leaves budget for another attempt, so it is
+    // retryable (decision D1); the request's overall deadline firing is not.
+    const nodeTimeoutFired = scope === 'node' && this.clock < request.deadline
+    const timeoutReason = nodeTimeoutFired
+      ? 'node_timeout'
+      : typeof event.data.reason === 'string'
+        ? event.data.reason
+        : 'deadline_exceeded'
     if (this.maybeScheduleRetryAttempt(request, event, timeoutReason, observationPoint)) {
       return
     }
@@ -3189,6 +3195,8 @@ export class SimulationEngine {
       case 'circuit_breaker_open':
       case 'lock_contended':
       case 'connection_reset':
+      case 'provider_rate_limited':
+      case 'node_timeout':
         return true
       default:
         return classifyRejectionCause(reason) === 'network_error'

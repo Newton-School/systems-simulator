@@ -85,7 +85,7 @@ A gateway in front of one or more model providers: routing, caching, rate-limit 
 ## 9. Open items
 
 - Read directly: RFC 6585 (429) and RFC 9110 (`Retry-After`). Not cited: the IETF idempotency-key header draft, RFC 6749 in full, and a payment provider's timeout guidance; the duplicate-charge arithmetic stands on its own definitions.
-- Decisions `[?]`: whether a provider's rate limit should be a setting on third-party nodes (the engine models its latency only).
+- Decided and implemented: a provider's rate limit is a setting on third-party nodes (`rateLimitRps`; past it calls fail as a retryable `provider_rate_limited`, the 429). Webhook redelivery over days is not built in.
 
 ## Sources
 

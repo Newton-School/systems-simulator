@@ -357,30 +357,53 @@ test.describe('F-07 a restarted node comes back cold (ch22 section 1)', () => {
 })
 
 test.describe('F-08 a brief overload can leave a system failed after the trigger ends (ch22 section 2)', () => {
-  // Decision needed (ch22 open items): a metastable failure needs abandoned work to keep consuming the server. Here a
-  // timed-out request leaves the queue, so a 3 s spike into a deep queue is followed by an immediate return to a 100%
-  // success rate. Real servers that do not cancel abandoned requests stay failed for as long as the backlog takes to drain
-  // (about 100 s here: a 1,000-deep queue emptying at 10 requests/s).
-  test.fixme('a 3 s spike into a 1,000-deep queue with a 1 s client timeout leaves goodput low for the next minute', () => {
+  // Decision G4 (done): the metastable-retry-storm sample. A 1-worker, 10 ms server (capacity 100/s) fed 70/s has a 3 s
+  // spike to 200/s at 10 s. Its queue fills, requests hit the 300 ms node timeout, and the gateway retries them four
+  // times, so after the spike the offered load is 70 x (1 + retries) > 100: the retries alone sustain the failure.
+  const build = (retries: boolean) => {
     const t = chain({
-      run: run('f08', { rps: 90, durationMs: 120_000, pattern: 'spike', timeoutMs: 1000 }),
+      run: run(`f08-${retries}`, {
+        rps: 70,
+        durationMs: 90_000,
+        pattern: 'spike',
+        timeoutMs: 5000
+      }),
       nodes: [
+        queueNode('gw', 'microservice', {
+          category: 'compute',
+          workers: 5000,
+          capacity: 100_000,
+          serviceMs: 0.1,
+          timeoutMs: 5000,
+          resilience: retries
+            ? {
+                retry: { maxAttempts: 4, baseDelay: 10, maxDelay: 10, multiplier: 1, jitter: false }
+              }
+            : undefined
+        }),
         queueNode('srv', 'microservice', {
           category: 'compute',
           workers: 1,
-          capacity: 1000,
+          capacity: 2000,
           serviceMs: 10,
-          timeoutMs: 1000
+          timeoutMs: 300
         })
       ],
-      edges: [tcp('source', 'srv')]
+      edges: [tcp('source', 'gw'), tcp('gw', 'srv')]
     })
     ;(t.workload as unknown as Record<string, unknown>).spike = {
       spikeTime: 10_000,
       spikeRps: 200,
       spikeDuration: 3000
     }
-    const out = runEngine(t)
-    expect(share(out, 20_000, 60_000, (o) => o.status === 'success')).toBeLessThan(0.5)
+    return runEngine(t)
+  }
+
+  test('with retries, goodput stays near zero for the 60 s after a 3 s spike', () => {
+    expect(share(build(true), 30_000, 90_000, (o) => o.status === 'success')).toBeLessThan(0.1)
+  })
+
+  test('the same system without retries is back to 100% within seconds of the spike ending', () => {
+    expect(share(build(false), 20_000, 90_000, (o) => o.status === 'success')).toBeGreaterThan(0.99)
   })
 })

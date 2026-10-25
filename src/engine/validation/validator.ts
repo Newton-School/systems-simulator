@@ -1188,6 +1188,28 @@ export const validateTopology = (
         )
       }
     }
+    if (node.config?.['dnsRoutingPolicy'] === 'geolocation') {
+      const mapped = new Set(
+        (Array.isArray(node.config['dnsGeoTargets']) ? node.config['dnsGeoTargets'] : [])
+          .map((entry) => (entry as { origin?: unknown }).origin)
+          .filter((origin): origin is string => typeof origin === 'string')
+      )
+      const unmapped = (topology.workload?.origins ?? [])
+        .map((origin) => origin.id)
+        .filter((id) => !mapped.has(id))
+      if (unmapped.length > 0) {
+        warnings.push(
+          `${nodeLabel}: Geolocation routing has no target for the origin${unmapped.length === 1 ? '' : 's'} ${unmapped.join(', ')}; requests from ${unmapped.length === 1 ? 'it go' : 'them go'} to the first answer by name.`
+        )
+      }
+    }
+    if (node.scaling) {
+      // Only `scaling.coldStartPenalty` is read (by a serverless function). The scaling policy itself is
+      // not applied; use `autoscaleCooldownMs` / `autoscaleStep` or the HPA policy on a cluster instead.
+      warnings.push(
+        `${nodeLabel}: The scaling block's type, metric, thresholds and cooldown are not applied (only its cold-start penalty is read), so this component does not scale. Use the autoscaler settings on a cluster to add capacity.`
+      )
+    }
     if (node.processing) {
       warnings.push(
         ...serviceDistributionWarnings(node.processing.distribution).map(

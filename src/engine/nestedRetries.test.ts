@@ -93,3 +93,73 @@ describe('nested retries compound', () => {
     expect(callsPerRequest(['a', 'c'])).toBeCloseTo(9, 1)
   })
 })
+
+describe('retries on a callee timeout', () => {
+  function errorRate(retrying: boolean): number {
+    const timeoutNode = (id: string, ms: number, resilience?: unknown) =>
+      ({
+        id,
+        type: 'microservice',
+        category: 'compute',
+        label: id,
+        position: { x: 0, y: 0 },
+        queue: { workers: 50, capacity: 500, discipline: 'fifo' },
+        processing: { distribution: { type: 'constant', value: 2 }, timeout: ms },
+        ...(resilience ? { resilience } : {})
+      }) as ComponentNode
+    const topology = {
+      id: 't',
+      name: 'timeout-retry',
+      version: '1.0.0',
+      global: {
+        simulationDuration: 10_000,
+        seed: 'timeout-retry',
+        warmupDuration: 0,
+        timeResolution: 'microsecond',
+        defaultTimeout: 5_000,
+        traceSampleRate: 0
+      },
+      nodes: [
+        timeoutNode('source', 5_000),
+        timeoutNode(
+          'caller',
+          5_000,
+          retrying
+            ? {
+                retry: {
+                  maxAttempts: 5,
+                  baseDelay: 300,
+                  maxDelay: 300,
+                  multiplier: 1,
+                  jitter: false
+                }
+              }
+            : undefined
+        ),
+        timeoutNode('dep', 100)
+      ],
+      edges: [edge('e1', 'source', 'caller'), edge('e2', 'caller', 'dep')],
+      faults: [
+        {
+          targetId: 'dep',
+          faultType: 'chaos',
+          timing: 'deterministic',
+          duration: 'fixed',
+          params: { atMs: 2_000, durationMs: 1_000, mode: 'blackhole' }
+        }
+      ],
+      workload: {
+        sourceNodeId: 'source',
+        pattern: 'constant',
+        baseRps: 50,
+        requestDistribution: [{ type: 'GET', weight: 1, sizeBytes: 100 }]
+      }
+    } as unknown as TopologyJSON
+    return new SimulationEngine(topology).run().summary.errorRate
+  }
+
+  it("treats a node's own timeout, which leaves budget in the request, as retryable", () => {
+    expect(errorRate(false)).toBeGreaterThan(0.08)
+    expect(errorRate(true)).toBeLessThan(0.01)
+  })
+})

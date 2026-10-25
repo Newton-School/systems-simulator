@@ -35,7 +35,13 @@ export const tokenCostTrait: NodeBehaviourTrait = {
     if (msPerToken === null || outputTokens === null || msPerToken === 0 || outputTokens === 0) {
       return { action: 'continue' }
     }
-    const penaltyMs = msPerToken * outputTokens
+    // With a time to first token set, the response costs that (prefill, which depends on the prompt) plus
+    // one per-token step for each token after the first. Unset keeps the single msPerToken x outputTokens.
+    const msFirstToken = asNonNegativeNumber(node.config?.['msFirstToken'])
+    const penaltyMs =
+      msFirstToken === null
+        ? msPerToken * outputTokens
+        : msFirstToken + msPerToken * (outputTokens - 1)
     addPenalty(request, penaltyMs)
     return {
       action: 'continue',
@@ -70,6 +76,16 @@ export const tokenCostCapabilityModule: NodeCapabilityModule = {
             altitude: 'primary',
             placeholder: `Default ${DEFAULT_MS_PER_TOKEN}ms`,
             why: 'Time to generate each output token.'
+          },
+          {
+            path: 'sim.msFirstToken',
+            type: 'input',
+            inputType: 'number',
+            label: 'Time to first token',
+            unit: 'ms',
+            min: 0,
+            altitude: 'advanced',
+            why: 'Prefill time before the first token (it grows with the prompt). With it set, latency = this + (tokens - 1) x per-token time. Empty keeps latency = tokens x per-token time.'
           },
           {
             path: 'sim.outputTokens',

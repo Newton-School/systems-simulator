@@ -122,9 +122,42 @@ test.describe('R-02 retry amplification: attempts per call = (1 - p^n) / (1 - p)
     expect(amplification).toBeLessThanOrEqual(attempts)
   })
 
-  test.fixme('R-02c a retry rides over a timeout (blackhole) failure — DECISION NEEDED: the engine does not retry timeouts', () => {
-    // ch02 section 2 says retries cover transient faults including timeouts; the engine's retryable
-    // list is node_failed, node_error_rate, circuit_breaker_open, lock_contended, connection_reset.
+  // Decision D1 (done): a node's own timeout firing before the request's deadline is a retryable failure, so a caller
+  // that retries rides over a blackhole. Outage 10 s to 12 s; the server's timeout is 100 ms and the caller makes up to
+  // five attempts 500 ms apart, so a request arriving during the outage makes its last attempt at arrival + 4 x 600 ms
+  // >= 12 s and succeeds. Without retries the error share is the outage fraction, 2 / 30.
+  test('R-02c a retry rides over a timeout (blackhole) failure', () => {
+    const build = (seed: string, retries: boolean) =>
+      chain({
+        run: run(seed, { rps: 100, durationMs: 30_000, timeoutMs: 5000 }),
+        nodes: [
+          computeNode('gw', {
+            serviceMs: 1,
+            timeoutMs: 5000,
+            resilience: retries
+              ? {
+                  retry: {
+                    maxAttempts: 5,
+                    baseDelay: 500,
+                    maxDelay: 500,
+                    multiplier: 1,
+                    jitter: false
+                  }
+                }
+              : undefined
+          }),
+          computeNode('srv', { serviceMs: 5, timeoutMs: 100 })
+        ],
+        edges: [
+          ['source', 'gw'],
+          ['gw', 'srv']
+        ],
+        faults: [fault('srv', { atMs: 10_000, durationMs: 2000, mode: 'blackhole' }, 'fixed')]
+      })
+    const without = runEngine(build('r02c-off', false))
+    const withRetries = runEngine(build('r02c-on', true))
+    expect(Math.abs(without.summary.errorRate - 2 / 30)).toBeLessThan(0.02)
+    expect(withRetries.summary.errorRate).toBeLessThan(0.01)
   })
 })
 

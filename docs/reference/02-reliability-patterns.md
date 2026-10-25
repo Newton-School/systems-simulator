@@ -244,15 +244,14 @@ Endpoint Monitoring pattern]
 The chapter describes real systems. These are the known places the simulator is simpler. Each has a
 tracked test in `e2e/journeys/ch02-reliability.spec.ts`; delete the note when its test starts passing. Rows are removed as they are fixed.
 
-| #   | Chapter says                                                                 | Simulator does today                                                                                                                                                                                                                            | Tracked by                        |
-| --- | ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------- |
-| 1   | Retries cover transient faults, including timeouts (section 2)               | Retries fire only for `node_failed`, `node_error_rate`, `circuit_breaker_open`, `lock_contended` and `connection_reset`. A timeout (blackholed backend) is **not** retried, so a retry policy gives no protection against a silent dead server. | `R-02c` (parked, decision needed) |
-| 2   | A configured circuit breaker stops calls to a failing dependency (section 3) | It gates only on `sidecar`, `service-mesh` and `circuit-breaker-controller`. On other nodes the setting is accepted but inert. The validator now warns at import.                                                                               | `R-03d` (warning is live)         |
-| 3   | Detection delay is about probe interval x consecutive failures (section 7)   | A balancer's own `healthCheckEnabled` removes a failed backend instantly. A Health Check Manager node that monitors the backends does model the delay (interval x unhealthy threshold; flow `R-07d`).                                           | `R-07c` (expected failure)        |
+| #   | Chapter says                                                                 | Simulator does today                                                                                                                                                                                  | Tracked by                 |
+| --- | ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------- |
+| 1   | A configured circuit breaker stops calls to a failing dependency (section 3) | It gates only on `sidecar`, `service-mesh` and `circuit-breaker-controller`. On other nodes the setting is accepted but inert. The validator now warns at import.                                     | `R-03d` (warning is live)  |
+| 2   | Detection delay is about probe interval x consecutive failures (section 7)   | A balancer's own `healthCheckEnabled` removes a failed backend instantly. A Health Check Manager node that monitors the backends does model the delay (interval x unhealthy threshold; flow `R-07d`). | `R-07c` (expected failure) |
 
 Teaching consequence: a student who adds retries and then kills the backend silently will see no
 amplification in the simulator, while real systems amplify. Treat results for those scenarios as
-optimistic until rows 1 and 3 are closed. (Retries across layers now compound: k nested layers of n attempts send n^k calls, flow `F-05`.)
+optimistic until row 2 is closed. Retries now cover a node's own timeout (when budget remains in the request) and compound across layers: k nested layers of n attempts send n^k calls (flows `R-02c`, `F-05`).
 
 ## 10. Open items
 

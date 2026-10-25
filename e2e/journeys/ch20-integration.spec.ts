@@ -166,8 +166,8 @@ test.describe('INT-03 an idempotency key makes a repeat inside the window a no-o
 // ───────────────────────── 3. Not modelled (decisions) ─────────────────────────
 
 test.describe('INT-04 provider behaviour beyond latency (ch20 sections 1 and 3)', () => {
-  // Decision needed (ch20 open items): a provider's rate limit is not a setting; above it a real provider answers 429.
-  test.fixme('a provider limited to 100 req/s answers 429 above it', () => {
+  // Decision H1 (done): `rateLimitRps` is a setting; above it the provider answers 429 (provider_rate_limited).
+  test('a provider limited to 100 req/s answers 429 above it', () => {
     const out = runEngine(
       chain({
         run: run('int04', { rps: 200 }),
@@ -180,7 +180,7 @@ test.describe('INT-04 provider behaviour beyond latency (ch20 sections 1 and 3)'
     expect(Math.abs(out.summary.errorRate - 0.5)).toBeLessThan(0.05)
   })
 
-  // Decision needed: a webhook gateway delivers once; a real provider retries a failed delivery with exponential
+  // Not built in (a webhook gateway takes a retry policy like any caller, but has none by default): a webhook gateway delivers once; a real provider retries a failed delivery with exponential
   // backoff for up to three days, so the receiver sees duplicates.
   test.fixme('a webhook delivery that failed is retried, so the receiver can see the same event twice', () => {
     const out = runEngine(

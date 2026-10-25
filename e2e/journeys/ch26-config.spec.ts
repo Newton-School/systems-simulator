@@ -211,7 +211,8 @@ test.describe('CFG-03 a document and a seed give one run (ch26 section 2, chapte
 // ───────────────────────── 4. Declared fields that must do something ─────────────────────────
 
 test.describe('CFG-04 fields the chapter lists as declared but not read (ch26 section 9)', () => {
-  // Tracked gaps (finding 37): each field is validated and documented as an intent, but nothing in the engine reads it.
+  // Tracked gaps (finding 37): `failureModes` and `scaling` are validated and documented as an intent, but nothing in
+  // the engine reads them (decisions G1 and G2 below).
 
   test.fail(
     'failureModes: a node with an MTBF of 5 s and an MTTR of 1 s is down about 1/6 of the time',
@@ -227,7 +228,9 @@ test.describe('CFG-04 fields the chapter lists as declared but not read (ch26 se
     }
   )
 
-  test.fail('scaling: a horizontal scaling block on an overloaded node adds capacity', () => {
+  // Decision G2: the scaling policy fields are not applied, so the import says so instead of letting a design
+  // look like it scales (only `scaling.coldStartPenalty` is read, by a serverless function).
+  test('scaling: a horizontal scaling block is not applied, and validation warns that it does not scale', () => {
     const doc = chain({
       run: run('cfg04b', { rps: 300, durationMs: 60_000 }),
       nodes: [computeNode('a', { serviceMs: 100 })],
@@ -240,23 +243,28 @@ test.describe('CFG-04 fields the chapter lists as declared but not read (ch26 se
       scaleDownThreshold: 0.3,
       cooldown: 5000
     }
+    expect(
+      (validateTopology(doc as TopologyJSON).warnings ?? []).some((w) =>
+        w.includes('does not scale')
+      )
+    ).toBe(true)
     const out = runEngine(doc as TopologyJSON)
-    expect(out.timeSeries.at(-1)!.node.a.workers).toBeGreaterThan(2)
+    expect(out.timeSeries.at(-1)!.node.a.workers).toBeLessThanOrEqual(2)
   })
 
-  test.fail(
-    'slo.errorBudget: a node with 5% errors against an error budget of 0.1% is reported as breaching it',
-    () => {
-      const doc = chain({
-        run: run('cfg04c', { rps: 500, durationMs: 20_000 }),
-        nodes: [computeNode('a', { serviceMs: 5 })],
-        edges: [['source', 'a', { protocol: 'tcp', errorRate: 0.05 }]]
-      }) as Loose
-      doc.nodes[1].slo = { errorBudget: 0.001 }
-      const out = runEngine(doc as TopologyJSON)
-      expect(out.sloBreaches.length).toBeGreaterThan(0)
-    }
-  )
+  // Finding 37, errorBudget part (fixed): the budget feeds `sloStatus`, with burn rate = error rate / budget.
+  test('slo.errorBudget: a node with 5% errors against a budget of 0.1% burns it 50 times over', () => {
+    const doc = chain({
+      run: run('cfg04c', { rps: 500, durationMs: 20_000 }),
+      nodes: [computeNode('a', { serviceMs: 1, config: { nodeErrorRate: 0.05 } })],
+      edges: [tcp('source', 'a')]
+    }) as Loose
+    doc.nodes[1].slo = { errorBudget: 0.001 }
+    const out = runEngine(doc as TopologyJSON)
+    const status = out.sloStatus?.find((s) => s.nodeId === 'a')
+    expect(status?.withinBudget).toBe(false)
+    expect(Math.abs((status?.burnRate ?? 0) - 50)).toBeLessThan(8)
+  })
 
   test('slo.availabilityTarget and slo.latencyP99 are read: a 50% failing node breaches a 99.9% target', () => {
     const doc = chain({

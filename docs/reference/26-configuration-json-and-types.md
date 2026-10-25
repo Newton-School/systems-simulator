@@ -88,7 +88,7 @@ Top level: `id`, `name`, `version` (strings), `global`, `nodes`, `edges`; option
 | `queue`       | {workers, capacity, discipline, weights}           | a raw queue run as written (3.2)                                                         |
 | `processing`  | {distribution, timeout}                            | service-time distribution and node timeout in ms                                         |
 | `resilience`  | see 3.3                                            | breaker, retry, rate limiter, bulkhead                                                   |
-| `slo`         | {latencyP99 ms, availabilityTarget, errorBudget}   | targets checked against the run                                                          |
+| `slo`         | {latencyP99 ms, availabilityTarget, errorBudget}   | targets checked against the run (`errorBudget` feeds `sloStatus`)                        |
 | `config`      | free map                                           | the per-type settings of chapters 06 to 22 (cache hit rate, shard key, lag, window, ...) |
 
 ### 3.1 `resources`

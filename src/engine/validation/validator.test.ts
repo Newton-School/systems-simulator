@@ -1254,3 +1254,62 @@ describe('data-store service time advice', () => {
     expect(warningFor({ storageReadMs: 100 })).toBeUndefined()
   })
 })
+
+describe('the unread scaling block', () => {
+  it('warns that scaling policy fields are not applied', () => {
+    const source = makeSourceNode('client')
+    const service = makeProcessorNode('svc', 'Service')
+    service.scaling = {
+      type: 'horizontal',
+      metric: 'utilization',
+      scaleUpThreshold: 0.7,
+      scaleDownThreshold: 0.3,
+      cooldown: 5000
+    }
+    const result = validateTopology(
+      makeTopology({
+        nodes: [source, service],
+        edges: [makeEdge('client-svc', source.id, service.id)],
+        sourceNodeId: source.id
+      })
+    )
+    expect((result.warnings ?? []).some((w) => w.includes('does not scale'))).toBe(true)
+  })
+})
+
+describe('geolocation routing', () => {
+  it('warns about an origin with no mapped target and names where its requests go', () => {
+    const source = makeSourceNode('client')
+    const dns = makeProcessorNode('dns', 'DNS')
+    dns.type = 'global-traffic-manager'
+    dns.config = {
+      dnsRoutingPolicy: 'geolocation',
+      dnsGeoTargets: [{ origin: 'eu', targetNodeId: 'svc-eu' }]
+    }
+    const topology = makeTopology({
+      nodes: [source, dns, makeProcessorNode('svc-eu')],
+      edges: [makeEdge('c-d', source.id, dns.id), makeEdge('d-s', dns.id, 'svc-eu')],
+      sourceNodeId: source.id
+    })
+    topology.workload.origins = [
+      {
+        id: 'eu',
+        label: 'EU',
+        weight: 0.5,
+        location: { kind: 'coordinates', latitude: 50, longitude: 8 }
+      },
+      {
+        id: 'asia',
+        label: 'Asia',
+        weight: 0.5,
+        location: { kind: 'coordinates', latitude: 35, longitude: 139 }
+      }
+    ] as never
+    const res = validateTopology(topology)
+    const warnings = res.warnings ?? []
+    expect(warnings.some((w) => w.includes('asia') && w.includes('first answer by name'))).toBe(
+      true
+    )
+    expect(warnings.some((w) => /origin[s]? eu/.test(w))).toBe(false)
+  })
+})

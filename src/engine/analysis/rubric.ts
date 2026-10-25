@@ -163,6 +163,15 @@ export function resolveMetric(verdict: SimulationVerdict, metric: string): numbe
   switch (metric) {
     case 'sloBreaches.count':
       return verdict.sloBreaches.length
+    case 'slo.maxBurnRate':
+      // The worst budget burn over the nodes that state one; null (check fails) when none does.
+      return verdict.sloStatus && verdict.sloStatus.length > 0
+        ? Math.max(...verdict.sloStatus.map((status) => status.burnRate))
+        : null
+    case 'slo.budgetsExceeded.count':
+      return verdict.sloStatus
+        ? verdict.sloStatus.filter((status) => !status.withinBudget).length
+        : null
     case 'invariantViolations.count':
       return verdict.invariantViolations.length
     case 'conservation.unbalanced':

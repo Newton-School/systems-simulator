@@ -62,10 +62,11 @@ A web application firewall matches requests against rules. The OWASP Core Rule S
 ## 6. Simulator parameter map
 
 | Setting                                                                            | Meaning                                                                                                                                                                                                                                             |
-| ---------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ---------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --- |
 | `authenticationEnabled`, `authTokenField`, `authStatusField`, `authRequiredScopes` | token present, valid, unexpired and carrying the scopes (enforced on `api-gateway`, `auth-service`, `identity-provider` and `iam-rbac`; the IAM policy evaluation rules are not modelled); otherwise rejected with a missing/invalid/expired reason |
 | `inspectionMs`, `blockRate`                                                        | WAF-style scan latency per request and a fraction blocked (`inspection_blocked`), on `waf`, `firewall`, `network-policy` and `policy-engine`                                                                                                        |
 | `cryptoMs`                                                                         | CPU cost of an encrypt/verify/sign per request, added to service time, on `kms-storage` and `kms-security`                                                                                                                                          |
+| `kmsQuotaRps`                                                                      | requests per second a key service answers; past it callers are throttled with `kms_throttled` (a rolling one-second window)                                                                                                                         |     |
 
 [repo] The trait takes the credential from request metadata, so a workload models a population of valid, expired and invalid callers.
 
@@ -81,7 +82,7 @@ A web application firewall matches requests against rules. The OWASP Core Rule S
 ## 8. Open items
 
 - Not asserted: KMS request quotas (provider- and region-specific) and CRS performance measurements. JWT validation is cited to RFC 7519; OCSP and CRL behaviour is stated only qualitatively.
-- Decisions `[?]`: whether a KMS node should enforce a request quota (the trait comment says quota-limited; the cost is modelled, the quota is not); a remote identity-provider call with caching is not modelled, and neither are the IAM policy evaluation rules (decided).
+- Decided: a KMS request quota is now modelled (`kmsQuotaRps`, decision G6); a remote identity-provider call with caching is not modelled, and neither are the IAM policy evaluation rules (decided).
 
 ## Sources
 

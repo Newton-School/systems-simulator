@@ -100,7 +100,7 @@ Alerting philosophy: page on **symptoms** (users affected), use causes for debug
 ## 10. Open items
 
 - Read directly: the SRE book and workbook pages, Prometheus histogram guidance and the Dapper abstract. The OpenTelemetry sampling specification is cited through vendor guides; no overhead or sampling-rate figure from Dapper is asserted.
-- Decisions `[?]`: whether the simulator should compute burn rate and SLO status directly in the output.
+- Decided and implemented: the output carries `sloStatus[]` (error rate, budget, burn rate, within budget) for every node with an SLO, and the rubric can use `slo.maxBurnRate` and `slo.budgetsExceeded.count`.
 
 ## Sources
 

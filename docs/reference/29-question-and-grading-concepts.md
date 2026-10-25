@@ -96,4 +96,4 @@ The authored question bank in this repository is validated both ways: every refe
 ## 10. Open items
 
 - Cite: published guidance on constructed-response and performance-based assessment; the concept registry of lesson slugs.
-- Decisions `[?]`: whether `errorBudget` (validated but unchecked) should be a rubric selector; whether discrimination should be measured automatically for every authored question.
+- Decided and implemented: `errorBudget` feeds `sloStatus` and the rubric selectors `slo.maxBurnRate` and `slo.budgetsExceeded.count`; `npm run validate:question-bank` reports, per question, how many checks separate the reference from the gamed design.

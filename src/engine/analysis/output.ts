@@ -125,6 +125,20 @@ export interface SLOBreach {
   severity: 'warning' | 'critical'
 }
 
+/**
+ * Error-budget accounting for a node with an SLO. The budget is `errorBudget`, or 1 - `availabilityTarget`
+ * when only the target is set. Burn rate is the observed error rate over the budget (chapter 16 section 4):
+ * 1 uses exactly the budget over the run, 14.4 would exhaust a 30-day budget in two days.
+ */
+export interface SloStatus {
+  nodeId: string
+  nodeLabel: string
+  errorRate: number
+  errorBudget: number
+  burnRate: number
+  withinBudget: boolean
+}
+
 export interface LittlesLawResult {
   nodeId: string
   /** Observed time-average items in system (post-warmup window). */
@@ -285,6 +299,8 @@ export interface SimulationOutput {
   /** Number of explicitly configured SLO targets evaluated for this run. */
   sloTargetCount: number
   sloBreaches: SLOBreach[]
+  /** Error-budget burn for every node with an SLO that states a budget or an availability target. */
+  sloStatus?: SloStatus[]
   invariantViolations: InvariantViolation[]
   littlesLawCheck: LittlesLawResult[]
   warmupAdequacy: WarmupAdequacy
@@ -541,6 +557,7 @@ export function generateSimulationOutput(
     causalGraph,
     sloTargetCount,
     sloBreaches,
+    sloStatus: buildSloStatus(metrics, perNode),
     invariantViolations: [...invariantViolations],
     littlesLawCheck,
     warmupAdequacy,
@@ -724,6 +741,35 @@ function countSLOTargets(
     }
   }
   return count
+}
+
+function buildSloStatus(
+  metrics: MetricsCollector,
+  perNode: Record<string, PerNodeMetrics>
+): SloStatus[] {
+  const out: SloStatus[] = []
+  for (const [nodeId, nodeMetrics] of Object.entries(perNode)) {
+    const metadata = metrics.getNodeMetadata(nodeId)
+    const slo = metadata?.slo
+    if (!slo) continue
+    const errorBudget =
+      typeof slo.errorBudget === 'number'
+        ? slo.errorBudget
+        : typeof slo.availabilityTarget === 'number'
+          ? 1 - slo.availabilityTarget
+          : null
+    if (errorBudget === null || errorBudget <= 0) continue
+    const burnRate = nodeMetrics.errorRate / errorBudget
+    out.push({
+      nodeId,
+      nodeLabel: metadata?.label ?? nodeMetrics.nodeLabel ?? nodeId,
+      errorRate: nodeMetrics.errorRate,
+      errorBudget,
+      burnRate,
+      withinBudget: burnRate <= 1
+    })
+  }
+  return out
 }
 
 function detectSLOBreaches(

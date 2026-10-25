@@ -90,6 +90,16 @@ describe('latency-adder traits', () => {
     expect(counters.tokensGenerated).toBe(100)
     expect(counters.llmCompletions).toBe(1)
   })
+
+  it('splits the first token from the rest when a time to first token is set', () => {
+    const { req } = runLatency(tokenCostTrait, 'llm-gateway', {
+      msPerToken: 20,
+      msFirstToken: 400,
+      outputTokens: 500
+    })
+    // 400 ms of prefill, then 499 tokens at 20 ms.
+    expect(penalty(req)).toBe(400 + 499 * 20)
+  })
 })
 
 describe('inspectionCost trait', () => {

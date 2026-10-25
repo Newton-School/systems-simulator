@@ -81,7 +81,7 @@ Define a steady-state metric, hypothesise that it holds under a realistic fault,
 ## 7. Open items
 
 - Read directly: the gray-failure abstract (differential observability) and the Principles of Chaos Engineering. The metastable-failure claims rest on Brooker's summary and the SRE book; the HotOS 2021 paper's PDF could not be read as text. The AWS static-stability article is not cited.
-- Decisions `[?]`: whether health checks should be able to see a gray failure (a check that passes while requests fail) and whether a metastable-failure scenario should be a built-in template.
+- Decisions `[?]`: whether health checks should be able to see a gray failure (a check that passes while requests fail) and the metastable-failure scenario is now a built-in sample (`src/engine/__samples__/topology/metastable-retry-storm.json`: a 3 s spike, retries as the sustaining loop; flow `F-08`).
 
 ## Sources
 
