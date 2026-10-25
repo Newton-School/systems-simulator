@@ -226,6 +226,13 @@ export interface PerNodeMetrics {
   /** Generic counters any trait reports via payload.metricCounters (cacheHits/cacheMisses included for convenience). */
   traitCounters: Record<string, number>
   /**
+   * Message queues only: messages accepted from producers, and deliveries made to the consumer. A queue's
+   * `totalArrived` is their sum (the producer-side acknowledgement and the consumer-side delivery are both
+   * arrivals), so it reads as twice the messages sent.
+   */
+  messagesProduced?: number
+  messagesDelivered?: number
+  /**
    * Average items in system computed only over the post-warmup window.
    * Used for Little's Law verification so that λ, W, and L share the same window.
    */
@@ -411,6 +418,7 @@ interface InternalNodeMetrics {
 
 export interface NodeMetadata {
   label?: string
+  type?: string
   slo?: SLOConfig
 }
 
@@ -495,7 +503,7 @@ export class MetricsCollector {
 
   constructor(config: {
     warmupDuration: number
-    nodes?: Array<Pick<ComponentNode, 'id' | 'label' | 'slo'>>
+    nodes?: Array<Pick<ComponentNode, 'id' | 'label' | 'slo' | 'type'>>
     edges?: Array<{ id: string; source: string; target: string }>
   }) {
     this.warmupDurationMs = Math.max(0, config.warmupDuration)
@@ -504,6 +512,7 @@ export class MetricsCollector {
     for (const node of config.nodes ?? []) {
       this.nodeMetadata.set(node.id, {
         label: node.label,
+        type: node.type,
         slo: node.slo
       })
     }
@@ -1137,6 +1146,15 @@ export class MetricsCollector {
         cacheHitRatio,
         rejectionsByReason: { ...(metrics?.rejectionsByReason ?? {}) },
         traitCounters: { ...(metrics?.traitCounters ?? {}) },
+        ...(metadata?.type === 'queue'
+          ? {
+              messagesProduced: metrics?.traitCounters['queueAccepted'] ?? 0,
+              messagesDelivered: Math.max(
+                0,
+                totalArrived - (metrics?.traitCounters['queueAccepted'] ?? 0)
+              )
+            }
+          : {}),
         postWarmupAvgInSystem,
         postWarmupAvgTimeInSystem
       })

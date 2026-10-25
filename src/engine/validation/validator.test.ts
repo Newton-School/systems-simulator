@@ -1182,3 +1182,75 @@ describe('validateTopology bulkhead and load-shedding config', () => {
     )
   })
 })
+
+describe('service-time distribution advice', () => {
+  const warningsFor = (
+    distribution: ComponentNode['processing'] extends infer P
+      ? P extends { distribution: infer D }
+        ? D
+        : never
+      : never
+  ) => {
+    const source = makeSourceNode('client')
+    const service = makeProcessorNode('svc', 'Service')
+    service.processing = { distribution, timeout: 1_000 }
+    const result = validateTopology(
+      makeTopology({
+        nodes: [source, service],
+        edges: [makeEdge('client-svc', source.id, service.id)],
+        sourceNodeId: source.id
+      })
+    )
+    return (result.warnings ?? []).filter((w) => w.startsWith('Service:'))
+  }
+
+  it('warns when a normal service time can go negative and is clamped', () => {
+    expect(warningsFor({ type: 'normal', mean: 5, stdDev: 3 })[0]).toMatch(/clamped to 0/)
+    expect(warningsFor({ type: 'normal', mean: 30, stdDev: 3 })).toEqual([])
+  })
+
+  it('warns that Poisson and Beta draws are a count and a proportion, not durations', () => {
+    expect(warningsFor({ type: 'poisson', lambda: 4 })[0]).toMatch(/whole-number count/)
+    expect(warningsFor({ type: 'beta', alpha: 2, beta: 5 })[0]).toMatch(/proportion/)
+  })
+
+  it('warns when mixture weights do not sum to 1 and says what runs', () => {
+    const mix = (a: number, b: number) =>
+      warningsFor({
+        type: 'mixture',
+        components: [
+          { weight: a, distribution: { type: 'constant', value: 5 } },
+          { weight: b, distribution: { type: 'constant', value: 50 } }
+        ]
+      })
+    expect(mix(9, 1)[0]).toMatch(/0\.9 \/ 0\.1 is what runs/)
+    expect(mix(0.9, 0.1)).toEqual([])
+  })
+})
+
+describe('data-store service time advice', () => {
+  const warningFor = (config?: Record<string, unknown>) => {
+    const source = makeSourceNode('client')
+    const db = makeProcessorNode('db', 'Orders DB')
+    db.type = 'relational-db'
+    db.category = 'storage-and-data'
+    db.processing = { distribution: { type: 'constant', value: 100 }, timeout: 1_000 }
+    if (config) db.config = config
+    const result = validateTopology(
+      makeTopology({
+        nodes: [source, db],
+        edges: [makeEdge('client-db', source.id, db.id)],
+        sourceNodeId: source.id
+      })
+    )
+    return (result.warnings ?? []).find((w) => w.includes('storage profile'))
+  }
+
+  it('warns that a typed processing time is not used by a data store', () => {
+    expect(warningFor()).toMatch(/processing time you set is not used/)
+  })
+
+  it('is quiet once a storage latency is set', () => {
+    expect(warningFor({ storageReadMs: 100 })).toBeUndefined()
+  })
+})

@@ -27,6 +27,8 @@ export class WorkloadGenerator {
   private readonly maxRequests: number | null
 
   private requestCounter = 0
+  /** Position of the request being generated in a replay trace. */
+  private traceIndex = 0
   private startTime = 0n
   private initialized = false
 
@@ -56,7 +58,12 @@ export class WorkloadGenerator {
   initialize(startTime: bigint): void {
     this.startTime = startTime
     this.initialized = true
-    this.scheduleRequestGeneratedAt(startTime)
+    const firstAtMs = this.config.trace?.[0]?.atMs
+    this.scheduleRequestGeneratedAt(
+      this.config.pattern === 'replay' && firstAtMs !== undefined
+        ? startTime + msToMicro(firstAtMs)
+        : startTime
+    )
   }
 
   generateNext(currentTime: bigint): Request {
@@ -67,6 +74,7 @@ export class WorkloadGenerator {
 
     const request = this.createRequest(currentTime)
     this.scheduleNext(currentTime)
+    this.traceIndex += 1
     return request
   }
 
@@ -104,8 +112,15 @@ export class WorkloadGenerator {
 
     switch (this.config.pattern) {
       case 'constant':
-      case 'replay':
         return this.intervalForRps(baseRps)
+
+      case 'replay': {
+        const trace = this.config.trace
+        if (!trace || trace.length === 0) return this.intervalForRps(baseRps)
+        const next = trace[this.traceIndex + 1]
+        // Past the last recorded arrival: stop scheduling.
+        return next === undefined ? Number.NaN : next.atMs - trace[this.traceIndex].atMs
+      }
 
       case 'poisson':
         return this.poissonIntervalForRps(baseRps)
@@ -128,7 +143,11 @@ export class WorkloadGenerator {
         }
 
         let hour = 0
-        if (this.simulationDurationUs && this.simulationDurationUs > 0n) {
+        const startHour = this.config.diurnal?.startHour
+        if (startHour !== undefined) {
+          // Real time from the chosen start hour.
+          hour = Math.floor(startHour + this.elapsedMs(currentTime) / (60 * 60 * 1000)) % 24
+        } else if (this.simulationDurationUs && this.simulationDurationUs > 0n) {
           const elapsedMs = this.elapsedMs(currentTime)
           const durationMs = microToMs(this.simulationDurationUs)
           const progress = durationMs > 0 ? (elapsedMs % durationMs) / durationMs : 0
@@ -177,7 +196,12 @@ export class WorkloadGenerator {
   }
 
   private createRequest(currentTime: bigint): Request {
-    const requestType = this.pickRequestDistributionEntry()
+    const tracedType =
+      this.config.pattern === 'replay' ? this.config.trace?.[this.traceIndex]?.type : undefined
+    const requestType =
+      (tracedType !== undefined
+        ? this.config.requestDistribution.find((entry) => entry.type === tracedType)
+        : undefined) ?? this.pickRequestDistributionEntry()
     const origin = this.pickTrafficOrigin()
     const requestId = `req-${String(++this.requestCounter).padStart(6, '0')}`
 

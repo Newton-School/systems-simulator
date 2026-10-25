@@ -456,6 +456,7 @@ export class SimulationEngine {
       nodes: topology.nodes.map((node) => ({
         id: node.id,
         label: node.label,
+        type: node.type,
         slo: node.slo
       })),
       edges: topology.edges.map((edge) => ({

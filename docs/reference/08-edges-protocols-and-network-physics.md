@@ -48,13 +48,13 @@ Latency per path type is a log-normal (chapter 03) sampled once per hop:
 
 | `pathType`     | median  | mean    | p99     | default bandwidth |
 | -------------- | ------- | ------- | ------- | ----------------- |
-| `same-rack`    | 0.30 ms | 0.32 ms | 0.61 ms | 10,000 Mbps       |
-| `same-dc`      | 1.00 ms | 1.08 ms | 2.54 ms | 5,000 Mbps        |
-| `cross-zone`   | 2.01 ms | 2.18 ms | 5.11 ms | 2,500 Mbps        |
+| `same-rack`    | 0.10 ms | 0.10 ms | 0.20 ms | 10,000 Mbps       |
+| `same-dc`      | 0.25 ms | 0.27 ms | 0.63 ms | 5,000 Mbps        |
+| `cross-zone`   | 0.50 ms | 0.54 ms | 1.27 ms | 2,500 Mbps        |
 | `cross-region` | 60.3 ms | 63.1 ms | 121 ms  | 1,000 Mbps        |
 | `internet`     | 99.5 ms | 137 ms  | 640 ms  | 100 Mbps          |
 
-Comparison with the numbers above [computed]: `same-dc` (median 1.0 ms) is about twice the 0.5 ms datacenter round trip; `cross-zone` (median 2.0 ms) is about twice the measured 0.6 to 1.1 ms inter-AZ averages; `cross-region` (60 ms) is plausible for a trans-continental US pair or a short trans-Atlantic one but too low for far pairs. **[?]** Owner to confirm whether these are meant as one-way or round-trip figures and whether to recalibrate cross-zone. The engine's own comment says the path-type defaults are round-trip figures, yet a hop pays one sample and responses do not traverse edges, so a hop's sample stands for the whole exchange.
+Calibration (decided): the profile is the **one-way** latency of a hop, set to half the measured round trips. `same-dc` (median 0.25 ms) is half the 0.5 ms datacenter round trip, and `cross-zone` (median 0.5 ms) is half the measured 0.6 to 1.1 ms inter-AZ averages. `cross-region` (60 ms) is the median for a far pair (trans-continental US, or Europe to the US), where one-way is roughly 30 to 50 ms and a round trip 60 to 100 ms, so treat it as a conservative far-pair figure; `internet` (99.5 ms) includes access networks. [computed]
 
 ## 3. Transmission delay and bandwidth
 
@@ -191,7 +191,7 @@ A fan-out factor f multiplies the load a request creates downstream: one post wr
 ## 13. Open items
 
 - RFC 9113 is read through a mailing-list copy and the Kafka producer `batch.size` default is unconfirmed; AWS inter-region latency figures are deliberately not asserted (section 2 gives only measured intra-region ranges).
-- Decisions `[?]`: one-way or round-trip meaning of path-type latency; whether to recalibrate `cross-zone`; how response transfer should be charged since responses do not traverse edges.
+- Decided: path-type latency is one-way and `same-dc` and `cross-zone` are recalibrated. Response transfer is not charged (decided), since responses do not traverse edges; this is a documented simplification).
 
 ## Sources
 

@@ -113,7 +113,7 @@ Average number waiting Lq = λ·Wq = 80 x 0.020 = 1.6; in service 0.8; L = 2.4. 
 
 - Single server, constant service 10 ms, Poisson 80 req/s, long run: utilization → 0.80, Wq → 20 ms, W → 30 ms,
   L → 2.4. A finite run starting empty will read slightly low (transient); the oracle must carry a tolerance
-  that shrinks with run length and say which seeds were used. [?] Owner to set the tolerance. The repository's
+  that shrinks with run length and say which seeds were used. Decided tolerance: 10% for runs of 60 s or more at ρ ≤ 0.8, widening to 20% above ρ = 0.9, with the replication count and half-width recorded beside each oracle. The repository's
   own probe saw mean wait of 16 to 19 ms across seeds, which suggests the tolerance must be about 10 to 20% on
   a short run.
 - Doubling cₛ² from 0 to 1 (constant to exponential service at the same mean) doubles the mean wait.
@@ -232,8 +232,7 @@ Further SRE guidance [P]: page on symptoms (what users feel), use causes to debu
 ## 10. Open items for this chapter
 
 - Remaining `[K]` claims are the engineering rules of thumb in sections 8 and 9 (headroom 60 to 80%, replication confidence interval); they are conventions, not theorems.
-- Decision `[?]`: numeric tolerance policy for comparing a finite seeded run with a closed-form value (proposed in the decision sheet: 10% for runs of 60 s or more at ρ <= 0.8, widening near saturation).
-- Decision `[?]`: which workload patterns count as Poisson arrivals when applying the P-K formula (chapter 05 lists them).
+- Decided: the tolerance policy is 10% for runs of 60 s or more at ρ ≤ 0.8, widening to 20% above ρ = 0.9. Only the `poisson` pattern counts as Poisson arrivals for the P-K formula; the other patterns use Kingman with their measured arrival CV.
 
 ## Sources
 

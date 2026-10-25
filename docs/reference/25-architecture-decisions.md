@@ -101,7 +101,7 @@ A good ADR in a system-design answer names the **requirement** that forces the c
 ## 7. Open items
 
 - The ADR structure is from Nygard's original post; MADR and the Well-Architected trade-off guidance are not cited, and the trade-off tables are design guidance, marked `[K]`, not measurements.
-- Decisions `[?]`: whether grading should accept a written justification (the question package has a `justify` field; see chapter 29) as evidence of a decision.
+- Decided: grading already accepts a written justification as evidence (the `justify` field, chapter 29).
 
 ## Sources
 

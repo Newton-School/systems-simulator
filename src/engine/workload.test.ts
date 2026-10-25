@@ -486,4 +486,68 @@ describe('WorkloadGenerator', () => {
       expect(collectKeyIndices('zipf-det', ks, 300)).toEqual(collectKeyIndices('zipf-det', ks, 300))
     })
   })
+
+  describe('diurnal startHour', () => {
+    const HOUR_MS = 60 * 60 * 1000
+    it('uses real time from the chosen start hour instead of spanning the run', () => {
+      const scheduler = makeScheduler()
+      const multipliers = makeHourlyMultipliers(1)
+      multipliers[14] = 0.5
+      multipliers[15] = 2
+      const generator = new WorkloadGenerator(
+        makeWorkload({
+          pattern: 'diurnal',
+          baseRps: 100,
+          diurnal: { peakMultiplier: 2, hourlyMultipliers: multipliers, startHour: 14 }
+        }),
+        createRandom('start-hour'),
+        scheduler,
+        { defaultTimeoutMs: 5000, simulationDurationMs: 2 * HOUR_MS }
+      )
+      generator.initialize(0n)
+      // 100 rps x 0.5 = 20 ms apart in hour 14, 5 ms apart in hour 15.
+      expect(intervalScheduledByGenerate(generator, scheduler, 1_000)).toBeCloseTo(20, 3)
+      expect(intervalScheduledByGenerate(generator, scheduler, HOUR_MS + 1_000)).toBeCloseTo(5, 3)
+    })
+  })
+
+  describe('replay trace', () => {
+    it('arrives at exactly the recorded times, with the recorded types, then stops', () => {
+      const scheduler = makeScheduler()
+      const generator = new WorkloadGenerator(
+        makeWorkload({
+          pattern: 'replay',
+          trace: [
+            { atMs: 50, type: 'POST' },
+            { atMs: 80, type: 'GET' },
+            { atMs: 400, type: 'PUT' }
+          ]
+        }),
+        createRandom('trace'),
+        scheduler,
+        { defaultTimeoutMs: 5000, simulationDurationMs: 10_000 }
+      )
+      generator.initialize(0n)
+      const times: number[] = []
+      const types: string[] = []
+      for (let next = scheduler.popNext(); next; next = scheduler.popNext()) {
+        times.push(Number(next.timestamp) / 1000)
+        types.push(generator.generateNext(next.timestamp).type)
+      }
+      expect(times).toEqual([50, 80, 400])
+      expect(types).toEqual(['POST', 'GET', 'PUT'])
+    })
+
+    it('keeps the constant-rate replay when no trace is given', () => {
+      const scheduler = makeScheduler()
+      const generator = new WorkloadGenerator(
+        makeWorkload({ pattern: 'replay', baseRps: 100 }),
+        createRandom('no-trace'),
+        scheduler,
+        { defaultTimeoutMs: 5000, simulationDurationMs: 1000 }
+      )
+      generator.initialize(0n)
+      expect(intervalScheduledByGenerate(generator, scheduler, 0)).toBeCloseTo(10, 3)
+    })
+  })
 })

@@ -305,9 +305,9 @@ test.describe('K-02 a machine failure removes its pods now and replacements arri
     expect(errors('bin-pack')).toBeGreaterThan(errors('spread'))
   })
 
-  test("the simulator's default detection delay (40 s grace + 300 s toleration; current Kubernetes uses a 50 s grace, see chapter 14 section 5) is 340 s", () => {
+  test('the default detection delay is the Kubernetes node-monitor grace (50 s) plus the not-ready toleration (300 s): 350 s', () => {
     const p = failing('bin-pack', { rescheduleDelayMs: undefined }, { rps: 5, durationMs: 420_000 })
-    expect(p.meanRecoveryMs).toBe(340_000 + 1000)
+    expect(p.meanRecoveryMs).toBe(350_000 + 1000)
   })
 
   test('all pods on the failed machine: the workload is down for the whole detection window', () => {
@@ -321,8 +321,8 @@ test.describe('K-02 a machine failure removes its pods now and replacements arri
         over: { rps: 5, durationMs: 420_000 }
       })
     )
-    // down from 5 s to 345 s of a 420 s run
-    expect(Math.abs(out.summary.errorRate - 340 / 420)).toBeLessThan(0.02)
+    // down from 5 s to 355 s of a 420 s run
+    expect(Math.abs(out.summary.errorRate - 350 / 420)).toBeLessThan(0.02)
   })
 })
 
@@ -386,7 +386,7 @@ test.describe('K-04 a CI runner pool is an M/M/c queue (ch14 section 6)', () => 
 // ───────────────────────── 4. The browser agrees ─────────────────────────
 
 test.describe('K-05 the browser shows the outage the engine computed for a bin-packed machine failure', () => {
-  test('3 pods on one machine, 340 s detection: the error rate matches the engine', async ({
+  test('3 pods on one machine, 10 s detection: the error rate matches the engine', async ({
     page
   }) => {
     const t = cluster('k05', {

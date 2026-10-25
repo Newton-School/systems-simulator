@@ -43,7 +43,7 @@ Total arrivals over a window = integral of the rate. For a piecewise-constant ra
 - Related models: the **on/off source** and the **Markov-modulated Poisson process (MMPP)**, a Poisson process whose rate switches according to a Markov chain; the on/off case is a special case with the off rate often zero. [S: network-traffic-model surveys]
 - **Why it matters.** Real network and request traffic is usually burstier than Poisson, at every time scale: Leland, Taqqu, Willinger and Wilson showed Ethernet traffic is self-similar, with no natural burst length, and that aggregating sources does not smooth it. [S: Leland et al., IEEE/ACM ToN 1994]
   A queue fed by bursty traffic has higher waits than Poisson at the same mean rate (large c_a² in Kingman's formula).
-- The on/off model has a **fixed** burst length; real burstiness has heavy-tailed durations. Treat results as a lower bound on real burstiness. **[?]**
+- The on/off model has a **fixed** burst length; real burstiness has heavy-tailed durations. Treat results as a lower bound on real burstiness (decided: the fixed burst length stays).
 - **Simulator behaviour (observed):** arrivals inside each phase are **evenly spaced**, not Poisson: per-second counts are exactly 400, 50, 50, 50, 400, ... So a burst only builds a queue when the burst rate exceeds the node's capacity. A 160 req/s burst against 200 req/s of capacity never waits at all; a 400 req/s burst does.
 
 ### 2.4 Diurnal
@@ -141,8 +141,8 @@ Over a 60 s run at seed S, with tolerance about 3 sd / sqrt(N) on counts:
 
 ## 8. Simulator scope
 
-Seven patterns, weighted request types, Zipf keyspaces, sessions and a request-budget stop. Sources are **open** (arrivals independent of completions). A closed or partly open source is not modelled. **[?]**
-How simulated time maps to the hours of the diurnal curve, and whether replay accepts a user trace, are open decisions **[?]**.
+Seven patterns, weighted request types, Zipf keyspaces, sessions and a request-budget stop. Sources are **open** (arrivals independent of completions). A closed-population source (N users with think time) is being added (decision B4).
+The diurnal curve spans the whole run by default; set `diurnal.startHour` to use real time from that hour instead (a 2 h run from 14 sees hours 14 and 15). A `replay` workload takes a `trace` of `{atMs, type?}` entries and issues exactly those arrivals, then ends; without a trace it is a constant rate.
 
 ## 9. Findings from the tests
 
@@ -153,7 +153,7 @@ How simulated time maps to the hours of the diurnal curve, and whether replay ac
 
 - Schroeder et al. (open versus closed workloads) is cited from its abstract and summaries; the eight principles in full and the MMPP papers are not read directly, and the chapter relies on them only for the open/closed distinction and the idea of burst-state arrivals.
 - Add a closed-population source (N users, think time Z) if teaching closed-loop behaviour matters; then the interactive response time law is directly testable.
-- Owner decisions `[?]`: diurnal time mapping; whether to model heavy-tailed burst durations.
+- Decided: heavy-tailed burst durations are not modelled. The replay `trace` field and the diurnal `startHour` (decisions B5 and B6) are implemented; the closed-population source (B4) is next.
 
 ## Sources
 

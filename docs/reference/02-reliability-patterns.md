@@ -32,7 +32,7 @@ of healthy requests are abandoned. [D]
   fast (about one network hop).
 - Timeout raised above the downstream p99.9: false timeouts → about 0.
 
-**Simulator scope.** Per-node and global `defaultTimeout`. Deadline propagation is [?].
+**Simulator scope.** Per-node and global `defaultTimeout`. Deadline propagation is not modelled (decided: documented as out of scope for now).
 
 ## 2. Retries, backoff and jitter
 
@@ -93,7 +93,7 @@ different error types; not every error should count. For async work it can trip 
 when a thread pool is exhausted.
 
 **Variants [S]:** some implementations reopen on any single failed probe; others require N probe successes before closing;
-the number of trial calls allowed in half-open varies. [?] Owner to fix which the simulator means.
+the number of trial calls allowed in half-open varies. Decided: the simulator's `halfOpenRequests` (default 1) is both the number of probe calls allowed and the number of consecutive successes needed to close; any failed probe reopens it. [repo]
 
 **Operational advice [P: Fowler]:** log every state change, expose state, alert on trips and resets, treat frequent trips
 as a deeper problem, allow manual trip/reset, and design clients for the failure (fallbacks: queue work, show stale data).
@@ -224,7 +224,7 @@ Endpoint Monitoring pattern]
 
 - A failed backend keeps receiving a share of traffic until the detection delay passes; those requests fail or time out.
   After removal, the survivors carry n/(n − 1) of their previous load (chapter 01 section 8).
-- Recovery: the backend rejoins after the configured number of consecutive successes. [?] Owner to fix this.
+- Recovery: the backend rejoins after the configured number of consecutive successes. Decided: the backend rejoins after the configured number of consecutive successful probes (the Health Check Manager's `healthyThreshold`).
 - All backends unhealthy: the router's documented behaviour (serve anyway, or reject) must be what the UI shows. [?]
 
 ## 8. How the patterns combine (expected interactions)
@@ -257,7 +257,7 @@ optimistic until rows 1 and 3 are closed. (Retries across layers now compound: k
 ## 10. Open items
 
 - Remaining `[K]`: none that carry a number; the Nygard stability patterns (_Release It!_) are cited indirectly through Fowler and Microsoft.
-- Owner decisions [?]: half-open probe count and close criterion (Resilience4j reference: 10 probes, close when both rates are below threshold); deadline propagation; behaviour when all backends are unhealthy; whether the simulated limiter is token bucket or leaky bucket.
+- Owner decisions [?]: half-open probe count and close criterion (Resilience4j reference: 10 probes, close when both rates are below threshold); decided: deadline propagation is not modelled, and the simulated limiter is a token bucket.
 
 ## Sources
 

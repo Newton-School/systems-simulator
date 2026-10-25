@@ -130,7 +130,7 @@ When a popular entry expires or the cache is flushed, **many requests miss toget
 ## 9. Open items
 
 - Che et al. is cited through its arXiv summary (1202.3974); the Facebook memcache paper's lease result (peak database query rate 17K/s without leases, 1.3K/s with, for one set of keys over a week) is read in the paper itself; Redis approximates LRU by sampling (`maxmemory-samples`, 5 by default) and its documentation reports little difference from true LRU under power-law access.
-- Decisions `[?]`: default fallback behaviour for a down cache; whether write-back with data loss on failure should be modelled.
+- Decisions `[?]`: default fallback behaviour for a down cache; write-back with data loss on failure is not modelled (decided).
 
 ## Sources
 

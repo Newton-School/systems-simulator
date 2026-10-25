@@ -101,7 +101,7 @@ A Kafka-style topic is divided into **partitions**; ordering holds **within** a 
 ## 11. Open items
 
 - DynamoDB limits are quoted from AWS's burst and adaptive capacity page and change over time; Vitess and Citus resharding mechanics are not cited and none of this chapter's numbers depend on them.
-- Decisions `[?]`: how a split shard's keys are divided in the simulator and whether splitting is instantaneous.
+- Decided: a split shard halves its key range, and the split is instantaneous.
 
 ## Sources
 

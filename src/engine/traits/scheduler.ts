@@ -22,7 +22,8 @@ export const DEFAULT_POD_STARTUP_MS = 5000
  * grace period (40s) and its pods are evicted when their default
  * not-ready/unreachable toleration (300s) runs out.
  */
-export const DEFAULT_RESCHEDULE_DELAY_MS = 340_000
+// Node-monitor grace period (50 s) plus the default not-ready toleration (300 s) in current Kubernetes.
+export const DEFAULT_RESCHEDULE_DELAY_MS = 350_000
 /** A cloud VM booting and joining the cluster (cluster autoscaler scale-up). */
 export const DEFAULT_MACHINE_PROVISION_MS = 90_000
 export const DEFAULT_PLACEMENT_STRATEGY: PlacementStrategy = 'spread'

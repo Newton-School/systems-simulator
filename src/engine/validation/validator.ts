@@ -27,6 +27,8 @@ import {
 } from '../traits/contentRouting'
 import { MATCH_OPERATORS } from '../core/requestSemantics'
 import { asDistributionConfig } from '../traits/serviceTimeOverride'
+import { STORAGE_PROFILE_COMPONENT_TYPES } from '../traits/storageProfile'
+import { defaultProfileFor } from '../catalog/capacityModel'
 import { INSTANCE_TYPES } from '../catalog/instanceCatalog'
 import { findCloudRegion } from '../catalog/locationCatalog'
 import { describeFaultDomain, faultDomainMemberIds } from '../core/faultDomains'
@@ -612,7 +614,15 @@ export const WorkloadProfileSchema = z.object({
   diurnal: z
     .object({
       peakMultiplier: z.number(),
-      hourlyMultipliers: DiurnalHourlyMultipliersSchema
+      hourlyMultipliers: DiurnalHourlyMultipliersSchema,
+      startHour: z.number().min(0).max(24).optional()
+    })
+    .optional(),
+
+  trace: z
+    .array(z.object({ atMs: z.number().nonnegative(), type: z.string().min(1).optional() }))
+    .refine((entries) => entries.every((e, i) => i === 0 || e.atMs >= entries[i - 1].atMs), {
+      message: 'Trace times must not decrease.'
     })
     .optional(),
 
@@ -915,6 +925,49 @@ function displayNodeLabel(node: TopologyJSON['nodes'][number]): string {
   return trimmedLabel.length > 0 ? trimmedLabel : node.id
 }
 
+function storageLatencyConfigured(config: Record<string, unknown> | undefined): boolean {
+  return [
+    'storageReadMs',
+    'storageWriteMs',
+    'storageQueryMs',
+    'storageScanMs',
+    'storageIngestMs'
+  ].some((key) => typeof config?.[key] === 'number')
+}
+
+/**
+ * Advice about a service-time distribution that is legal but easy to misread (chapter 03): a normal that
+ * often goes negative is clamped to 0, a Poisson draw is an integer count and a Beta draw is a proportion in
+ * [0, 1] (neither is naturally a duration), and mixture weights are normalised by their sum.
+ */
+function serviceDistributionWarnings(distribution: DistributionConfig): string[] {
+  const out: string[] = []
+  if (distribution.type === 'normal' && distribution.mean < 3 * distribution.stdDev) {
+    out.push(
+      `The normal service time (mean ${distribution.mean}, standard deviation ${distribution.stdDev}) can go below zero; negative draws are clamped to 0, so the real average is higher than the mean you set.`
+    )
+  }
+  if (distribution.type === 'poisson') {
+    out.push(
+      'A Poisson service time is a whole-number count, not a duration; check that it is in the unit you mean (milliseconds).'
+    )
+  }
+  if (distribution.type === 'beta') {
+    out.push(
+      'A Beta draw is a proportion between 0 and 1, so as a service time it is at most 1 ms; scale it or pick a duration distribution.'
+    )
+  }
+  if (distribution.type === 'mixture') {
+    const total = distribution.components.reduce((sum, c) => sum + c.weight, 0)
+    if (Math.abs(total - 1) > 1e-9) {
+      out.push(
+        `The mixture weights add up to ${Number(total.toFixed(6))}, not 1; they are normalised by their sum, so ${distribution.components.map((c) => `${Number((c.weight / total).toFixed(4))}`).join(' / ')} is what runs.`
+      )
+    }
+  }
+  return out
+}
+
 export const validateTopology = (
   input: unknown,
   options: ValidationOptions = {}
@@ -1117,6 +1170,30 @@ export const validateTopology = (
           timeout: 30_000
         }
       }
+    }
+
+    if (
+      node.processing &&
+      (STORAGE_PROFILE_COMPONENT_TYPES as readonly string[]).includes(node.type) &&
+      node.processing.distribution.type !== undefined &&
+      !storageLatencyConfigured(node.config)
+    ) {
+      const templateDefault = defaultProfileFor(node)?.processing?.distribution
+      if (
+        templateDefault !== undefined &&
+        JSON.stringify(templateDefault) !== JSON.stringify(node.processing.distribution)
+      ) {
+        warnings.push(
+          `${nodeLabel}: A data store's service time comes from its storage profile (read, write, query, scan or ingest latency), so the processing time you set is not used. Set storageReadMs, storageWriteMs and the others to change it.`
+        )
+      }
+    }
+    if (node.processing) {
+      warnings.push(
+        ...serviceDistributionWarnings(node.processing.distribution).map(
+          (message) => `${nodeLabel}: ${message}`
+        )
+      )
     }
 
     const queueLabels = queueFieldLabels(node.type)

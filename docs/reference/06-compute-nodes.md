@@ -168,7 +168,7 @@ Default profiles per type (the instance and kind a fresh palette node gets): mic
 ## 12. Open items
 
 - Not read directly: Goetz's book (the workers-per-core guidance is stated as Little's-law arithmetic instead) and the T3 credit-accounting rules.
-- Decide `[?]`: whether the simulator should model CPU contention when workers exceed physical cores, and GPU batching.
+- Decided: CPU contention when workers exceed cores is already modelled for cpu-bound nodes (section 4); GPU batching follows the batching decision in chapter 18.
 
 ## Sources
 

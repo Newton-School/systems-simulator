@@ -1,12 +1,12 @@
 # Question Policy (per-question flags) — Spec
 
 Status: proposed (not implemented). Companion to [feature-flags-spec.md](feature-flags-spec.md) and
-[feature-visibility-matrix-spec.md](feature-visibility-matrix-spec.md). Which *features* show in
+[feature-visibility-matrix-spec.md](feature-visibility-matrix-spec.md). Which _features_ show in
 which mode/environment is the matrix spec's job; its `policy.features` override supersedes this
 spec's `surfaces` block (3.4), so implement only one of the two.
 
 That spec covers **app-level** flags: release state of the app, decided by engineers, identical for
-every question. This one covers **content-level** flags: what a *question author* decides, stored
+every question. This one covers **content-level** flags: what a _question author_ decides, stored
 inside the `QuestionPackage`, versioned and exported with the question. Author-facing name:
 **Question Policy**. Three questions it answers per question:
 
@@ -18,16 +18,16 @@ inside the `QuestionPackage`, versioned and exported with the question. Author-f
 
 Per-question control is already real but scattered across eight places with different shapes:
 
-| Need | Exists today | Where | Gap |
-|---|---|---|---|
-| Lock scaffold parts | `scaffold.lockedNodeIds/lockedEdgeIds`, `constraints.canModifyScaffold`, `canRemoveScaffoldNodes` | `engine/analysis/question.ts`, `FlowCanvas.tsx` | Whole-node/edge granularity only; UI-enforced |
-| Restrict what can be placed | `constraints.allowedNodeTypes/forbiddenNodeTypes/maxNodeCount/maxBudget/maxTotalWorkers` | `question.ts` | Types only, no per-field control |
-| Gate custom builders | `builderPolicy` (+ `TRAIT_PACK_DATA_PATHS` to stop bypass via properties panel/terminal) | `engine/analysis/builderPolicy.ts` | The one place that already does path-level locking and violation-as-check; builder-only |
-| Mode-level visibility/capabilities | `EnvironmentProfile` (AUTHOR / ASSIGNMENT / PRACTICE) | `engine/analysis/environmentProfile.ts` | Host-chosen, not authored per question |
-| When results show | `RubricCheckVisibility` = HIDDEN / LIVE_DURING_BUILD / POST_SUBMIT_ONLY | `environmentProfile.ts` | One value per mode, not per check |
-| What is graded | `rubric.checks[]` (`points`, `passThreshold`), `structuralRules`, `semanticCriteria`, `justify`, `suite.cases[]` | `question.ts`, `rubric.ts` | No advisory/off state; no per-check scoping to cases or nodes |
-| Concept-first lock-down | `classroom.controls[]` ("if present, everything else is locked"), `guidedKnobs[].path`, `designChecks` | `engine/classroom/types.ts` | Classroom-only; the best existing model of an allow-list |
-| Experience type | `experienceEnvelope.ts` derives tabs/`canvasLocked` from tags, type, constraints | `renderer/utils/experienceEnvelope.ts` | Inferred from tags, not declared |
+| Need                               | Exists today                                                                                                     | Where                                           | Gap                                                                                     |
+| ---------------------------------- | ---------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- | --------------------------------------------------------------------------------------- |
+| Lock scaffold parts                | `scaffold.lockedNodeIds/lockedEdgeIds`, `constraints.canModifyScaffold`, `canRemoveScaffoldNodes`                | `engine/analysis/question.ts`, `FlowCanvas.tsx` | Whole-node/edge granularity only; UI-enforced                                           |
+| Restrict what can be placed        | `constraints.allowedNodeTypes/forbiddenNodeTypes/maxNodeCount/maxBudget/maxTotalWorkers`                         | `question.ts`                                   | Types only, no per-field control                                                        |
+| Gate custom builders               | `builderPolicy` (+ `TRAIT_PACK_DATA_PATHS` to stop bypass via properties panel/terminal)                         | `engine/analysis/builderPolicy.ts`              | The one place that already does path-level locking and violation-as-check; builder-only |
+| Mode-level visibility/capabilities | `EnvironmentProfile` (AUTHOR / ASSIGNMENT / PRACTICE)                                                            | `engine/analysis/environmentProfile.ts`         | Host-chosen, not authored per question                                                  |
+| When results show                  | `RubricCheckVisibility` = HIDDEN / LIVE_DURING_BUILD / POST_SUBMIT_ONLY                                          | `environmentProfile.ts`                         | One value per mode, not per check                                                       |
+| What is graded                     | `rubric.checks[]` (`points`, `passThreshold`), `structuralRules`, `semanticCriteria`, `justify`, `suite.cases[]` | `question.ts`, `rubric.ts`                      | No advisory/off state; no per-check scoping to cases or nodes                           |
+| Concept-first lock-down            | `classroom.controls[]` ("if present, everything else is locked"), `guidedKnobs[].path`, `designChecks`           | `engine/classroom/types.ts`                     | Classroom-only; the best existing model of an allow-list                                |
+| Experience type                    | `experienceEnvelope.ts` derives tabs/`canvasLocked` from tags, type, constraints                                 | `renderer/utils/experienceEnvelope.ts`          | Inferred from tags, not declared                                                        |
 
 Takeaway: the model needed is mostly an **allow-list with path granularity** (Classroom already
 has it) plus **per-check grading modes**, unified behind one resolver. Today's behaviour must be
@@ -36,6 +36,7 @@ the result of an absent policy.
 ## 2. Goals and non-goals
 
 Goals
+
 - One optional `policy` block on `QuestionPackage`; absent = byte-for-byte today's behaviour.
 - Path-level edit control (`sim.resources.instanceCount`, `config.cache.ttl`, …) in any mode, not just Classroom.
 - Per-check and per-case grading control: scored, advisory, hidden, off.
@@ -43,6 +44,7 @@ Goals
 - Authorable in Question Studio with presets, previewable, and validated for satisfiability.
 
 Non-goals
+
 - Replacing `EnvironmentProfile`. The mode stays host-supplied; policy refines it (6).
 - Anti-cheat or secrecy. The client is untrusted; policy is pedagogy plus a grader backstop (7).
 - Remote or conditional (per-student) policy. Same package, same policy.
@@ -84,16 +86,21 @@ export interface EditRule {
 }
 
 export type EditAction =
-  | 'add' | 'remove' | 'move' | 'connect' | 'disconnect'
-  | 'configure'          // change values under `paths`
-  | 'rename' | 'duplicate'
+  | 'add'
+  | 'remove'
+  | 'move'
+  | 'connect'
+  | 'disconnect'
+  | 'configure' // change values under `paths`
+  | 'rename'
+  | 'duplicate'
 
 export interface TargetSelector {
   nodeIds?: string[]
-  nodeTypes?: string[]                 // engine componentType, family-aware like classroom givens
-  origin?: 'scaffold' | 'student'      // scaffold nodes vs ones the student added
+  nodeTypes?: string[] // engine componentType, family-aware like classroom givens
+  origin?: 'scaffold' | 'student' // scaffold nodes vs ones the student added
   edgeIds?: string[]
-  paths?: string[]                     // config paths with * and ** globs; only meaningful for 'configure'
+  paths?: string[] // config paths with * and ** globs; only meaningful for 'configure'
 }
 ```
 
@@ -113,21 +120,21 @@ Example, "tune the cache only":
 
 Back-compat sugar, normalised at load into rules, never both written back:
 
-| Legacy | Equivalent |
-|---|---|
-| `lockedNodeIds` / `lockedEdgeIds` | `deny` `remove`+`configure`+`move` / `disconnect` on those ids |
-| `canModifyScaffold:false` | `deny` `configure`+`move`+`rename` on `origin:'scaffold'` |
-| `canRemoveScaffoldNodes:false` | `deny` `remove` on `origin:'scaffold'` |
-| `allowedNodeTypes` / `forbiddenNodeTypes` | `allow`/`deny` `add` by `nodeTypes` |
-| `classroom.controls[]` | allow-list with `default:'locked'` (Classroom keeps its own schema; resolver reads it) |
-| `builderPolicy` | stays; its path table (`TRAIT_PACK_DATA_PATHS`) feeds the same path matcher |
+| Legacy                                    | Equivalent                                                                             |
+| ----------------------------------------- | -------------------------------------------------------------------------------------- |
+| `lockedNodeIds` / `lockedEdgeIds`         | `deny` `remove`+`configure`+`move` / `disconnect` on those ids                         |
+| `canModifyScaffold:false`                 | `deny` `configure`+`move`+`rename` on `origin:'scaffold'`                              |
+| `canRemoveScaffoldNodes:false`            | `deny` `remove` on `origin:'scaffold'`                                                 |
+| `allowedNodeTypes` / `forbiddenNodeTypes` | `allow`/`deny` `add` by `nodeTypes`                                                    |
+| `classroom.controls[]`                    | allow-list with `default:'locked'` (Classroom keeps its own schema; resolver reads it) |
+| `builderPolicy`                           | stays; its path table (`TRAIT_PACK_DATA_PATHS`) feeds the same path matcher            |
 
 If both a legacy field and `edit` are present, `edit` wins and the authoring UI shows a conflict
 warning.
 
 ### 3.2 Grade
 
-Controls *what is evaluated and on what*, layered on the existing rubric/rules/cases. It never
+Controls _what is evaluated and on what_, layered on the existing rubric/rules/cases. It never
 adds checks of its own; it adjusts how existing ones count.
 
 ```ts
@@ -139,7 +146,14 @@ export type GradeMode = 'scored' | 'advisory' | 'hidden' | 'off'
 
 export interface GradePolicy {
   /** Axis switches. Omit = on. */
-  axes?: { rubric?: GradeMode; structural?: GradeMode; semantic?: GradeMode; justify?: GradeMode; invariants?: GradeMode; designChecks?: GradeMode }
+  axes?: {
+    rubric?: GradeMode
+    structural?: GradeMode
+    semantic?: GradeMode
+    justify?: GradeMode
+    invariants?: GradeMode
+    designChecks?: GradeMode
+  }
   /** Per-item overrides, keyed by existing ids. */
   items?: GradeItemOverride[]
   /** Overrides rubric.passThreshold when set. */
@@ -172,10 +186,11 @@ Example, "grade p99 on the spike case only; availability is advisory":
 ```
 
 Rules:
+
 - Item ids must exist; unknown ids are a validation error (not ignored).
 - `cases` must reference real `suite.cases[].id`; a `scored` item with an empty case set is an error.
 - `hidden` + a student-visible suite is allowed; `hidden` items still affect the verdict.
-- Grading results gain `policyMode` per check so reports show *why* something didn't count.
+- Grading results gain `policyMode` per check so reports show _why_ something didn't count.
 
 ### 3.3 Reveal
 
@@ -198,11 +213,11 @@ Declared instead of inferred from tags in `experienceEnvelope.ts`.
 
 ```ts
 export interface SurfacePolicy {
-  tabs?: ExperienceSidebarTab[]      // subset of what the mode offers
+  tabs?: ExperienceSidebarTab[] // subset of what the mode offers
   terminal?: boolean
   topologyFiles?: boolean
   topologyJson?: boolean
-  testRunLimit?: number              // max graded runs per attempt
+  testRunLimit?: number // max graded runs per attempt
   blueprints?: boolean
 }
 ```
@@ -235,15 +250,15 @@ renderer, CLI evaluator and Django/Newton export all share it.
 
 ## 5. Enforcement points
 
-| Layer | Change |
-|---|---|
-| Canvas (`FlowCanvas.tsx`) | Replace the scattered `constraints.*` reads with `canEdit(...)`; disabled drag/delete/connect show `reason` |
-| Properties panel / `fieldConfig.ts` | Fields render read-only with a lock tooltip when `configure` is denied for that path |
-| Terminal (`src/shared/commands`) | `set`/config commands call `canEdit` per path, so the terminal is not a bypass (same lesson as `TRAIT_PACK_DATA_PATHS`) |
-| Import / host messages (`questionHostMessaging.ts`) | Imported topology is diffed against scaffold and validated, not trusted |
-| **Grader (backstop)** | Diff submission vs scaffold; every violation becomes a failed check of kind `policy` (e.g. "Database config was modified"), exactly as `builderPolicy` violations already do |
-| Grading | `gradeModeFor` applied when assembling rubric/structural/semantic results; advisory/off/hidden handled before scoring |
-| Results UI | Respect `revealFor`; show advisory checks distinctly (no points, no pass/fail pressure) |
+| Layer                                               | Change                                                                                                                                                                       |
+| --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Canvas (`FlowCanvas.tsx`)                           | Replace the scattered `constraints.*` reads with `canEdit(...)`; disabled drag/delete/connect show `reason`                                                                  |
+| Properties panel / `fieldConfig.ts`                 | Fields render read-only with a lock tooltip when `configure` is denied for that path                                                                                         |
+| Terminal (`src/shared/commands`)                    | `set`/config commands call `canEdit` per path, so the terminal is not a bypass (same lesson as `TRAIT_PACK_DATA_PATHS`)                                                      |
+| Import / host messages (`questionHostMessaging.ts`) | Imported topology is diffed against scaffold and validated, not trusted                                                                                                      |
+| **Grader (backstop)**                               | Diff submission vs scaffold; every violation becomes a failed check of kind `policy` (e.g. "Database config was modified"), exactly as `builderPolicy` violations already do |
+| Grading                                             | `gradeModeFor` applied when assembling rubric/structural/semantic results; advisory/off/hidden handled before scoring                                                        |
+| Results UI                                          | Respect `revealFor`; show advisory checks distinctly (no points, no pass/fail pressure)                                                                                      |
 
 The grader backstop is non-negotiable: UI locks are convenience, the grader decides the verdict.
 
@@ -253,13 +268,14 @@ The grader backstop is non-negotiable: UI locks are convenience, the grader deci
 - **Classroom**: `classroom.controls` remains the concept-first allow-list. When present, the
   resolver treats it as `edit.default = 'locked'` plus its listed allows; `edit` rules then only
   tighten further. No change to Classroom authoring.
-- **App-level flags** gate the *rollout* of this feature, not individual questions:
+- **App-level flags** gate the _rollout_ of this feature, not individual questions:
   `questionPolicyEdit`, `questionPolicyGrade` (release flags, expiring). With the flag off,
   `policy` is parsed and validated but ignored, so questions can be authored ahead of the UI.
 
 ## 7. Validation and authoring
 
 Validation (extends the existing readiness audit / `AuthoringReadinessPanel`):
+
 - Schema strictness; unknown ids, cases, paths (against `fieldConfig` registry) are errors.
 - **Satisfiability:** replay the question's reference solution under the effective policy. If the
   solution needs an edit the policy denies, or a scored check can't pass, block publishing. The
@@ -269,14 +285,15 @@ Validation (extends the existing readiness audit / `AuthoringReadinessPanel`):
 - **Conflicts:** legacy field vs `edit` rule disagreement.
 
 Question Studio:
+
 - New "Policy" stage beside Constraints / Scaffold / Builder (`questionStudioStages.ts`), absorbing
   `QuestionConstraintsEditor`, `ScaffoldContractEditor` and `BuilderPolicyEditor` as sub-panels.
 - **Presets as data, not code**: presets live in a JSON file, users can save their own ("Save as
   preset"), and a question can also select a shared named environment
   (see [feature-visibility-matrix-spec.md](feature-visibility-matrix-spec.md) 4A). Everything
   below is editable without touching JSON.
-- **Presets** that write rules and are editable afterwards: *Open design*, *Fix and tune* (scaffold
-  locked, named paths editable), *Locked lab* (everything locked, run-only), *Predict then run*.
+- **Presets** that write rules and are editable afterwards: _Open design_, _Fix and tune_ (scaffold
+  locked, named paths editable), _Locked lab_ (everything locked, run-only), _Predict then run_.
 - Click a node in the scaffold canvas to toggle per-path editability; each rule shows the
   students' view live in `LearnerExperiencePreview`.
 - Rubric editor gets a per-check mode selector (scored / advisory / hidden / off) and case scope.

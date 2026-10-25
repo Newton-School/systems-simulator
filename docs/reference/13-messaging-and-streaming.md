@@ -133,7 +133,7 @@ Known probe result recorded in the project: a stream with 200 produced and a slo
 ## 12. Open items
 
 - Kafka's own design documentation could not be fetched as text; delivery, consumer-group and acks claims are cited to Conduktor's guides and the SQS developer guide (visibility timeout, read directly). A source for rebalance cost and the SQS FIFO deduplication window are not cited, and no figure here depends on them.
-- Decisions `[?]`: whether the stream and queue counters should be labelled "produced" and "delivered" (carried over from the engine probe notes).
+- Decided: a `queue` node now reports `messagesProduced` and `messagesDelivered`; its `totalArrived` is their sum (so 1,000 messages read as 2,000 arrivals). A stream's identity is produced = committed + lag.
 
 ## Sources
 

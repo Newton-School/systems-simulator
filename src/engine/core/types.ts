@@ -627,7 +627,18 @@ export interface WorkloadProfile {
      * 24 values, one per hour in the day (0–23).
      */
     hourlyMultipliers: DiurnalHourlyMultipliers
+    /**
+     * Hour of the day (0 to 23.99) at which the run starts, with real time from there on: a 2 h run
+     * from 14 sees hours 14 and 15 of the curve. Omitted: the 24 hours span the whole run.
+     */
+    startHour?: number
   }
+  /**
+   * `replay` only: the recorded arrivals, in order. Each entry is a time in ms from the start of the run and,
+   * optionally, the request type (one of `requestDistribution`). When set, the arrivals are exactly these and
+   * `baseRps` is not used; the run ends after the last one.
+   */
+  trace?: Array<{ atMs: number; type?: string }>
   spike?: {
     /**
      * Time from the start of the simulation until the spike begins, in milliseconds.

@@ -135,12 +135,12 @@ test('E-04 a link is a FIFO server: offered traffic above the bandwidth is deliv
 test.describe('E-05 path-type latency: the defaults, in order and as documented (ch08 section 2.1)', () => {
   const median = (p: Parameters<typeof getPathTypeLatencyProfile>[0]) =>
     Math.exp(getPathTypeLatencyProfile(p).mu)
-  test('medians are 0.30, 1.0, 2.0, 60 and 99 ms and strictly increase with distance', () => {
+  test('medians are 0.10, 0.25, 0.50, 60 and 99 ms (one-way) and strictly increase with distance', () => {
     const order = ['same-rack', 'same-dc', 'cross-zone', 'cross-region', 'internet'] as const
     for (const [p, expected] of [
-      ['same-rack', 0.301],
-      ['same-dc', 1.0],
-      ['cross-zone', 2.014],
+      ['same-rack', 0.1],
+      ['same-dc', 0.25],
+      ['cross-zone', 0.5],
       ['cross-region', 60.34],
       ['internet', 99.48]
     ] as const) {
@@ -150,11 +150,12 @@ test.describe('E-05 path-type latency: the defaults, in order and as documented 
       expect(median(order[i])).toBeGreaterThan(median(order[i - 1]))
   })
 
-  // Decision needed, not a bug: the cross-zone default (median 2.0 ms) is about twice the 0.6 to 1.1 ms that
-  // measured inter-AZ averages show for AWS, and same-dc (1.0 ms) is about twice the 0.5 ms datacenter round trip.
-  // Whether the table means one-way or round trip is open (ch08 section 2.1).
-  test.fixme('E-05b cross-zone latency is calibrated to measured availability-zone latency (0.6 to 1.1 ms)', () => {
-    expect(median('cross-zone')).toBeLessThan(1.2)
+  // Decided (decision C1): the table is one-way, calibrated to half the measured round trips: 0.5 ms inside a
+  // datacenter, so 0.25 ms one way, and 0.6 to 1.1 ms between availability zones, so about 0.5 ms one way.
+  test('E-05b cross-zone latency is calibrated to measured availability-zone latency (0.6 to 1.1 ms round trip)', () => {
+    expect(median('cross-zone') * 2).toBeGreaterThan(0.6)
+    expect(median('cross-zone') * 2).toBeLessThan(1.2)
+    expect(median('same-dc') * 2).toBeLessThan(0.6)
   })
 })
 

@@ -61,8 +61,7 @@ Rules of thumb that follow: memory is about 1,500x faster than an SSD random rea
 ## 5. Object, block and file storage
 
 - **Object storage (S3):** flat namespace of bucket + key; whole-object PUT and GET over HTTP; very high durability and capacity; **strong read-after-write consistency** for PUT and DELETE in all regions (since 2020): a read after a successful PUT returns the new data, a list after a PUT shows it; updates to one key are atomic; there are **no atomic updates across keys**; concurrent writes to a key resolve last-writer-wins. Bucket configuration remains eventually consistent. [P: AWS S3 docs]
-- Latency is tens of milliseconds per request (simulator default: a 24 ms read and a 36 ms write); throughput scales by issuing many parallel requests; per-request overhead makes many small objects costly. [P: AWS S3 performance guide: roughly 100 to 200 ms for small objects and first byte, at least 5,500 GET and 3,500 PUT requests per second per prefix]
-  Known difference: the simulator's defaults (24 ms read) are several times faster than S3's documented first-byte latency; a design that leans on S3 latency will look better in the simulator than in practice.
+- Latency is tens of milliseconds per request (simulator default: a 100 ms read and a 150 ms write); throughput scales by issuing many parallel requests; per-request overhead makes many small objects costly. [P: AWS S3 performance guide: roughly 100 to 200 ms for small objects and first byte, at least 5,500 GET and 3,500 PUT requests per second per prefix]
 - Durability design target of 11 nines for standard classes. [P: AWS S3 storage classes: "designed to exceed 99.999999999%"; designed availability of Standard 99.99%]
 - **Block storage (EBS-like):** a raw volume attached to one instance; IOPS and throughput limits as in section 2. **Distributed file system (HDFS-style):** large files split into blocks replicated across nodes; high sequential throughput, poor for small files. [K]
 - **Archive storage:** cheap, slow retrieval (minutes to hours), minimum storage durations. **Backup service:** copies on a schedule; recovery point objective (RPO) = time since last backup; recovery time objective (RTO) = restore duration = data size / restore rate. [P: AWS S3 storage classes for archive retrieval (Glacier Flexible: minutes to hours, 90-day minimum; Deep Archive: 12 to 48 hours, 180-day minimum); definitions of RPO and RTO are standard]
@@ -116,7 +115,7 @@ Rules of thumb that follow: memory is about 1,500x faster than an SSD random rea
 ## 12. Open items
 
 - HNSW complexity: the paper's abstract claims logarithmic scaling [P: arXiv 1603.09320]; no measured figures are asserted here. DynamoDB per-partition limits are in chapter 12.
-- Decisions `[?]`: whether the simulator should model index depth (reads costing more as data grows) and compaction stalls.
+- Decided: index depth (reads costing more as data grows) and compaction stalls are not modelled.
 
 ## Sources
 

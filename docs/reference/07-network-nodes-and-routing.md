@@ -158,7 +158,7 @@ Directing users to the nearest or healthiest region (geo, latency, weighted and 
 ## 12. Open items
 
 - Karger et al. 1997, Maglev, and the Envoy and HAProxy documentation are not read directly; consistent hashing is sourced from Wikipedia and measured in the e2e flows `N-06`. Provider quotas for NAT, VPN and transit are deliberately not asserted.
-- Decisions `[?]`: behaviour when all targets are unhealthy; whether least-connections counts connections or in-flight requests.
+- Decisions `[?]`: behaviour when all targets are unhealthy; (decided: least-connections counts in-flight requests).
 
 ## Sources
 

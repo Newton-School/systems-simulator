@@ -389,11 +389,28 @@ test.describe('what the user sees (ch05 sections 2 and 6)', () => {
   })
 })
 
-// Tracked gaps from chapter 05 section 8. `fixme` documents them without running.
+// Tracked gap from chapter 05 section 8 (decision B4, in progress): `fixme` documents it without running.
 test.fixme('W-14 closed population: N users with think time Z; R = N / X - Z holds (ch05 section 3)', () => {
   // The simulator has only open sources. A closed source needs a user count and a think time.
 })
 
-test.fixme('W-15 replay: re-issue a recorded trace (ch05 section 2.7)', () => {
-  // `pattern: replay` exists but WorkloadProfile has no field to carry a trace, so there is nothing to replay.
+// Decision B5 (added): `trace` carries the recorded arrivals of a `replay` workload.
+test('W-15 replay: a recorded trace is re-issued at exactly its recorded times (ch05 section 2.7)', () => {
+  const out = runEngine(
+    pattern('w15', {
+      pattern: 'replay',
+      baseRps: 1,
+      trace: [{ atMs: 1000 }, { atMs: 1500 }, { atMs: 1501 }, { atMs: 9000 }, { atMs: 30_000 }]
+    })
+  )
+  expect(out.summary.totalRequests).toBe(5)
+  // Windows with no arrivals are not reported, so read each window's start (ms) and its count.
+  const windows = out.summary.latencyWindows.map(
+    (w) => [w.windowStartMs, w.successCount + w.errorCount] as const
+  )
+  expect(windows).toEqual([
+    [1000, 3], // 1000, 1500 and 1501 ms
+    [9000, 1],
+    [30_000, 1]
+  ])
 })

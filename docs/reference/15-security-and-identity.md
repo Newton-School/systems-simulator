@@ -81,7 +81,7 @@ A web application firewall matches requests against rules. The OWASP Core Rule S
 ## 8. Open items
 
 - Not asserted: KMS request quotas (provider- and region-specific) and CRS performance measurements. JWT validation is cited to RFC 7519; OCSP and CRL behaviour is stated only qualitatively.
-- Decisions `[?]`: whether a KMS node should enforce a request quota (the trait comment says quota-limited; the cost is modelled, the quota is not); whether authentication should model a remote identity-provider call with caching.
+- Decisions `[?]`: whether a KMS node should enforce a request quota (the trait comment says quota-limited; the cost is modelled, the quota is not); a remote identity-provider call with caching is not modelled, and neither are the IAM policy evaluation rules (decided).
 
 ## Sources
 

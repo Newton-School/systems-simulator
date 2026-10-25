@@ -78,7 +78,7 @@ Other standard designs and what they test: **news feed** (fan-out, caching, hot 
 ## 7. Open items
 
 - The pattern descriptions rest on the sources below (AWS cell-based, microservices.io, Fowler); the Azure pattern catalogue and Twitter timeline write-ups are not cited, and the fan-out arithmetic is derived, not measured.
-- Decisions `[?]`: whether the simulator should offer saga and outbox as first-class components or leave them as compositions of queue, database and idempotency nodes.
+- Decided: saga and outbox stay as compositions of queue, database and idempotency nodes.
 
 ## Sources
 

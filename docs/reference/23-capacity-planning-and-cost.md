@@ -91,7 +91,7 @@ Cost is a function of the design, so it can be a constraint in a question: "meet
 ## 9. Open items
 
 - Read directly: the AWS EC2 pricing page (Savings Plans up to 72%, Spot up to 90%, chapter 06). List prices come from third-party aggregators; the Well-Architected cost pillar and the SRE capacity chapter are not cited.
-- Decisions `[?]`: whether the pricing multipliers should follow real discounts; whether to model egress and cross-zone transfer cost.
+- Decided: the pricing multipliers stay conservative and are labelled as such; egress and cross-zone transfer cost are not modelled yet.
 
 ## Sources
 

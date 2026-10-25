@@ -53,9 +53,7 @@ The scheduler places a pod only on a node with enough free **CPU and memory** (a
 
 ## 5. Node failure and recovery
 
-A node that stops reporting is marked **NotReady** after the node-monitor grace period (**50 s** in the current `kube-controller-manager` reference, 40 s in older releases), and its pods are evicted when their default not-ready toleration (**300 s**) runs out, so replacement pods start only after about **350 s** (340 s with the older grace period); then each needs scheduling room, an image pull and start-up. [P: Kubernetes kube-controller-manager reference, `--node-monitor-grace-period` default 50 s; Kubernetes taints docs, automatic `tolerationSeconds=300` for not-ready and unreachable]
-
-Known difference: the simulator's `rescheduleDelayMs` default is 340,000 ms (the older 40 s grace), so a design simulated at the default recovers 10 s sooner than a current Kubernetes cluster.
+A node that stops reporting is marked **NotReady** after the node-monitor grace period (**50 s** in the current `kube-controller-manager` reference, 40 s in older releases), and its pods are evicted when their default not-ready toleration (**300 s**) runs out, so replacement pods start only after about **350 s** (340 s with the older 40 s grace period; the simulator's default is 350 s); then each needs scheduling room, an image pull and start-up. [P: Kubernetes kube-controller-manager reference, `--node-monitor-grace-period` default 50 s; Kubernetes taints docs, automatic `tolerationSeconds=300` for not-ready and unreachable]
 
 During the 50 s before NotReady the dead pods still sit in service endpoints, so a share of requests equal to (pods on the failed node / ready pods) errors out. A workload with all replicas on one node is down for the whole 350 s plus start-up. [D]
 
@@ -92,7 +90,7 @@ CI runner example: builds at 6 per hour, 10 minutes each, 2 runners: offered loa
 | `autoscaleStep` (1)                                                | instances added or removed per tick            | HPA rate policy               |
 | `placementStrategy`                                                | `spread` or `bin-pack`                         | scheduler scoring             |
 | `podStartupMs` (5000)                                              | time from placement to ready                   | image pull + start            |
-| `rescheduleDelayMs` (340000)                                       | failure detection + eviction                   | 40 s + 300 s (50 s now)       |
+| `rescheduleDelayMs` (350000)                                       | failure detection + eviction                   | 50 s + 300 s                  |
 | `clusterMaxMachines`, `machineProvisionMs` (90000)                 | node limit, boot time                          | Cluster Autoscaler            |
 | `machineFailureAtMs`, `machineFailureCount`, `machineRecoveryAtMs` | scripted machine loss                          | node failure                  |
 | `scheduledOn`                                                      | the cluster a workload is placed on            | namespace / node pool         |

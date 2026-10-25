@@ -42,7 +42,7 @@ start the next waiter, forward the response). A failure injects `node-failure` a
 
 - The unit of time must be fixed once. The simulator stores time as integer **microseconds**, so no floating-point drift accumulates over long runs. [repo]
 - Two events can have the same timestamp. The order in which they run must be defined and repeatable (for example by a priority class and then insertion order),
-  otherwise runs with the same seed can diverge. **[?]** Owner to document the tie-break order.
+  otherwise runs with the same seed can diverge. The simulator orders events by timestamp, then by priority class (system 0, arrival 1, processing 2, departure 3, timeout 4, so a request that completes at the same instant as its timeout completes first), then by insertion order. [repo: `core/events.ts`, `scheduler/min-heap.ts`]
 - A service time of 0 ms is legal (a pass-through). It must still be processed as a separate event at the same instant, never skipped.
 
 ## 3. Randomness, seeds and reproducibility
@@ -156,7 +156,7 @@ intervals separate. Never compare two single runs and call the smaller number "b
 ## 10. Simulator scope
 
 Modelled: next-event loop in integer microseconds, a seeded generator, per-node queues (c servers, finite capacity K), warmup, request-budget and saturation stop conditions,
-an analytic fall-back above an event-count ceiling. Open **[?]**: tie-break order, independent streams, how warmup length is validated, whether a confidence interval is ever reported to the user.
+an analytic fall-back above an event-count ceiling. Decided: the tie-break order is documented in section 2, independent per-node random streams are being added (decision A4), and a confidence interval stays in the test tooling rather than the user-facing output.
 
 ## 11. Open items
 
