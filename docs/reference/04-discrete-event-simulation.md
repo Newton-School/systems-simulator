@@ -83,7 +83,7 @@ Using steady-state formulas (chapter 01) to judge a short terminating run is the
 - **Rule of thumb.** The transient dies out over a few **relaxation times**. For an M/M/1 queue the relaxation time is about 1 / (mu (1 − sqrt(rho))²). [K, to verify in Kleinrock or
   Harchol-Balter] At mu = 100 per second this gives 0.12 s at rho 0.5, 0.90 s at rho 0.8, and 15.6 s at rho 0.95. Warmup must grow sharply with utilisation; a fixed 5 s warmup is
   fine at 80% load and nowhere near enough at 95%. [computed]
-- **Run length.** After warmup the measured window must hold enough completed requests that the estimate is stable. At rho 0.6 with 20 ms service, 600 s gives about 36,000 requests.
+- **Run length.** After warmup the measured window must hold enough completed requests that the estimate is stable. At rho 0.6 with 20 ms service, 600 s gives about 18,000 requests.
   Heavy-tailed service or rho near 1 needs far more.
 - **Autocorrelation.** Consecutive waits are positively correlated (a busy period raises many in a row), so N completed requests carry much less information than N independent
   samples. This is why raw standard errors from one run are too optimistic. [K]

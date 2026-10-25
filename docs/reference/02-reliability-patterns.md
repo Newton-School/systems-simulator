@@ -65,7 +65,7 @@ Decorrelated used more calls. Jitter does not change the N² growth of total wor
 - **Across layers multiplies:** 3 attempts per layer over 5 layers = 3⁵ = **243x** load on the database. Retry at one
   point in the stack. [P: AWS]
 - Expected attempts per call when each attempt fails independently with probability p and up to r retries are allowed:
-  E[attempts] = Σ\_{k=0}^{r} pᵏ = (1 − p^(r+1)) / (1 − p). Example p = 0.5, r = 3: 1.875x load. If p → 1 it tends to 1 + r. [K derived]
+  E[attempts] = `p^0 + p^1 + ... + p^r` = (1 − p^(r+1)) / (1 − p). Example p = 0.5, r = 3: 1.875x load. If p → 1 it tends to 1 + r. [K derived]
 - **Retry budget:** allow retries from a token bucket (spend a token per retry, refill slowly); when empty, retry at a fixed
   low rate. This caps amplification. [P: AWS, the AWS SDK added it in 2016]
 
@@ -243,15 +243,16 @@ Endpoint Monitoring pattern]
 The chapter describes real systems. These are the known places the simulator is simpler. Each has a
 tracked test in `e2e/journeys/ch02-reliability.spec.ts`; delete the note when its test starts passing.
 
-| #   | Chapter says                                                                 | Simulator does today                                                                                                                                                                                                                            | Tracked by                        |
-| --- | ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------- |
-| 1   | Retries cover transient faults, including timeouts (section 2)               | Retries fire only for `node_failed`, `node_error_rate`, `circuit_breaker_open`, `lock_contended` and `connection_reset`. A timeout (blackholed backend) is **not** retried, so a retry policy gives no protection against a silent dead server. | `R-02c` (parked, decision needed) |
-| 2   | A configured circuit breaker stops calls to a failing dependency (section 3) | It gates only on `sidecar`, `service-mesh` and `circuit-breaker-controller`. On other nodes the setting is accepted but inert. The validator now warns at import.                                                                               | `R-03d` (warning is live)         |
-| 3   | Detection delay is about probe interval x consecutive failures (section 7)   | A failed backend is removed from routing instantly. No traffic reaches it after the fault.                                                                                                                                                      | `R-07c` (expected failure)        |
+| #   | Chapter says                                                                                                   | Simulator does today                                                                                                                                                                                                                            | Tracked by                        |
+| --- | -------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------- |
+| 1   | Retries cover transient faults, including timeouts (section 2)                                                 | Retries fire only for `node_failed`, `node_error_rate`, `circuit_breaker_open`, `lock_contended` and `connection_reset`. A timeout (blackholed backend) is **not** retried, so a retry policy gives no protection against a silent dead server. | `R-02c` (parked, decision needed) |
+| 2   | A configured circuit breaker stops calls to a failing dependency (section 3)                                   | It gates only on `sidecar`, `service-mesh` and `circuit-breaker-controller`. On other nodes the setting is accepted but inert. The validator now warns at import.                                                                               | `R-03d` (warning is live)         |
+| 3   | Detection delay is about probe interval x consecutive failures (section 7)                                     | A failed backend is removed from routing instantly. No traffic reaches it after the fault.                                                                                                                                                      | `R-07c` (expected failure)        |
+| 4   | Retries multiply across layers (section 2): 3 layers of 4 attempts send 4^3 = 64 calls to a failing dependency | Only the node directly upstream of the failure retries; a second and third layer with the same policy add nothing, so the retry-storm hazard cannot arise.                                                                                      | `F-05` (expected failure)         |
 
 Teaching consequence: a student who adds retries and then kills the backend silently will see no
-amplification in the simulator, while real systems amplify. Treat results for those two scenarios as
-optimistic until rows 1 and 3 are closed.
+amplification in the simulator, while real systems amplify. Treat results for those scenarios as
+optimistic until rows 1, 3 and 4 are closed.
 
 ## 10. Open items
 

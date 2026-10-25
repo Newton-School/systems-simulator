@@ -62,7 +62,7 @@ Rules of thumb that follow: memory is about 1,500x faster than an SSD random rea
 ## 5. Object, block and file storage
 
 - **Object storage (S3):** flat namespace of bucket + key; whole-object PUT and GET over HTTP; very high durability and capacity; **strong read-after-write consistency** for PUT and DELETE in all regions (since 2020): a read after a successful PUT returns the new data, a list after a PUT shows it; updates to one key are atomic; there are **no atomic updates across keys**; concurrent writes to a key resolve last-writer-wins. Bucket configuration remains eventually consistent. [P: AWS S3 docs]
-- Latency is tens of milliseconds per request (simulator default 20 ms); throughput scales by issuing many parallel requests; per-request overhead makes many small objects costly. [K]
+- Latency is tens of milliseconds per request (simulator default: a 24 ms read and a 36 ms write); throughput scales by issuing many parallel requests; per-request overhead makes many small objects costly. [K]
 - Durability design target of 11 nines for standard classes. [K, verify against the S3 storage-class page]
 - **Block storage (EBS-like):** a raw volume attached to one instance; IOPS and throughput limits as in section 2. **Distributed file system (HDFS-style):** large files split into blocks replicated across nodes; high sequential throughput, poor for small files. [K]
 - **Archive storage:** cheap, slow retrieval (minutes to hours), minimum storage durations. **Backup service:** copies on a schedule; recovery point objective (RPO) = time since last backup; recovery time objective (RTO) = restore duration = data size / restore rate. [K]
@@ -71,7 +71,7 @@ Rules of thumb that follow: memory is about 1,500x faster than an SSD random rea
 ## 6. Analytical stores
 
 - **Row vs column layout:** columnar stores read only the columns a query touches and compress each column well (similar values together). Vendor figures: 5 to 10x compression against 1.5 to 3x for row storage (rough). Columnar suits aggregations over many rows; point lookups and single-row updates are slower because a row must be reassembled. [S: columnar storage guides]
-- **Data warehouse:** columnar, SQL, structured, loaded in batches (ETL, chapter 18); queries scan large ranges (simulator default 12 ms per operation, representing a bounded scan). **Data lake:** raw files (often Parquet) in object storage, schema applied on read; cheap, flexible, slower (simulator default 18 ms). [K]
+- **Data warehouse:** columnar, SQL, structured, loaded in batches (ETL, chapter 18); queries scan large ranges (simulator default: an 18 ms read and a 28 ms write). **Data lake:** raw files (often Parquet) in object storage, schema applied on read; cheap, flexible, slower (simulator default: 22 ms and 26 ms). [K]
 - **Scan vs point read** is a real difference of orders of magnitude: a scan of n rows costs about n x per-row cost, a point read costs about log N index reads. The simulator's storage profile gives reads and scans different service times. [K, repo config]
 - **Time-series databases** store timestamped samples append-mostly with time-range queries and downsampling; **search index** (inverted index) maps terms to documents, fast for text queries and slow to update; **graph databases** follow edges cheaply but need whole-graph partitioning thought. [K]
 

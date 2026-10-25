@@ -149,7 +149,7 @@ random assignment. [K]
 
 ### 5.2 Erlang B (loss system, M/M/c/c) [S/K]
 
-No waiting room. B(c, A) = (A^c / c!) / Σ\_{k=0}^{c} A^k / k!. Stable recursion: B(0) = 1,
+No waiting room. `B(c, A) = (A^c / c!) / (sum of A^k / k! for k = 0 to c)`. Stable recursion: B(0) = 1,
 B(n) = A·B(n − 1) / (n + A·B(n − 1)). [K]
 
 ### 5.3 M/M/c/K, finite capacity [S for the properties; K for the formula]
@@ -158,14 +158,14 @@ Capacity K ≥ c (servers plus waiting slots). Unnormalised state weights:
 
 - p_n = Aⁿ / n! for 0 ≤ n ≤ c
 - p_n = (A^c / c!) · (A/c)^(n−c) for c < n ≤ K
-- P*K = p_K / Σ*{n=0}^{K} p_n (blocking probability)
+- `P_K = p_K / (sum of p_n for n = 0 to K)` (blocking probability)
 
 Properties [S]:
 
 - Always stable: the finite buffer caps the population, so a steady state exists even if ρ > 1.
 - Effective (admitted) arrival rate λ_eff = λ·(1 − P_K); throughput X = λ_eff; offered load beyond capacity is rejected.
-- M/M/1/K closed form: P_K = (1 − ρ)·ρ^K / (1 − ρ^(K+1)) for ρ ≠ 1, and 1/(K + 1) for ρ = 1, with ρ = λ/μ. [S, from a
-  user-uploaded document; recheck against a textbook before use as an oracle]
+- M/M/1/K closed form: P_K = (1 − ρ)·ρ^K / (1 − ρ^(K+1)) for ρ ≠ 1, and 1/(K + 1) for ρ = 1, with ρ = λ/μ (the standard M/M/1/K result; the hand-computed example below
+  checks it). [S]
 - c = K reduces to Erlang B. [S]
 
 **Overloaded finite node, worked example from the project's probe** (this is arithmetic you can check by hand):

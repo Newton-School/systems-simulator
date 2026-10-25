@@ -112,7 +112,7 @@ test.describe('oracle self-check against the reference chapters', () => {
     expect(tokenBucketBurstSec(1, 20, 10)).toBeCloseTo(0.1, 9)
   })
 
-  test('ORC-10 Che approximation: N=1000, s=1 gives 21.0%, 57.7%, 77.1% at C=10,100,300 (ch10 2.3)', () => {
+  test('ORC-10 Che approximation: N=1000, s=1 gives 20.9%, 57.7%, 77.1% at C=10,100,300 (ch10 2.3)', () => {
     expect(cheHitRatio(1000, 1, 10)).toBeCloseTo(0.21, 2)
     expect(cheHitRatio(1000, 1, 100)).toBeCloseTo(0.577, 2)
     expect(cheHitRatio(1000, 1, 300)).toBeCloseTo(0.771, 2)

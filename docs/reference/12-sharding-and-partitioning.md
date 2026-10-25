@@ -44,7 +44,7 @@ Real access is skewed (Zipf, chapter 05). **Hashing the key spreads many keys ev
 
 **Testable expectations**
 
-- Hash routing over many uniformly distributed keys gives shard shares of 1/n within the sampling error plus the ring's own spread: a consistent-hash ring with V virtual nodes per shard gives each shard an arc with relative standard deviation about 1/sqrt(V) (Karger et al.; Dynamo), so V = 64 leaves shares up to roughly 10% off the even split and V = 256 about 5%. Under Zipf, the busiest shard's share is at least the hottest key's share.
+- Hash routing over many uniformly distributed keys gives shard shares of 1/n within the sampling error plus the ring's own spread: a consistent-hash ring with V virtual nodes per shard gives each shard an arc with relative standard deviation about 1/sqrt(V) (Karger et al.; Dynamo), so V = 64 gives a standard deviation of about 12.5% of the even share (individual shards can be 25% off) and V = 256 about 6%. Under Zipf, the busiest shard's share is at least the hottest key's share.
 - The busiest shard saturates first; total throughput is bounded by the hottest shard's capacity divided by its share of traffic: with a hottest shard of capacity C carrying share f, system throughput <= C / f.
   Worked: C = 1,000 req/s per shard and f = 0.134 gives at most **7,463 req/s** in total, however many shards exist. [computed]
 

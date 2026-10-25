@@ -117,17 +117,17 @@ Multi-leader and leaderless systems must reconcile concurrent writes: **last-wri
 
 ## 10. Simulator parameter map
 
-| Setting                                   | Meaning                                                                        |
-| ----------------------------------------- | ------------------------------------------------------------------------------ |
-| `replicationEnabled`, `replicationRole`   | `primary`/`leader`, `replica`/`follower`                                       |
-| `replicaMembers`                          | the followers of a primary                                                     |
-| `replicationLagMs`                        | delay before a follower applies a committed write                              |
-| `writeAckPolicy`                          | when a write is acknowledged (local, quorum, all)                              |
-| `consensusProtocol`, `conflictResolution` | named for the replicated store                                                 |
-| `failoverUntilMs`                         | window during which the node rejects traffic while a promotion completes       |
-| `consistencyModel`                        | `eventual`, `monotonic-reads`, `read-your-writes`, `strong` for follower reads |
-| `readLatency`, `writeLatency`             | separate read and write service times                                          |
-| lock settings                             | `leaseMs`, `acquireMs`, `fencing`, `lockKeyField`                              |
+| Setting                                   | Meaning                                                                                                            |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `replicationEnabled`, `replicationRole`   | `primary`/`leader`, `replica`/`follower`                                                                           |
+| `replicaMembers`                          | the followers of a primary                                                                                         |
+| `replicationLagMs`                        | delay before a follower applies a committed write                                                                  |
+| `writeAckPolicy`                          | when a write is acknowledged: `primary` (the primary alone) or `quorum`                                            |
+| `consensusProtocol`, `conflictResolution` | named for the replicated store                                                                                     |
+| `failoverUntilMs`                         | the simulated time (ms from the start of the run) until which the node rejects traffic while a promotion completes |
+| `consistencyModel`                        | `eventual`, `monotonic-reads`, `read-your-writes`, `strong` for follower reads                                     |
+| `readLatency`, `writeLatency`             | separate read and write service times                                                                              |
+| lock settings                             | `leaseMs`, `acquireMs`, `fencing`, `lockKeyField`                                                                  |
 
 The simulator tracks a **version per key**: each write the leader finishes commits a new version; a follower applies it `replicationLagMs` later; a read returns the newest version its node has applied. It counts stale reads, read-your-writes violations and monotonic-read violations, and checks single-key register linearizability on the recorded history. [repo]
 

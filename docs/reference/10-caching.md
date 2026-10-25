@@ -55,7 +55,7 @@ Redis offers approximated LRU and LFU (`allkeys-lru`, `allkeys-lfu`) and TTL-bas
 For independent requests with rate q_i for item i, an LRU cache of capacity C behaves as if each item stays a "characteristic time" t_C after its last request, where t_C solves
 **C = sum over i of (1 − e^(−q_i t_C))**, and the hit probability of item i is **1 − e^(−q_i t_C)**; the overall hit ratio is the request-weighted sum. It is accurate for large catalogues of items that each have a small share of popularity, and exact in the limit under Zipf popularity. [S]
 
-- N = 1,000 keys, s = 1.0: LRU hit ratio **21.0%** at C = 10, **57.7%** at C = 100, **77.1%** at C = 300, against the ideal 39.1%, 69.3% and 83.9%. [computed]
+- N = 1,000 keys, s = 1.0: LRU hit ratio **20.9%** at C = 10, **57.7%** at C = 100, **77.1%** at C = 300, against the ideal 39.1%, 69.3% and 83.9%. [computed]
 - s = 0.8: 8.2%, 37.8% and 62.3%, against 23.1%, 52.6% and 72.5%. [computed]
 - Reading: **a real LRU cache holding 10% of the keys gets about 58% of the requests, not the 69% of a perfect one**: the 11-point gap is the price of not knowing the future. Lower skew (smaller s) hurts more.
 

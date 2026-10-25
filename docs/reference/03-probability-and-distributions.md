@@ -203,7 +203,7 @@ For N = 200,000 seeded draws, with tolerance about 3 sd / sqrt(N) on the mean an
 
 - Fetch and cite: a statistics text for the quantile and moment formulas marked `[K]` (uniform, binomial); the sfc32 and xmur3 generators and their test-battery results.
 - Owner decisions `[?]`: normal-draw truncation and clamping (3.4); Poisson and beta as durations (3.7, 3.11); mixture weights that do not sum to 1 (3.12).
-- A distribution-sampling test suite (`e2e/journeys/ch03-distributions.spec.ts`) is the natural next step; the oracles are in this chapter.
+- The distribution-sampling flows are in `e2e/journeys/ch03-distributions.spec.ts`; the oracles are in this chapter.
 
 ## Sources
 
