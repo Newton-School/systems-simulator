@@ -1530,9 +1530,12 @@ export const PropertiesPanel = ({
   const [tab, setTab] = useState<PanelTab>('metrics')
   const [runInspectorTab, setRunInspectorTab] = useState<RunInspectorTab>('nodes')
   const locationTopology = useMemo(() => buildLocationTopology(nodes), [nodes])
+  const simpleShell = useStore((state) => state.displaySettings.simpleShell)
   const returnToRunInspector = () => {
     setRunInspectorPinned(true)
-    selectGraphElements({})
+    // The simple layout closes the inspector when nothing is selected, so clearing the selection
+    // here would close the Run Inspector the person just asked for. Pinned wins over a selection.
+    if (!simpleShell) selectGraphElements({})
   }
   const openRunInspectorDetail = (selection: { nodeId?: string; edgeId?: string }) => {
     selectGraphElements(selection)
