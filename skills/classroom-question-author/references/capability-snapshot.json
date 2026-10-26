@@ -1,5 +1,5 @@
 {
-  "snapshotVersion": "2026-10-15",
+  "snapshotVersion": "2026-10-26",
   "sources": [
     "src/engine/analysis/authoringCapabilities.ts",
     "src/engine/analysis/builderPolicy.ts",
@@ -3836,6 +3836,42 @@
       ]
     },
     {
+      "id": "slo.maxBurnRate",
+      "kind": "invariant",
+      "group": "invariants",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete",
+        "analytic"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ]
+    },
+    {
+      "id": "slo.budgetsExceeded.count",
+      "kind": "invariant",
+      "group": "invariants",
+      "unit": "count",
+      "evidenceModes": [
+        "discrete",
+        "analytic"
+      ],
+      "operators": [
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "==",
+        "!="
+      ]
+    },
+    {
       "id": "conservation.unbalanced",
       "kind": "invariant",
       "group": "invariants",
@@ -3903,7 +3939,45 @@
     "diurnal",
     "spike",
     "sawtooth",
-    "replay"
+    "replay",
+    "closed"
+  ],
+  "workloadPatternFields": {
+    "closed": [
+      "closed.users",
+      "closed.thinkTimeMs"
+    ],
+    "replay": [
+      "trace[].atMs",
+      "trace[].type"
+    ],
+    "diurnal": [
+      "diurnal.peakMultiplier",
+      "diurnal.startHour"
+    ]
+  },
+  "faultTypes": [
+    {
+      "id": "crash",
+      "params": [
+        "mode",
+        "inFlightPolicy",
+        "recoveryPolicy",
+        "degradation"
+      ]
+    },
+    {
+      "id": "gray-failure",
+      "params": [
+        "errorRate"
+      ]
+    },
+    {
+      "id": "cache-flush",
+      "params": [
+        "durationMs"
+      ]
+    }
   ],
   "chaosExperimentPresets": [
     "az-outage",
@@ -4069,5 +4143,5 @@
       }
     ]
   },
-  "digest": "sha256:2eab9fde4853fded801a8fba6a00c9855c0d495c2902449503cd01dbd7000dfa"
+  "digest": "sha256:7e9110e8ee88b885fff10a965bb9ef438e611d61622d612c2a17cb600b853242"
 }

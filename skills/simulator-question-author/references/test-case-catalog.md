@@ -830,7 +830,9 @@ target for `baseline-optimize`.
 the student can't lower it). `name` / `visibleToStudent` default; each case has an optional
 `id`/`description`, a `workload`, and optional `global` (override duration/seed/warmup) and
 `faults` (chaos). The `workload`: `baseRps` (requests/sec), `pattern` (`constant` ·
-`poisson` · `bursty` · `diurnal` · `spike` · `sawtooth` · `replay`, default `constant`),
+`poisson` · `bursty` · `diurnal` · `spike` · `sawtooth` · `replay` · `closed`, default `constant`;
+`closed` takes `closed: {users, thinkTimeMs}`, `replay` takes `trace: [{atMs, type?}]`, and `diurnal`
+takes an optional `startHour`; see the [engine realism update](engine-realism-update.md)),
 and `requestDistribution[]`. Each distribution entry: `type` (traffic class, matched in
 edge conditions like `request.type === "read"`), `weight` (0–1, defaults to `1/n`),
 `sizeBytes` (default 256), optional `metadata` (attached to each request), and optional

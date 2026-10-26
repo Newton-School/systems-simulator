@@ -13,8 +13,9 @@ concept-first question, use `classroom-question-author` when it is available.
 This skill remains the full-fidelity path for Architect questions and the shared
 grading contract underneath both workflows.
 
-The bundled capability snapshot targets simulator commit `c33c557` plus the
-student-assignment privacy boundary introduced in October 2026. If the target
+The bundled capability snapshot (version `2026-10-26`) targets simulator commit `6aae0ef`
+(the engine-realism update) plus the student-assignment privacy boundary introduced in
+October 2026. If the target
 simulator exposes a newer schema or capability registry, prefer it and report the
 compatibility delta.
 
@@ -51,6 +52,8 @@ Always read:
 - [component and metric catalog](references/component-and-metric-catalog.md)
 - [grading and evaluation](references/grading-dsl-and-evaluation.md)
 - [artifact schemas](references/json-artifact-schemas.md)
+- [engine realism update](references/engine-realism-update.md): new workload patterns,
+  the `gray-failure` fault, SLO selectors, and behaviour changes to re-check
 
 Read [Question Studio authoring](references/question-studio-authoring.md) for UI
 instructions. Read the deep [evaluation manual](references/evaluation-authoring-reference-manual.md)

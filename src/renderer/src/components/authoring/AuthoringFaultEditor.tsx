@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Plus, Trash2 } from 'lucide-react'
 import {
   AUTHORING_CACHE_FLUSH_FAULT_TYPE,
+  AUTHORING_GRAY_FAILURE_FAULT_TYPE,
   authoringFaultTargetStatus,
   type AuthoringFaultDraft
 } from '../../../../engine/analysis/questionAuthoringScenario'
@@ -61,13 +62,14 @@ export function AuthoringFaultEditor({
     targets.length === 0 || (fault.targetId.trim() !== '' && status.kind === 'unknown')
   )
   const isFlush = fault.faultType === AUTHORING_CACHE_FLUSH_FAULT_TYPE
+  const isGray = fault.faultType === AUTHORING_GRAY_FAILURE_FAULT_TYPE
   const components = targets.filter((target) => target.group !== 'location')
   const locations = targets.filter((target) => target.group === 'location')
   const cacheFlushOffered = isFlush || status.kind === 'cache' || status.kind === 'unknown'
   const modeHelp = MODE_OPTIONS.find((option) => option.value === fault.mode)?.help
   const set = (changes: Partial<AuthoringFaultDraft>) => onChange({ ...fault, ...changes })
   const recovers = fault.duration === 'fixed'
-  const showPolicies = !isFlush && fault.mode !== '' && fault.mode !== 'degraded'
+  const showPolicies = !isFlush && !isGray && fault.mode !== '' && fault.mode !== 'degraded'
 
   return (
     <div
@@ -154,22 +156,35 @@ export function AuthoringFaultEditor({
           Fault <RequiredIndicator />
           <select
             aria-label="Fault type"
-            value={isFlush ? AUTHORING_CACHE_FLUSH_FAULT_TYPE : 'failure'}
-            onChange={(event) =>
-              set(
-                event.currentTarget.value === AUTHORING_CACHE_FLUSH_FAULT_TYPE
-                  ? { faultType: AUTHORING_CACHE_FLUSH_FAULT_TYPE, mode: '' }
-                  : {
-                      faultType:
-                        fault.faultType === AUTHORING_CACHE_FLUSH_FAULT_TYPE
-                          ? 'crash'
-                          : fault.faultType
-                    }
-              )
+            value={
+              isFlush
+                ? AUTHORING_CACHE_FLUSH_FAULT_TYPE
+                : isGray
+                  ? AUTHORING_GRAY_FAILURE_FAULT_TYPE
+                  : 'failure'
             }
+            onChange={(event) => {
+              const picked = event.currentTarget.value
+              if (picked === AUTHORING_CACHE_FLUSH_FAULT_TYPE) {
+                set({ faultType: AUTHORING_CACHE_FLUSH_FAULT_TYPE, mode: '' })
+              } else if (picked === AUTHORING_GRAY_FAILURE_FAULT_TYPE) {
+                set({
+                  faultType: AUTHORING_GRAY_FAILURE_FAULT_TYPE,
+                  mode: '',
+                  grayErrorPercent: fault.grayErrorPercent ?? 30
+                })
+              } else {
+                set({ faultType: isFlush || isGray ? 'crash' : fault.faultType })
+              }
+            }}
             className={AUTHORING_SELECT_CLASS}
           >
             <option value="failure">The component fails</option>
+            {(isGray || status.kind !== 'location') && (
+              <option value={AUTHORING_GRAY_FAILURE_FAULT_TYPE}>
+                Looks healthy but fails some requests (gray failure)
+              </option>
+            )}
             {cacheFlushOffered && (
               <option value={AUTHORING_CACHE_FLUSH_FAULT_TYPE}>The cache is emptied (flush)</option>
             )}
@@ -177,9 +192,11 @@ export function AuthoringFaultEditor({
           <span className="mt-1 block text-[10px] font-normal leading-4 text-nss-muted">
             {isFlush
               ? 'The cache keeps serving but loses its contents, so requests miss and go to the origin.'
-              : status.kind === 'location'
-                ? 'Every component inside this domain fails together.'
-                : 'Cache flush is offered for cache components (CDN, in-memory cache, reverse proxy).'}
+              : isGray
+                ? 'Health checks keep passing, so nothing routes around it, while a share of real requests fail.'
+                : status.kind === 'location'
+                  ? 'Every component inside this domain fails together.'
+                  : 'Cache flush is offered for cache components (CDN, in-memory cache, reverse proxy).'}
           </span>
         </label>
 
@@ -249,7 +266,20 @@ export function AuthoringFaultEditor({
         )}
       </div>
 
-      {!isFlush && (
+      {isGray && (
+        <div className="grid gap-3 md:grid-cols-3">
+          <DraftNumberInput
+            label="Requests that fail"
+            required
+            suffix="%"
+            min={0.001}
+            value={fault.grayErrorPercent ?? null}
+            onChange={(value) => set({ grayErrorPercent: value })}
+          />
+        </div>
+      )}
+
+      {!isFlush && !isGray && (
         <div className="grid gap-3 md:grid-cols-3">
           <label className="text-[11px] font-semibold text-nss-text md:col-span-1">
             How it fails

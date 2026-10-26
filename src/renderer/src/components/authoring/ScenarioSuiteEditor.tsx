@@ -24,7 +24,8 @@ const WORKLOAD_PATTERNS: Array<{ value: AuthoringScenarioDraft['pattern']; label
   { value: 'spike', label: 'Single spike' },
   { value: 'sawtooth', label: 'Sawtooth ramp' },
   { value: 'diurnal', label: 'Daily curve' },
-  { value: 'replay', label: 'Replay-compatible' }
+  { value: 'replay', label: 'Replay (recorded arrivals)' },
+  { value: 'closed', label: 'Closed users (wait for each response)' }
 ]
 
 interface ScenarioSuiteEditorProps {
@@ -501,6 +502,42 @@ export function ScenarioSuiteEditor({
                     />
                   </div>
                 )}
+                {scenario.pattern === 'closed' && (
+                  <div className="mt-4 grid gap-3 rounded-md border border-nss-border bg-nss-panel p-3 sm:grid-cols-2">
+                    <DraftNumberInput
+                      label="Users"
+                      required
+                      suffix="users"
+                      min={1}
+                      value={scenario.closedUsers ?? null}
+                      onChange={(value) =>
+                        onAction({
+                          type: 'update',
+                          id: scenario.id,
+                          changes: { closedUsers: value }
+                        })
+                      }
+                    />
+                    <DraftNumberInput
+                      label="Think time"
+                      required
+                      suffix="ms"
+                      min={0}
+                      value={scenario.closedThinkTimeMs ?? null}
+                      onChange={(value) =>
+                        onAction({
+                          type: 'update',
+                          id: scenario.id,
+                          changes: { closedThinkTimeMs: value }
+                        })
+                      }
+                    />
+                    <p className="text-[10px] leading-4 text-nss-muted sm:col-span-2">
+                      Each user waits for the response, thinks, then asks again, so offered load
+                      falls as the system slows. Base traffic is not used.
+                    </p>
+                  </div>
+                )}
                 {scenario.pattern === 'diurnal' && (
                   <div className="mt-4 rounded-md border border-nss-border bg-nss-panel p-3">
                     <DraftNumberInput
@@ -516,6 +553,20 @@ export function ScenarioSuiteEditor({
                           changes: { diurnalPeakMultiplier: value }
                         })
                       }
+                    />
+                    <DraftNumberInput
+                      label="Starts at hour of day (optional)"
+                      suffix="0-24"
+                      min={0}
+                      value={scenario.diurnalStartHour ?? null}
+                      onChange={(value) =>
+                        onAction({
+                          type: 'update',
+                          id: scenario.id,
+                          changes: { diurnalStartHour: value }
+                        })
+                      }
+                      placeholder="spans the whole run"
                     />
                   </div>
                 )}

@@ -62,8 +62,9 @@ All are optional. Leaving them unset keeps today's behaviour unless noted above.
 - Re-run your questions and check numeric targets, especially latency thresholds, retry scenarios and cache-failure
   scenarios. The built-in question bank still passes (every reference solution passes, every deliberately wrong design
   fails).
-- The scenario and fault editors do not offer the new options yet. `closed`, `trace`, `startHour` and the `gray-failure`
-  fault can be set in JSON, not in the editors. Questions can still use the new rubric selectors in JSON.
+- The scenario editor offers closed users, the diurnal start hour and keeps a replay `trace` (edit the trace in the
+  project JSON); the fault editor offers the gray failure. The question-author skills describe all of them and the
+  new rubric selectors (`slo.maxBurnRate`, `slo.budgetsExceeded.count`).
 - `npm run validate:question-bank` now also reports how many checks separate the reference from the wrong design, so thin
   questions are easy to spot.
 - Classroom mode compiles designs without faults, so the fault changes do not touch it. The latency recalibration and the

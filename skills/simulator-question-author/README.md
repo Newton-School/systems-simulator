@@ -61,7 +61,7 @@ simulator-question-author/
 
 ## Version boundary
 
-The embedded snapshot targets simulator commit `c33c557` plus the October 2026
+The embedded snapshot (version `2026-10-26`) targets simulator commit `6aae0ef` plus the October 2026
 student-assignment privacy boundary. In a simulator checkout, run
 `npm run check:simulator-question-author-snapshot` and
 `npm run validate:simulator-question-author-skill` before packaging. Audit any
