@@ -2,11 +2,11 @@
 
 Status: proposed (not implemented). Third in a set:
 
-| Spec                                               | Question it answers                                                                  | Who decides                    |
-| -------------------------------------------------- | ------------------------------------------------------------------------------------ | ------------------------------ |
-| [feature-flags-spec.md](feature-flags-spec.md)     | Is this feature released in this build?                                              | Engineers                      |
-| [question-policy-spec.md](question-policy-spec.md) | For _this question_, what is editable / graded / revealed?                           | Question author                |
-| **this spec**                                      | For _this feature_, in _this mode and environment_, is it hidden, visible or usable? | Product, with scoped overrides |
+| Spec | Question it answers | Who decides |
+|---|---|---|
+| [feature-flags-spec.md](feature-flags-spec.md) | Is this feature released in this build? | Engineers |
+| [question-policy-spec.md](question-policy-spec.md) | For *this question*, what is editable / graded / revealed? | Question author |
+| **this spec** | For *this feature*, in *this mode and environment*, is it hidden, visible or usable? | Product, with scoped overrides |
 
 This spec is the spine the other two plug into. It replaces a growing pile of one-off gates with a
 single table: **feature × context → hidden / visible / enabled**.
@@ -15,12 +15,12 @@ single table: **feature × context → hidden / visible / enabled**.
 
 Take the single-point-of-failure (SPOF) check. Today it is controlled in at least four unrelated ways:
 
-| Gate                                                                                | Where                                               |
-| ----------------------------------------------------------------------------------- | --------------------------------------------------- |
+| Gate | Where |
+|---|---|
 | Hidden in Classroom unless the question opts in (`classroom.designChecks === true`) | `hooks/useClassroom.ts` → `useDesignChecksHidden()` |
-| Node badges also need the user's `displaySettings.showSpofBadges`                   | `components/nodes/BaseNode.tsx:130`                 |
-| Results list is emptied when hidden                                                 | `components/simulation/ResultsTray.tsx:4155`        |
-| Author toggle for it                                                                | `components/authoring/QuestionSetupEditor.tsx`      |
+| Node badges also need the user's `displaySettings.showSpofBadges` | `components/nodes/BaseNode.tsx:130` |
+| Results list is emptied when hidden | `components/simulation/ResultsTray.tsx:4155` |
+| Author toggle for it | `components/authoring/QuestionSetupEditor.tsx` |
 
 Nothing says "SPOF check is a feature; here is where it appears (node badge, results tray, grading
 check); here is where it is on or off". Answering "can SPOF be turned off in Classroom mode?"
@@ -35,7 +35,6 @@ means reading four files. The same sprawl exists for everything else a mode chan
 ## 2. Goals and non-goals
 
 Goals
-
 - A feature registry: every toggleable capability has one id, one description, one list of surfaces.
 - A matrix from context to state, reviewable as a single table and enforced as one function.
 - Explicit rules for who may override a feature's state (question, host, user) and in which direction.
@@ -43,7 +42,6 @@ Goals
 - Authoring and docs are generated from the registry, so they cannot drift.
 
 Non-goals
-
 - Per-student or percentage targeting.
 - A visual rewrite of any surface; only the gating moves.
 - Security enforcement. Hiding is pedagogy; the grader and host remain the authority (section 7).
@@ -63,25 +61,25 @@ Non-goals
 
 **State** (three values, ordered):
 
-| State     | Meaning                                                                    |
-| --------- | -------------------------------------------------------------------------- |
-| `hidden`  | Not rendered, not reachable, not evaluated where the feature is evaluative |
-| `visible` | Rendered read-only; shows values but cannot be used or changed             |
-| `enabled` | Fully usable                                                               |
+| State | Meaning |
+|---|---|
+| `hidden` | Not rendered, not reachable, not evaluated where the feature is evaluative |
+| `visible` | Rendered read-only; shows values but cannot be used or changed |
+| `enabled` | Fully usable |
 
 The order is `hidden < visible < enabled`. "Tighten" means moving left.
 
 **Context**: the environment the app is running in. Axes that exist today:
 
-| Axis          | Values                                        | Source today                                                         |
-| ------------- | --------------------------------------------- | -------------------------------------------------------------------- |
-| `mode`        | `AUTHOR`, `ASSIGNMENT`, `PRACTICE`            | `EnvironmentProfile.mode` (host)                                     |
-| `abstraction` | `architect`, `classroom`                      | `EnvironmentProfile.abstraction` / question `classroom.abstractions` |
-| `experience`  | `SANDBOX`, `ASSIGNMENT`, `INTERVIEW`, `LAB`   | `experienceEnvelope.ts` (derived from tags/format)                   |
-| `entryFormat` | per `QuestionEntryFormat` (e.g. `locked-lab`) | `question.ts`                                                        |
-| `host`        | standalone, Newton-hosted iframe              | `questionHostMessaging.ts` / `appSurface.ts`                         |
-| `surface`     | `simulator`, `question-studio`                | `appSurface.ts`                                                      |
-| `presenter`   | on/off (projector layout)                     | profile / settings                                                   |
+| Axis | Values | Source today |
+|---|---|---|
+| `mode` | `AUTHOR`, `ASSIGNMENT`, `PRACTICE` | `EnvironmentProfile.mode` (host) |
+| `abstraction` | `architect`, `classroom` | `EnvironmentProfile.abstraction` / question `classroom.abstractions` |
+| `experience` | `SANDBOX`, `ASSIGNMENT`, `INTERVIEW`, `LAB` | `experienceEnvelope.ts` (derived from tags/format) |
+| `entryFormat` | per `QuestionEntryFormat` (e.g. `locked-lab`) | `question.ts` |
+| `host` | standalone, Newton-hosted iframe | `questionHostMessaging.ts` / `appSurface.ts` |
+| `surface` | `simulator`, `question-studio` | `appSurface.ts` |
+| `presenter` | on/off (projector layout) | profile / settings |
 
 Adding an axis later (for example `cohort`) must not change existing rows.
 
@@ -106,8 +104,8 @@ export interface FeatureDef {
   /** Who may move it, and how far. */
   overridable: {
     byQuestion: 'none' | 'tighten' | 'any'
-    byHost: 'none' | 'tighten' | 'any'
-    byUser: 'none' | 'tighten' | 'any'
+    byHost:     'none' | 'tighten' | 'any'
+    byUser:     'none' | 'tighten' | 'any'
   }
   /** Features that must be at least this state for this one to work. */
   requires?: Partial<Record<FeatureId, FeatureState>>
@@ -124,13 +122,8 @@ unspecified axes are wildcards.
 ```ts
 export interface MatrixRow {
   when: Partial<{
-    mode: Mode[]
-    abstraction: Abstraction[]
-    experience: Experience[]
-    entryFormat: QuestionEntryFormat[]
-    host: Host[]
-    surface: AppSurface[]
-    presenter: boolean
+    mode: Mode[]; abstraction: Abstraction[]; experience: Experience[]
+    entryFormat: QuestionEntryFormat[]; host: Host[]; surface: AppSurface[]; presenter: boolean
   }>
   set: Partial<Record<FeatureId, FeatureState>>
 }
@@ -140,36 +133,13 @@ Seed, illustrating the SPOF example and values read from the current presets:
 
 ```ts
 const MATRIX: MatrixRow[] = [
-  {
-    when: {},
-    set: {
-      spofCheck: 'enabled',
-      terminal: 'enabled',
-      topologyFiles: 'enabled' /* … all defaults */
-    }
-  },
-  {
-    when: { mode: ['ASSIGNMENT'] },
-    set: {
-      terminal: 'hidden',
-      topologyFiles: 'hidden',
-      topologyJson: 'hidden',
-      settingsModal: 'hidden',
-      annotations: 'hidden',
-      edgeProperties: 'hidden',
-      suiteDetails: 'hidden',
-      resourceEditing: 'visible'
-    }
-  },
-  {
-    when: { abstraction: ['classroom'] },
-    set: { spofCheck: 'hidden', terminal: 'hidden', edgeProperties: 'hidden' }
-  },
+  { when: {},                                set: { spofCheck: 'enabled', terminal: 'enabled', topologyFiles: 'enabled', /* … all defaults */ } },
+  { when: { mode: ['ASSIGNMENT'] },          set: { terminal: 'hidden', topologyFiles: 'hidden', topologyJson: 'hidden',
+                                                    settingsModal: 'hidden', annotations: 'hidden', edgeProperties: 'hidden',
+                                                    suiteDetails: 'hidden', resourceEditing: 'visible' } },
+  { when: { abstraction: ['classroom'] },    set: { spofCheck: 'hidden', terminal: 'hidden', edgeProperties: 'hidden' } },
   { when: { abstraction: ['classroom'], presenter: true }, set: { settingsModal: 'hidden' } },
-  {
-    when: { experience: ['LAB'] },
-    set: { blueprintsTab: 'hidden', scenariosTab: 'hidden', libraryTab: 'hidden' }
-  }
+  { when: { experience: ['LAB'] },           set: { blueprintsTab: 'hidden', scenariosTab: 'hidden', libraryTab: 'hidden' } },
 ]
 ```
 
@@ -184,9 +154,9 @@ The matrix is data, so it renders directly into a docs table (section 9) and can
 
 ```ts
 export interface FeatureOverrides {
-  question?: Partial<Record<FeatureId, FeatureState>> // question.policy.features
-  host?: Partial<Record<FeatureId, FeatureState>> // host launch payload
-  user?: Partial<Record<FeatureId, FeatureState>> // displaySettings / dev panel
+  question?: Partial<Record<FeatureId, FeatureState>>   // question.policy.features
+  host?:     Partial<Record<FeatureId, FeatureState>>   // host launch payload
+  user?:     Partial<Record<FeatureId, FeatureState>>   // displaySettings / dev panel
 }
 ```
 
@@ -219,14 +189,14 @@ the same shape:
 {
   "id": "midterm-exam",
   "label": "Midterm exam",
-  "extends": "assignment", // inherit, then change only the differences
+  "extends": "assignment",                       // inherit, then change only the differences
   "set": {
     "liveMetrics": "hidden",
     "rubricChecks": "hidden",
     "spofCheck": "hidden",
     "testRuns": "enabled"
   },
-  "values": { "maxTestRuns": 3 } // typed quantities live alongside states
+  "values": { "maxTestRuns": 3 }                 // typed quantities live alongside states
 }
 ```
 
@@ -238,17 +208,17 @@ the same shape:
 
 ### 4A.2 Where the data lives
 
-| Layer                                                          | Stored in                                                        | Edited by                | Needs a release?               |
-| -------------------------------------------------------------- | ---------------------------------------------------------------- | ------------------------ | ------------------------------ |
-| Registry (what features exist, legal states, who may override) | `featureRegistry.ts`                                             | Engineers                | Yes (adding a feature is code) |
-| Built-in environments and matrix rows                          | `config/environments/*.json`                                     | Product/engineers via PR | Yes, but no code change        |
-| Custom environments                                            | Workspace file / host-supplied JSON (`environments.custom.json`) | Instructors, admins      | No                             |
-| Per-question overrides                                         | `question.policy`                                                | Question authors         | No                             |
-| User preferences                                               | `displaySettings`                                                | End user                 | No                             |
+| Layer | Stored in | Edited by | Needs a release? |
+|---|---|---|---|
+| Registry (what features exist, legal states, who may override) | `featureRegistry.ts` | Engineers | Yes (adding a feature is code) |
+| Built-in environments and matrix rows | `config/environments/*.json` | Product/engineers via PR | Yes, but no code change |
+| Custom environments | Workspace file / host-supplied JSON (`environments.custom.json`) | Instructors, admins | No |
+| Per-question overrides | `question.policy` | Question authors | No |
+| User preferences | `displaySettings` | End user | No |
 
 Adding a feature is one registry entry plus wrapping its surface in `<Feature id>`; it then shows
 up automatically in the Studio, the dev panel, the generated matrix doc and the skills snapshot.
-Changing _where_ an existing feature appears is a one-line matrix edit.
+Changing *where* an existing feature appears is a one-line matrix edit.
 
 ### 4A.3 Editing UIs (no JSON required)
 
@@ -296,13 +266,11 @@ Changing _where_ an existing feature appears is a one-line matrix edit.
 ```
 
 Override legality, per `overridable` value:
-
 - `none`: ignored (and a validation warning where authored).
 - `tighten`: applied only if it moves the state left; a loosening request is ignored.
 - `any`: applied as given, then clamped to `states`.
 
 Hard rules regardless of registry:
-
 - `AUTHOR` mode on the `question-studio` surface is never tightened by question or user overrides,
   so authors can always inspect what they are restricting.
 - The host may always tighten. Only features marked `byHost: 'any'` may be loosened by the host.
@@ -325,17 +293,17 @@ abstraction or profile booleans for gating once migrated.
 
 ## 6. Mapping what exists today
 
-| Today                                                                                                               | Becomes                                                                                                                       |
-| ------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `EnvironmentCapabilities.canUseTerminal / canUseTopologyFiles / canViewTopologyJson / canUseSettings / canAnnotate` | features `terminal`, `topologyFiles`, `topologyJson`, `settingsModal`, `annotations`                                          |
-| `canEditEdges`, `edgeModel`                                                                                         | `edgeProperties` (`hidden` = connector, `visible` = network read-only, `enabled` = editable)                                  |
-| `canEditResources`, `canEditExecutionProfile`                                                                       | `resourceEditing`, `executionProfile`                                                                                         |
-| `canTriggerTestRuns`, `maxTestRuns`                                                                                 | feature `testRuns`; the _number_ stays a value in question policy / host (a feature is a state, not a quantity)               |
-| `EnvironmentVisibility.*`                                                                                           | `questionPrompt`, `scaffoldSourceNodes`, `suiteDetails`, `liveMetrics`, `rubricChecks` (timing stays `RubricCheckVisibility`) |
-| `experienceEnvelope.allowedTabs`, `canvasLocked`                                                                    | `questionTab`, `libraryTab`, `blueprintsTab`, `labsTab`, `scenariosTab`; `canvasLocked` = canvas `visible`                    |
-| `useDesignChecksHidden()`, `classroom.designChecks`, `displaySettings.showSpofBadges`                               | `spofCheck` (+ other design checks) with question and user overrides                                                          |
-| `displaySettings.simpleShell`                                                                                       | feature `simpleShell`, `byUser: 'any'`                                                                                        |
-| `editPaletteList`, `resourceBudget`, `costBudget`                                                                   | stay as typed values on the profile; the _display_ of budgets becomes `costMeter`, `budgetMeter` features                     |
+| Today | Becomes |
+|---|---|
+| `EnvironmentCapabilities.canUseTerminal / canUseTopologyFiles / canViewTopologyJson / canUseSettings / canAnnotate` | features `terminal`, `topologyFiles`, `topologyJson`, `settingsModal`, `annotations` |
+| `canEditEdges`, `edgeModel` | `edgeProperties` (`hidden` = connector, `visible` = network read-only, `enabled` = editable) |
+| `canEditResources`, `canEditExecutionProfile` | `resourceEditing`, `executionProfile` |
+| `canTriggerTestRuns`, `maxTestRuns` | feature `testRuns`; the *number* stays a value in question policy / host (a feature is a state, not a quantity) |
+| `EnvironmentVisibility.*` | `questionPrompt`, `scaffoldSourceNodes`, `suiteDetails`, `liveMetrics`, `rubricChecks` (timing stays `RubricCheckVisibility`) |
+| `experienceEnvelope.allowedTabs`, `canvasLocked` | `questionTab`, `libraryTab`, `blueprintsTab`, `labsTab`, `scenariosTab`; `canvasLocked` = canvas `visible` |
+| `useDesignChecksHidden()`, `classroom.designChecks`, `displaySettings.showSpofBadges` | `spofCheck` (+ other design checks) with question and user overrides |
+| `displaySettings.simpleShell` | feature `simpleShell`, `byUser: 'any'` |
+| `editPaletteList`, `resourceBudget`, `costBudget` | stay as typed values on the profile; the *display* of budgets becomes `costMeter`, `budgetMeter` features |
 
 `EnvironmentProfile` is kept as the host-facing input type. `resolveFeatures` derives from it, so
 existing hosts and the Newton integration don't change.
@@ -343,7 +311,6 @@ existing hosts and the Newton integration don't change.
 ## 7. Enforcement and grading
 
 Visibility is not authorisation:
-
 - **Evaluative features** (`affectsGrading: true`, e.g. `spofCheck`, `rubricChecks`) must also be
   honoured by the grader. If `spofCheck` is `hidden`, no SPOF check may influence the verdict, and
   the grader receives the same resolved feature set the client used (the `--abstraction` precedent
@@ -380,7 +347,7 @@ Visibility is not authorisation:
 
 - **App feature flags**: a release flag can force a feature `hidden` before it launches (a build-level
   floor applied at step 1 of resolution), and is deleted when the feature ships. Flags are about
-  _shipping_; this matrix is about _context_. Never encode a mode distinction as a flag.
+  *shipping*; this matrix is about *context*. Never encode a mode distinction as a flag.
 - **Question policy**: `edit`, `grade`, `reveal`, `surfaces` stay the place for fine-grained,
   question-specific rules (paths, per-check modes, case scoping). Its `surfaces` block is superseded
   by `policy.features` here; do not implement both.
