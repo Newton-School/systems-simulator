@@ -1,4 +1,5 @@
 import type { ComponentType } from '../core/types'
+import { admitWithinRate } from './rateWindow'
 import { SERVICE_TIME_LATENCY_PENALTY_MS_KEY } from './serviceTimeOverride'
 import type { NodeBehaviourTrait, NodeCapabilityModule } from './types'
 
@@ -36,7 +37,21 @@ function addPenalty(request: { metadata: Record<string, unknown> }, ms: number):
  */
 export const externalLatencyTrait: NodeBehaviourTrait = {
   name: 'integration.external-latency',
-  beforeArrival: ({ node, request }) => {
+  beforeArrival: ({ node, request, clock, state }) => {
+    // A provider answers a limited number of requests per second; past its limit it answers 429 (a
+    // retryable failure), so a caller that retries without backoff makes the overload worse.
+    const rateLimitRps = asNonNegativeNumber(node.config?.['rateLimitRps'])
+    if (
+      rateLimitRps !== null &&
+      rateLimitRps > 0 &&
+      !admitWithinRate(state, 'external.rateLog', clock, rateLimitRps)
+    ) {
+      return {
+        action: 'rejected',
+        reason: 'provider_rate_limited',
+        payload: { metricCounters: { providerRateLimited: 1 } }
+      }
+    }
     const externalLatencyMs = asNonNegativeNumber(node.config?.['externalLatencyMs'])
     if (externalLatencyMs === null || externalLatencyMs === 0) {
       return { action: 'continue' }
@@ -71,17 +86,31 @@ export const externalLatencyCapabilityModule: NodeCapabilityModule = {
             altitude: 'primary',
             placeholder: `Default ${DEFAULT_EXTERNAL_LATENCY_MS}ms`,
             why: 'Round-trip time to the third-party provider for each request.'
+          },
+          {
+            path: 'sim.rateLimitRps',
+            type: 'input',
+            inputType: 'number',
+            label: 'Provider rate limit',
+            unit: 'req/s',
+            min: 0,
+            altitude: 'advanced',
+            why: 'Requests per second the provider accepts; past it calls fail as provider_rate_limited (a 429), which a retry policy will retry. Empty means no limit.'
           }
         ]
       }
     ]
   },
   defaults: [],
-  metrics: { counters: ['externalCalls'] },
+  metrics: {
+    counters: ['externalCalls', 'providerRateLimited'],
+    rejectionReasons: ['provider_rate_limited']
+  },
   honesty: {
-    simulates: ['a per-request latency penalty for an external provider call'],
-    notModeled: [
-      'provider-side rate limits, quota exhaustion, or provider outages (use retries/circuit breaker for those)'
-    ]
+    simulates: [
+      'a per-request latency penalty for an external provider call',
+      'a provider rate limit (rateLimitRps) that answers past it with a retryable provider_rate_limited'
+    ],
+    notModeled: ['provider outages beyond faults (use retries and a circuit breaker for those)']
   }
 }

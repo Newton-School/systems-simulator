@@ -1,9 +1,11 @@
 import type { ComponentType } from '../core/types'
+import { admitWithinRate } from './rateWindow'
 import { SERVICE_TIME_LATENCY_PENALTY_MS_KEY } from './serviceTimeOverride'
 import type { NodeBehaviourTrait, NodeCapabilityModule } from './types'
 
 export const CRYPTO_COST_COMPONENT_TYPES = [
-  'kms-storage'
+  'kms-storage',
+  'kms-security'
 ] as const satisfies readonly ComponentType[]
 
 const DEFAULT_CRYPTO_MS = 5
@@ -26,9 +28,24 @@ function addPenalty(request: { metadata: Record<string, unknown> }, ms: number):
  * per-request cost on the path instead of a free box, so putting a KMS call in
  * a hot loop visibly hurts latency.
  */
+const QUOTA_LOG_KEY = 'crypto.quotaLog'
+
 export const cryptoCostTrait: NodeBehaviourTrait = {
   name: 'security.crypto-cost',
-  beforeArrival: ({ node, request }) => {
+  beforeArrival: ({ node, request, clock, state }) => {
+    // A KMS answers a limited number of requests per second (a per-account quota); past it callers are throttled.
+    const quotaRps = asNonNegativeNumber(node.config?.['kmsQuotaRps'])
+    if (
+      quotaRps !== null &&
+      quotaRps > 0 &&
+      !admitWithinRate(state, QUOTA_LOG_KEY, clock, quotaRps)
+    ) {
+      return {
+        action: 'rejected',
+        reason: 'kms_throttled',
+        payload: { metricCounters: { kmsThrottled: 1 } }
+      }
+    }
     const cryptoMs = asNonNegativeNumber(node.config?.['cryptoMs'])
     if (cryptoMs === null || cryptoMs === 0) {
       return { action: 'continue' }
@@ -63,15 +80,28 @@ export const cryptoCostCapabilityModule: NodeCapabilityModule = {
             altitude: 'primary',
             placeholder: `Default ${DEFAULT_CRYPTO_MS}ms`,
             why: 'Per-request cost of the cryptographic operation (encrypt/decrypt/sign/verify).'
+          },
+          {
+            path: 'sim.kmsQuotaRps',
+            type: 'input',
+            inputType: 'number',
+            label: 'Request quota',
+            unit: 'req/s',
+            min: 0,
+            altitude: 'advanced',
+            why: 'Requests per second the key service answers; beyond it callers are throttled (kms_throttled). Empty means no quota.'
           }
         ]
       }
     ]
   },
   defaults: [],
-  metrics: { counters: ['cryptoOps'] },
+  metrics: { counters: ['cryptoOps', 'kmsThrottled'], rejectionReasons: ['kms_throttled'] },
   honesty: {
-    simulates: ['a per-request cryptographic operation latency penalty'],
-    notModeled: ['key-op quota limits, HSM throughput ceilings, or algorithm-specific cost curves']
+    simulates: [
+      'a per-request cryptographic operation latency penalty',
+      'a requests-per-second quota (kmsQuotaRps) that throttles callers past it'
+    ],
+    notModeled: ['HSM throughput ceilings, or algorithm-specific cost curves']
   }
 }

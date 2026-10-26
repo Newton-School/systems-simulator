@@ -91,13 +91,16 @@ import {
 } from './core/faultDomains'
 import { GGcKNode } from './nodes/GGcKNode'
 import { deriveNodeConcurrency } from './nodes/resourceDerivation'
+import { normalizeTopology } from './catalog/capacityModel'
 import {
   DEFAULT_CHAOS_FAILURE_SPEC,
   LEGACY_REJECT_FAILURE_SPEC,
   NodeFailureSpec,
   parseFailureSpec
 } from './nodes/failure'
+import { BATCHING_COMPONENT_TYPES, BATCHING_DEFAULT_WINDOW_MS } from './traits/batching'
 import {
+  CACHE_COMPONENT_TYPES,
   CACHE_FLUSH_FAULT_TYPE,
   DEFAULT_CACHE_FLUSH_REWARM_MS,
   scheduleCacheFlush
@@ -302,6 +305,23 @@ function scalarTraitDetail(
   return detail
 }
 
+/** Nodes that acknowledge a producer at append and deliver separately; an asynchronous edge into one keeps that lifecycle. */
+const MESSAGING_BOUNDARY_TYPES = [
+  'queue',
+  'stream',
+  'message-broker',
+  'pub-sub',
+  'event-bus',
+  'event-sourcing-store',
+  'task-queue'
+] as const
+
+/** Fault type for a gray failure: a share of real requests fail while health checks still pass. */
+export const GRAY_FAILURE_FAULT_TYPE = 'gray-failure'
+
+/** Request metadata set once a delivery's visibility timeout expired and it was redelivered. */
+const QUEUE_VISIBILITY_EXPIRED_KEY = '__queueVisibilityExpired'
+
 export class SimulationEngine {
   onProgress?: (percent: number, eventsProcessed: number) => void
   onSnapshot?: (snapshot: TimeSeriesSnapshot) => void
@@ -324,12 +344,29 @@ export class SimulationEngine {
   private readonly nodeDefinitionsById = new Map<string, ComponentNode>()
   private readonly traitsByNodeId = new Map<string, readonly NodeBehaviourTrait[]>()
   private readonly nodeErrorRateById = new Map<string, number>()
+  /** Recent arrival times at nodes that batch, to estimate how long a batch takes to fill. */
+  private readonly batchArrivals = new Map<string, bigint[]>()
+  /** Independent random streams, one per node or edge and purpose, so changing one part of a design does not shift the draws of another (decision A4). */
+  private readonly randomStreams = new Map<string, Distributions>()
+  /** Edges with a `weightSchedule`, and the weight each has before its first step. */
+  private readonly scheduledWeightEdges: EdgeDefinition[] = []
+  private readonly initialEdgeWeight = new Map<string, number | undefined>()
+  /**
+   * Gray failures (chapter 22 section 1): windows in which a node fails a share of its real requests while
+   * every health check still passes. Added to the node's own error rate.
+   */
+  private readonly grayFailureWindows = new Map<
+    string,
+    Array<{ fromUs: bigint; untilUs: bigint | null; rate: number }>
+  >()
   private readonly nodeTimeoutUsById = new Map<string, bigint>()
   private readonly nodeFailureSpecById = new Map<string, NodeFailureSpec>()
   private readonly debugInvariants: boolean
   private readonly securityPolicyByNodeId = new Map<string, SecurityPolicyConfig>()
   private readonly nodeLimitsById = new Map<string, { workers: number; capacity: number }>()
   private readonly nodeUnhealthyUntilUs = new Map<string, bigint>()
+  /** The spec of each node's current failure, so recovery knows whether the process restarted. */
+  private readonly failureSpecByNode = new Map<string, NodeFailureSpec>()
   private readonly healthCheckManagerConfigById = new Map<string, HealthCheckManagerConfig>()
   private readonly probedNodeIds = new Set<string>()
   private readonly probeStateByNodeId = new Map<string, ProbeState>()
@@ -431,21 +468,31 @@ export class SimulationEngine {
   /** Name of the beforeArrival trait that returned the last non-continue decision. */
   private lastDecidingArrivalTrait: string | null = null
 
-  constructor(
-    private readonly topology: TopologyJSON,
-    options: SimulationEngineOptions = {}
-  ) {
+  private readonly topology: TopologyJSON
+
+  constructor(authored: TopologyJSON, options: SimulationEngineOptions = {}) {
+    // The one place a document's missing capacity and service time are filled in, so the same file runs the
+    // same way from the canvas, the CLI, the grader and the worker (catalog/capacityModel.ts).
+    const topology = normalizeTopology(authored)
+    this.topology = topology
     const rng = createRandom(topology.global.seed)
     const traitResolver = options.resolveTraits ?? resolveTraits
     this.debugInvariants = options.debugInvariants ?? false
     this.distributions = new Distributions(rng)
     this.geoLatency = new GeoLatencyResolver(topology)
     this.routing = new RoutingTable(topology.edges, rng, topology.nodes, traitResolver)
+    for (const edge of topology.edges) {
+      if (edge.weightSchedule && edge.weightSchedule.length > 0) {
+        this.scheduledWeightEdges.push(edge)
+        this.initialEdgeWeight.set(edge.id, edge.weight)
+      }
+    }
     this.metrics = new MetricsCollector({
       warmupDuration: topology.global.warmupDuration,
       nodes: topology.nodes.map((node) => ({
         id: node.id,
         label: node.label,
+        type: node.type,
         slo: node.slo
       })),
       edges: topology.edges.map((edge) => ({
@@ -474,8 +521,32 @@ export class SimulationEngine {
       // idle feature grades as 0 and an absent one stays unresolved.
       const featureSeeds = featureCounterSeeds(normalized, resolvedTraits)
       if (featureSeeds) this.metrics.recordNodeTraitCounters(node.id, featureSeeds)
-      const runtimeNode = new GGcKNode(normalized, this.distributions, scheduler)
+      const runtimeNode = new GGcKNode(normalized, this.streamFor(`service:${node.id}`), scheduler)
       runtimeNode.setWarmupUs(msToMicro(Math.max(0, topology.global.warmupDuration)))
+      if (normalized.type === 'queue') {
+        // A delivery that is still being processed when its visibility timeout expires reappears
+        // and is delivered again, whether or not the first consumer eventually finishes.
+        runtimeNode.serviceStartObserver = (request, startUs, serviceUs) => {
+          const delivery = readQueueDeliveryConfig(normalized)
+          if (
+            delivery.deliverySemantics === 'at-most-once' ||
+            delivery.visibilityTimeoutUs <= 0n ||
+            readQueueDeliveryOriginNodeId(request) !== normalized.id ||
+            serviceUs <= delivery.visibilityTimeoutUs
+          ) {
+            return
+          }
+          scheduler.schedule(
+            createEvent(
+              'queue-visibility-expire',
+              normalized.id,
+              request.id,
+              { request },
+              startUs + delivery.visibilityTimeoutUs
+            )
+          )
+        }
+      }
       this.nodes.set(node.id, runtimeNode)
       // Report limits against the DERIVED effective c/K (what the node actually
       // ran with), not the vestigial authored queue — so utilization, saturation
@@ -569,6 +640,7 @@ export class SimulationEngine {
     }
 
     this.scheduleConfiguredFaults(scheduler)
+    this.scheduleFailureModes(scheduler)
   }
 
   /**
@@ -581,6 +653,47 @@ export class SimulationEngine {
    * A `cache-flush` fault is not a failure: it empties a cache node at `atMs`
    * (see `scheduleCacheFlush` in traits/cache.ts for how each hit model reacts).
    */
+  /**
+   * Random failures from a node's `failureModes` (decision G1). A critical mode with an `mtbf` and `mttr` alternates
+   * up and down: time to failure and time to repair are exponential with those means, drawn from a stream of their
+   * own (named by the seed and the node) so adding or removing another node never changes them. The node then fails
+   * as a silent dead server, like any other chaos fault. Modes with other severities are not injected.
+   */
+  private scheduleFailureModes(scheduler: EventScheduler): void {
+    const durationUs = msToMicro(this.topology.global.simulationDuration)
+    for (const node of this.topology.nodes) {
+      for (const [index, mode] of (node.failureModes ?? []).entries()) {
+        if (mode.severity !== 'critical') continue
+        const mtbfMs = mode.mtbf
+        const mttrMs = mode.mttr
+        if (
+          !(typeof mtbfMs === 'number' && mtbfMs > 0 && typeof mttrMs === 'number' && mttrMs > 0)
+        ) {
+          continue
+        }
+        const rng = createRandom(`${this.topology.global.seed}:failure-mode:${node.id}:${index}`)
+        const exponentialMs = (meanMs: number) => -meanMs * Math.log(1 - rng.next())
+        let at = 0n
+        for (;;) {
+          at += msToMicro(exponentialMs(mtbfMs))
+          if (at >= durationUs) break
+          scheduler.schedule(
+            createEvent(
+              'node-failure',
+              node.id,
+              '',
+              { failureSpec: DEFAULT_CHAOS_FAILURE_SPEC },
+              at
+            )
+          )
+          at += msToMicro(Math.max(0.001, exponentialMs(mttrMs)))
+          if (at >= durationUs) break
+          scheduler.schedule(createEvent('node-recovery', node.id, '', {}, at))
+        }
+      }
+    }
+  }
+
   private scheduleConfiguredFaults(scheduler: EventScheduler): void {
     for (const fault of this.topology.faults ?? []) {
       if (!this.nodes.has(fault.targetId)) {
@@ -599,6 +712,21 @@ export class SimulationEngine {
           atUs: msToMicro(atMs),
           untilUs: msToMicro(atMs + durationMs)
         })
+        continue
+      }
+      if (fault.faultType === GRAY_FAILURE_FAULT_TYPE) {
+        // Not a node failure: the node stays "healthy" to checks and fails `errorRate` of its real requests.
+        const rate =
+          typeof params.errorRate === 'number' ? Math.min(0.99, Math.max(0, params.errorRate)) : 0.3
+        const durationMs = typeof params.durationMs === 'number' ? params.durationMs : 0
+        const windows = this.grayFailureWindows.get(fault.targetId) ?? []
+        windows.push({
+          fromUs: msToMicro(atMs),
+          untilUs:
+            fault.duration !== 'permanent' && durationMs > 0 ? msToMicro(atMs + durationMs) : null,
+          rate
+        })
+        this.grayFailureWindows.set(fault.targetId, windows)
         continue
       }
       const spec = parseFailureSpec(params) ?? DEFAULT_CHAOS_FAILURE_SPEC
@@ -1116,6 +1244,9 @@ export class SimulationEngine {
       case 'cluster-schedule':
         this.handleClusterSchedule(event)
         break
+      case 'queue-visibility-expire':
+        this.handleQueueVisibilityExpire(event)
+        break
       default:
         // Other event types are integrated in later tickets.
         break
@@ -1164,7 +1295,10 @@ export class SimulationEngine {
       return
     }
 
-    const routes = this.expandFanoutRoutes(routeResult.routes, sourceNodeId)
+    const routes = this.expandFanoutRoutes(
+      this.redirectFailedLeaders(this.bypassFailedCaches(routeResult.routes, request)),
+      sourceNodeId
+    )
     if (routes.length === 0) {
       if (this.nodes.has(sourceNodeId)) {
         this.eventQueue.insert(
@@ -1178,7 +1312,7 @@ export class SimulationEngine {
       return
     }
 
-    const routedRequests = this.prepareRequestsForRoutes(request, routes.length)
+    const routedRequests = this.prepareRequestsForRoutes(request, routes, sourceNodeId)
     for (let i = 0; i < routes.length; i++) {
       const route = routes[i]
       const routedRequest = routedRequests[i]
@@ -1829,7 +1963,10 @@ export class SimulationEngine {
       return
     }
 
-    const routes = this.expandFanoutRoutes(routeResult.routes, event.nodeId)
+    const routes = this.expandFanoutRoutes(
+      this.redirectFailedLeaders(this.bypassFailedCaches(routeResult.routes, request)),
+      event.nodeId
+    )
     if (routes.length === 0) {
       this.maybeRecordCircuitBreakerOutcomeAtNode(event.nodeId, request, true)
       this.eventQueue.insert(
@@ -1838,7 +1975,7 @@ export class SimulationEngine {
       return
     }
 
-    const routedRequests = this.prepareRequestsForRoutes(request, routes.length)
+    const routedRequests = this.prepareRequestsForRoutes(request, routes, event.nodeId)
     for (let i = 0; i < routes.length; i++) {
       const route = routes[i]
       const routedRequest = routedRequests[i]
@@ -2012,8 +2149,14 @@ export class SimulationEngine {
       this.maybeRecordCircuitBreakerOutcome(request, event.nodeId, false)
     }
     this.maybeScheduleQueueDeliveryFollowUp(request)
-    const timeoutReason =
-      typeof event.data.reason === 'string' ? event.data.reason : 'deadline_exceeded'
+    // A node's own timeout firing before the request's deadline leaves budget for another attempt, so it is
+    // retryable (decision D1); the request's overall deadline firing is not.
+    const nodeTimeoutFired = scope === 'node' && this.clock < request.deadline
+    const timeoutReason = nodeTimeoutFired
+      ? 'node_timeout'
+      : typeof event.data.reason === 'string'
+        ? event.data.reason
+        : 'deadline_exceeded'
     if (this.maybeScheduleRetryAttempt(request, event, timeoutReason, observationPoint)) {
       return
     }
@@ -2112,6 +2255,7 @@ export class SimulationEngine {
       this.clock
     )
     this.metrics.recordRejection(event.nodeId, reason, {
+      requestId: request.id,
       requestCreatedAt: request.createdAt,
       nodeArrivalTime,
       edgeInTimeUs:
@@ -2152,6 +2296,7 @@ export class SimulationEngine {
       }
     }
     this.nodeUnhealthyUntilUs.set(event.nodeId, this.clock + LOAD_BALANCER_UNHEALTHY_COOLDOWN_US)
+    this.failureSpecByNode.set(event.nodeId, spec)
     // Open a failure window for the status timeline (idempotent: don't stack if
     // already open for this node).
     if (!this.statusWindows.some((w) => w.componentId === event.nodeId && w.endUs === null)) {
@@ -2202,6 +2347,23 @@ export class SimulationEngine {
       // scheduled); their original timeouts stay live and race those completions.
     }
     this.nodeUnhealthyUntilUs.delete(event.nodeId)
+    // A crash-restart loses in-memory state: a cache comes back empty and re-warms (the same
+    // treatment as a `cache-flush` fault). Degraded mode and `resume` recovery keep the process.
+    const failedWith = this.failureSpecByNode.get(event.nodeId)
+    this.failureSpecByNode.delete(event.nodeId)
+    const recoveredType = this.topology.nodes.find((n) => n.id === event.nodeId)?.type
+    if (
+      failedWith &&
+      failedWith.mode !== 'degraded' &&
+      failedWith.recoveryPolicy === 'reset' &&
+      recoveredType !== undefined &&
+      (CACHE_COMPONENT_TYPES as readonly string[]).includes(recoveredType)
+    ) {
+      scheduleCacheFlush(this.getTraitStateStore(event.nodeId), {
+        atUs: this.clock,
+        untilUs: this.clock + msToMicro(DEFAULT_CACHE_FLUSH_REWARM_MS)
+      })
+    }
     // Close the open failure window for this node.
     const open = this.statusWindows.find((w) => w.componentId === event.nodeId && w.endUs === null)
     if (open) {
@@ -2654,7 +2816,10 @@ export class SimulationEngine {
     sizeBytes = request.sizeBytes
   ): { transitUs: bigint; transmissionMs: number; components: EdgeLatencyBreakdownSample } {
     const latencyDistribution = this.edgeLatencyDistribution(edge, request)
-    const propagationMs = Math.max(0, this.distributions.fromConfig(latencyDistribution))
+    const propagationMs = Math.max(
+      0,
+      this.streamFor(`edge:${edge.id}`).fromConfig(latencyDistribution)
+    )
     // Mbps -> bytes per ms is x125; see network/linkTransmission.ts.
     const transmissionMs = transmissionTimeMs(sizeBytes, edge.bandwidth)
     // Streaming links reuse an already-open channel, so only a small framing
@@ -2662,7 +2827,8 @@ export class SimulationEngine {
     const protocolOverheadMs =
       edge.protocolOverheadMs ??
       getProtocolLatencyOverheadMs(edge.protocol) * (edge.mode === 'streaming' ? 0.25 : 1)
-    const totalLatencyMs = propagationMs + transmissionMs + protocolOverheadMs
+    const batchWaitMs = this.batchFormationWaitMs(edge.target)
+    const totalLatencyMs = propagationMs + transmissionMs + protocolOverheadMs + batchWaitMs
     return {
       transitUs: msToMicro(totalLatencyMs),
       transmissionMs,
@@ -2675,7 +2841,7 @@ export class SimulationEngine {
         connectionWaitMs: 0,
         slotWaitMs: 0,
         handshakeMs: 0,
-        batchWaitMs: 0
+        batchWaitMs
       }
     }
   }
@@ -2845,6 +3011,123 @@ export class SimulationEngine {
    * load and can saturate. The extra deliveries are recorded on the source node as
    * `fanoutAmplifiedWrites` so the amplification is measurable/gradable.
    */
+  /**
+   * How long an item waits for its batch to fill at a batching node (decision E2): a uniformly arriving item waits
+   * half the time the batch is open. The batch is open until it holds `batchSize` items (about (batchSize - 1) /
+   * arrival rate) or the window passes, whichever is first, so a saturated node (batches fill at once) adds almost
+   * nothing and a trickle adds half the window. The wait delays the item without holding a worker.
+   */
+  private batchFormationWaitMs(targetNodeId: string): number {
+    const target = this.nodeDefinitionsById.get(targetNodeId)
+    if (!target || !(BATCHING_COMPONENT_TYPES as readonly string[]).includes(target.type)) return 0
+    const config = target.config
+    const size = config?.['batchSize']
+    if (typeof size !== 'number' || size <= 1) return 0
+    const configuredWindow = config?.['batchWindowMs']
+    const windowMs =
+      typeof configuredWindow === 'number' && configuredWindow >= 0
+        ? configuredWindow
+        : BATCHING_DEFAULT_WINDOW_MS
+    const log = this.batchArrivals.get(targetNodeId) ?? []
+    const oneSecondAgo = this.clock - 1_000_000n
+    while (log.length > 0 && log[0] < oneSecondAgo) log.shift()
+    const ratePerSecond = log.length
+    log.push(this.clock)
+    this.batchArrivals.set(targetNodeId, log)
+    const fillMs =
+      ratePerSecond > 0 ? ((size - 1) / ratePerSecond) * 1000 : Number.POSITIVE_INFINITY
+    return Math.min(windowMs, fillMs) / 2
+  }
+
+  /** Sets each scheduled edge's weight to its latest step at the current time (staged rollouts). */
+  private applyWeightSchedules(): void {
+    const nowMs = Number(this.clock) / 1000
+    for (const edge of this.scheduledWeightEdges) {
+      let weight = this.initialEdgeWeight.get(edge.id)
+      for (const step of edge.weightSchedule ?? []) {
+        if (step.atMs <= nowMs) weight = step.weight
+        else break
+      }
+      edge.weight = weight
+    }
+  }
+
+  /**
+   * A cache that has failed fast (reject mode) is bypassed (decision D5): its caller reaches the cache's own
+   * downstream instead, so the store behind it sees the full request rate, which is what a cache outage does.
+   * A cache with `onCacheFailure: 'fail'`, or one with nothing behind it, still refuses.
+   */
+  private bypassFailedCaches(routes: ResolveRoute[], request: Request): ResolveRoute[] {
+    let changed = false
+    const out: ResolveRoute[] = []
+    for (const route of routes) {
+      const cache = this.nodeDefinitionsById.get(route.targetNodeId)
+      if (
+        cache &&
+        (CACHE_COMPONENT_TYPES as readonly string[]).includes(cache.type) &&
+        cache.config?.['onCacheFailure'] !== 'fail' &&
+        !this.isNodeHealthyInstant(cache.id) &&
+        this.failureSpecByNode.get(cache.id)?.mode === 'reject'
+      ) {
+        const downstream = this.resolveRoutes(cache.id, request)
+        if (!downstream.rejectionReason && downstream.routes.length > 0) {
+          this.metrics.recordNodeTraitCounters(cache.id, { cacheBypassed: 1 })
+          out.push(...downstream.routes)
+          changed = true
+          continue
+        }
+      }
+      out.push(route)
+    }
+    return changed ? out : routes
+  }
+
+  /**
+   * Leader election for a quorum store (decision G5). While its leader is down the store is unavailable for the
+   * election timeout (`electionTimeoutMs`, default none); after it, if a majority of the members is still up, the
+   * first healthy member in `replicaMembers` is the new leader and requests addressed to the old leader go to it.
+   * Without a majority there is no election and the requests keep failing.
+   */
+  private redirectFailedLeaders(routes: ResolveRoute[]): ResolveRoute[] {
+    let changed = false
+    const out = routes.map((route) => {
+      const leader = this.nodeDefinitionsById.get(route.targetNodeId)
+      const timeoutMs = leader?.config?.['electionTimeoutMs']
+      if (
+        !leader ||
+        leader.config?.['replicationEnabled'] !== true ||
+        leader.config?.['writeAckPolicy'] !== 'quorum' ||
+        typeof timeoutMs !== 'number' ||
+        timeoutMs <= 0 ||
+        this.isNodeHealthyInstant(leader.id)
+      ) {
+        return route
+      }
+      const down = this.statusWindows.find((w) => w.componentId === leader.id && w.endUs === null)
+      if (!down || this.clock - down.startUs < msToMicro(timeoutMs)) return route
+      const members = String(leader.config?.['replicaMembers'] ?? '')
+        .split(',')
+        .map((id) => id.trim())
+        .filter(Boolean)
+      const healthy = members.filter((id) => this.isNodeHealthyInstant(id))
+      if (healthy.length < Math.floor(members.length / 2) + 1) return route
+      const elected = healthy.find((id) => id !== leader.id)
+      if (!elected) return route
+      const electedDefinition = this.nodeDefinitionsById.get(elected)
+      if (electedDefinition && electedDefinition.config?.['replicationRole'] !== 'leader') {
+        // The elected follower takes the leader role (so it accepts writes) for the rest of the run.
+        this.nodeDefinitionsById.set(elected, {
+          ...electedDefinition,
+          config: { ...electedDefinition.config, replicationRole: 'leader' }
+        })
+        this.metrics.recordNodeTraitCounters(elected, { leaderElected: 1 })
+      }
+      changed = true
+      return { ...route, targetNodeId: elected }
+    })
+    return changed ? out : routes
+  }
+
   private expandFanoutRoutes(routes: ResolveRoute[], sourceNodeId: string): ResolveRoute[] {
     let amplified = 0
     let hasFanout = false
@@ -2879,17 +3162,53 @@ export class SimulationEngine {
     return expanded
   }
 
-  private prepareRequestsForRoutes(request: Request, routeCount: number): Request[] {
-    if (routeCount <= 1) {
-      return [request]
+  /**
+   * One request per route. Routes over a synchronous edge carry the user's request (the first one) or a fork of
+   * it. Routes over an asynchronous edge always carry a *background branch*: a clone flagged `__background`, kept
+   * out of the summary's totals and latency (decision E3). When every route is asynchronous the user's request
+   * has nothing left to wait for, so it completes at this node.
+   */
+  private prepareRequestsForRoutes(
+    request: Request,
+    routes: ResolveRoute[],
+    fromNodeId: string
+  ): Request[] {
+    // A messaging node (queue, stream, broker, topic) already has its own asynchronous-acknowledgement lifecycle:
+    // the producer is released at append and delivery is a separate flow, so the edge into it is left as it was.
+    const isAsync = (route: ResolveRoute) => {
+      if (route.edge.mode !== 'asynchronous') return false
+      const type = this.nodeDefinitionsById.get(route.targetNodeId)?.type
+      return !(type !== undefined && (MESSAGING_BOUNDARY_TYPES as readonly string[]).includes(type))
+    }
+    const asyncCount = routes.filter(isAsync).length
+    const syncCount = routes.length - asyncCount
+    if (asyncCount === 0) {
+      if (routes.length <= 1) return [request]
+      return routes.map((_, i) => (i === 0 ? request : this.cloneRequestForBranch(request)))
     }
 
-    const routedRequests: Request[] = [request]
-    for (let i = 1; i < routeCount; i++) {
-      routedRequests.push(this.cloneRequestForBranch(request))
+    const out: Request[] = []
+    let userRequestUsed = false
+    for (const route of routes) {
+      if (isAsync(route)) {
+        const branch = this.cloneRequestForBranch(request)
+        branch.metadata.__background = true
+        this.metrics.markBackground(branch.id)
+        out.push(branch)
+      } else if (!userRequestUsed) {
+        userRequestUsed = true
+        out.push(request)
+      } else {
+        out.push(this.cloneRequestForBranch(request))
+      }
     }
-
-    return routedRequests
+    if (syncCount === 0) {
+      // Nothing synchronous is left, so the user's response is ready now.
+      this.eventQueue.insert(
+        createEvent('request-complete', fromNodeId, request.id, { request }, this.clock)
+      )
+    }
+    return out
   }
 
   /** Assigns one consumer-group owner to each stream delivery branch. */
@@ -2991,7 +3310,22 @@ export class SimulationEngine {
     return attempt
   }
 
-  private maybeScheduleQueueDeliveryFollowUp(request: Request): void {
+  /** The visibility timeout ran out while a consumer still held the message: it is delivered again. */
+  private handleQueueVisibilityExpire(event: SimulationEvent): void {
+    const request = this.getRequest(event)
+    if (!request || this.terminalStatusByRequestId.has(request.id)) {
+      return
+    }
+    request.metadata[QUEUE_VISIBILITY_EXPIRED_KEY] = true
+    this.maybeScheduleQueueDeliveryFollowUp(request, 0n)
+  }
+
+  private maybeScheduleQueueDeliveryFollowUp(request: Request, delayUs?: bigint): void {
+    // A message that already reappeared when its timeout expired is not redelivered a second time
+    // when the first consumer later fails.
+    if (delayUs === undefined && request.metadata[QUEUE_VISIBILITY_EXPIRED_KEY] === true) {
+      return
+    }
     const queueNodeId = readQueueDeliveryOriginNodeId(request)
     if (!queueNodeId) {
       return
@@ -3032,7 +3366,7 @@ export class SimulationEngine {
       this.scheduleQueueDeliveryAttempt(
         request,
         queueNodeId,
-        this.clock + delivery.visibilityTimeoutUs,
+        this.clock + (delayUs ?? delivery.visibilityTimeoutUs),
         {
           branchOfRequestId: request.id,
           retryCount: (request.retryCount ?? 0) + 1
@@ -3118,10 +3452,24 @@ export class SimulationEngine {
       case 'circuit_breaker_open':
       case 'lock_contended':
       case 'connection_reset':
+      case 'provider_rate_limited':
+      case 'node_timeout':
         return true
       default:
         return classifyRejectionCause(reason) === 'network_error'
     }
+  }
+
+  /** The distinct nodes the request has passed through, in order of first visit. */
+  private retryChain(request: Request): string[] {
+    return [...new Set(request.path)]
+  }
+
+  /** The direct caller first, then each caller above it. */
+  private retryOwnerCandidates(request: Request, directOwnerNodeId: string): string[] {
+    const chain = this.retryChain(request)
+    const at = chain.indexOf(directOwnerNodeId)
+    return at < 0 ? [directOwnerNodeId] : chain.slice(0, at + 1).reverse()
   }
 
   private maybeScheduleRetryAttempt(
@@ -3134,31 +3482,48 @@ export class SimulationEngine {
       return false
     }
 
-    const retryOwnerNodeId = this.resolveRetryOwnerNodeId(request, event, observationPoint)
+    const directOwnerNodeId = this.resolveRetryOwnerNodeId(request, event, observationPoint)
+    if (!directOwnerNodeId) {
+      return false
+    }
+
+    // Retries nest: a caller whose own retries are spent (or that has none) passes the failure to
+    // the caller above it, which retries the whole downstream call, so attempts multiply across layers.
+    const retryCounts = (request.retryCountByNode ??= {})
+    let retryOwnerNodeId: string | null = null
+    let retryDelayMs = 0
+    for (const candidateId of this.retryOwnerCandidates(request, directOwnerNodeId)) {
+      const candidate = this.nodeDefinitionsById.get(candidateId)
+      const config = candidate ? readRetryBackoffConfig(candidate) : null
+      if (!config) {
+        continue
+      }
+      if ((retryCounts[candidateId] ?? 0) + 1 >= config.maxAttempts) {
+        this.metrics.recordNodeTraitCounters(candidateId, { retryBudgetExhausted: 1 })
+        continue
+      }
+      const delayMs = computeRetryDelayMs(retryCounts[candidateId] ?? 0, config, () =>
+        this.streamFor(`retry:${candidateId}`).random()
+      )
+      if (this.clock + msToMicro(delayMs) >= request.deadline) {
+        this.metrics.recordNodeTraitCounters(candidateId, { retryBudgetExhausted: 1 })
+        continue
+      }
+      retryOwnerNodeId = candidateId
+      retryDelayMs = delayMs
+      break
+    }
     if (!retryOwnerNodeId) {
       return false
     }
 
-    const retryOwnerNode = this.nodeDefinitionsById.get(retryOwnerNodeId)
-    const retryConfig = retryOwnerNode ? readRetryBackoffConfig(retryOwnerNode) : null
-    if (!retryOwnerNode || !retryConfig) {
-      return false
-    }
-
-    const attemptsSoFar = (request.retryCount ?? 0) + 1
-    if (attemptsSoFar >= retryConfig.maxAttempts) {
-      this.metrics.recordNodeTraitCounters(retryOwnerNodeId, { retryBudgetExhausted: 1 })
-      return false
-    }
-
-    const retryDelayMs = computeRetryDelayMs(request.retryCount ?? 0, retryConfig, () =>
-      this.distributions.random()
-    )
     const retryAtUs = this.clock + msToMicro(retryDelayMs)
-    if (retryAtUs >= request.deadline) {
-      this.metrics.recordNodeTraitCounters(retryOwnerNodeId, { retryBudgetExhausted: 1 })
-      return false
+    // A retry re-runs everything below its owner, so the retry budgets of deeper callers start over.
+    const ownerDepth = this.retryChain(request).indexOf(retryOwnerNodeId)
+    for (const deeperId of this.retryChain(request).slice(ownerDepth + 1)) {
+      delete retryCounts[deeperId]
     }
+    retryCounts[retryOwnerNodeId] = (retryCounts[retryOwnerNodeId] ?? 0) + 1
 
     this.releaseRequestLockLeases(request)
     // The failed attempt's error came back over its connections; free them.
@@ -3338,6 +3703,8 @@ export class SimulationEngine {
     reasonCode?: string | null
   ): void {
     this.resolveTerminalTraitOutcomes(request, status, reasonCode)
+    // A closed user's request is over: it thinks, then issues the next. Side branches are not user requests.
+    if (!request.id.includes('::')) this.workload?.requestFinished(this.clock)
     // The response (or failure) has returned, so held connection streams free.
     this.releaseConnectionLeases(request.id)
     this.tracer.setTerminalReason(request.id, reasonCode)
@@ -3760,7 +4127,10 @@ export class SimulationEngine {
     const policy = this.securityPolicyByNodeId.get(nodeId)
     if (!policy) return false
 
-    if (policy.droppedPackets > 0 && this.distributions.random() < policy.droppedPackets) {
+    if (
+      policy.droppedPackets > 0 &&
+      this.streamFor(`security:${nodeId}`).random() < policy.droppedPackets
+    ) {
       this.traceAdmission(request, nodeId, 'security', 'dropped', {
         reasonCode: 'security_dropped',
         policy: { blockRate: policy.blockRate, droppedPackets: policy.droppedPackets }
@@ -3778,7 +4148,7 @@ export class SimulationEngine {
       return true
     }
 
-    if (policy.blockRate > 0 && this.distributions.random() < policy.blockRate) {
+    if (policy.blockRate > 0 && this.streamFor(`security:${nodeId}`).random() < policy.blockRate) {
       this.traceAdmission(request, nodeId, 'security', 'rejected', {
         reasonCode: 'security_blocked',
         policy: { blockRate: policy.blockRate, droppedPackets: policy.droppedPackets }
@@ -3819,9 +4189,14 @@ export class SimulationEngine {
   }
 
   private shouldFailAtNode(nodeId: string): boolean {
-    const nodeErrorRate = this.nodeErrorRateById.get(nodeId)
-    if (!nodeErrorRate || nodeErrorRate <= 0) return false
-    return this.distributions.random() < nodeErrorRate
+    let nodeErrorRate = this.nodeErrorRateById.get(nodeId) ?? 0
+    for (const window of this.grayFailureWindows.get(nodeId) ?? []) {
+      if (this.clock >= window.fromUs && (window.untilUs === null || this.clock < window.untilUs)) {
+        nodeErrorRate = 1 - (1 - nodeErrorRate) * (1 - window.rate)
+      }
+    }
+    if (nodeErrorRate <= 0) return false
+    return this.streamFor(`error:${nodeId}`).random() < nodeErrorRate
   }
 
   private getTraitStateStore(nodeId: string): TraitStateStore {
@@ -3901,7 +4276,7 @@ export class SimulationEngine {
       const payload = trait.onTick({
         node,
         clock: this.clock,
-        random: () => this.distributions.random(),
+        random: () => this.streamFor(`trait:${event.nodeId}`).random(),
         state: this.getTraitStateStore(event.nodeId),
         sharedState: this.getSharedTraitStateStore(),
         nodeState: this.nodes.get(event.nodeId)?.getState()
@@ -4286,10 +4661,30 @@ export class SimulationEngine {
     return edge.packetLossRate < 1 && edge.errorRate < 1
   }
 
+  /**
+   * The random stream for a purpose (`service:<node>`, `edge:<edge>`, ...), seeded from the run seed and the key.
+   * Streams are independent of each other and of the order other parts of the design draw, which is what makes
+   * common random numbers work: the same seed gives the same arrivals and the same service-time draws to each
+   * request even when a design change moves other work around.
+   */
+  private streamFor(key: string): Distributions {
+    let stream = this.randomStreams.get(key)
+    if (!stream) {
+      stream = new Distributions(createRandom(`${this.topology.global.seed}:${key}`))
+      this.randomStreams.set(key, stream)
+    }
+    return stream
+  }
+
   private resolveRoutes(sourceNodeId: string, request: Request) {
+    this.applyWeightSchedules()
     return this.routing.resolveTargetResult(sourceNodeId, request, {
       clock: this.clock,
       isTargetHealthy: (nodeId) => this.isNodeHealthy(nodeId),
+      unhealthyForUs: (nodeId) => {
+        const open = this.statusWindows.find((w) => w.componentId === nodeId && w.endUs === null)
+        return open ? this.clock - open.startUs : undefined
+      },
       isEdgeHealthy: (edge) => this.isEdgeHealthy(edge),
       getInFlight: (nodeId) => this.nodes.get(nodeId)?.getState().totalInSystem ?? 0,
       getResponseTimeMs: (nodeId) => this.nodes.get(nodeId)?.getState().meanServiceTimeMs ?? 0,
@@ -4638,7 +5033,7 @@ export class SimulationEngine {
       // latency (the path-type defaults are round-trip figures).
       const rttMs = Math.max(
         0,
-        this.distributions.fromConfig(this.edgeLatencyDistribution(edge, request))
+        this.streamFor(`edge:${edge.id}`).fromConfig(this.edgeLatencyDistribution(edge, request))
       )
       handshakeUs = msToMicro(grant.handshakeRtts * rttMs)
       this.connectionPools.markReady(grant.lease, Number(this.clock + handshakeUs), effective)
@@ -4997,7 +5392,7 @@ export class SimulationEngine {
 
     const transit = this.sampleEdgeTransit(edge, request)
     let retransmitted = false
-    if (this.distributions.random() < edge.packetLossRate) {
+    if (this.streamFor(`edge:${edge.id}`).random() < edge.packetLossRate) {
       if (isReliableProtocol(edge.protocol)) {
         // TCP-style retransmission: the payload crosses the link a second time.
         retransmitted = true
@@ -5029,7 +5424,7 @@ export class SimulationEngine {
       }
     }
 
-    if (this.distributions.random() < edge.errorRate) {
+    if (this.streamFor(`edge:${edge.id}`).random() < edge.errorRate) {
       emitEdgeFlowEvent('edge-error', this.clock, waitedUs, 'edge_error_rate')
       this.eventQueue.insert(
         createEvent(
@@ -5311,8 +5706,8 @@ export class SimulationEngine {
     const lead = live[0].request
     const transit = this.sampleEdgeTransit(edge, lead, batch.bytes)
     // Kafka runs over TCP, so a lost packet is retransmitted, never dropped.
-    const retransmitted = this.distributions.random() < edge.packetLossRate
-    if (this.distributions.random() < edge.errorRate) {
+    const retransmitted = this.streamFor(`edge:${edge.id}`).random() < edge.packetLossRate
+    if (this.streamFor(`edge:${edge.id}`).random() < edge.errorRate) {
       rejectAll('edge_error_rate')
       return
     }
@@ -5391,7 +5786,7 @@ export class SimulationEngine {
         node,
         request,
         clock: this.clock,
-        random: () => this.distributions.random(),
+        random: () => this.streamFor(`trait:${nodeId}`).random(),
         state: this.getTraitStateStore(nodeId),
         sharedState: this.getSharedTraitStateStore(),
         nodeState: this.nodes.get(nodeId)?.getState(),
@@ -5444,7 +5839,7 @@ export class SimulationEngine {
         node,
         request,
         clock: this.clock,
-        random: () => this.distributions.random(),
+        random: () => this.streamFor(`trait:${nodeId}`).random(),
         state: this.getTraitStateStore(nodeId),
         sharedState: this.getSharedTraitStateStore(),
         nodeState: this.nodes.get(nodeId)?.getState()

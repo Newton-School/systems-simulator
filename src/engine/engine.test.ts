@@ -894,7 +894,7 @@ describe('SimulationEngine', () => {
     expect(nodeFailedRejections).toBeGreaterThan(0)
   })
 
-  it('health-aware routing rejects when no healthy targets remain', () => {
+  it('health-aware routing panics to the failed target when no healthy targets remain', () => {
     const topology = makeTopology({
       global: { simulationDuration: 250, defaultTimeout: 1_000, traceSampleRate: 1 },
       nodes: [makeNode('source'), makeRouterNode('lb'), makeNode('worker-a')],
@@ -918,8 +918,8 @@ describe('SimulationEngine', () => {
       expect.arrayContaining([
         expect.objectContaining({
           type: 'request-rejected',
-          nodeId: 'lb',
-          reasonCode: 'no_healthy_targets'
+          nodeId: 'worker-a',
+          reasonCode: 'node_failed'
         })
       ])
     )
@@ -1900,9 +1900,13 @@ describe('SimulationEngine', () => {
     const output = new SimulationEngine(topology).run()
     const traceIds = output.traces.map((trace) => trace.requestId)
 
-    expect(output.summary.successfulRequests).toBe(2)
+    // The user's request has nothing synchronous left at the source, so it completes there; each asynchronous
+    // delivery is its own background branch with its own id (and its own trace), kept out of the summary's totals.
+    expect(output.summary.successfulRequests).toBe(1)
+    expect(output.summary.backgroundBranches.completed).toBe(2)
     expect(output.traces).toHaveLength(2)
     expect(new Set(traceIds).size).toBe(2)
+    expect(traceIds.every((id) => id.startsWith('req-000001::branch-'))).toBe(true)
     expect(output.perNode.a.totalProcessed).toBe(1)
     expect(output.perNode.b.totalProcessed).toBe(1)
   })

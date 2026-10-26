@@ -5,6 +5,8 @@ import {
   readServiceTimeLatencyPenaltyMs,
   readServiceTimeWaitMs,
   SERVICE_TIME_CPU_WORK_MS_KEY,
+  SERVICE_TIME_DISTRIBUTION_OVERRIDE_KEY,
+  SERVICE_TIME_LATENCY_PENALTY_MS_KEY,
   SERVICE_TIME_WAIT_APPLIED_MS_KEY,
   SERVICE_TIME_WAIT_UNTIL_US_KEY
 } from '../traits/serviceTimeOverride'
@@ -176,6 +178,12 @@ export class GGcKNode {
 
   private readonly distributions: Distributions
   private readonly scheduler: EventScheduler
+  /**
+   * Called when a request starts service, with the start time and the service time it was given.
+   * The engine uses it to schedule events that depend on how long a delivery is held (a queue's
+   * visibility timeout expiring before the consumer finishes).
+   */
+  serviceStartObserver?: (request: Request, startUs: bigint, serviceUs: bigint) => void
 
   constructor(config: ComponentNode, distributions: Distributions, scheduler: EventScheduler) {
     if (!config.queue) {
@@ -794,6 +802,8 @@ export class GGcKNode {
 
     const serviceDistribution =
       readServiceTimeDistributionOverride(request) ?? this.serviceDistribution
+    // Consumed here: a trait's override applies to this node's service only, not to later hops.
+    delete request.metadata[SERVICE_TIME_DISTRIBUTION_OVERRIDE_KEY]
     const rawServiceTimeMs = this.distributions.fromConfig(serviceDistribution)
     if (!Number.isFinite(rawServiceTimeMs)) {
       throw new Error(
@@ -841,7 +851,10 @@ export class GGcKNode {
 
     // The additive latency penalty (geo/external/crypto traits) is external wait,
     // not local core work — it is not subject to CPU contention.
+    // Consumed here as well: the penalty is charged once, by the node whose trait set it. Left in the
+    // request's metadata it would be charged again at every node after it.
     let serviceTimeMs = computeTimeMs + readServiceTimeLatencyPenaltyMs(request)
+    delete request.metadata[SERVICE_TIME_LATENCY_PENALTY_MS_KEY]
 
     // A wait-until deadline (e.g. a replica read waiting for replication to catch
     // up) is also external wait, measured from the actual service start.
@@ -867,6 +880,7 @@ export class GGcKNode {
     // every task occupies its worker for real time on the clock, so queueing and
     // Little's Law hold.
     const serviceTimeMicro = BigInt(Math.max(1, Math.round(serviceTimeMs * 1000)))
+    this.serviceStartObserver?.(request, currentTime, serviceTimeMicro)
 
     this.scheduler.schedule(
       createEvent(

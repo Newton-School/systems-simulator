@@ -208,7 +208,9 @@ export default defineConfig(({ mode }) => {
     test: {
       // Engine integration tests run whole simulations; the 5s default passes
       // locally but times out on slower CI runners.
-      testTimeout: 20_000
+      testTimeout: 20_000,
+      // Playwright specs live in e2e/ and run with `npm run test:e2e`.
+      exclude: ['**/node_modules/**', '**/dist/**', 'e2e/**', '.claude/**']
     },
     build: {
       outDir: resolve(projectRoot, 'dist'),

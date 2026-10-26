@@ -22,10 +22,11 @@ function run(collectorConfig: Record<string, unknown>) {
 }
 
 describe('telemetrySink trait', () => {
-  it('off: a full collector rejects events and they count as failed requests', () => {
+  it("off: a full collector rejects events; they fail as background work, never as the user's requests", () => {
     const out = run({})
     expect(out.perNode.logs.rejectionsByReason.capacity_exceeded).toBe(446)
-    expect(out.summary.failedRequests).toBe(446)
+    expect(out.summary.failedRequests).toBe(0)
+    expect(out.summary.backgroundBranches.failed).toBe(446)
   })
 
   it('fire-and-forget: the same overload drops events, measured, with no failed requests', () => {
@@ -46,8 +47,11 @@ describe('telemetrySink trait', () => {
 
     const sampled = run({ telemetryAsyncIngest: true, telemetrySampleRate: 0.2 })
     const counters = sampled.perNode.logs.traitCounters
-    expect(counters.telemetrySampledOut).toBe(471)
-    expect(counters.telemetryOffered).toBe(128)
-    expect(counters.telemetryDropped).toBe(2)
+    // About 600 events at a sample rate of 0.2: roughly 120 offered (binomial, sd about 10), the rest sampled out,
+    // and nearly nothing dropped. The exact split depends on the seeded draw, so it is checked as a band.
+    const events = counters.telemetrySampledOut + counters.telemetryOffered
+    expect(events).toBeGreaterThan(550)
+    expect(Math.abs(counters.telemetryOffered / events - 0.2)).toBeLessThan(0.04)
+    expect(counters.telemetryDropped).toBeLessThan(10)
   })
 })

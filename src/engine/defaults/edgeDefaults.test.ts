@@ -107,7 +107,7 @@ describe('edgeDefaults', () => {
     const profile = getPathTypeLatencyProfile('same-dc')
     const again = getPathTypeLatencyProfile('same-dc')
 
-    expect(profile).toEqual({ type: 'log-normal', mu: 0, sigma: 0.4 })
+    expect(profile).toEqual({ type: 'log-normal', mu: -1.39, sigma: 0.4 })
     expect(profile).not.toBe(again)
   })
 })

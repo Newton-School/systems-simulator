@@ -83,7 +83,7 @@ const ENUM_OPTIONS: Record<string, readonly string[]> = {
   mode: ['synchronous', 'asynchronous', 'streaming', 'conditional'],
   protocol: ['https', 'grpc', 'tcp', 'udp', 'websocket', 'amqp', 'kafka'],
   pathType: ['same-rack', 'same-dc', 'cross-zone', 'cross-region', 'internet'],
-  pattern: ['constant', 'poisson', 'bursty', 'diurnal', 'spike', 'sawtooth', 'replay'],
+  pattern: ['constant', 'poisson', 'bursty', 'diurnal', 'spike', 'sawtooth', 'replay', 'closed'],
   discipline: ['fifo', 'lifo', 'priority', 'wfq'],
   timeResolution: ['millisecond', 'microsecond'],
   routingStrategy: [

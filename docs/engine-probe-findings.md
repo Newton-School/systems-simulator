@@ -68,8 +68,8 @@ about **twice** the arrivals the source sent (2,102 for 1,051 sent) and **half**
 service time (5 ms for 10 ms): the producer-side ack and the consumer-side delivery are counted as
 separate arrivals, one with no service. A `stream` node likewise shows 400 arrived for 200
 produced. This looks intentional (async-ack semantics) but is easy to misread in the node metrics
-and the results table. Question for the owner: should the metrics label these as "produced" and
-"delivered", or report producer-side arrivals only?
+and the results table. Decided: a `queue` node reports `messagesProduced` and `messagesDelivered` alongside
+`totalArrived`, which is their sum.
 
 ## 3b. A Down cache served its hits (engine, fixed)
 

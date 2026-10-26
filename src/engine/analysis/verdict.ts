@@ -363,6 +363,15 @@ export interface SimulationVerdict {
     componentDowntimeMs: number
   }
   sloTargetCount: number
+  /** Error-budget burn for nodes with an SLO budget or availability target. */
+  sloStatus?: Array<{
+    nodeId: string
+    nodeLabel: string
+    errorRate: number
+    errorBudget: number
+    burnRate: number
+    withinBudget: boolean
+  }>
   sloBreaches: Array<{
     nodeId: string
     nodeLabel: string
@@ -937,6 +946,7 @@ export function projectToVerdict(output: SimulationOutput): SimulationVerdict {
     ...optional('faultDomains', projectFaultDomains(output)),
     sloTargetCount: output.sloTargetCount,
     sloBreaches: output.sloBreaches.map((breach) => ({ ...breach })),
+    sloStatus: output.sloStatus?.map((status) => ({ ...status })),
     invariantViolations: output.invariantViolations.map((violation) => ({
       invariantId: violation.invariantId,
       invariantName: violation.invariantName,

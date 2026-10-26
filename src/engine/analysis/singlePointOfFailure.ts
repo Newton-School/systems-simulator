@@ -156,10 +156,17 @@ export function detectSinglePointsOfFailure(topology: TopologyJSON): SpofFinding
     }
 
     // Critical-singleton-dependency SPOF: a terminal dependency (e.g. the only
-    // database) that carries traffic, runs one instance, and has no peer of the
-    // same type to fall back on. Losing it removes that capability entirely.
+    // database) that carries traffic, runs one instance, and has no parallel peer of
+    // the same type to fall back on. Losing it removes that capability entirely.
+    // A peer must be a genuine alternative: two services of the same type in
+    // series are not redundant with each other, since every request needs both.
+    const downstream = collectReachable([node.id], directedAdjacency(topology))
     const hasSameTypePeer = topology.nodes.some(
-      (other) => other.id !== node.id && other.type === node.type
+      (other) =>
+        other.id !== node.id &&
+        other.type === node.type &&
+        !downstream.has(other.id) &&
+        !collectReachable([other.id], directedAdjacency(topology)).has(node.id)
     )
     if (!hasSameTypePeer) {
       findings.push({

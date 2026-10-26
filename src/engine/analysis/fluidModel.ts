@@ -272,6 +272,11 @@ export function peakOfferedRps(workload: WorkloadProfile | undefined): number {
   if (!workload) return 0
   const base = workload.baseRps
   switch (workload.pattern) {
+    case 'closed':
+      // At most users / think time (the rate as response time goes to zero).
+      return workload.closed && workload.closed.thinkTimeMs > 0
+        ? workload.closed.users / (workload.closed.thinkTimeMs / 1000)
+        : base
     case 'bursty':
       return workload.bursty?.burstRps ?? base * 5
     case 'spike':

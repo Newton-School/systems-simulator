@@ -55,10 +55,12 @@ const EXTERNAL_TARGET_TYPES = new Set<ComponentType>([
   'third-party-auth'
 ])
 
+// One-way latency of a hop (the median is e^mu). Calibrated to half the measured round trips: about 0.5 ms
+// inside a datacenter and 0.6 to 1.1 ms between availability zones of one region (chapter 08 section 2).
 const PATH_TYPE_LATENCY_PROFILES: Record<EdgePathType, LogNormalLatencyProfile> = {
-  'same-rack': { type: 'log-normal', mu: -1.2, sigma: 0.3 },
-  'same-dc': { type: 'log-normal', mu: 0.0, sigma: 0.4 },
-  'cross-zone': { type: 'log-normal', mu: 0.7, sigma: 0.4 },
+  'same-rack': { type: 'log-normal', mu: -2.3, sigma: 0.3 }, // median 0.10 ms
+  'same-dc': { type: 'log-normal', mu: -1.39, sigma: 0.4 }, // median 0.25 ms
+  'cross-zone': { type: 'log-normal', mu: -0.69, sigma: 0.4 }, // median 0.50 ms
   'cross-region': { type: 'log-normal', mu: 4.1, sigma: 0.3 },
   internet: { type: 'log-normal', mu: 4.6, sigma: 0.8 }
 }

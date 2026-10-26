@@ -16,6 +16,8 @@ import type {
 } from '../core/types'
 import { inferStructuralRole } from '../catalog/componentSpecs'
 import { hasInstanceModel } from '../nodes/resourceDerivation'
+import { CIRCUIT_BREAKER_COMPONENT_TYPES } from '../traits/circuitBreaker'
+import { describeDefaultProfile } from '../catalog/capacityModel'
 import { BULKHEAD_COMPONENT_TYPES } from '../traits/bulkhead'
 import { isQueueDeliverySemantics } from '../core/simulationSemantics'
 import { validateEdgeConstraintSelection } from '../defaults/edgeConstraints'
@@ -25,6 +27,8 @@ import {
 } from '../traits/contentRouting'
 import { MATCH_OPERATORS } from '../core/requestSemantics'
 import { asDistributionConfig } from '../traits/serviceTimeOverride'
+import { STORAGE_PROFILE_COMPONENT_TYPES } from '../traits/storageProfile'
+import { defaultProfileFor } from '../catalog/capacityModel'
 import { INSTANCE_TYPES } from '../catalog/instanceCatalog'
 import { findCloudRegion } from '../catalog/locationCatalog'
 import { describeFaultDomain, faultDomainMemberIds } from '../core/faultDomains'
@@ -455,6 +459,12 @@ export const EdgeDefinitionSchema = z.object({
   packetLossRate: z.number().min(0).max(1),
   errorRate: z.number().min(0).max(1),
   weight: z.number().optional(),
+  weightSchedule: z
+    .array(z.object({ atMs: z.number().nonnegative(), weight: z.number().nonnegative() }))
+    .refine((steps) => steps.every((s, i) => i === 0 || s.atMs >= steps[i - 1].atMs), {
+      message: 'Weight schedule times must not decrease.'
+    })
+    .optional(),
   condition: z.string().optional(),
   fanoutFactor: z.number().int().positive().optional(),
   connection: z
@@ -560,7 +570,16 @@ const TrafficOriginSchema = z
 
 export const WorkloadProfileSchema = z.object({
   sourceNodeId: z.string().min(1),
-  pattern: z.enum(['constant', 'poisson', 'bursty', 'diurnal', 'spike', 'sawtooth', 'replay']),
+  pattern: z.enum([
+    'constant',
+    'poisson',
+    'bursty',
+    'diurnal',
+    'spike',
+    'sawtooth',
+    'replay',
+    'closed'
+  ]),
 
   baseRps: z.number().positive(),
 
@@ -610,7 +629,19 @@ export const WorkloadProfileSchema = z.object({
   diurnal: z
     .object({
       peakMultiplier: z.number(),
-      hourlyMultipliers: DiurnalHourlyMultipliersSchema
+      hourlyMultipliers: DiurnalHourlyMultipliersSchema,
+      startHour: z.number().min(0).max(24).optional()
+    })
+    .optional(),
+
+  closed: z
+    .object({ users: z.number().int().positive(), thinkTimeMs: z.number().nonnegative() })
+    .optional(),
+
+  trace: z
+    .array(z.object({ atMs: z.number().nonnegative(), type: z.string().min(1).optional() }))
+    .refine((entries) => entries.every((e, i) => i === 0 || e.atMs >= entries[i - 1].atMs), {
+      message: 'Trace times must not decrease.'
     })
     .optional(),
 
@@ -913,6 +944,49 @@ function displayNodeLabel(node: TopologyJSON['nodes'][number]): string {
   return trimmedLabel.length > 0 ? trimmedLabel : node.id
 }
 
+function storageLatencyConfigured(config: Record<string, unknown> | undefined): boolean {
+  return [
+    'storageReadMs',
+    'storageWriteMs',
+    'storageQueryMs',
+    'storageScanMs',
+    'storageIngestMs'
+  ].some((key) => typeof config?.[key] === 'number')
+}
+
+/**
+ * Advice about a service-time distribution that is legal but easy to misread (chapter 03): a normal that
+ * often goes negative is clamped to 0, a Poisson draw is an integer count and a Beta draw is a proportion in
+ * [0, 1] (neither is naturally a duration), and mixture weights are normalised by their sum.
+ */
+function serviceDistributionWarnings(distribution: DistributionConfig): string[] {
+  const out: string[] = []
+  if (distribution.type === 'normal' && distribution.mean < 3 * distribution.stdDev) {
+    out.push(
+      `The normal service time (mean ${distribution.mean}, standard deviation ${distribution.stdDev}) can go below zero; negative draws are clamped to 0, so the real average is higher than the mean you set.`
+    )
+  }
+  if (distribution.type === 'poisson') {
+    out.push(
+      'A Poisson service time is a whole-number count, not a duration; check that it is in the unit you mean (milliseconds).'
+    )
+  }
+  if (distribution.type === 'beta') {
+    out.push(
+      'A Beta draw is a proportion between 0 and 1, so as a service time it is at most 1 ms; scale it or pick a duration distribution.'
+    )
+  }
+  if (distribution.type === 'mixture') {
+    const total = distribution.components.reduce((sum, c) => sum + c.weight, 0)
+    if (Math.abs(total - 1) > 1e-9) {
+      out.push(
+        `The mixture weights add up to ${Number(total.toFixed(6))}, not 1; they are normalised by their sum, so ${distribution.components.map((c) => `${Number((c.weight / total).toFixed(4))}`).join(' / ')} is what runs.`
+      )
+    }
+  }
+  return out
+}
+
 export const validateTopology = (
   input: unknown,
   options: ValidationOptions = {}
@@ -1090,22 +1164,77 @@ export const validateTopology = (
     }
 
     if (role !== 'source') {
+      const defaults = describeDefaultProfile(node)
       if (!node.queue) {
-        warnings.push(
-          `${nodeLabel}: Queue settings are missing, so default queue settings were applied (1 worker, room for 100 waiting requests).`
-        )
+        // A node sized by an instance model derives its concurrency from the hardware; it has no queue
+        // to be missing, so the warning would only mislead.
+        if (!hasInstanceModel(node.resources)) {
+          warnings.push(
+            defaults
+              ? `${nodeLabel}: No queue or instance resources were set, so this component runs with the default profile for its type (${defaults.capacity}). Set resources or a queue to choose its capacity.`
+              : `${nodeLabel}: Queue settings are missing, so default queue settings were applied (1 worker, room for 100 waiting requests).`
+          )
+        }
         node.queue = { workers: 1, capacity: 100, discipline: 'fifo' }
       }
 
       if (!node.processing) {
         warnings.push(
-          `${nodeLabel}: Performance settings are missing, so default performance settings were applied (1 ms service time, 30 s timeout).`
+          defaults
+            ? `${nodeLabel}: Performance settings are missing, so the default for this component type is used (${defaults.service}).`
+            : `${nodeLabel}: Performance settings are missing, so default performance settings were applied (1 ms service time, 30 s timeout).`
         )
         node.processing = {
           distribution: { type: 'constant', value: 1 },
           timeout: 30_000
         }
       }
+    }
+
+    if (
+      node.processing &&
+      (STORAGE_PROFILE_COMPONENT_TYPES as readonly string[]).includes(node.type) &&
+      node.processing.distribution.type !== undefined &&
+      !storageLatencyConfigured(node.config)
+    ) {
+      const templateDefault = defaultProfileFor(node)?.processing?.distribution
+      if (
+        templateDefault !== undefined &&
+        JSON.stringify(templateDefault) !== JSON.stringify(node.processing.distribution)
+      ) {
+        warnings.push(
+          `${nodeLabel}: A data store's service time comes from its storage profile (read, write, query, scan or ingest latency), so the processing time you set is not used. Set storageReadMs, storageWriteMs and the others to change it.`
+        )
+      }
+    }
+    if (node.config?.['dnsRoutingPolicy'] === 'geolocation') {
+      const mapped = new Set(
+        (Array.isArray(node.config['dnsGeoTargets']) ? node.config['dnsGeoTargets'] : [])
+          .map((entry) => (entry as { origin?: unknown }).origin)
+          .filter((origin): origin is string => typeof origin === 'string')
+      )
+      const unmapped = (topology.workload?.origins ?? [])
+        .map((origin) => origin.id)
+        .filter((id) => !mapped.has(id))
+      if (unmapped.length > 0) {
+        warnings.push(
+          `${nodeLabel}: Geolocation routing has no target for the origin${unmapped.length === 1 ? '' : 's'} ${unmapped.join(', ')}; requests from ${unmapped.length === 1 ? 'it go' : 'them go'} to the first answer by name.`
+        )
+      }
+    }
+    if (node.scaling) {
+      // Only `scaling.coldStartPenalty` is read (by a serverless function). The scaling policy itself is
+      // not applied; use `autoscaleCooldownMs` / `autoscaleStep` or the HPA policy on a cluster instead.
+      warnings.push(
+        `${nodeLabel}: The scaling block's type, metric, thresholds and cooldown are not applied (only its cold-start penalty is read), so this component does not scale. Use the autoscaler settings on a cluster to add capacity.`
+      )
+    }
+    if (node.processing) {
+      warnings.push(
+        ...serviceDistributionWarnings(node.processing.distribution).map(
+          (message) => `${nodeLabel}: ${message}`
+        )
+      )
     }
 
     const queueLabels = queueFieldLabels(node.type)
@@ -1889,6 +2018,17 @@ export const validateTopology = (
         : `without an ${label('resources.instanceType')}, workers and queue space come from the queue settings`
       warnings.push(
         `${nodeLabel}: ${fields} ${ignoredResourceFields.length > 1 ? 'are' : 'is'} set but ignored by the simulator: ${reason}.`
+      )
+    }
+
+    // A circuit breaker only gates calls on the node types that implement it. On any other node the
+    // setting is accepted and records state but rejects nothing, so say so instead of looking active.
+    if (
+      node.resilience?.circuitBreaker &&
+      !(CIRCUIT_BREAKER_COMPONENT_TYPES as readonly string[]).includes(node.type)
+    ) {
+      warnings.push(
+        `${nodeLabel}: A circuit breaker is configured but this component type does not apply one, so it will never reject a call. Put it on a sidecar, service mesh or circuit breaker controller.`
       )
     }
 

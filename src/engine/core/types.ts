@@ -514,6 +514,11 @@ export interface EdgeDefinition {
    */
   errorRate: number
   weight?: number // relative weight for weighted routing
+  /**
+   * Staged rollout: the weight changes over simulated time. Each step sets `weight` from `atMs` on; before the
+   * first step the edge keeps `weight`. A canary is a v2 edge stepping 1 -> 5 -> 25 -> 100 against a fixed v1 edge.
+   */
+  weightSchedule?: Array<{ atMs: number; weight: number }>
   condition?: string // JS expression string for conditional edges
   /**
    * Fan-out amplification: each request delivered over this edge is amplified into
@@ -599,7 +604,15 @@ export interface WorkloadStopCondition {
 
 export interface WorkloadProfile {
   sourceNodeId: string
-  pattern: 'constant' | 'poisson' | 'bursty' | 'diurnal' | 'spike' | 'sawtooth' | 'replay'
+  pattern:
+    | 'constant'
+    | 'poisson'
+    | 'bursty'
+    | 'diurnal'
+    | 'spike'
+    | 'sawtooth'
+    | 'replay'
+    | 'closed'
   /** When the run stops (time, request count, or early on saturation). Default: duration. */
   stopCondition?: WorkloadStopCondition
   /**
@@ -627,7 +640,24 @@ export interface WorkloadProfile {
      * 24 values, one per hour in the day (0–23).
      */
     hourlyMultipliers: DiurnalHourlyMultipliers
+    /**
+     * Hour of the day (0 to 23.99) at which the run starts, with real time from there on: a 2 h run
+     * from 14 sees hours 14 and 15 of the curve. Omitted: the 24 hours span the whole run.
+     */
+    startHour?: number
   }
+  /**
+   * `closed` only: a fixed population of `users`. Each issues a request, waits for it to finish (success or failure),
+   * thinks for `thinkTimeMs`, and issues the next, so arrivals depend on completions and the offered load falls
+   * as the system slows (the interactive response time law R = N / X - Z holds). `baseRps` is not used.
+   */
+  closed?: { users: number; thinkTimeMs: number }
+  /**
+   * `replay` only: the recorded arrivals, in order. Each entry is a time in ms from the start of the run and,
+   * optionally, the request type (one of `requestDistribution`). When set, the arrivals are exactly these and
+   * `baseRps` is not used; the run ends after the last one.
+   */
+  trace?: Array<{ atMs: number; type?: string }>
   spike?: {
     /**
      * Time from the start of the simulation until the spike begins, in milliseconds.

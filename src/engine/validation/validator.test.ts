@@ -526,6 +526,102 @@ describe('validateTopology active-source validation', () => {
     )
   })
 
+  describe('circuit breaker on a component that does not apply one', () => {
+    const breaker = {
+      failureThreshold: 0.5,
+      failureCount: 10,
+      recoveryTimeout: 5_000,
+      halfOpenRequests: 1
+    }
+    const warningFor = (type: ComponentNode['type']) => {
+      const source = makeSourceNode('client', 'Client App')
+      const service = {
+        ...makeProcessorNode('api', 'API Server'),
+        type,
+        resilience: { circuitBreaker: breaker }
+      }
+      const result = validateTopology(
+        makeTopology({
+          nodes: [source, service],
+          edges: [makeEdge('client-api', source.id, service.id)],
+          sourceNodeId: source.id
+        })
+      )
+      return (result.warnings ?? []).find((warning) =>
+        warning.includes('circuit breaker is configured')
+      )
+    }
+
+    it('warns on a microservice, where the setting records state but never rejects a call', () => {
+      expect(warningFor('microservice')).toMatch(/never reject a call/)
+    })
+
+    it.each(['sidecar', 'service-mesh', 'circuit-breaker-controller'] as const)(
+      'is quiet on a %s, which applies it',
+      (type) => {
+        expect(warningFor(type)).toBeUndefined()
+      }
+    )
+  })
+
+  describe('missing queue settings', () => {
+    const warnsAboutQueue = (node: ComponentNode): boolean => {
+      const source = makeSourceNode('client', 'Client App')
+      const result = validateTopology(
+        makeTopology({
+          nodes: [source, node],
+          edges: [makeEdge('client-api', source.id, node.id)],
+          sourceNodeId: source.id
+        })
+      )
+      return (result.warnings ?? []).some((warning) =>
+        warning.includes('No queue or instance resources were set')
+      )
+    }
+
+    it('warns when a node sets neither a queue nor an instance, and says what it runs with instead', () => {
+      const bare = {
+        ...makeProcessorNode('api', 'API Server'),
+        queue: undefined,
+        resources: undefined
+      }
+      expect(warnsAboutQueue(bare as unknown as ComponentNode)).toBe(true)
+    })
+
+    it('names the default profile, so the user knows what will actually run', () => {
+      const source = makeSourceNode('client', 'Client App')
+      const node = {
+        ...makeProcessorNode('api', 'API Server'),
+        queue: undefined,
+        resources: undefined,
+        processing: undefined
+      }
+      const result = validateTopology(
+        makeTopology({
+          nodes: [source, node as unknown as ComponentNode],
+          edges: [makeEdge('client-api', source.id, node.id)],
+          sourceNodeId: source.id
+        })
+      )
+      const warnings = result.warnings ?? []
+      expect(warnings.find((w) => w.includes('No queue or instance resources'))).toMatch(
+        /default profile for its type \(\d+ concurrent workers?\)/
+      )
+      expect(warnings.find((w) => w.includes('Performance settings are missing'))).toMatch(
+        /about [\d.]+ ms per request, \d+ ms timeout/
+      )
+    })
+
+    it('stays quiet for a node sized by an instance: it has no queue to be missing', () => {
+      const sized = {
+        ...makeProcessorNode('api', 'API Server'),
+        queue: undefined,
+        resources: { instanceType: 'm5.large', instanceCount: 1 }
+      }
+      expect(warnsAboutQueue(sized as unknown as ComponentNode)).toBe(false)
+    })
+  })
+
   it('suppresses edge-constraint warnings in connector mode', () => {
     const source = makeSourceNode('client', 'Client App')
     const service = makeProcessorNode('api', 'API Server')
@@ -1084,5 +1180,136 @@ describe('validateTopology bulkhead and load-shedding config', () => {
     expect(result.warnings).toContain(
       "Node 'Order Service' sets resilience.bulkhead.maxConcurrent, which only caps serverless-function concurrency and is ignored here; use resilience.bulkhead.partitions or defaultMaxConcurrent for a bulkhead."
     )
+  })
+})
+
+describe('service-time distribution advice', () => {
+  const warningsFor = (
+    distribution: ComponentNode['processing'] extends infer P
+      ? P extends { distribution: infer D }
+        ? D
+        : never
+      : never
+  ) => {
+    const source = makeSourceNode('client')
+    const service = makeProcessorNode('svc', 'Service')
+    service.processing = { distribution, timeout: 1_000 }
+    const result = validateTopology(
+      makeTopology({
+        nodes: [source, service],
+        edges: [makeEdge('client-svc', source.id, service.id)],
+        sourceNodeId: source.id
+      })
+    )
+    return (result.warnings ?? []).filter((w) => w.startsWith('Service:'))
+  }
+
+  it('warns when a normal service time can go negative and is clamped', () => {
+    expect(warningsFor({ type: 'normal', mean: 5, stdDev: 3 })[0]).toMatch(/clamped to 0/)
+    expect(warningsFor({ type: 'normal', mean: 30, stdDev: 3 })).toEqual([])
+  })
+
+  it('warns that Poisson and Beta draws are a count and a proportion, not durations', () => {
+    expect(warningsFor({ type: 'poisson', lambda: 4 })[0]).toMatch(/whole-number count/)
+    expect(warningsFor({ type: 'beta', alpha: 2, beta: 5 })[0]).toMatch(/proportion/)
+  })
+
+  it('warns when mixture weights do not sum to 1 and says what runs', () => {
+    const mix = (a: number, b: number) =>
+      warningsFor({
+        type: 'mixture',
+        components: [
+          { weight: a, distribution: { type: 'constant', value: 5 } },
+          { weight: b, distribution: { type: 'constant', value: 50 } }
+        ]
+      })
+    expect(mix(9, 1)[0]).toMatch(/0\.9 \/ 0\.1 is what runs/)
+    expect(mix(0.9, 0.1)).toEqual([])
+  })
+})
+
+describe('data-store service time advice', () => {
+  const warningFor = (config?: Record<string, unknown>) => {
+    const source = makeSourceNode('client')
+    const db = makeProcessorNode('db', 'Orders DB')
+    db.type = 'relational-db'
+    db.category = 'storage-and-data'
+    db.processing = { distribution: { type: 'constant', value: 100 }, timeout: 1_000 }
+    if (config) db.config = config
+    const result = validateTopology(
+      makeTopology({
+        nodes: [source, db],
+        edges: [makeEdge('client-db', source.id, db.id)],
+        sourceNodeId: source.id
+      })
+    )
+    return (result.warnings ?? []).find((w) => w.includes('storage profile'))
+  }
+
+  it('warns that a typed processing time is not used by a data store', () => {
+    expect(warningFor()).toMatch(/processing time you set is not used/)
+  })
+
+  it('is quiet once a storage latency is set', () => {
+    expect(warningFor({ storageReadMs: 100 })).toBeUndefined()
+  })
+})
+
+describe('the unread scaling block', () => {
+  it('warns that scaling policy fields are not applied', () => {
+    const source = makeSourceNode('client')
+    const service = makeProcessorNode('svc', 'Service')
+    service.scaling = {
+      type: 'horizontal',
+      metric: 'utilization',
+      scaleUpThreshold: 0.7,
+      scaleDownThreshold: 0.3,
+      cooldown: 5000
+    }
+    const result = validateTopology(
+      makeTopology({
+        nodes: [source, service],
+        edges: [makeEdge('client-svc', source.id, service.id)],
+        sourceNodeId: source.id
+      })
+    )
+    expect((result.warnings ?? []).some((w) => w.includes('does not scale'))).toBe(true)
+  })
+})
+
+describe('geolocation routing', () => {
+  it('warns about an origin with no mapped target and names where its requests go', () => {
+    const source = makeSourceNode('client')
+    const dns = makeProcessorNode('dns', 'DNS')
+    dns.type = 'global-traffic-manager'
+    dns.config = {
+      dnsRoutingPolicy: 'geolocation',
+      dnsGeoTargets: [{ origin: 'eu', targetNodeId: 'svc-eu' }]
+    }
+    const topology = makeTopology({
+      nodes: [source, dns, makeProcessorNode('svc-eu')],
+      edges: [makeEdge('c-d', source.id, dns.id), makeEdge('d-s', dns.id, 'svc-eu')],
+      sourceNodeId: source.id
+    })
+    topology.workload.origins = [
+      {
+        id: 'eu',
+        label: 'EU',
+        weight: 0.5,
+        location: { kind: 'coordinates', latitude: 50, longitude: 8 }
+      },
+      {
+        id: 'asia',
+        label: 'Asia',
+        weight: 0.5,
+        location: { kind: 'coordinates', latitude: 35, longitude: 139 }
+      }
+    ] as never
+    const res = validateTopology(topology)
+    const warnings = res.warnings ?? []
+    expect(warnings.some((w) => w.includes('asia') && w.includes('first answer by name'))).toBe(
+      true
+    )
+    expect(warnings.some((w) => /origin[s]? eu/.test(w))).toBe(false)
   })
 })

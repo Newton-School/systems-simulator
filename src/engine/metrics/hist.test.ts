@@ -56,19 +56,57 @@ describe('Hist', () => {
     }
   })
 
-  it('clamps values into [1, 1_000_000]', () => {
+  it('clamps values into [1, 2^30 - 1]', () => {
     const h = new Hist()
     h.record(0)
     h.record(-5)
-    h.record(5_000_000)
+    h.record(5_000_000_000)
     expect(h.count()).toBe(3)
-    // The two floor values land at ~1µs, the overflow lands at ~1e6 µs.
+    // The two floor values land at ~1µs, the overflow lands at the top of the range (~1.07e9 µs).
     const p0 = h.quantile(0) as number
     const pMax = h.quantile(1) as number
     expect(p0).toBeGreaterThanOrEqual(1)
     expect(p0).toBeLessThan(2)
-    expect(pMax).toBeGreaterThan(500_000)
-    expect(pMax).toBeLessThanOrEqual(1_000_000 * 1.01)
+    expect(pMax).toBeGreaterThan(1_000_000_000)
+    expect(pMax).toBeLessThanOrEqual((2 ** 30 - 1) * 1.01)
+  })
+
+  it('keeps the 1% accuracy for latencies above one second (timeouts are configurable to minutes)', () => {
+    for (const seconds of [1.2, 2, 5, 20, 120, 600]) {
+      const h = new Hist()
+      const us = Math.round(seconds * 1_000_000)
+      for (let i = 0; i < 100; i++) h.record(us)
+      for (const q of [0, 0.5, 0.99, 1]) {
+        expect(Math.abs((h.quantile(q) as number) - us) / us).toBeLessThanOrEqual(0.01)
+      }
+    }
+  })
+
+  it('does not allocate the long-latency bands until a value needs them', () => {
+    const h = new Hist()
+    h.record(900_000)
+    expect((h as unknown as { overflow: unknown }).overflow).toBeNull()
+    h.record(1_500_000)
+    expect((h as unknown as { overflow: unknown }).overflow).not.toBeNull()
+  })
+
+  it('merges long-latency buckets exactly, including into a histogram that never saw one', () => {
+    const a = new Hist()
+    const b = new Hist()
+    const union = new Hist()
+    for (const v of [100, 5_000, 2_500_000, 40_000_000]) {
+      a.record(v)
+      union.record(v)
+    }
+    for (const v of [300, 9_000_000]) {
+      b.record(v)
+      union.record(v)
+    }
+    b.merge(a)
+    a.merge(new Hist())
+    for (const q of [0, 0.25, 0.5, 0.75, 0.99, 1]) {
+      expect(b.quantile(q)).toBe(union.quantile(q))
+    }
   })
 
   it('merge(A, B) equals a histogram fed A ∪ B exactly at the bucket level', () => {

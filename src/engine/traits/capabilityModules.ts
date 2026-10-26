@@ -15,6 +15,9 @@ import { deliveryPartnerPoolCapabilityModule } from './deliveryPartnerPool'
 import { healthAwareRoutingCapabilityModule } from './healthAwareRouting'
 import { idempotencyDedupCapabilityModule } from './idempotencyDedup'
 import { externalLatencyCapabilityModule } from './externalLatency'
+import { geoLatencyCapabilityModule } from './geoLatency'
+import { videoBandwidthCapabilityModule } from './videoBandwidth'
+import { certificateExpiryCapabilityModule } from './certificateExpiry'
 import { tieredRetrievalCapabilityModule } from './tieredRetrieval'
 import { cryptoCostCapabilityModule } from './cryptoCost'
 import { tokenCostCapabilityModule } from './tokenCost'
@@ -528,6 +531,12 @@ const COMPOSITE_LOCATION_MODULE: NodeCapabilityModule = {
 function resourcesNote(data: CanvasNodeDataV2): string | null {
   const resources = data.sim?.resources
   const type = data.componentType
+  // A node sized by a raw queue runs exactly that: nothing is derived from an instance. Say so, so a
+  // reader never assumes a hidden default instance (see catalog/capacityModel.ts).
+  const queue = data.sim?.queue
+  if (!resources?.instanceType && queue && type && data.structuralRole !== 'source') {
+    return `Sized by a queue, as written in the file: ${queue.workers} worker${queue.workers === 1 ? '' : 's'}, capacity ${queue.capacity}. Pick an instance type to switch to the hardware model, where concurrency is derived instead.`
+  }
   if (!resources?.instanceType || !type) return null
 
   const spec = INSTANCE_CATALOG[resources.instanceType]
@@ -1067,6 +1076,9 @@ export const TRAIT_CAPABILITY_MODULES: readonly NodeCapabilityModule[] = [
   memoryPressureCapabilityModule,
   ackAndReleaseCapabilityModule,
   externalLatencyCapabilityModule,
+  geoLatencyCapabilityModule,
+  videoBandwidthCapabilityModule,
+  certificateExpiryCapabilityModule,
   tieredRetrievalCapabilityModule,
   cryptoCostCapabilityModule,
   tokenCostCapabilityModule,

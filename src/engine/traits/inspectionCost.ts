@@ -4,7 +4,9 @@ import type { BeforeArrivalDecision, NodeBehaviourTrait, NodeCapabilityModule } 
 
 export const INSPECTION_COST_COMPONENT_TYPES = [
   'network-policy',
-  'policy-engine'
+  'policy-engine',
+  'waf',
+  'firewall'
 ] as const satisfies readonly ComponentType[]
 
 const DEFAULT_INSPECTION_MS = 2

@@ -127,9 +127,15 @@ function requestKey(context: TraitContext): string | null {
   return typeof key === 'string' ? key : null
 }
 
-function admitToLru(cache: LruCacheState, key: string): void {
+/** TTL in microseconds, or 0 when the cache has no expiry (unset or 0 seconds). */
+function ttlMicros(config: Record<string, unknown> | undefined): bigint {
+  const seconds = asPositiveNumber(config?.['ttlSeconds'])
+  return seconds === null ? 0n : BigInt(Math.round(seconds * 1_000_000))
+}
+
+function admitToLru(cache: LruCacheState, key: string, filledAtUs: bigint): void {
   cache.entries.delete(key)
-  cache.entries.set(key, true)
+  cache.entries.set(key, filledAtUs)
   if (cache.entries.size > cache.capacity) {
     const lruKey = cache.entries.keys().next().value
     if (lruKey !== undefined) cache.entries.delete(lruKey)
@@ -181,9 +187,10 @@ function flushesFor(state: { get<T>(key: string): T | undefined } | undefined): 
 interface LruCacheState {
   /** Fixed item capacity derived from RAM ÷ value size. */
   capacity: number
-  /** Recency-ordered key set: JS Map iteration order is insertion order, so the
-   *  first key is the least-recently-used and the last is most-recently-used. */
-  entries: Map<string, true>
+  /** Recency-ordered keys mapped to the time they were filled (a TTL counts from the fill,
+   *  not from the last hit). JS Map iteration order is insertion order, so the first key
+   *  is the least-recently-used and the last is most-recently-used. */
+  entries: Map<string, bigint>
 }
 
 /**
@@ -254,10 +261,15 @@ export const cacheTrait: NodeBehaviourTrait = {
           }
         }
 
+        const filledAtUs = cache.entries.get(key)
+        const ttlUs = ttlMicros(node.config)
+        if (filledAtUs !== undefined && ttlUs > 0n && clock - filledAtUs >= ttlUs) {
+          cache.entries.delete(key) // expired: the next fetch refills it
+        }
         if (cache.entries.has(key)) {
-          // Hit: refresh recency (delete + re-insert moves it to the MRU end).
+          // Hit: refresh recency (delete + re-insert moves it to the MRU end), keeping the fill time.
           cache.entries.delete(key)
-          cache.entries.set(key, true)
+          cache.entries.set(key, filledAtUs ?? clock)
           request.metadata.__cacheOutcome = 'hit'
           request.metadata.__cacheNodeId = node.id
           return {
@@ -327,7 +339,7 @@ export const cacheTrait: NodeBehaviourTrait = {
 
     return missDecision(context, requestKey(context), { hitRate, cacheHitLatencyMs: hitLatencyMs })
   },
-  afterTerminal: ({ node, request, state, status }) => {
+  afterTerminal: ({ node, request, state, status, clock }) => {
     if (!state) return
     const missKeys = state.get<Map<string, string>>(MISS_KEYS_STATE_KEY)
     const key = missKeys?.get(request.id)
@@ -343,7 +355,7 @@ export const cacheTrait: NodeBehaviourTrait = {
     // the derived LRU. A failed or timed-out fetch leaves the key uncached.
     if (status !== 'success' || node.config?.['cacheModel'] !== 'derived-lru') return
     const cache = state.get<LruCacheState>(LRU_STATE_KEY)
-    if (cache) admitToLru(cache, key)
+    if (cache) admitToLru(cache, key, clock)
   }
 }
 
@@ -357,7 +369,7 @@ export const cacheCapabilityModule: NodeCapabilityModule = {
         id: 'caching',
         title: 'Caching',
         note: (data) =>
-          'Two hit/miss models. "Declared rate" uses the hit rate you set directly. "Derived (LRU)" simulates a real bounded cache of C = RAM ÷ value size items keyed on the request\'s entity key - hit rate then emerges from the workload\'s access pattern (set keyspace.skew on the source) plus capacity, including cold-start warming and LRU eviction. A miss fills its key only when the backing-store response returns, so a cold hot key under load misses repeatedly until the first fetch lands (a thundering herd). TTL remains topology intent only.' +
+          'Two hit/miss models. "Declared rate" uses the hit rate you set directly. "Derived (LRU)" simulates a real bounded cache of C = RAM ÷ value size items keyed on the request\'s entity key - hit rate then emerges from the workload\'s access pattern (set keyspace.skew on the source) plus capacity, including cold-start warming and LRU eviction. A miss fills its key only when the backing-store response returns, so a cold hot key under load misses repeatedly until the first fetch lands (a thundering herd). A TTL expires an entry that long after it was filled (hits do not extend it); unset or 0 means entries never expire.' +
           (data.sim?.requestCollapsing === true
             ? ' Request collapsing is on: concurrent misses for the same key wait for one fetch. It only groups requests that carry a key (source keyspace); keyless requests pass through uncollapsed.'
             : ''),
@@ -451,7 +463,7 @@ export const cacheCapabilityModule: NodeCapabilityModule = {
             unit: 's',
             placeholder: 'Not simulated when empty',
             accuracy: 'not-simulated',
-            why: 'Documents cache expiry intent. The current simulator does not use TTL to change hit or miss behavior.'
+            why: 'Derived (LRU) model: an entry expires this long after it was filled and the next request refetches it. Unset or 0 means no expiry. Ignored by the declared-rate model.'
           }
         ]
       }
@@ -525,7 +537,7 @@ export const cacheCapabilityModule: NodeCapabilityModule = {
     ],
     notModeled: [
       'declared model: eviction pressure, origin shield behavior, stale reads',
-      'derived model: TTL expiry, sharding/consistent hashing across cache nodes, per-key value-size variation',
+      'derived model: sharding/consistent hashing across cache nodes, per-key value-size variation',
       'request collapsing: requests without a key (no source keyspace) are never collapsed; no cap on waiters per key and no lock timeout that lets waiters fall through to the origin (e.g. nginx proxy_cache_lock_timeout); stale-while-revalidate and probabilistic early refresh; collapsing across separate cache nodes; the analytic (fluid) evaluation tier ignores per-request cache behaviour, so collapsing only applies in discrete-event runs'
     ]
   }

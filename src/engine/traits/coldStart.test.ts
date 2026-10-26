@@ -131,4 +131,39 @@ describe('coldStartTrait', () => {
       })
     })
   })
+
+  it('cold-starts one environment per concurrent request, then reuses warm ones', () => {
+    const state = makeStateStore()
+    const node = makeNode({
+      coldStartLatency: { type: 'constant', value: 100 },
+      idleTimeoutMs: 5_000,
+      maxConcurrency: 8
+    })
+    const arrive = (atMs: number, active: number) =>
+      (
+        coldStartTrait.beforeArrival?.({
+          node,
+          request: makeRequest(),
+          clock: msToMicro(atMs),
+          state,
+          nodeState: {
+            id: 'lambda',
+            status: 'busy',
+            activeWorkers: active,
+            queueLength: 0,
+            utilization: 0,
+            totalInSystem: active
+          }
+        }) as { payload?: { coldStart?: boolean } }
+      ).payload?.coldStart
+
+    // Three requests arrive while 0, 1 and 2 others are in service: three environments, three cold starts.
+    expect([arrive(0, 0), arrive(10, 1), arrive(20, 2)]).toEqual([true, true, true])
+    // Later requests that find the same number of environments busy reuse them warm.
+    expect([arrive(1_000, 0), arrive(1_010, 1), arrive(1_020, 2)]).toEqual([false, false, false])
+    // A fourth concurrent request needs an environment that has never started.
+    expect(arrive(1_030, 3)).toBe(true)
+    // An environment idle past the timeout is cold again.
+    expect(arrive(10_000, 0)).toBe(true)
+  })
 })

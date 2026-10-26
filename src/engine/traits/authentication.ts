@@ -3,7 +3,9 @@ import type { BeforeArrivalDecision, NodeBehaviourTrait, NodeCapabilityModule } 
 
 export const AUTHENTICATION_COMPONENT_TYPES = [
   'api-gateway',
-  'auth-service'
+  'auth-service',
+  'identity-provider',
+  'iam-rbac'
 ] as const satisfies readonly ComponentType[]
 
 const DEFAULT_TOKEN_FIELD = 'authToken'

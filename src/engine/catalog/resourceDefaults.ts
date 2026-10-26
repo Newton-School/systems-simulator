@@ -507,8 +507,9 @@ export function getResourceDefaults(type: ComponentType): ResourceTypeDefault {
 /**
  * Build the default instance-backed resource profile for a freshly created node.
  * This follows the curated per-type allocation table rather than trying to
- * preserve any legacy queue heuristic. Legacy migrations still use
- * `buildReproducingResources(...)` below to remain byte-identical.
+ * preserve any legacy queue heuristic. The question-fixture generator
+ * wraps raw queues with `buildReproducingResources(...)` below; the canvas no longer does
+ * (see catalog/capacityModel.ts).
  */
 export function buildDefaultResources(type: ComponentType): ResourceConfig {
   const defaults = getResourceDefaults(type)

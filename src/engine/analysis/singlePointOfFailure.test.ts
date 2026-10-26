@@ -130,4 +130,29 @@ describe('detectSinglePointsOfFailure', () => {
     // api is a cut node (orphans db); db is redundant so not flagged.
     expect(ids(t)).toEqual(['api'])
   })
+
+  it('flags the last of two services of the same type placed in series', () => {
+    const t = topology(
+      [
+        node('client', 'api-endpoint', 'compute', 'source'),
+        node('a', 'microservice', 'compute', 'processor', 1),
+        node('b', 'microservice', 'compute', 'processor', 1)
+      ],
+      [edge('e1', 'client', 'a'), edge('e2', 'a', 'b')]
+    )
+    expect(ids(t)).toEqual(['a', 'b'])
+  })
+
+  it('does not flag two parallel services of the same type behind a balancer', () => {
+    const t = topology(
+      [
+        node('client', 'api-endpoint', 'compute', 'source'),
+        node('lb', 'load-balancer', 'network-and-edge', 'processor', 2),
+        node('a', 'microservice', 'compute', 'processor', 1),
+        node('b', 'microservice', 'compute', 'processor', 1)
+      ],
+      [edge('e1', 'client', 'lb'), edge('e2', 'lb', 'a'), edge('e3', 'lb', 'b')]
+    )
+    expect(ids(t)).toEqual([])
+  })
 })

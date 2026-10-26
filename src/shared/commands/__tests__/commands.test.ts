@@ -144,7 +144,7 @@ describe('after a run', () => {
     const s = session(staticDeps({ withResults: true }))
     const rejected = runLines(s, 'show rejected --last 3')
     expect(rejected).toContain(`last 3 of ${results.summary.rejectedRequests}`)
-    expect(rejected).toContain('no_healthy_targets')
+    expect(rejected).toContain('capacity_exceeded')
     expect(runLines(s, 'show events --last 4 --node api')).toMatch(/last 4 of \d+, node api/)
     const rejectedEvents = results.eventStream.filter(
       (record) => record.type === 'request-rejected' && record.nodeId === 'api'
@@ -168,10 +168,19 @@ describe('after a run', () => {
     expect(why).toContain('reason capacity_exceeded')
     expect(why).toMatch(/rule: admit while in system < K\s+->\s+2 >= 2\s+->\s+reject/)
 
-    const policyReject = results.eventStream.find(
-      (record) => record.reasonCode === 'no_healthy_targets'
-    )!
-    expect(runLines(s, `why-rejected ${policyReject.requestId}`)).toContain(
+    // A rejection decided by a trait or policy (not admission) is explained as such. The balancer's panic
+    // mode no longer produces no_healthy_targets in this fixture, so the record is built from a real one.
+    const policyReject = {
+      ...capacityReject,
+      requestId: 'req-policy',
+      reasonCode: 'no_healthy_targets'
+    }
+    const withPolicy = session(
+      staticDeps({
+        results: { ...results, eventStream: [...results.eventStream, policyReject] }
+      })
+    )
+    expect(runLines(withPolicy, `why-rejected ${policyReject.requestId}`)).toContain(
       'comes from a trait or policy'
     )
 

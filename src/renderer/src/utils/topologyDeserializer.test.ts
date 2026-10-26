@@ -253,3 +253,57 @@ describe('deserializeTopology', () => {
     })
   })
 })
+
+describe('deserializeTopology in connector mode', () => {
+  function withEdgePhysics(): TopologyJSON {
+    const topology = structuredClone(BASE)
+    topology.edges[0] = {
+      ...topology.edges[0],
+      latency: { distribution: { type: 'constant', value: 50 }, pathType: 'same-dc' },
+      errorRate: 0.2,
+      maxConcurrentRequests: 50_000
+    }
+    return topology
+  }
+
+  const warningsOf = (result: ReturnType<typeof deserializeTopology>): string[] => {
+    if (isImportFailure(result)) throw new Error(JSON.stringify(result.errors))
+    return result.warnings
+  }
+
+  it('says which connection settings a run will ignore, and how to turn them on', () => {
+    const warnings = warningsOf(deserializeTopology(withEdgePhysics(), { edgeModel: 'connector' }))
+    const notice = warnings.find((warning) => warning.startsWith('Connector mode ignores'))
+    expect(notice).toMatch(/latency 50 ms, 20% errors/)
+    expect(notice).toMatch(/Settings > Environments > Edge model to Network/)
+  })
+
+  it('drops network-only warnings, which are noise when connections are plain wires', () => {
+    const connector = warningsOf(deserializeTopology(withEdgePhysics(), { edgeModel: 'connector' }))
+    expect(
+      connector.some((warning) => warning.includes('Max concurrent requests above 10,000'))
+    ).toBe(false)
+  })
+
+  it('network mode keeps its own warnings and adds no connector notice', () => {
+    const network = warningsOf(deserializeTopology(withEdgePhysics(), { edgeModel: 'network' }))
+    expect(
+      network.some((warning) => warning.includes('Max concurrent requests above 10,000'))
+    ).toBe(true)
+    expect(network.some((warning) => warning.startsWith('Connector mode ignores'))).toBe(false)
+    expect(warningsOf(deserializeTopology(withEdgePhysics()))).toEqual(network)
+  })
+
+  it('stays quiet when no connection sets anything a wire would drop', () => {
+    const quiet = structuredClone(BASE)
+    quiet.edges = quiet.edges.map((e) => ({
+      ...e,
+      latency: {
+        distribution: { type: 'constant' as const, value: 0 },
+        pathType: e.latency.pathType
+      }
+    }))
+    const warnings = warningsOf(deserializeTopology(quiet, { edgeModel: 'connector' }))
+    expect(warnings.some((warning) => warning.startsWith('Connector mode ignores'))).toBe(false)
+  })
+})

@@ -86,7 +86,7 @@ describe('healthAwareRoutingTrait', () => {
     })
   })
 
-  it('returns no_healthy_targets when every candidate is unhealthy', () => {
+  it('panics to all candidates when every one is unhealthy, instead of refusing everything', () => {
     const result = healthAwareRoutingTrait.filterRoutes?.({
       node: makeRouterNode(),
       request: makeRequest(),
@@ -97,9 +97,49 @@ describe('healthAwareRoutingTrait', () => {
     })
 
     expect(result).toMatchObject({
-      decision: 'no-healthy-targets',
-      rejectionReason: 'no_healthy_targets',
-      routes: []
+      decision: 'panic-all-unhealthy',
+      routes: [expect.objectContaining({ targetNodeId: 'worker-a' })]
     })
+    expect(result?.rejectionReason).toBeUndefined()
+  })
+
+  it('keeps a just-failed target in rotation for interval x threshold, then removes it', () => {
+    const node = {
+      ...makeRouterNode(),
+      config: {
+        healthCheckEnabled: true,
+        healthCheckIntervalMs: 1000,
+        healthCheckFailureThreshold: 3
+      }
+    }
+    const filter = (downForMs: number | undefined) =>
+      healthAwareRoutingTrait
+        .filterRoutes?.({
+          node,
+          request: makeRequest(),
+          clock: 0n,
+          candidates: [makeRoute('worker-a'), makeRoute('worker-b')],
+          isTargetHealthy: (id) => id !== 'worker-a',
+          unhealthyForUs: (id) =>
+            id === 'worker-a' && downForMs !== undefined ? BigInt(downForMs * 1000) : undefined,
+          isEdgeHealthy: () => true
+        })
+        ?.routes.map((r) => r.targetNodeId)
+    expect(filter(2_999)).toEqual(['worker-a', 'worker-b'])
+    expect(filter(3_000)).toEqual(['worker-b'])
+    // Not in a failure window (for example passively ejected): the instant view applies.
+    expect(filter(undefined)).toEqual(['worker-b'])
+  })
+
+  it('still returns no routes when there are no candidates at all', () => {
+    const result = healthAwareRoutingTrait.filterRoutes?.({
+      node: makeRouterNode(),
+      request: makeRequest(),
+      clock: 0n,
+      candidates: [],
+      isTargetHealthy: () => false,
+      isEdgeHealthy: () => true
+    })
+    expect(result?.routes).toEqual([])
   })
 })

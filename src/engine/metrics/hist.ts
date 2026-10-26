@@ -1,18 +1,18 @@
 /**
  * HDR-style fixed-bucket logarithmic histogram over integer microseconds.
  *
- * Design constraints (see the failure-semantics / metrics design doc):
- *   - Domain: integer microseconds in [1, 1_000_000]. The global timeout is a
- *     hard ceiling, so 1e6 µs (1 s) is the largest value we ever need to track.
- *     Values are clamped into this range on record.
- *   - Resolution: 64 linear sub-buckets per power-of-2 band. There are 20 bands
- *     (2^0 .. 2^19, since 2^19 = 524288 <= 1e6 < 2^20), giving 20 * 64 = 1280
- *     buckets held in a Uint32Array (~5 KB).
+ * Design constraints:
+ *   - Domain: integer microseconds in [1, 2^30 - 1] (about 17.9 minutes). A node or request timeout is
+ *     configurable up to minutes, so latencies of several seconds are real; values above the top are clamped.
+ *   - Resolution: 64 linear sub-buckets per power-of-2 band, 30 bands (2^0 .. 2^29). The first 20 bands
+ *     (up to 2^20 us, about 1.05 s) are always allocated: 1280 buckets in a Uint32Array (~5 KB). The 10 bands
+ *     above are allocated lazily on the first value over ~1 s, so a run whose latencies stay under a second
+ *     pays nothing for the longer range.
  *   - Accuracy: reporting a bucket's midpoint bounds the relative error at
- *     w/2 / value <= (2^b / 64) / 2 / 2^b = 1/128 ~= 0.78% <= 1%.
+ *     w/2 / value <= (2^b / 64) / 2 / 2^b = 1/128 ~= 0.78% <= 1%, in every band.
  *   - Determinism: bucket assignment is a pure integer function of the value and
  *     merging is integer bucket-wise addition, so it is exact, associative, and
- *     order-independent. This is why we do NOT use t-digest — its merge is
+ *     order-independent. This is why we do NOT use t-digest: its merge is
  *     order-dependent and would break the seed-reproducibility guarantee.
  *
  * All arithmetic here is integer arithmetic. Every intermediate product stays
@@ -20,11 +20,15 @@
  */
 
 const MIN_VALUE = 1
-const MAX_VALUE = 1_000_000
+const MAX_VALUE = 2 ** 30 - 1
 const SUB_BUCKETS = 64
-/** Highest band index: floor(log2(1_000_000)) = 19. */
-const MAX_BAND = 19
-const BUCKET_COUNT = (MAX_BAND + 1) * SUB_BUCKETS // 1280
+/** Highest band index: floor(log2(2^30 - 1)) = 29. */
+const MAX_BAND = 29
+/** Bands that are always allocated (2^0 .. 2^19, up to ~1.05 s). */
+const BASE_BANDS = 20
+const BASE_BUCKET_COUNT = BASE_BANDS * SUB_BUCKETS // 1280
+const BUCKET_COUNT = (MAX_BAND + 1) * SUB_BUCKETS // 1920
+const OVERFLOW_BUCKET_COUNT = BUCKET_COUNT - BASE_BUCKET_COUNT // 640
 
 /** floor(log2(v)) for v in [1, 2^31). Identifies the power-of-2 band. */
 function bandOf(v: number): number {
@@ -54,22 +58,29 @@ function bucketMidpoint(index: number): number {
 }
 
 export class Hist {
-  /** Bucket counts. Integer addition only. */
+  /** Bucket counts for the always-allocated bands. Integer addition only. */
   private readonly buckets: Uint32Array
+  /** Bucket counts for the bands above ~1 s, allocated on the first value that needs them. */
+  private overflow: Uint32Array | null = null
   private totalCount = 0
 
   constructor() {
-    this.buckets = new Uint32Array(BUCKET_COUNT)
+    this.buckets = new Uint32Array(BASE_BUCKET_COUNT)
   }
 
-  /** Number of buckets — exposed for tests and merge validation. */
+  /** Number of always-allocated buckets: exposed for tests and merge validation. */
   static get bucketCount(): number {
+    return BASE_BUCKET_COUNT
+  }
+
+  /** Number of buckets once the long-latency bands are allocated. */
+  static get maxBucketCount(): number {
     return BUCKET_COUNT
   }
 
   /**
    * Record a single observation, in integer microseconds. Values are clamped
-   * into [1, 1_000_000]; non-finite or negative inputs are treated as the floor.
+   * into [1, 2^30 - 1]; non-finite or negative inputs are treated as the floor.
    */
   record(valueUs: number): void {
     let v = Math.trunc(valueUs)
@@ -78,7 +89,13 @@ export class Hist {
     } else if (v > MAX_VALUE) {
       v = MAX_VALUE
     }
-    this.buckets[bucketIndex(v)]++
+    const index = bucketIndex(v)
+    if (index < BASE_BUCKET_COUNT) {
+      this.buckets[index]++
+    } else {
+      this.overflow ??= new Uint32Array(OVERFLOW_BUCKET_COUNT)
+      this.overflow[index - BASE_BUCKET_COUNT]++
+    }
     this.totalCount++
   }
 
@@ -95,8 +112,14 @@ export class Hist {
   merge(other: Hist): void {
     const src = other.buckets
     const dst = this.buckets
-    for (let i = 0; i < BUCKET_COUNT; i++) {
+    for (let i = 0; i < BASE_BUCKET_COUNT; i++) {
       dst[i] += src[i]
+    }
+    if (other.overflow) {
+      this.overflow ??= new Uint32Array(OVERFLOW_BUCKET_COUNT)
+      for (let i = 0; i < OVERFLOW_BUCKET_COUNT; i++) {
+        this.overflow[i] += other.overflow[i]
+      }
     }
     this.totalCount += other.totalCount
   }
@@ -113,10 +136,18 @@ export class Hist {
     const clampedQ = q < 0 ? 0 : q > 1 ? 1 : q
     const rank = Math.floor(clampedQ * (this.totalCount - 1))
     let cumulative = 0
-    for (let i = 0; i < BUCKET_COUNT; i++) {
+    for (let i = 0; i < BASE_BUCKET_COUNT; i++) {
       cumulative += this.buckets[i]
       if (cumulative > rank) {
         return bucketMidpoint(i)
+      }
+    }
+    if (this.overflow) {
+      for (let i = 0; i < OVERFLOW_BUCKET_COUNT; i++) {
+        cumulative += this.overflow[i]
+        if (cumulative > rank) {
+          return bucketMidpoint(BASE_BUCKET_COUNT + i)
+        }
       }
     }
     // Unreachable when totalCount > 0, but keep the return type honest.

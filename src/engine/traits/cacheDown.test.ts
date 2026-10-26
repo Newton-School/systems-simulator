@@ -107,13 +107,28 @@ describe('a down or faulted cache does not serve hits', () => {
     expect(failedShare).toBeLessThan(0.65)
   })
 
-  for (const mode of ['reject', 'blackhole', 'hang']) {
+  for (const mode of ['blackhole', 'hang']) {
     it(`scheduled ${mode} fault: no hit is served while the cache is failed`, () => {
       const { cache, summary } = run(WARM, [fault(mode)])
       expect(cache.cacheHits ?? 0).toBe(0)
       expect(summary.successfulRequests).toBe(0)
     })
   }
+
+  // A cache that fails fast is bypassed (decision D5): the caller reaches the store behind it.
+  it('scheduled reject fault: no hit is served, and the database takes every request', () => {
+    const { cache, summary, output } = run(WARM, [fault('reject')])
+    expect(cache.cacheHits ?? 0).toBe(0)
+    expect(summary.successfulRequests).toBe(summary.totalRequests)
+    expect(output.perNode.db.totalArrived).toBe(summary.totalRequests)
+    expect(cache.traitCounters.cacheBypassed).toBeGreaterThan(0)
+  })
+
+  it("onCacheFailure: 'fail' keeps the refusal", () => {
+    const { cache, summary } = run({ ...WARM, onCacheFailure: 'fail' }, [fault('reject')])
+    expect(cache.cacheHits ?? 0).toBe(0)
+    expect(summary.successfulRequests).toBe(0)
+  })
 
   it('a degraded fault slows the node but does not make it refuse hits', () => {
     const degraded: FaultSpec = {

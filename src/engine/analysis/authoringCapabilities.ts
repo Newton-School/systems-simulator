@@ -910,6 +910,8 @@ export const FEATURE_RUBRIC_METRIC_IDS: readonly string[] = FEATURE_METRIC_CAPAB
 const INVARIANT_METRIC_IDS = [
   'invariantViolations.count',
   'sloBreaches.count',
+  'slo.maxBurnRate',
+  'slo.budgetsExceeded.count',
   'conservation.unbalanced',
   'littlesLaw.violations'
 ] as const

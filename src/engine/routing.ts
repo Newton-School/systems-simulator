@@ -36,6 +36,7 @@ export type RouteRejectionReason =
 export interface ResolveTargetOptions {
   clock?: bigint
   isTargetHealthy?: (nodeId: string) => boolean
+  unhealthyForUs?: (nodeId: string) => bigint | undefined
   isEdgeHealthy?: (edge: EdgeDefinition) => boolean
   /**
    * Live in-flight (queued + in-service) count for a target node, used by the
@@ -562,6 +563,7 @@ export class RoutingTable {
         candidates: filtered,
         getNode: (nodeId) => this.nodeById.get(nodeId),
         isTargetHealthy: options.isTargetHealthy,
+        unhealthyForUs: options.unhealthyForUs,
         isEdgeHealthy: options.isEdgeHealthy,
         estimateRouteLatencyMs: options.estimateRouteLatencyMs,
         state: this.getTraitStateStore(sourceNodeId),

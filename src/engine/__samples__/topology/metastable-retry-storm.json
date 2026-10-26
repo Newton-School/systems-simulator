@@ -1,0 +1,147 @@
+{
+  "id": "metastable-retry-storm",
+  "name": "Metastable failure: a retry storm",
+  "version": "1.0.0",
+  "description": "A 100 req/s server (one worker, 10 ms) with a 300 ms timeout, fed 70 req/s. A 3 s spike to 200 req/s at t = 10 s fills its queue; requests time out and the gateway retries them (4 attempts), so the retries alone keep the offered load above 100 req/s after the spike ends and the system stays failed. Set the gateway's retry maxAttempts to 1 and it recovers within seconds. See chapter 22, metastable failure.",
+  "global": {
+    "simulationDuration": 90000,
+    "seed": "metastable",
+    "warmupDuration": 0,
+    "timeResolution": "microsecond",
+    "defaultTimeout": 5000,
+    "traceSampleRate": 0
+  },
+  "nodes": [
+    {
+      "id": "source",
+      "type": "microservice",
+      "category": "compute",
+      "label": "Clients",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "queue": {
+        "workers": 5000,
+        "capacity": 100000,
+        "discipline": "fifo"
+      },
+      "processing": {
+        "distribution": {
+          "type": "constant",
+          "value": 0.1
+        },
+        "timeout": 5000
+      },
+      "role": "source"
+    },
+    {
+      "id": "gw",
+      "type": "microservice",
+      "category": "compute",
+      "label": "Gateway (retries)",
+      "position": {
+        "x": 300,
+        "y": 0
+      },
+      "queue": {
+        "workers": 5000,
+        "capacity": 100000,
+        "discipline": "fifo"
+      },
+      "processing": {
+        "distribution": {
+          "type": "constant",
+          "value": 0.1
+        },
+        "timeout": 5000
+      },
+      "resilience": {
+        "retry": {
+          "maxAttempts": 4,
+          "baseDelay": 10,
+          "maxDelay": 10,
+          "multiplier": 1,
+          "jitter": false
+        }
+      }
+    },
+    {
+      "id": "srv",
+      "type": "microservice",
+      "category": "compute",
+      "label": "Server",
+      "position": {
+        "x": 600,
+        "y": 0
+      },
+      "queue": {
+        "workers": 1,
+        "capacity": 2000,
+        "discipline": "fifo"
+      },
+      "processing": {
+        "distribution": {
+          "type": "constant",
+          "value": 10
+        },
+        "timeout": 300
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "e-source-gw",
+      "source": "source",
+      "target": "gw",
+      "mode": "synchronous",
+      "protocol": "grpc",
+      "latency": {
+        "distribution": {
+          "type": "constant",
+          "value": 0
+        },
+        "pathType": "same-dc"
+      },
+      "bandwidth": 1000,
+      "maxConcurrentRequests": 100000,
+      "packetLossRate": 0,
+      "errorRate": 0
+    },
+    {
+      "id": "e-gw-srv",
+      "source": "gw",
+      "target": "srv",
+      "mode": "synchronous",
+      "protocol": "grpc",
+      "latency": {
+        "distribution": {
+          "type": "constant",
+          "value": 0
+        },
+        "pathType": "same-dc"
+      },
+      "bandwidth": 1000,
+      "maxConcurrentRequests": 100000,
+      "packetLossRate": 0,
+      "errorRate": 0
+    }
+  ],
+  "workload": {
+    "sourceNodeId": "source",
+    "pattern": "spike",
+    "baseRps": 70,
+    "spike": {
+      "spikeTime": 10000,
+      "spikeRps": 200,
+      "spikeDuration": 3000
+    },
+    "requestDistribution": [
+      {
+        "type": "GET",
+        "weight": 1,
+        "sizeBytes": 1
+      }
+    ]
+  }
+}

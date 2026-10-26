@@ -81,7 +81,8 @@ const DEFAULT_STORAGE_PROFILE_MS: Record<
 > = {
   'relational-db': { read: 8, write: 16, query: 14, scan: 42, ingest: 22 },
   'nosql-db': { read: 4, write: 7, query: 10, scan: 36, ingest: 8 },
-  'object-storage': { read: 24, write: 36, query: 80, scan: 64, ingest: 28 },
+  // S3's documented first-byte latency is roughly 100 to 200 ms (chapter 09 section 3).
+  'object-storage': { read: 100, write: 150, query: 120, scan: 130, ingest: 150 },
   'search-index': { read: 10, write: 20, query: 8, scan: 18, ingest: 16 },
   'time-series-db': { read: 6, write: 11, query: 9, scan: 16, ingest: 4 },
   'graph-db': { read: 9, write: 13, query: 20, scan: 26, ingest: 18 },
