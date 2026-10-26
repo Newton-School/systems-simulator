@@ -21,7 +21,7 @@ const output = resolve(
 )
 
 const capabilityData = {
-  snapshotVersion: '2026-10-15',
+  snapshotVersion: '2026-10-26',
   sources: [
     'src/engine/analysis/authoringCapabilities.ts',
     'src/engine/analysis/builderPolicy.ts',
@@ -50,7 +50,28 @@ const capabilityData = {
   })),
   structuralRules: STRUCTURAL_AUTHORING_CAPABILITIES.map((entry) => entry.id),
   semanticCriteria: SEMANTIC_AUTHORING_CAPABILITIES.map((entry) => entry.id),
-  workloadPatterns: ['constant', 'poisson', 'bursty', 'diurnal', 'spike', 'sawtooth', 'replay'],
+  workloadPatterns: [
+    'constant',
+    'poisson',
+    'bursty',
+    'diurnal',
+    'spike',
+    'sawtooth',
+    'replay',
+    'closed'
+  ],
+  // Pattern-specific workload fields beyond baseRps: closed needs `closed`, replay takes an optional `trace`,
+  // diurnal takes an optional `startHour` inside `diurnal`.
+  workloadPatternFields: {
+    closed: ['closed.users', 'closed.thinkTimeMs'],
+    replay: ['trace[].atMs', 'trace[].type'],
+    diurnal: ['diurnal.peakMultiplier', 'diurnal.startHour']
+  },
+  faultTypes: [
+    { id: 'crash', params: ['mode', 'inFlightPolicy', 'recoveryPolicy', 'degradation'] },
+    { id: 'gray-failure', params: ['errorRate'] },
+    { id: 'cache-flush', params: ['durationMs'] }
+  ],
   chaosExperimentPresets: ['az-outage', 'db-failover', 'cache-stampede', 'traffic-spike'],
   builderPolicy: {
     nodeClasses: BUILDER_NODE_CLASS_IDS,

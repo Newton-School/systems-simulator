@@ -133,7 +133,17 @@ describe('ScenarioSuiteEditor fault editor', () => {
     expect(view.textContent).toContain('Every component inside this domain fails together.')
 
     choose(target, 'cache')
-    expect([...faultType.options].map((option) => option.value)).toEqual(['failure', 'cache-flush'])
+    expect([...faultType.options].map((option) => option.value)).toEqual([
+      'failure',
+      'gray-failure',
+      'cache-flush'
+    ])
+    choose(faultType, 'gray-failure')
+    expect(latest[0].faults![0]).toMatchObject({
+      targetId: 'cache',
+      faultType: 'gray-failure',
+      grayErrorPercent: 30
+    })
     choose(faultType, 'cache-flush')
     expect(latest[0].faults![0]).toMatchObject({ targetId: 'cache', faultType: 'cache-flush' })
 

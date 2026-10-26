@@ -105,7 +105,17 @@ what the lecturer should say for each misconception.
 
 Run `node scripts/validate-artifacts.mjs <output-directory> <slug>`. In a simulator
 checkout, also run the Studio audit and grade both Architect and Classroom paths.
-Verify a plausible near miss and every misconception probe. A Classroom question
+Verify a plausible near miss and every misconception probe.
+
+After engine changes, re-run every existing Classroom question and re-check its numeric
+givens and thresholds: seeded runs now draw from independent random streams (same seed, same
+result every time, but different numbers from before), and in-data-centre hops are faster
+(same DC 0.25 ms, cross-zone 0.5 ms). Classroom mode compiles designs without faults and
+forbids students from choosing latency, retries or timeouts, so the new fault and workload
+options (`gray-failure`, `closed`, `trace`) belong to the Architect path
+(`simulator-question-author`), not to Classroom questions. Keep capacity margins wide enough
+that a near miss and the reference differ by more than sampling error. The bundled QuickCart
+example passes on the current engine (13 servers pass, 12 fail headroom). A Classroom question
 is not complete when only the reference passes.
 
 ## Completion standard

@@ -54,7 +54,9 @@ export const QUESTION_STUDIO_MVP_SHAPE_PROFILE: QuestionStudioMvpShapeProfile = 
     'diurnal',
     'spike',
     'bursty',
-    'sawtooth'
+    'sawtooth',
+    'closed',
+    'trace'
   ],
   globalKeys: ['simulationDuration', 'warmupDuration', 'seed', 'defaultTimeout', 'traceSampleRate'],
   maxFaultsPerCase: 1,

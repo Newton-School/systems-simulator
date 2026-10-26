@@ -58,7 +58,7 @@ Markdown instructions are vendor-neutral.
 ## Compatibility
 
 The embedded simulator and Question Studio behavior was verified on
-**2026-09-21**. When those systems change, update the canonical skill references,
+**2026-10-26** (simulator commit `6aae0ef`, including the engine-realism update). When those systems change, update the canonical skill references,
 run its validation, regenerate the ZIP, and replace the shared artifact.
 
 ## Maintainer checklist

@@ -196,7 +196,16 @@ const AuthoringScenarioDraftSchema: z.ZodType<AuthoringScenarioDraft> = z
     id: z.string().min(1),
     description: z.string(),
     seed: z.string(),
-    pattern: z.enum(['constant', 'poisson', 'bursty', 'diurnal', 'spike', 'sawtooth', 'replay']),
+    pattern: z.enum([
+      'constant',
+      'poisson',
+      'bursty',
+      'diurnal',
+      'spike',
+      'sawtooth',
+      'replay',
+      'closed'
+    ]),
     durationSeconds: DraftFiniteNumberSchema,
     warmupSeconds: DraftFiniteNumberSchema,
     timeResolution: z.enum(['microsecond', 'millisecond']).optional(),
@@ -269,6 +278,12 @@ const AuthoringScenarioDraftSchema: z.ZodType<AuthoringScenarioDraft> = z
     sawtoothPeakRps: DraftFiniteNumberSchema.optional(),
     rampDurationSeconds: DraftFiniteNumberSchema.optional(),
     diurnalPeakMultiplier: DraftFiniteNumberSchema.optional(),
+    diurnalStartHour: DraftFiniteNumberSchema.optional(),
+    closedUsers: DraftFiniteNumberSchema.optional(),
+    closedThinkTimeMs: DraftFiniteNumberSchema.optional(),
+    replayTrace: z
+      .array(z.object({ atMs: z.number(), type: z.string().optional() }).strict())
+      .optional(),
     keyspaceField: z.string().optional(),
     keyspaceSize: DraftFiniteNumberSchema.optional(),
     keyspaceSkew: DraftFiniteNumberSchema.optional(),
@@ -290,6 +305,7 @@ const AuthoringScenarioDraftSchema: z.ZodType<AuthoringScenarioDraft> = z
             recoveryPolicy: z.enum(['resume', 'reset']).optional(),
             degradedPercent: DraftFiniteNumberSchema.optional(),
             degradedMultiplier: DraftFiniteNumberSchema.optional(),
+            grayErrorPercent: DraftFiniteNumberSchema.optional(),
             extraParams: z
               .array(
                 z

@@ -21,8 +21,13 @@ const TYPED_FAULT_PARAMS = [
   'durationMs',
   'inFlightPolicy',
   'recoveryPolicy',
-  'degradation'
+  'degradation',
+  'errorRate'
 ]
+
+/** The fault type that leaves a node looking healthy while a share of its real requests fail. */
+/** Mirrors GRAY_FAILURE_FAULT_TYPE in engine.ts (kept here so authoring does not import the engine). */
+export const AUTHORING_GRAY_FAILURE_FAULT_TYPE = 'gray-failure'
 
 export type AuthoringWorkloadPattern = WorkloadProfile['pattern']
 
@@ -43,6 +48,8 @@ export interface AuthoringFaultDraft {
   degradedPercent?: number | null
   /** Degraded mode: service-time multiplier for the slowed requests. */
   degradedMultiplier?: number | null
+  /** Gray failure: share of real requests that fail while health checks pass, in percent. */
+  grayErrorPercent?: number | null
   extraParams: AuthoringValueDraft[]
 }
 
@@ -79,6 +86,14 @@ export interface AuthoringScenarioDraft {
   sawtoothPeakRps?: number | null
   rampDurationSeconds?: number | null
   diurnalPeakMultiplier?: number | null
+  /** Diurnal: hour of the day (0 to 23.99) the run starts at, in real time. Omit to span the 24 hours over the run. */
+  diurnalStartHour?: number | null
+  /** Closed: fixed user population that waits for each response. */
+  closedUsers?: number | null
+  /** Closed: think time between a response and the same user's next request, in ms. */
+  closedThinkTimeMs?: number | null
+  /** Replay: recorded arrivals in order, in ms from the start of the run. */
+  replayTrace?: Array<{ atMs: number; type?: string }>
   keyspaceField?: string
   keyspaceSize?: number | null
   keyspaceSkew?: number | null
@@ -201,6 +216,8 @@ export function createAuthoringScenario(id = 'baseline'): AuthoringScenarioDraft
     sawtoothPeakRps: 3000,
     rampDurationSeconds: 20,
     diurnalPeakMultiplier: 2,
+    closedUsers: 50,
+    closedThinkTimeMs: 1000,
     keyspaceField: '',
     keyspaceSize: null,
     keyspaceSkew: null,
@@ -271,6 +288,10 @@ export function decompileAuthoringScenario(
         ? workload.sawtooth.rampDuration / 1000
         : defaults.rampDurationSeconds,
     diurnalPeakMultiplier: workload?.diurnal?.peakMultiplier ?? defaults.diurnalPeakMultiplier,
+    diurnalStartHour: workload?.diurnal?.startHour ?? defaults.diurnalStartHour,
+    closedUsers: workload?.closed?.users ?? defaults.closedUsers,
+    closedThinkTimeMs: workload?.closed?.thinkTimeMs ?? defaults.closedThinkTimeMs,
+    replayTrace: workload?.trace?.map((arrival) => ({ ...arrival })),
     keyspaceField: keyspace?.field ?? '',
     keyspaceSize: keyspace?.size ?? null,
     keyspaceSkew: keyspace?.skew ?? null,
@@ -298,7 +319,11 @@ function decompileFaultPolicies(
   params: Record<string, unknown>
 ): Pick<
   AuthoringFaultDraft,
-  'inFlightPolicy' | 'recoveryPolicy' | 'degradedPercent' | 'degradedMultiplier'
+  | 'inFlightPolicy'
+  | 'recoveryPolicy'
+  | 'degradedPercent'
+  | 'degradedMultiplier'
+  | 'grayErrorPercent'
 > {
   const degradation =
     typeof params.degradation === 'object' && params.degradation !== null
@@ -316,6 +341,9 @@ function decompileFaultPolicies(
       : {}),
     ...(typeof degradation?.serviceTimeMultiplier === 'number'
       ? { degradedMultiplier: degradation.serviceTimeMultiplier }
+      : {}),
+    ...(typeof params.errorRate === 'number'
+      ? { grayErrorPercent: Number((params.errorRate * 100).toFixed(6)) }
       : {})
   }
 }
@@ -395,7 +423,8 @@ export function authoringScenarioFieldErrors(
       [scenario.sawtoothPeakRps, 'a peak RPS'],
       [scenario.rampDurationSeconds, 'a ramp duration']
     ],
-    diurnal: [[scenario.diurnalPeakMultiplier, 'a peak multiplier']]
+    diurnal: [[scenario.diurnalPeakMultiplier, 'a peak multiplier']],
+    closed: [[scenario.closedUsers, 'a user count']]
   }
   if (
     patternValues[scenario.pattern]?.some(([value, label]) => positiveNumberError(value, label))
@@ -430,6 +459,24 @@ export function authoringScenarioFieldErrors(
   ) {
     errors.pattern = 'Complete every custom fault parameter with a valid typed value.'
   }
+  if (
+    scenario.pattern === 'closed' &&
+    (!Number.isInteger(scenario.closedUsers) ||
+      scenario.closedThinkTimeMs === null ||
+      scenario.closedThinkTimeMs === undefined ||
+      scenario.closedThinkTimeMs < 0)
+  ) {
+    errors.pattern =
+      'Closed traffic needs a whole number of users and a think time of 0 ms or more.'
+  }
+  if (
+    scenario.pattern === 'diurnal' &&
+    scenario.diurnalStartHour !== null &&
+    scenario.diurnalStartHour !== undefined &&
+    (scenario.diurnalStartHour < 0 || scenario.diurnalStartHour > 24)
+  ) {
+    errors.pattern = 'Diurnal start hour must be between 0 and 24.'
+  }
   if (scenario.pattern === 'spike' && (scenario.spikeTimeSeconds ?? -1) < 0) {
     errors.pattern = 'Spike start cannot be negative.'
   }
@@ -448,6 +495,17 @@ export function authoringScenarioFieldErrors(
     )
   ) {
     errors.pattern = 'Complete every fault target, start time, and duration.'
+  }
+  if (
+    (scenario.faults ?? []).some(
+      (fault) =>
+        fault.faultType === AUTHORING_GRAY_FAILURE_FAULT_TYPE &&
+        (typeof fault.grayErrorPercent !== 'number' ||
+          fault.grayErrorPercent <= 0 ||
+          fault.grayErrorPercent >= 100)
+    )
+  ) {
+    errors.pattern = 'A gray failure needs a failing share between 0% and 100%.'
   }
   if (
     (scenario.faults ?? []).some(
@@ -586,7 +644,16 @@ export function normalizeAuthoringScenarioWorkload(
       rampDuration: scenario.rampDurationSeconds! * 1000
     }
   } else if (scenario.pattern === 'diurnal') {
-    workload.diurnal = diurnalMultipliers(scenario.diurnalPeakMultiplier!)
+    workload.diurnal = {
+      ...diurnalMultipliers(scenario.diurnalPeakMultiplier!),
+      ...(scenario.diurnalStartHour !== null && scenario.diurnalStartHour !== undefined
+        ? { startHour: scenario.diurnalStartHour }
+        : {})
+    }
+  } else if (scenario.pattern === 'closed') {
+    workload.closed = { users: scenario.closedUsers!, thinkTimeMs: scenario.closedThinkTimeMs! }
+  } else if (scenario.pattern === 'replay' && scenario.replayTrace?.length) {
+    workload.trace = scenario.replayTrace.map((arrival) => ({ ...arrival }))
   }
   const parsed = WorkloadProfileSchema.partial().safeParse(workload)
   return parsed.success ? parsed.data : null
@@ -594,6 +661,11 @@ export function normalizeAuthoringScenarioWorkload(
 
 function compileFaultBehaviour(fault: AuthoringFaultDraft): Record<string, unknown> {
   if (fault.faultType.trim() === AUTHORING_CACHE_FLUSH_FAULT_TYPE) return {}
+  if (fault.faultType.trim() === AUTHORING_GRAY_FAILURE_FAULT_TYPE) {
+    return typeof fault.grayErrorPercent === 'number'
+      ? { errorRate: Number((fault.grayErrorPercent / 100).toFixed(8)) }
+      : {}
+  }
   const mode = fault.mode.trim()
   if (!mode) return {}
   return {

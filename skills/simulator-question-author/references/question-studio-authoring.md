@@ -151,7 +151,10 @@ Every complete scenario needs:
 - read percentage;
 - request size.
 
-Pattern-specific controls appear for burst, spike, sawtooth, and diurnal cases.
+Pattern-specific controls appear for burst, spike, sawtooth, diurnal (with an optional start
+hour), and closed-user cases. A replay case keeps its recorded arrivals (`trace`), which are
+edited in the project JSON. A fault can also be a gray failure: the component looks healthy
+but a chosen share of its requests fail.
 Advanced workload controls include:
 
 - source node ID;
