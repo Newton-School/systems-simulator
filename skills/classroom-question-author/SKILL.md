@@ -76,6 +76,16 @@ Set an explicit `allowedNodeTypes` list. A capacity-bound allowed card needs an
 explicit `capacityRps` given, and every Classroom question needs a stated peak.
 Labels may rename cards; labels never create behavior.
 
+Map the author's component names to cards before writing anything: Client →
+`api-endpoint`, Load Balancer → `load-balancer`, API Gateway → `api-gateway`, API
+Server → `microservice`, Job Worker → `batch-worker`, Message Queue → `queue`, SQL
+Database / Database → `relational-db`, NoSQL Database → `nosql-db`, Cache →
+`in-memory-cache`, CDN → `cdn`. A requested component with no card (for example Event
+Broker, Communication Server, Kafka stream, object storage) cannot run in Classroom
+mode. Say so before authoring, name the components affected, and offer to drop or
+reframe them; never silently emit an `abstractions: ["architect"]` question from this
+skill.
+
 Instance types, vCPU/RAM, service-time distributions, workers, queue slots,
 timeouts, retries, traits, edge physics, seeds, and execution profiles are
 forbidden student decisions. Use Architect mode when one of them is the lesson.
@@ -96,14 +106,19 @@ The probe must fail for the intended reason without relying on hidden config.
 
 ### 4. Emit artifacts and the lecture sheet
 
-Start from the bundled JSON templates. Keep project/package IDs, labels, checks,
-and givens identical. The lecture sheet is the primary human output: include the
+Start from the bundled JSON templates. The plain project and package templates have no
+Classroom settings: also fill [classroom-block.template.json](assets/classroom-block.template.json)
+and paste it identically as `question.setup.classroom` in the project and as top-level
+`classroom` in the package. A question without it passes every other check but the
+app opens it only in Architect mode, because no givens exist for its capacity cards.
+Keep project/package IDs, labels, checks, and givens identical. The lecture sheet is the primary human output: include the
 same givens as the package, the calculation model, a pass/fail answer table, and
 what the lecturer should say for each misconception.
 
 ### 5. Validate behavior
 
-Run `node scripts/validate-artifacts.mjs <output-directory> <slug>`. In a simulator
+Run `node scripts/validate-artifacts.mjs <output-directory> <slug>`; it fails when the
+`classroom` block is missing or excludes `classroom`. In a simulator
 checkout, also run the Studio audit and grade both Architect and Classroom paths.
 Verify a plausible near miss and every misconception probe.
 

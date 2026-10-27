@@ -10,6 +10,36 @@ if (!directory || !slug) {
   process.exit(2)
 }
 
+// The shared core validator skips every Classroom rule when the `classroom` block is
+// absent, so a question built from the plain templates would pass while opening only in
+// Architect mode in the app. Fail here instead.
+{
+  const readJson = (suffix) => JSON.parse(readFileSync(resolve(directory, `${slug}.${suffix}`), 'utf8'))
+  const classroom = readJson('question-package.json').classroom
+  const projectClassroom = readJson('simulator-question-project.json').question?.setup?.classroom
+  const fail = (message) => {
+    console.error(`Classroom gate failed for ${slug}: ${message}`)
+    process.exit(1)
+  }
+  if (!classroom || !projectClassroom) {
+    fail(
+      'package `classroom` and project `question.setup.classroom` are both required ' +
+        '(start from assets/classroom-block.template.json). Without them the question opens ' +
+        'only in Architect mode.'
+    )
+  }
+  if (classroom.abstractions && !classroom.abstractions.includes('classroom')) {
+    fail(
+      `abstractions is ${JSON.stringify(classroom.abstractions)}, which excludes 'classroom'. ` +
+        'That is an Architect-only question. Tell the author which components have no Classroom ' +
+        'card and use simulator-question-author, or reframe the lesson.'
+    )
+  }
+  if (!Object.keys(classroom.givens ?? {}).length) {
+    fail('givens is empty; every capacity-bound card needs an explicit capacityRps.')
+  }
+}
+
 const core = spawnSync(
   process.execPath,
   [resolve(import.meta.dirname, 'validate-core.mjs'), directory, slug],

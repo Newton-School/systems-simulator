@@ -1,0 +1,32 @@
+{
+  "_comment": "REQUIRED. Paste this object, unchanged in both places, as `question.setup.classroom` in the Studio project AND as top-level `classroom` in the question package. Without it the simulator cannot find any givens and silently opens the question in Architect mode. Delete this _comment key. Omit `abstractions` (or keep 'classroom' in it): ['architect'] means Architect only.",
+  "abstractions": ["classroom", "architect"],
+  "givens": {
+    "{{COMPUTE_ENGINE_TYPE_1}}": {
+      "label": "{{LEARNER_LABEL_1}}",
+      "capacityRps": 0,
+      "costPerHour": 0
+    }
+  },
+  "targets": { "maxUtilization": 0.8, "maxErrorRate": 0.01 },
+  "objectives": [
+    { "id": "{{OBJECTIVE_ID_1}}", "statement": "The student can {{ABILITY}}.", "concept": "{{REGISTRY_CONCEPT_ID}}" }
+  ],
+  "controls": [
+    {
+      "id": "{{CONTROL_ID_1}}",
+      "kind": "place-component",
+      "label": "{{LEARNER_FACING_DECISION}}",
+      "component": "{{ENGINE_TYPE}}",
+      "objectiveId": "{{OBJECTIVE_ID_1}}"
+    }
+  ],
+  "checks": [
+    {
+      "id": "{{CHECK_ID_1}}",
+      "template": "serves-all-traffic",
+      "label": "{{LEARNER_FACING_LABEL}}",
+      "objectiveId": "{{OBJECTIVE_ID_1}}"
+    }
+  ]
+}
