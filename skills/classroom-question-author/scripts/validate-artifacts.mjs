@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 
+/* eslint-disable @typescript-eslint/explicit-function-return-type -- standalone Node validation script */
+
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
@@ -14,7 +16,8 @@ if (!directory || !slug) {
 // absent, so a question built from the plain templates would pass while opening only in
 // Architect mode in the app. Fail here instead.
 {
-  const readJson = (suffix) => JSON.parse(readFileSync(resolve(directory, `${slug}.${suffix}`), 'utf8'))
+  const readJson = (suffix) =>
+    JSON.parse(readFileSync(resolve(directory, `${slug}.${suffix}`), 'utf8'))
   const classroom = readJson('question-package.json').classroom
   const projectClassroom = readJson('simulator-question-project.json').question?.setup?.classroom
   const fail = (message) => {
