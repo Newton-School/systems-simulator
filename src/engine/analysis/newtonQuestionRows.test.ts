@@ -112,6 +112,38 @@ describe('Newton question row codec', () => {
     )
   })
 
+  it('publishes Classroom-capable questions as Classroom assignments by default', () => {
+    const question = minimalQuestion({
+      classroom: {
+        abstractions: ['classroom', 'guided', 'architect'],
+        givens: { microservice: { capacityRps: 100 } }
+      }
+    })
+    const compiled = compileQuestionPackageToNewtonRows(question)
+
+    expect(compiled.rows[0].spec).toMatchObject({
+      type: 'SIMULATOR_CONFIG',
+      environmentProfile: { mode: 'ASSIGNMENT', abstraction: 'classroom' }
+    })
+    expect(parseNewtonRowsToQuestionPackage(toNewtonRowsSeed(compiled)).environmentProfile).toEqual(
+      { mode: 'ASSIGNMENT', abstraction: 'classroom' }
+    )
+  })
+
+  it('preserves an explicit publication abstraction over the Classroom default', () => {
+    const question = minimalQuestion({
+      classroom: { abstractions: ['classroom', 'architect'] }
+    })
+    const compiled = compileQuestionPackageToNewtonRows(question, {
+      environmentProfile: { mode: 'ASSIGNMENT', abstraction: 'architect' }
+    })
+
+    expect(compiled.rows[0].spec).toMatchObject({
+      type: 'SIMULATOR_CONFIG',
+      environmentProfile: { mode: 'ASSIGNMENT', abstraction: 'architect' }
+    })
+  })
+
   it('exports every structural rule kind as an ordered STRUCTURAL_RULE row', () => {
     const structuralRules: StructuralRule[] = [
       { id: 'a', description: 'a', kind: 'requires_component', componentType: 'microservice' },

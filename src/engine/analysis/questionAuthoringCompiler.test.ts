@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { TopologyJSON } from '../core/types'
+import { resolveEffectiveProfile, resolveEnvironmentProfile } from './environmentProfile'
 import { parseNewtonRowsToQuestionPackage } from './newtonQuestionRows'
 import { compileQuestionAuthoringPreview } from './questionAuthoringCompiler'
 import { importQuestionAuthoringArtifact } from './questionAuthoringImport'
@@ -223,6 +224,28 @@ describe('Question Studio generated-output compiler', () => {
       classroom: {
         abstractions: ['classroom', 'guided', 'architect'],
         controls: [{ objectiveId: 'request-path' }]
+      }
+    })
+    expect(preview.compiledRows.rows[0].spec).toMatchObject({
+      type: 'SIMULATOR_CONFIG',
+      environmentProfile: { mode: 'ASSIGNMENT', abstraction: 'classroom' }
+    })
+    const published = parseNewtonRowsToQuestionPackage(preview.newtonSeed)
+    expect(published.environmentProfile).toEqual({
+      mode: 'ASSIGNMENT',
+      abstraction: 'classroom'
+    })
+    const effectiveProfile = resolveEffectiveProfile(
+      resolveEnvironmentProfile(published.environmentProfile),
+      published.questionPackage
+    )
+    expect(effectiveProfile).toMatchObject({
+      mode: 'ASSIGNMENT',
+      abstraction: 'classroom',
+      capabilities: {
+        canEditResources: false,
+        canEditExecutionProfile: false,
+        canEditEdges: false
       }
     })
     expect(preview.packageJson).not.toContain('"solution"')

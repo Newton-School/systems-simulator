@@ -115,6 +115,20 @@ Keep project/package IDs, labels, checks, and givens identical. The lecture shee
 same givens as the package, the calculation model, a pass/fail answer table, and
 what the lecturer should say for each misconception.
 
+Treat supported abstractions and the published learner experience as separate
+contracts. `classroom.abstractions` declares which experiences the question can
+support; it does not select the Newton launch mode. For a Classroom-capable
+question, verify the exported first `SIMULATOR_CONFIG` row contains:
+
+```json
+"environmentProfile": { "mode": "ASSIGNMENT", "abstraction": "classroom" }
+```
+
+Keep multiple supported abstractions when an Architect bridge is intentional.
+Use only `['classroom']` when the question must never open in Guided or Architect.
+Do not hand-edit the author-side project or package to compensate for a missing
+publication profile; treat that as an export/compiler failure.
+
 ### 5. Validate behavior
 
 Run `node scripts/validate-artifacts.mjs <output-directory> <slug>`; it fails when the
@@ -138,4 +152,6 @@ is not complete when only the reference passes.
 Finish only when the five outputs agree, every source bullet is traced, all
 student controls serve objectives, required givens are explicit, the reference
 passes Classroom grading, the near miss fails the intended obligation, probes
-discriminate their messages, and the lecture sheet matches the package.
+discriminate their messages, the lecture sheet matches the package, and the
+compiled Newton `SIMULATOR_CONFIG` launches Classroom-capable assignments with
+the Classroom abstraction.
