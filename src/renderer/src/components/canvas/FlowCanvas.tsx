@@ -24,7 +24,7 @@ import { MetricLensSwitcher } from './MetricLensSwitcher'
 // Hooks & Config
 import useStore from '@renderer/store/useStore'
 import { hasNodeSymbol } from '@renderer/components/nodes/symbols/symbolRegistry'
-import { useClassroomActive } from '@renderer/hooks/useClassroom'
+import { resolveClassroomNodeView, useClassroomActive } from '@renderer/hooks/useClassroom'
 
 import { useCopyPaste } from './hooks/useCopyPaste'
 import { useFlowStore } from './hooks/useFlowStore'
@@ -47,8 +47,12 @@ import {
   isModalOpen,
   isPrimaryModifier
 } from '@renderer/config/keyboardShortcuts'
-import type { CatalogItem, EdgeSimulationData } from '@renderer/types/ui'
-import { checkCanvasConnection, reconnectCanvasEdge } from './utils/connectionRules'
+import type { AnyNodeData, CatalogItem, EdgeSimulationData } from '@renderer/types/ui'
+import {
+  checkCanvasConnection,
+  nodeDisplayLabel,
+  reconnectCanvasEdge
+} from './utils/connectionRules'
 import { contextualAddModesFor, planContextualAdd } from './utils/contextualAdd'
 import { nodeSize } from './utils/nodePlacement'
 import { getAbsoluteNodePosition } from './utils/canvasUtils'
@@ -149,7 +153,9 @@ const FlowCanvasInternal = ({
     messages: string[]
   } | null>(null)
   const setValidationError = useCallback((message: string | null) => {
-    setCanvasNotice(message ? { tone: 'error', title: 'Not allowed', messages: [message] } : null)
+    setCanvasNotice(
+      message ? { tone: 'error', title: 'Connection not added', messages: [message] } : null
+    )
   }, [])
   const canvasWrapperRef = useRef<HTMLDivElement>(null)
   // The edge whose end is being dragged, so the duplicate-connection rule does
@@ -210,6 +216,16 @@ const FlowCanvasInternal = ({
   const scaffoldNodeIds = useStore((state) => state.scaffoldNodeIds)
   const scaffoldEdgeIds = useStore((state) => state.scaffoldEdgeIds)
   const activeQuestion = useStore((state) => state.activeQuestion)
+  const getNodeLabel = useCallback(
+    (node: Node | undefined) => {
+      if (classroomActive && activeQuestion && node?.data) {
+        const classroomView = resolveClassroomNodeView(node.data as AnyNodeData, activeQuestion)
+        if (classroomView) return classroomView.label
+      }
+      return nodeDisplayLabel(node)
+    },
+    [activeQuestion, classroomActive]
+  )
   const canEditScaffoldNodes = useStore(
     (state) => state.environmentProfile.capabilities.canEditScaffoldNodes
   )
@@ -299,7 +315,7 @@ const FlowCanvasInternal = ({
       if (edgeIsLocked) {
         return
       }
-      const result = reconnectCanvasEdge(oldEdge, newConnection, nodes, edges)
+      const result = reconnectCanvasEdge(oldEdge, newConnection, nodes, edges, getNodeLabel)
       if (result.ok === false) {
         setValidationError(result.error)
         return
@@ -327,6 +343,7 @@ const FlowCanvasInternal = ({
       authoredLockedScaffoldEdgeIds,
       canEditScaffoldNodes,
       edges,
+      getNodeLabel,
       interactionLocked,
       nodes,
       scaffoldEdgeIds,
@@ -369,12 +386,13 @@ const FlowCanvasInternal = ({
         connection,
         nodes,
         edges,
-        ignoreEdgeId: updatingEdgeIdRef.current ?? undefined
+        ignoreEdgeId: updatingEdgeIdRef.current ?? undefined,
+        getNodeLabel
       })
       lastRefusalRef.current = check.valid ? null : (check.error ?? null)
       return check.valid
     },
-    [edges, nodes]
+    [edges, getNodeLabel, nodes]
   )
 
   const { onDragOver, onDrop, onNodeDragStop, placeNode } = useFlowDnD({
@@ -394,15 +412,24 @@ const FlowCanvasInternal = ({
       if (interactionLocked) {
         return
       }
-      const check = checkCanvasConnection({ connection, nodes, edges })
+      const check = checkCanvasConnection({ connection, nodes, edges, getNodeLabel })
       if (!check.valid) {
         setValidationError(check.error ?? 'That connection is not allowed.')
         return
       }
+      setValidationError(null)
       onConnect(connection)
     },
-    [edges, interactionLocked, nodes, onConnect, setValidationError]
+    [edges, getNodeLabel, interactionLocked, nodes, onConnect, setValidationError]
   )
+
+  // A rejected gesture is transient feedback, not a topology validation result.
+  // Do not leave it on screen beside a later successful run indefinitely.
+  useEffect(() => {
+    if (!canvasNotice) return
+    const timeout = window.setTimeout(() => setCanvasNotice(null), 6000)
+    return () => window.clearTimeout(timeout)
+  }, [canvasNotice])
 
   const handleDrop = useCallback<NonNullable<React.ComponentProps<typeof ReactFlow>['onDrop']>>(
     (event) => {

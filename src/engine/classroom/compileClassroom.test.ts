@@ -424,7 +424,7 @@ describe('Classroom grading: QuickCart', () => {
   it('never names the smallest fleet in feedback', () => {
     expect(grade(design([13])).classroom?.feedback[0].detail).toBeUndefined()
     const oversized = grade(design([30])).classroom?.feedback[0].detail ?? ''
-    expect(oversized).toContain('30 server copies')
+    expect(oversized).toContain('30 server instances')
     expect(oversized).not.toMatch(/13/)
   })
 

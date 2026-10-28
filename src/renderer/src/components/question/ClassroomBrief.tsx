@@ -45,7 +45,7 @@ export function ClassroomGivensTable({
       </table>
       <p className="text-[11px] leading-relaxed text-nss-muted">
         These are the facts of the problem. You decide which components to use, how they connect,
-        and how many copies of each you need.
+        and how many instances of each you need.
       </p>
     </section>
   )

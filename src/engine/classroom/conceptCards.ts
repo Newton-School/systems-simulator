@@ -88,7 +88,7 @@ export const CONCEPT_CARDS: readonly ConceptCard[] = [
   {
     id: 'server',
     label: 'Server',
-    summary: 'Serves requests. Each copy handles a fixed number per second.',
+    summary: 'Serves requests. Each instance handles a fixed number per second.',
     role: 'compute',
     covers: ['microservice'],
     templateIds: ['backend-server', 'generic-service'],
@@ -97,7 +97,7 @@ export const CONCEPT_CARDS: readonly ConceptCard[] = [
   {
     id: 'worker',
     label: 'Worker',
-    summary: 'Processes background jobs. Scale it by adding copies.',
+    summary: 'Processes background jobs. Scale it by adding instances.',
     role: 'compute',
     covers: ['batch-worker'],
     templateIds: ['async-worker'],

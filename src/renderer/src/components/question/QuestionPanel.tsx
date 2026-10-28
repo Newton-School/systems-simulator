@@ -661,6 +661,9 @@ export const QuestionPanel = () => {
     if (attemptState?.status === 'LOCKED') {
       return
     }
+    // Both grading actions report through the Tests view. Move there immediately
+    // so progress and the resulting pass/fail rows are visible without another click.
+    setPanelView('tests')
     const { topology, errors } = serialize()
     if (!topology) {
       setSerializeError(errors[0] ?? 'Could not serialize the current topology.')

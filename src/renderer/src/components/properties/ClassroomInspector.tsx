@@ -50,10 +50,10 @@ export function ClassroomInspector({
     if (card.classroomFact) rows.push({ label: 'Behaviour', value: card.classroomFact })
   }
   if (givens.capacityRps !== undefined) {
-    rows.push({ label: 'Capacity per copy', value: formatRps(givens.capacityRps) })
+    rows.push({ label: 'Capacity per instance', value: formatRps(givens.capacityRps) })
   }
   if (givens.costPerHour !== undefined) {
-    rows.push({ label: 'Cost per copy', value: formatCostPerHour(givens.costPerHour) })
+    rows.push({ label: 'Cost per instance', value: formatCostPerHour(givens.costPerHour) })
   }
   const range = card.copies
   const namedChoices = (settings?.choices?.[componentType] ?? []).filter(
@@ -96,11 +96,11 @@ export function ClassroomInspector({
 
       {range && (
         <section className="space-y-2">
-          <h3 className={SECTION_TITLE}>Copies</h3>
+          <h3 className={SECTION_TITLE}>Instances</h3>
           <div className="flex items-center gap-2">
             <button
               type="button"
-              aria-label="Remove a copy"
+              aria-label="Remove an instance"
               disabled={!canStep || copies <= range.min}
               onClick={() => onCopiesChange?.(copies - 1)}
               className="rounded-md border border-nss-border bg-nss-surface p-1.5 text-nss-text hover:border-nss-primary disabled:opacity-40"
@@ -109,7 +109,7 @@ export function ClassroomInspector({
             </button>
             <input
               type="number"
-              aria-label="Copies"
+              aria-label="Instances"
               min={range.min}
               max={range.max}
               value={copies}
@@ -124,7 +124,7 @@ export function ClassroomInspector({
             />
             <button
               type="button"
-              aria-label="Add a copy"
+              aria-label="Add an instance"
               disabled={!canStep || copies >= range.max}
               onClick={() => onCopiesChange?.(copies + 1)}
               className="rounded-md border border-nss-border bg-nss-surface p-1.5 text-nss-text hover:border-nss-primary disabled:opacity-40"
@@ -140,7 +140,7 @@ export function ClassroomInspector({
           )}
           {!copiesServeObjective && (
             <p className="text-[10px] leading-snug text-nss-muted">
-              Copy count is locked because it is not part of this lesson&apos;s objectives.
+              Instance count is locked because it is not part of this lesson&apos;s objectives.
             </p>
           )}
         </section>

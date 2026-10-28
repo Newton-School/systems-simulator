@@ -49,7 +49,7 @@ function defaultControls(
     controls.push({
       id: `${objectiveId}-copies`,
       kind: 'copies',
-      label: `Choose the number of ${conceptCardForType(compute)?.label ?? 'component'} copies`,
+      label: `Choose the number of ${conceptCardForType(compute)?.label ?? 'component'} instances`,
       component: compute,
       objectiveId
     })
@@ -88,7 +88,7 @@ function defaultCheck(
       template === 'traffic-flows-through'
         ? `Traffic follows the required path through ${conceptCardForType(via)?.label ?? 'the lesson component'}`
         : template === 'within-target-utilization'
-          ? 'The selected copy count stays within the utilization target'
+          ? 'The selected instance count stays within the utilization target'
           : 'The design serves all stated traffic',
     objectiveId,
     ...(template === 'traffic-flows-through' ? { via, component: compute } : {}),

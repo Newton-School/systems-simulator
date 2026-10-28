@@ -83,9 +83,15 @@ describe('checkCanvasConnection', () => {
   })
 
   it('refuses a second connection between the same pair unless it is the edge being moved', () => {
-    expect(
-      checkCanvasConnection({ connection: { source: 'api', target: 'db' }, nodes, edges }).valid
-    ).toBe(false)
+    const duplicate = checkCanvasConnection({
+      connection: { source: 'api', target: 'db' },
+      nodes,
+      edges
+    })
+    expect(duplicate.valid).toBe(false)
+    expect(duplicate.error).toBe(
+      'A connection from API Server to SQL DB already exists. No changes were made.'
+    )
     expect(
       checkCanvasConnection({
         connection: { source: 'api', target: 'db' },
@@ -94,6 +100,24 @@ describe('checkCanvasConnection', () => {
         ignoreEdgeId: 'e-api-db'
       }).valid
     ).toBe(true)
+  })
+
+  it('uses presentation-aware labels in connection refusal messages', () => {
+    const duplicate = checkCanvasConnection({
+      connection: { source: 'client', target: 'api' },
+      nodes,
+      edges,
+      getNodeLabel: (node) =>
+        node?.id === 'client'
+          ? 'Users'
+          : node?.id === 'api'
+            ? 'EC2 Application Server'
+            : 'Component'
+    })
+
+    expect(duplicate.error).toBe(
+      'A connection from Users to EC2 Application Server already exists. No changes were made.'
+    )
   })
 
   it('warns, without refusing, when carried settings do not fit the new pair', () => {

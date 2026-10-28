@@ -414,7 +414,7 @@ describe('abstraction (Classroom mode)', () => {
     expect(canEditResourcesForQuestion(classroom, unstated)).toBe(true)
   })
 
-  it('stays in Architect mode when the question cannot be solved within the copy limit', () => {
+  it('stays in Architect mode when the question cannot be solved within the instance limit', () => {
     const unsolvable = classroomQuestion({
       classroom: {
         givens: { microservice: { capacityRps: 18_000 } },
@@ -423,7 +423,7 @@ describe('abstraction (Classroom mode)', () => {
     })
     expect(resolveAbstraction(classroom, unsolvable)).toBe('architect')
     const reason = classroomUnavailableReason(classroom, unsolvable) ?? ''
-    expect(reason).toContain("can't be solved with 50 or fewer Server copies")
+    expect(reason).toContain("can't be solved with 50 or fewer Server instances")
     // Never names the smallest passing fleet.
     expect(reason).not.toMatch(/70/)
   })

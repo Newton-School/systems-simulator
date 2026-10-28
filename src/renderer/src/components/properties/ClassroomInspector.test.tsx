@@ -42,7 +42,7 @@ function renderInspector(settings: ClassroomSettings): HTMLDivElement {
 }
 
 describe('ClassroomInspector objective-driven controls', () => {
-  it('locks copy count when scaling is not a lesson objective', () => {
+  it('uses instance terminology and locks the count when scaling is not an objective', () => {
     const view = renderInspector({
       givens: { microservice: { capacityRps: 100 } },
       objectives: [{ id: 'placement', statement: 'Place the service', concept: 'AS-03' }],
@@ -56,7 +56,13 @@ describe('ClassroomInspector objective-driven controls', () => {
         }
       ]
     })
-    expect(view.querySelector<HTMLInputElement>('input[aria-label="Copies"]')?.disabled).toBe(true)
+    expect(view.textContent).toContain('Capacity per instance')
+    expect(view.textContent).toContain('Instances')
+    expect(view.textContent).toContain('Instance count is locked')
+    expect(view.textContent).not.toMatch(/\b(?:copy|copies)\b/i)
+    expect(view.querySelector<HTMLInputElement>('input[aria-label="Instances"]')?.disabled).toBe(
+      true
+    )
     expect(view.textContent).toContain('not part of this lesson')
   })
 
@@ -74,6 +80,8 @@ describe('ClassroomInspector objective-driven controls', () => {
         }
       ]
     })
-    expect(view.querySelector<HTMLInputElement>('input[aria-label="Copies"]')?.disabled).toBe(false)
+    expect(view.querySelector<HTMLInputElement>('input[aria-label="Instances"]')?.disabled).toBe(
+      false
+    )
   })
 })

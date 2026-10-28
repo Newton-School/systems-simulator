@@ -273,7 +273,7 @@ export function ClassroomAuthoringEditor({ setup, peakRps, onChange }: Props): R
           ? {
               id: `control-${number}`,
               kind,
-              label: 'Choose the number of copies',
+              label: 'Choose the number of instances',
               component: primaryType ?? 'microservice',
               objectiveId
             }
@@ -592,7 +592,7 @@ export function ClassroomAuthoringEditor({ setup, peakRps, onChange }: Props): R
                 onClick={() => addStudentControl('copies')}
                 className="rounded border border-nss-border px-2 py-1 text-[11px] font-semibold text-nss-primary disabled:opacity-40"
               >
-                + Copy count
+                + Instance count
               </button>
             </div>
             {(classroom?.controls ?? []).map((control, index) => (
@@ -1021,7 +1021,7 @@ export function ClassroomAuthoringEditor({ setup, peakRps, onChange }: Props): R
               </div>
             ) : (
               <p className="mt-1 text-[11px] text-nss-muted">
-                Add peak traffic and a capacity given to generate the copy-count table.
+                Add peak traffic and a capacity given to generate the instance-count table.
               </p>
             )}
           </div>

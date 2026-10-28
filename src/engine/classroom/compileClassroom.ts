@@ -617,7 +617,7 @@ export function evaluateClassroomFeedback(
       label: check.label,
       passed: copies <= limit,
       ...(copies > limit
-        ? { detail: `${copies} ${name} copies is much more than this traffic needs.` }
+        ? { detail: `${copies} ${name} instances is much more than this traffic needs.` }
         : {})
     })
   }

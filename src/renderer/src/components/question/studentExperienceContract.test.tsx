@@ -10,7 +10,7 @@
  */
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Edge } from 'reactflow'
 import sample from '../../../../engine/__samples__/basic-cache-stack.json'
 import { migrateCanvasNodes } from '../../../../engine/catalog/legacyCanvasMigration'
@@ -151,6 +151,19 @@ function openTests(view: HTMLElement): void {
 }
 
 beforeEach(() => {
+  vi.stubGlobal(
+    'Worker',
+    class {
+      onmessage: ((event: MessageEvent) => void) | null = null
+      onerror: ((event: ErrorEvent) => void) | null = null
+      postMessage(): void {
+        return undefined
+      }
+      terminate(): void {
+        return undefined
+      }
+    }
+  )
   useStore.getState().setGraph([], [], { history: 'skip', resetHistory: true })
   loadSampleCanvas()
 })
@@ -160,6 +173,7 @@ afterEach(() => {
   container?.remove()
   root = null
   container = null
+  vi.unstubAllGlobals()
   useStore.setState({ activeQuestion: null, attemptState: null, resultsRevealed: false })
 })
 
@@ -227,6 +241,19 @@ describe('student experience contract: question layout', () => {
       )
       .map(([path]) => path)
     expect(offenders).toEqual([])
+  })
+
+  it.each(['Run & Evaluate', 'Submit'])('opens Tests after clicking %s', (action) => {
+    assignmentAfterTestRuns()
+    const view = render(<QuestionPanel />)
+
+    expect(view.textContent).toContain('Build an order service.')
+    act(() => button(view, action).click())
+
+    expect(view.textContent).not.toContain('Build an order service.')
+    expect(
+      [...view.querySelectorAll('h3')].some((heading) => heading.textContent?.trim() === 'Tests')
+    ).toBe(true)
   })
 })
 
