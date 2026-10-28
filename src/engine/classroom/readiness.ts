@@ -102,7 +102,7 @@ export function classroomReadiness(
       return {
         ready: false,
         // Never name the minimum: working it out is the lesson.
-        reason: `The question can't be solved with ${max} or fewer ${name} copies, the most Classroom allows.`
+        reason: `The question can't be solved with ${max} or fewer ${name} instances, the most Classroom allows.`
       }
     }
   }

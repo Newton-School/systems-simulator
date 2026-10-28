@@ -147,7 +147,7 @@ function authoringRecipe(concept) {
       ],
       recommendedCards,
       // A sizing lesson usually starts from a blank canvas, so students also place
-      // and connect the recommended cards before they choose copy counts.
+      // and connect the recommended cards before they choose instance counts.
       allowedDecisionKinds:
         activity === 'size'
           ? [...new Set(['place-component', 'connect-components', ...allowedDecisionKinds])]
@@ -155,7 +155,7 @@ function authoringRecipe(concept) {
       compatibleChecks,
       boundary:
         activity === 'size'
-          ? 'Grade only stated capacity, copy-count, utilization, and traffic-serving evidence.'
+          ? 'Grade only stated capacity, instance count, utilization, and traffic-serving evidence.'
           : 'Grade visible topology and placement only; do not infer unmodeled component behavior.'
     }
   }

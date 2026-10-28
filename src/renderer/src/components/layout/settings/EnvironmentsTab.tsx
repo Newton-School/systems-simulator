@@ -72,7 +72,7 @@ export function EnvironmentsTab(): React.JSX.Element {
       <SettingRow
         id="settings-environment-abstraction"
         label="Abstraction"
-        hint="Classroom = concept cards: students place components, connect them and choose how many copies; the question supplies every number. Architect = the full simulator with every engine setting. Classroom needs a loaded question. Switching resets the options below."
+        hint="Classroom = concept cards: students place components, connect them and choose how many instances; the question supplies every number. Architect = the full simulator with every engine setting. Classroom needs a loaded question. Switching resets the options below."
       >
         <Segmented
           value={profile.abstraction}

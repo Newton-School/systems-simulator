@@ -256,7 +256,7 @@ export const SYSTEM_DESIGN_CONCEPTS = [
         "within-target-utilization",
         "right-sized"
       ],
-      "boundary": "Grade only stated capacity, copy-count, utilization, and traffic-serving evidence."
+      "boundary": "Grade only stated capacity, instance count, utilization, and traffic-serving evidence."
     }
   },
   {
@@ -328,7 +328,7 @@ export const SYSTEM_DESIGN_CONCEPTS = [
     "domainId": "domain-2",
     "domain": "Scale estimation and capacity planning",
     "title": "Compute estimation",
-    "summary": "service time, concurrency, CPU time, memory, accelerators, worker count, throughput per copy, utilization target, and headroom.",
+    "summary": "service time, concurrency, CPU time, memory, accelerators, worker count, throughput per instance, utilization target, and headroom.",
     "surfaces": [
       "C",
       "G"
@@ -357,7 +357,7 @@ export const SYSTEM_DESIGN_CONCEPTS = [
         "within-target-utilization",
         "right-sized"
       ],
-      "boundary": "Grade only stated capacity, copy-count, utilization, and traffic-serving evidence."
+      "boundary": "Grade only stated capacity, instance count, utilization, and traffic-serving evidence."
     }
   },
   {
@@ -395,7 +395,7 @@ export const SYSTEM_DESIGN_CONCEPTS = [
         "within-target-utilization",
         "right-sized"
       ],
-      "boundary": "Grade only stated capacity, copy-count, utilization, and traffic-serving evidence."
+      "boundary": "Grade only stated capacity, instance count, utilization, and traffic-serving evidence."
     }
   },
   {
@@ -457,7 +457,7 @@ export const SYSTEM_DESIGN_CONCEPTS = [
         "within-target-utilization",
         "right-sized"
       ],
-      "boundary": "Grade only stated capacity, copy-count, utilization, and traffic-serving evidence."
+      "boundary": "Grade only stated capacity, instance count, utilization, and traffic-serving evidence."
     }
   },
   {
@@ -1447,7 +1447,7 @@ export const SYSTEM_DESIGN_CONCEPTS = [
         "within-target-utilization",
         "right-sized"
       ],
-      "boundary": "Grade only stated capacity, copy-count, utilization, and traffic-serving evidence."
+      "boundary": "Grade only stated capacity, instance count, utilization, and traffic-serving evidence."
     }
   },
   {

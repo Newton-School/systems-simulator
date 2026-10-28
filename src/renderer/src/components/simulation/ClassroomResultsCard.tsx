@@ -8,7 +8,7 @@ import {
 /**
  * Classroom results: one bar per component against the target line, served vs
  * offered, dropped, and cost. Every number here can be checked with the napkin
- * formula: utilization = traffic ÷ (capacity × copies).
+ * formula: utilization = traffic ÷ (capacity × instances).
  */
 export function ClassroomResultsCard({
   summary
@@ -102,7 +102,7 @@ export function ClassroomResultsCard({
           {anyOver
             ? 'Some components are above the target, so they have no room for a burst.'
             : 'Every component is within the target.'}{' '}
-          Utilization = traffic ÷ (capacity × copies).
+          Utilization = traffic ÷ (capacity × instances).
         </p>
       )}
     </section>

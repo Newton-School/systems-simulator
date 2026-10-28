@@ -70,7 +70,7 @@ algorithm belongs in an external formal-method lab.
 - **SC-04 [C] Bandwidth estimation:** ingress, egress, inter-service, replication,
   backup, media bitrate, compression, and protocol overhead.
 - **SC-05 [C/G] Compute estimation:** service time, concurrency, CPU time, memory,
-  accelerators, worker count, throughput per copy, utilization target, and headroom.
+  accelerators, worker count, throughput per instance, utilization target, and headroom.
 - **SC-06 [C/G] Queueing intuition:** arrival rate, service rate, Little's Law,
   utilization, queue depth, waiting time, concurrency, and saturation knee.
 - **SC-07 [G/A] Queueing models:** M/M/1, M/M/c, bounded queues, burst absorption,
@@ -877,7 +877,7 @@ generic rejection or a misleading proxy.
 
 ## Current simulator boundary
 
-The current Classroom implementation directly supports visible topology, copy counts,
+The current Classroom implementation directly supports visible topology, instance counts,
 stated component capacity/cost/latency, peak traffic, generic throughput/utilization,
 and a small set of structural and right-sizing checks. A card's presence does not prove
 its advanced semantics. For example:
