@@ -120,6 +120,29 @@ export interface CompiledNewtonQuestionRows {
   rows: NewtonTestCaseRow[]
 }
 
+/**
+ * Classroom and Guided are learner experiences, not access modes. Newton launches
+ * assignments in Architect by default, so a question that declares a simpler
+ * abstraction must carry that choice in its SIMULATOR_CONFIG row. Keep Architect
+ * as the fallback for ordinary full-physics questions, and let an explicit export
+ * option override this derived publication default.
+ */
+function learnerEnvironmentProfile(
+  question: QuestionPackage,
+  explicit?: EnvironmentProfileInput
+): EnvironmentProfileInput | undefined {
+  if (explicit !== undefined) return explicit
+
+  const abstractions = question.classroom?.abstractions
+  if (abstractions?.includes('classroom')) {
+    return { mode: 'ASSIGNMENT', abstraction: 'classroom' }
+  }
+  if (abstractions?.includes('guided')) {
+    return { mode: 'ASSIGNMENT', abstraction: 'guided' }
+  }
+  return undefined
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
@@ -524,6 +547,7 @@ function configRow(
   question: QuestionPackage,
   options: CompileNewtonRowsOptions
 ): SimulatorConfigRow {
+  const environmentProfile = learnerEnvironmentProfile(question, options.environmentProfile)
   return {
     type: 'SIMULATOR_CONFIG',
     configVersion: NEWTON_ROW_CODEC_VERSION,
@@ -567,7 +591,7 @@ function configRow(
     ...(question.author ? { author: question.author } : {}),
     ...(question.createdAt ? { createdAt: question.createdAt } : {}),
     ...(question.classroom ? { classroom: question.classroom } : {}),
-    ...(options.environmentProfile ? { environmentProfile: options.environmentProfile } : {})
+    ...(environmentProfile ? { environmentProfile } : {})
   }
 }
 

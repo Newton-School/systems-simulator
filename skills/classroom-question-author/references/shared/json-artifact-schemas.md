@@ -102,6 +102,27 @@ Project-to-package compilation rules:
 - only compiled private scenarios enter `suite.cases`;
 - the public dry run enters `suite.dryRunCase` without gaining private mechanics.
 
+### Publication abstraction
+
+The private project/package records what the question supports in
+`classroom.abstractions`. The Newton publication selects the learner experience
+separately in the first `SIMULATOR_CONFIG` row. A Classroom-capable assignment
+must compile with:
+
+```json
+{
+  "environmentProfile": {
+    "mode": "ASSIGNMENT",
+    "abstraction": "classroom"
+  }
+}
+```
+
+This publication field is intentionally not duplicated into the private question
+package. Architect-only questions omit the derived override and retain the normal
+Assignment default. An explicit publication override may select another allowed
+abstraction for a deliberate alternate release.
+
 ## 3. Canonical solution TopologyJSON
 
 The solution must be engine-format TopologyJSON, not a saved React Flow canvas.
@@ -231,6 +252,8 @@ Verify:
 - the project stores the solution as `assets.referenceTopology`, each near miss in
   `assets.gamedTopologies` targets a core check, and `verification` is current;
 - the coverage map traces every row and stays inside the grading budget.
+- a Classroom-capable Newton export selects `ASSIGNMENT` + `classroom` in its
+  first `SIMULATOR_CONFIG` row unless an explicit alternate publication was requested.
 
 ## 6. Validation commands
 
