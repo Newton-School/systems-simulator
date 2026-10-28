@@ -87,6 +87,8 @@ export interface ConnectionCheckInput {
   ignoreEdgeId?: string
   /** Settings carried over from the rerouted edge, checked for fit (advisory). */
   carriedData?: EdgeSimulationData
+  /** Presentation-aware node name (for example, Classroom lecture labels). */
+  getNodeLabel?: (node: Node | undefined) => string
 }
 
 export function checkCanvasConnection({
@@ -94,7 +96,8 @@ export function checkCanvasConnection({
   nodes,
   edges,
   ignoreEdgeId,
-  carriedData
+  carriedData,
+  getNodeLabel = nodeDisplayLabel
 }: ConnectionCheckInput): ConnectionCheck {
   const { source, target } = connection
   if (!source || !target) {
@@ -124,14 +127,14 @@ export function checkCanvasConnection({
   if (isSourceOnlyNode(targetNode)) {
     return {
       valid: false,
-      error: `${nodeDisplayLabel(targetNode)} is a source. Sources only send traffic, so they cannot receive a connection.`,
+      error: `${getNodeLabel(targetNode)} is a source. Sources only send traffic, so they cannot receive a connection.`,
       warnings: []
     }
   }
   if (isSinkOnlyNode(sourceNode)) {
     return {
       valid: false,
-      error: `${nodeDisplayLabel(sourceNode)} only receives traffic, so it cannot start a connection.`,
+      error: `${getNodeLabel(sourceNode)} only receives traffic, so it cannot start a connection.`,
       warnings: []
     }
   }
@@ -141,7 +144,7 @@ export function checkCanvasConnection({
   if (duplicate) {
     return {
       valid: false,
-      error: `${nodeDisplayLabel(sourceNode)} is already connected to ${nodeDisplayLabel(targetNode)}.`,
+      error: `A connection from ${getNodeLabel(sourceNode)} to ${getNodeLabel(targetNode)} already exists. No changes were made.`,
       warnings: []
     }
   }
@@ -182,7 +185,8 @@ export function reconnectCanvasEdge(
   oldEdge: Edge,
   connection: Connection,
   nodes: readonly Node[],
-  edges: readonly Edge[]
+  edges: readonly Edge[],
+  getNodeLabel: (node: Node | undefined) => string = nodeDisplayLabel
 ): ReconnectResult {
   const current = edges.find((edge) => edge.id === oldEdge.id)
   if (!current) return { ok: false, error: 'That connection no longer exists.' }
@@ -199,7 +203,8 @@ export function reconnectCanvasEdge(
     nodes,
     edges,
     ignoreEdgeId: current.id,
-    carriedData: (current.data ?? undefined) as EdgeSimulationData | undefined
+    carriedData: (current.data ?? undefined) as EdgeSimulationData | undefined,
+    getNodeLabel
   })
   if (!check.valid) return { ok: false, error: check.error ?? 'That connection is not allowed.' }
 

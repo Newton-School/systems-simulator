@@ -53,6 +53,38 @@ export interface ClassroomNodeView {
 }
 
 /**
+ * Resolve the presentation of a node in Classroom mode. Keeping this pure lets
+ * canvas chrome (notices, contextual menus, and nodes) use the same vocabulary.
+ */
+export function resolveClassroomNodeView(
+  data: AnyNodeData,
+  activeQuestion: QuestionPackage
+): ClassroomNodeView | null {
+  const { templateId, componentType, label } = data
+  if (!componentType) return null
+  const card = conceptCardForType(componentType)
+  if (!card) return null
+  const settings = activeQuestion.classroom
+  const defaultLabel = getPaletteTemplate(templateId)?.label
+  const classroomLabel = resolveClassroomGivens(card, componentType, settings).label
+  const shownLabel = !label || label === defaultLabel ? classroomLabel : label
+  if (card.role === 'source') {
+    const peak = classroomRunConditions(activeQuestion).workload?.baseRps
+    return {
+      label: shownLabel,
+      identityChip: peak ? { label: 'Traffic', value: `${formatRps(peak)} at peak` } : null
+    }
+  }
+  const instanceCount = data.sim?.resources?.instanceCount
+  const copies = instanceCount && instanceCount > 1 ? [`×${instanceCount}`] : []
+  const chips = [...givensChips(card, componentType, settings).slice(0, 1), ...copies]
+  return {
+    label: shownLabel,
+    identityChip: chips.length > 0 ? { label: 'Given', value: chips.join(' · ') } : null
+  }
+}
+
+/**
  * How a canvas node reads in Classroom mode: its lecture label and its givens
  * (with a ×N badge for copies). Null outside Classroom mode or for a node with
  * no concept card.
@@ -60,30 +92,9 @@ export interface ClassroomNodeView {
 export function useClassroomNodeView(data: AnyNodeData): ClassroomNodeView | null {
   const activeQuestion = useStore((state) => state.activeQuestion)
   const classroom = useClassroomActive()
-  const { templateId, componentType, label } = data
-  const instanceCount = data.sim?.resources?.instanceCount
   return useMemo(() => {
-    if (!classroom || !activeQuestion || !componentType) return null
-    const card = conceptCardForType(componentType)
-    if (!card) return null
-    const settings = activeQuestion.classroom
-    const defaultLabel = getPaletteTemplate(templateId)?.label
-    const classroomLabel = resolveClassroomGivens(card, componentType, settings).label
-    const shownLabel = !label || label === defaultLabel ? classroomLabel : label
-    if (card.role === 'source') {
-      const peak = classroomRunConditions(activeQuestion).workload?.baseRps
-      return {
-        label: shownLabel,
-        identityChip: peak ? { label: 'Traffic', value: `${formatRps(peak)} at peak` } : null
-      }
-    }
-    const copies = instanceCount && instanceCount > 1 ? [`×${instanceCount}`] : []
-    const chips = [...givensChips(card, componentType, settings).slice(0, 1), ...copies]
-    return {
-      label: shownLabel,
-      identityChip: chips.length > 0 ? { label: 'Given', value: chips.join(' · ') } : null
-    }
-  }, [activeQuestion, classroom, componentType, instanceCount, label, templateId])
+    return classroom && activeQuestion ? resolveClassroomNodeView(data, activeQuestion) : null
+  }, [activeQuestion, classroom, data])
 }
 
 /**
