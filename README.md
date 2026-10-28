@@ -1,468 +1,298 @@
 # NS System Design Simulator
 
-> Draw a distributed system. Press Run. Watch it break — before you ship it.
+> Design a distributed system, run deterministic traffic through it, and inspect where it fails.
 
-A React + Vite application for simulating, stress-testing, and analysing high-level system designs using **Discrete Event Simulation (DES)**. It runs as a browser SPA, powered by a G/G/c/K queueing engine under the hood.
+NS System Design Simulator is a browser-based system-design builder, discrete-event simulator, learning environment, and question-authoring tool. The React application and headless CLI share the same TypeScript engine, validation rules, grading contracts, and `TopologyJSON` format.
 
----
+The repository currently ships two web surfaces:
 
-## What It Does
+- **Simulator** (`/`) — build, run, debug, compare, and grade system designs.
+- **Question Studio** (`/question-studio`) — author, preview, verify, and export simulator-backed learning activities.
 
-You drag nodes onto a canvas (API servers, databases, caches, load balancers), connect them with edges, configure workload and runtime parameters, and then press **Run**. The engine simulates requests flowing through your architecture — tracking latency, queue depth, throughput, timeouts, rejections, and node utilization — without a real server in sight.
+It is a client-side Vite application. Simulation runs in a Web Worker; the optional development-only LLM grading proxy runs in the local Vite server.
 
-The current MVP surfaces run summaries, bottleneck checks, per-node metrics, and a canonical event replay log in the UI, and it also supports CLI and JSON-based output for scripted runs.
+## What is included
 
-```
-┌──────────┐         ┌──────────┐         ┌──────────┐
-│  Users   │────────►│ Gateway  │────────►│   API    │
-│  source  │  https  │  lb-l7   │  grpc   │  micro   │
-│ 980 rps  │  1ms    │ ██░░ 40% │  0.5ms  │ ████ 85% │
-└──────────┘         └──────────┘         └─────┬────┘
-                                                 │  tcp  2ms
-                                          ┌──────▼────┐
-                                          │    DB     │
-                                          │ postgres  │
-                                          │ ██████ 97%│  ← bottleneck
-                                          └───────────┘
-```
+### Visual system-design workspace
 
----
+- Drag-and-drop React Flow canvas with auto-layout, containers, annotations, and configurable connections.
+- A catalogue of 82 templates spanning compute, networking, storage, messaging, security, infrastructure, data/AI, reliability, configuration, and observability.
+- Instance-aware capacity, workload profiles, request mixes, routing policies, fault domains, resilience controls, SLOs, and cost settings.
+- Import/export for engine `TopologyJSON`, plus browser persistence for canvas projects and learner attempts.
+- Curated sample systems covering queueing variance, multi-AZ and cross-region latency, L7 routing, caching, replication, serverless cold starts, sharding, streams, idempotency, DNS, and circuit breakers.
 
-## Three Phases
+### Deterministic simulation and analysis
 
-### 1 — BUILD
+- Seeded, microsecond-resolution discrete-event scheduling.
+- G/G/c/K queues with multiple queue disciplines and configurable service-time distributions.
+- Constant, Poisson, spike, diurnal, bursty, sawtooth, trace-replay, and closed-population workloads.
+- Synchronous, asynchronous, streaming, broadcast, and routing-aware request propagation.
+- Network latency, connection and bandwidth constraints, retries, deadlines, circuit breakers, rate limits, bulkheads, and load shedding.
+- Failure injection, fault domains, recovery, cache behavior, replication, consistency, sharding, message delivery, and infrastructure-specific traits.
+- Latency and throughput metrics, SLO/error-budget checks, queue and utilization time series, cost estimates, traces, causal analysis, anti-pattern detection, and replayable event logs.
+- Run/pause/step/stop controls, live metric lenses, a topology-aware terminal, and post-run debugging views.
 
-Drag nodes from the palette onto the canvas. Connect them. Configure each node's queue parameters (workers, capacity, service time distribution, timeout), resilience settings, edge behavior, and SLO targets. Adjust source selection, workload pattern, duration, warmup, timeout, and seed from the simulation controls before a run.
+The engine is a model, not a deployment emulator. Component properties that do not affect runtime behavior are hidden or identified as descriptive, and validation reports defaults, ignored settings, and unsupported combinations.
 
-### 2 — SIMULATE
+### Learning, classroom, and assignment modes
 
-Press Run. The topology is serialized, validated, and executed inside a Web Worker. The discrete event loop processes events in time order, supports deterministic replay by seed, and exposes pause / resume / stop controls while the run is in progress.
+The same workspace can be constrained by a versioned question package:
 
-### 3 — ANALYSE
+- **Classroom** presents concept-oriented components, guided evidence, and concise run feedback.
+- **Guided** exposes more architecture detail while retaining authored constraints.
+- **Architect** exposes the full simulator and design checks.
+- **Hosted assignment mode** supports host-provided prompts, locked capabilities, attempt persistence, and save/result messaging for Newton integrations.
 
-When the simulation completes, a results tray expands with:
+Question grading can combine structural rules, semantic topology rules, metric thresholds, scenario runs, rubric checks, design justifications, and chaos-experiment evidence. Deterministic grading is the default; semantic LLM grading is an optional local-development enhancement with deterministic fallback.
 
-- **Overview** — latency percentiles, throughput, error rate, timeouts, and run context
-- **Bottlenecks** — SLO breaches, Little's Law checks, conservation checks, and warmup adequacy
-- **Nodes** — per-node throughput, queue depth, utilization, and latency
-- **Traffic** — canonical replay preview plus a filterable event log
+### Question Studio
 
----
+Open `/question-studio` while the development server is running. The full authoring workflow covers:
 
-## System Lifecycle
+1. **Frame** — lesson intent and question identity.
+2. **Brief** — prompt, scale, requirements, constraints, and builder policy.
+3. **Start** — scaffold and reference designs.
+4. **Scenarios** — workload overrides, faults, and experiments.
+5. **Grading** — structural, semantic, metric, and rubric obligations.
+6. **Preview** — the learner experience at supported abstraction levels.
+7. **Export** — validation and generation of the versioned question bundle and Django assignment data.
 
-This project is structured into three major phases:
+Classroom authoring offers a shorter Lesson → Preview → Export workflow and derives lower-level artifacts from the teaching intent. Authoring projects can be saved and reopened independently of exported learner bundles.
 
-- **Phase 1 · BUILD** (Implemented)
-- **Phase 2 · SIMULATE** (Implemented in the current MVP)
-- **Phase 3 · ANALYSE** (Implemented in the current MVP, with additional views still planned)
-
-It follows an iterative workflow:
-
-> **Build → Simulate → Analyse → Iterate**
-
----
-
-## Phase 1 · BUILD
-
-Users visually construct and configure system topology.
-
-```mermaid
-flowchart TD
-    subgraph BUILD["Phase 1 · BUILD"]
-        B1["Drag LibraryItem onto canvas"]
-        B2["useFlowDnD → addNode() → Zustand store"]
-        B3["Draw edge → onConnect() → addEdge()"]
-        B4["Select node → PropertiesPanel reads store"]
-        B5["Edit config → updateNodeData() → store"]
-        B6["Save → JSON.stringify(nodes + edges) → FileService → browser download or File System Access API"]
-        B7["Open → browser file picker → FileService → setNodes() & setEdges()"]
-        B1 --> B2 --> B3 --> B4 --> B5
-        B5 --> B6
-    end
-```
-
-### Flow Summary
-
-1. Drag a `LibraryItem` onto the canvas.
-2. `useFlowDnD` calls `addNode()` → stored in Zustand.
-3. Connect nodes → `addEdge()` updates store.
-4. Select a node → `PropertiesPanel` reads state.
-5. Edit config → `updateNodeData()` updates state.
-6. Save → serialized JSON → FileService → browser file API (File System Access API where supported, otherwise a download).
-7. Open → browser file picker → state restored.
-
----
-
-## Phase 2 · SIMULATE
-
-A deterministic simulation engine runs inside a Web Worker.
-
-```mermaid
-flowchart TD
-    subgraph SIMULATE["Phase 2 · SIMULATE"]
-        S1["Press Run in the simulation controls"]
-        S2["Serialize Zustand store → topology + workload overrides"]
-        S3["Validate topology + derive run context"]
-        S4["postMessage → Renderer to Web Worker"]
-        S5["DES engine event loop + seeded PRNG + metrics collection"]
-        S6["Progress / snapshots / final output returned to UI"]
-        S1 --> S2 --> S3 --> S4 --> S5 --> S6
-    end
-```
-
-### Simulation Flow
-
-- Serialize topology, edges, and selected workload/global overrides.
-- Validate the topology before execution.
-- Send the resulting `TopologyJSON` to a Web Worker.
-- Run the discrete event simulation (DES) engine.
-- Emit progress updates and snapshots, then return the final output plus replay data.
-
----
-
-## Phase 3 · ANALYSE
-
-Results are visualized and broken down for deeper insights.
-
-```mermaid
-flowchart TD
-    subgraph ANALYSE["Phase 3 · ANALYSE"]
-        A1["Results Tray expands"]
-        A2["Overview → latency · throughput · error rate · run context"]
-        A3["Bottlenecks → SLOs · Little's Law · conservation · warmup checks"]
-        A4["Nodes → utilisation · queue depth · per-node latency and throughput"]
-        A5["Traffic → canonical replay preview + filterable event log"]
-        A1 --> A2 & A3 & A4 & A5
-    end
-```
-
-### Analysis Capabilities
-
-- Latency percentiles (P50–P99)
-- Throughput & availability
-- Per-node utilisation metrics
-- Replayable canonical event stream
-- SLO breach detection
-- Warmup, conservation, and Little's Law checks
-
----
-
-## Complete Lifecycle
+## Architecture
 
 ```mermaid
 flowchart LR
-    BUILD["BUILD"] -->|"Run"| SIMULATE["SIMULATE"]
-    SIMULATE --> ANALYSE["ANALYSE"]
-    ANALYSE -.->|"Iterate · Adjust · Re-run"| BUILD
+    UI[Simulator or Question Studio] --> Store[Zustand workspace state]
+    Store --> Serializer[Topology serializer]
+    Serializer --> Validator[Zod and semantic validation]
+    Validator --> Worker[Web Worker]
+    Worker --> Engine[Discrete-event engine]
+    Engine --> Output[Metrics, events, traces, verdicts]
+    Output --> UI
+
+    CLI[sim CLI] --> Validator
+    CLI --> Engine
+    Author[Question compiler] --> Contract[Question and grading contracts]
+    Contract --> UI
+    Contract --> CLI
 ```
 
----
+Important boundaries:
 
-## Tech Stack
+- `src/engine/` contains the platform-independent simulator, catalogue, validation, analysis, classroom compiler, scenario, and grading code.
+- `src/renderer/` contains the React application, browser persistence, Web Worker client, and both web surfaces.
+- `src/cli/` exposes the engine and evaluation contracts for scripts and CI.
+- The renderer and CLI consume the same `TopologyJSON` and engine code; there is no separate browser simulation implementation.
 
-| Layer             | Technology                                |
-| ----------------- | ----------------------------------------- |
-| App shell         | Browser SPA                               |
-| Build system      | Vite 7                                    |
-| UI framework      | React 19 + TypeScript 5                   |
-| Styling           | Tailwind CSS 3                            |
-| Canvas            | React Flow 11                             |
-| State management  | Zustand 5                                 |
-| Validation        | Zod 4                                     |
-| Testing           | Vitest 4                                  |
-| Simulation engine | In-repo DES engine + Web Worker execution |
+## Tech stack
 
----
+| Layer                  | Technology                                         |
+| ---------------------- | -------------------------------------------------- |
+| Web application        | React 19, TypeScript 5.9, Vite 7                   |
+| Canvas                 | React Flow 11, ELK layout                          |
+| State                  | Zustand 5                                          |
+| Validation             | Zod 4 plus semantic validators                     |
+| Styling                | Tailwind CSS 3                                     |
+| Simulation             | In-repository TypeScript DES engine and Web Worker |
+| Unit/integration tests | Vitest 4                                           |
+| Browser tests          | Playwright                                         |
 
-## Node Types
+## Getting started
 
-| Node          | Type             | Description                                  |
-| ------------- | ---------------- | -------------------------------------------- |
-| API Server    | `saturationNode` | Long-running process, configurable CPU/queue |
-| Serverless Fn | `saturationNode` | Event-driven, low baseline utilization       |
-| Job Worker    | `saturationNode` | Background task processing                   |
-| Cron Job      | `saturationNode` | Scheduled execution                          |
-| Primary DB    | `standardNode`   | Relational SQL datastore                     |
-| Redis Cache   | `standardNode`   | In-memory key/value store                    |
-| Load Balancer | `standardNode`   | L7 request routing                           |
-| VPC Region    | `containerNode`  | Isolated network boundary / grouping         |
+### Prerequisites
 
----
+- Node.js 20 or later (CI currently uses Node.js 20)
+- npm
 
-## Simulation Engine
+### Install and run
 
-The engine is a **Discrete Event Simulation loop** — no real clocks, no real servers, only a priority queue of timestamped events processed in order.
-
-Each node is modelled as a **G/G/c/K queue**:
-
-- `c` — concurrent workers
-- `K` — max queue capacity (excess arrivals are rejected)
-- Service time sampled from a configurable probability distribution (log-normal, exponential, Poisson, Weibull, etc.)
-
-Core runtime pieces currently in the repo:
-
-| Component              | Role                                                             |
-| ---------------------- | ---------------------------------------------------------------- |
-| Min-Heap               | O(log n) event priority queue                                    |
-| BigInt time utilities  | Deterministic microsecond scheduling                             |
-| Seeded PRNG            | Same seed = identical results                                    |
-| G/G/c/K Node           | Per-node queue model with workers and capacity                   |
-| Workload Generator     | Constant / Poisson / Spike / Diurnal / Bursty / Sawtooth traffic |
-| Routing Table          | Weighted path resolution and fan-out handling                    |
-| Topology Validator     | Zod-backed schema + structural validation                        |
-| Metrics Collector      | Latency, throughput, error rate, SLO, and queueing checks        |
-| Request Tracer         | Per-request span collection                                      |
-| Canonical Event Stream | Replay-friendly lifecycle/event recording                        |
-| Web Worker Runner      | Off-main-thread simulation execution                             |
-
-Advanced fault modeling, broader resilience semantics, and richer post-run analysis are also documented in `ns-simulator-docs/` and are being expanded incrementally in the runtime.
-
----
-
-## Submodule: `ns-simulator-docs`
-
-The `ns-simulator-docs/` directory is a Git submodule containing the theory, specs, planning material, generated reference artifacts, and workflow assets that support the simulator:
-
-```
-ns-simulator-docs/
-├── docs/
-│   ├── SYSTEM_OVERVIEW.md              # End-to-end system reference
-│   ├── theoretical-foundations.md      # Queueing theory, DEVS, reliability
-│   └── 01-05-*.md                      # Core documentation series
-├── schema/                             # Canonical TypeScript schema + schema docs
-├── canonical-catalogue/                # 17 CSV reference files + catalogue README
-├── planning/
-│   ├── IMPLEMENTATION_PLAN.md          # 10-phase build plan
-│   ├── TICKETS.md                      # 46 engineering tickets
-│   └── analysis/                       # Planning / meeting analysis notes
-├── design-decisions/                   # ADRs and issue writeups
-├── specs/                              # Feature and semantics specifications
-├── generated/                          # Generated topologies and sheet exports
-├── skills/                             # Codex skills for docs/schema/scenario workflows
-├── tools/                              # Helper scripts
-├── stitch_simulation_output_analysis/  # UI reference captures
-└── system-mind-map.md                  # High-level concept map
+```bash
+git clone <repo-url>
+cd ns-simulator-prod
+git submodule update --init --recursive
+npm ci
+npm run dev
 ```
 
-Notable additions in the current submodule checkout are `skills/`, `generated/`, `specs/`, `tools/`, and the expanded `design-decisions/` set.
+Vite prints the local URL, normally `http://localhost:5173/`.
 
-To initialise the submodule after cloning:
+- Simulator: `http://localhost:5173/`
+- Question Studio: `http://localhost:5173/question-studio`
+
+Use `npm install` instead of `npm ci` only when intentionally updating dependencies or the lockfile.
+
+### Production build
+
+```bash
+npm run build
+npm run preview
+```
+
+The static bundle is written to `dist/`. A `404.html` SPA fallback is generated for deep links on GitHub Pages. Pushes to `master` are deployed by `.github/workflows/deploy-web.yml`.
+
+## Common development commands
+
+| Command                             | Purpose                                                    |
+| ----------------------------------- | ---------------------------------------------------------- |
+| `npm run dev`                       | Start the simulator and Question Studio development server |
+| `npm run build`                     | Type-check and create the production web bundle            |
+| `npm run preview`                   | Serve the production bundle locally                        |
+| `npm run lint`                      | Run ESLint                                                 |
+| `npm run lint:fix`                  | Apply safe ESLint fixes                                    |
+| `npm run typecheck`                 | Type-check Node and web TypeScript projects                |
+| `npm test`                          | Run the Vitest suite                                       |
+| `npm run test:perf`                 | Include opt-in performance tests                           |
+| `npm run test:e2e`                  | Run the complete Playwright suite                          |
+| `npm run typecheck:e2e`             | Type-check Playwright tests                                |
+| `npm run check:web-bundle-budget`   | Check generated bundle-size budgets                        |
+| `npm run validate:question-bank`    | Validate all documentation-submodule question packages     |
+| `npm run audit:question-authoring`  | Audit authoring capability coverage                        |
+| `npm run audit:classroom-readiness` | Audit classroom readiness                                  |
+
+The E2E suite is organized into 29 system-design chapters. Individual chapter scripts are available as `npm run test:e2e:ch01` through `npm run test:e2e:ch29`; see [`e2e/README.md`](e2e/README.md) for headed runs, slow motion, video, and CDP options.
+
+Before opening a pull request, run the same core checks as CI:
+
+```bash
+npm run lint
+npm test
+npm run typecheck
+npm run check:classroom-question-author-skill
+npm run check:system-design-concepts
+npm run build:web
+```
+
+Some checks regenerate tracked artifacts before comparing them with Git. If one fails, inspect the diff rather than discarding it blindly.
+
+## Command-line interface
+
+From a checkout, run the CLI through npm:
+
+```bash
+npm run sim -- --help
+npm run sim -- run order-topology.json
+```
+
+`npm link` also installs the repository's `sim` executable on your `PATH`.
+
+### Commands
+
+```text
+sim run <topology.json>                    Run a simulation and print its report
+sim validate <topology.json>               Validate schema and semantic rules
+sim lint <topology.json>                   Detect architecture anti-patterns
+sim cost <topology.json>                   Estimate per-component and total cost
+sim compare <a.json> <b.json>              Run both designs with one seed and diff them
+sim shell <topology.json>                  Open the topology-aware terminal
+sim evaluate <suite-or-topology.json>      Run suites or scenario batches
+sim evaluate question ...                  Grade one learner submission
+sim evaluate question-batch ...            Grade isolated submissions in a batch
+sim grade <question.json> <topology.json>  Alias for evaluate question
+```
+
+Examples:
+
+```bash
+npm run sim -- run order-topology.json --live
+npm run --silent sim -- run order-topology.json --json | jq '.summary'
+npm run --silent sim -- validate order-topology.json --json
+npm run sim -- cost order-topology.json --run
+npm run sim -- compare baseline.json candidate.json --seed 42
+npm run sim -- shell order-topology.json --exec 'run; show bottleneck'
+npm run sim -- grade question.json student-topology.json --output result.json
+```
+
+Every report command supports machine-readable JSON. When invoking it through npm, add `--silent` if stdout will be parsed or redirected so npm's script banner does not precede the JSON. Use `sim <command> --help` for its complete contract and flags. The main exit codes are:
+
+| Code | Meaning                                           |
+| ---- | ------------------------------------------------- |
+| `0`  | Success / passing check                           |
+| `1`  | Usage, unreadable input, or invalid base topology |
+| `2`  | Check or grading failure                          |
+| `3`  | Invalid learner submission contract               |
+| `4`  | Evaluation error contract                         |
+
+The CLI accepts engine `TopologyJSON` files, including `order-topology.json` and question-bank `reference-topology.json` files. It does not consume the renderer's internal canvas persistence format.
+
+## Optional local LLM grading
+
+Written justifications are always graded deterministically first. In development, the Vite server can additionally call Gemini, Anthropic, or OpenAI without exposing the provider key to browser code.
+
+Set one provider key in your shell or a local Vite environment file:
+
+```bash
+# Gemini (also accepts GOOGLE_API_KEY)
+GEMINI_API_KEY=...
+
+# Anthropic (also accepts CLAUDE_API_KEY)
+ANTHROPIC_API_KEY=...
+
+# OpenAI
+OPENAI_API_KEY=...
+```
+
+When more than one key is present, select the provider explicitly:
+
+```bash
+LLM_GRADER_PROVIDER=openai   # gemini | anthropic | openai
+LLM_GRADER_MODEL=<optional-model-id>
+npm run dev
+```
+
+`LLM_PROVIDER` and `LLM_MODEL` are accepted aliases. Keys are read only by the local development server, are never injected through a `VITE_` variable, and must not be committed. Production static builds use deterministic grading only.
+
+## Repository layout
+
+```text
+.
+├── src/
+│   ├── engine/          # DES runtime, catalogue, traits, validation, analysis, grading
+│   ├── renderer/        # React workspace, Question Studio, Web Worker integration
+│   ├── cli/             # sim command-line interface
+│   └── shared/          # cross-runtime helpers
+├── e2e/                 # Playwright journeys and support code
+├── docs/                # implementation notes, product specs, taxonomy, reference chapters
+├── skills/              # standalone question-authoring skills packaged by this repository
+├── scripts/             # audits, generators, validators, migrations, and skill packaging
+├── ns-simulator-docs/   # documentation and question-bank submodule
+├── order-topology.json  # runnable CLI example
+├── vite.config.mts
+└── package.json
+```
+
+### Documentation submodule
+
+`ns-simulator-docs/` is a Git submodule containing the broader theory, curriculum, canonical catalogues, specifications, question bank, examples, and planning history. Initialize it after cloning:
 
 ```bash
 git submodule update --init --recursive
 ```
 
----
+Runtime truth lives in the root repository. Treat documents in the submodule as supporting material unless a root-level validator or test asserts parity with them.
 
-## Reusable LLM Skills
+### Standalone authoring skills
 
-Standalone skills maintained by this repository live under [`skills/`](skills/).
-Unlike the broader workflow skills in the documentation submodule, each root-level
-skill is packaged so it can be shared without repository access.
-
-The Simulator Question Author skill turns one system-design question into a
-learner builder walkthrough and a Question Studio authoring walkthrough. Package
-it with:
+The root [`skills/`](skills/) directory contains portable question-authoring workflows that can be shared without repository access. Build their distributable ZIPs with:
 
 ```bash
 npm run package:simulator-question-author
+npm run package:classroom-question-author
 ```
 
-This writes an ignored ZIP and SHA-256 checksum under `dist/skills/`. See
-[`skills/README.md`](skills/README.md) for maintenance and distribution guidance.
+Artifacts and SHA-256 checksums are written under `dist/skills/`. See [`skills/README.md`](skills/README.md) for validation and maintenance details.
 
----
+## Design and accuracy principles
 
-## Getting Started
-
-### Prerequisites
-
-- Node.js 20+
-- npm
-
-### Install
-
-```bash
-npm install
-```
-
-### Development
-
-```bash
-npm run dev           # browser SPA (alias: npm run dev:web)
-```
-
-### Type check
-
-```bash
-npm run typecheck
-```
-
-### Build
-
-```bash
-npm run build:web   # browser production bundle in dist/ (alias: npm run build), same path used in CI
-npm run preview     # serve the built bundle locally
-```
-
-### Test
-
-```bash
-npm run test
-```
-
-### CLI (sim cli)
-
-The sim cli runs the same engine headlessly. From a checkout, `npm run sim -- <command>` works
-without installing anything; `npm link` puts a `sim` executable on your PATH (it runs the
-TypeScript source through tsx, so there is no build step).
-
-```bash
-sim run order-topology.json                 # simulate and print the report
-sim run order-topology.json --live          # live per-node table while it runs (q stop, p pause)
-sim run order-topology.json --json | jq .summary
-sim validate order-topology.json            # schema errors and warnings
-sim lint order-topology.json                # anti-patterns; exits 2 on a critical finding
-sim cost order-topology.json [--run]        # $/hr per component (--run: measured, post-run)
-sim compare a.json b.json                   # both designs, same seed, metric-by-metric diff
-sim evaluate question question.json student-topology.json   # grading contract (JSON)
-```
-
-`sim --help` lists every command and `sim <command> --help` its options. Every report
-command takes `--json`; JSON output is plain `JSON.parse`-able (BigInt timestamps are
-emitted as numbers). Exit codes: `0` success, `1` usage or input error (unknown flag,
-missing file, invalid topology), `2` check failed (lint critical, validate errors,
-grading failed), `3` invalid submission, `4` evaluation error. The CLI reads engine
-`TopologyJSON` files (like `order-topology.json` and the question bank's
-`reference-topology.json`), not the canvas files in `src/engine/__samples__`.
-
----
-
-## Design Principles
-
-- **Deterministic by default** — every simulation run is seeded; the same seed always produces identical output
-- **No decorative animation** — every visual (colour change, edge pulse, queue bar) represents real simulation data
-- **Mathematical transparency** — metrics show their formula on hover (e.g. `utilization = activeWorkers / maxWorkers`)
-- **Desktop-first** — minimum 1280px viewport; no mobile layout compromise
-- **Single source of truth** — canvas, inspector panel, and JSON topology viewer all read from and write to one Zustand store
-
----
-
-## Accuracy Contract
-
-To keep demos and analysis trustworthy, parameters are classified into four classes:
-
-- **Invariant (hardcoded):** simulator mechanics and safety guards that should not vary per scenario.
-- **Default + Override:** defaults are provided, but users can override them per node/edge.
-- **User Parameter:** visible controls that must affect simulation behavior.
-- **Not Simulated:** fields retained for UX/modeling completeness that do not currently affect runtime behavior.
-
-### Invariants (hardcoded)
-
-- Event ordering and tie-breaking (timestamp -> priority -> stable sequence)
-- Core queue semantics (`fifo`/`lifo`/`priority`/`wfq`)
-- Time-unit internals (microsecond scheduling)
-- Safety clamps and bounds
-
-### Default + Override (edge model)
-
-Edges now use serializer defaults only as fallback and can be configured per edge:
-
-- Protocol and mode
-- Latency distribution (`mu`, `sigma`) and `pathType`
-- Bandwidth
-- Max concurrent requests
-- Packet loss rate
-- Edge error rate
-
-### User Parameters (node model)
-
-Visible node controls that currently influence runtime behavior:
-
-- Queueing knobs (`workers`, `capacity`, `queueDiscipline`, `meanServiceMs`, `timeoutMs`)
-- Throughput/load/queue hints
-- `vCPU` and `RAM` (deterministic mapping to derived queue/perf behavior)
-- `status` (healthy/degraded/critical performance/error impact)
-- Service `errorRate` (node-level failure injection)
-- Security `blockRate` and `droppedPackets` (arrival-time rejection/timeout behavior)
-
-### Not Simulated
-
-Fields that are not wired to runtime behavior are hidden from the default inspector UI.
-
----
-
-## Implementation Status
-
-| Area                                                    | Status |
-| ------------------------------------------------------- | ------ |
-| Browser SPA target                                      | Done   |
-| React Flow canvas (nodes + edges)                       | Done   |
-| Drag-and-drop node palette                              | Done   |
-| Node types (Compute, Service, VPC)                      | Done   |
-| Atomic design system (atoms → organisms)                | Done   |
-| Zustand topology store                                  | Done   |
-| Inspector panel                                         | Done   |
-| File save / load via browser file APIs                  | Done   |
-| Scenario controls (source/workload/global runtime)      | Done   |
-| Topology serialization + validation                     | Done   |
-| Simulation engine (DES loop)                            | Done   |
-| Web Worker execution                                    | Done   |
-| Results tray (overview / bottlenecks / nodes / traffic) | Done   |
-| CLI simulation runner                                   | Done   |
-| Advanced fault authoring UI                             | Done   |
-| Advanced cost / failure analysis UI                     | Done   |
-
-See `ns-simulator-docs/planning/TICKETS.md` for the full 46-ticket breakdown.
-
----
+- **Deterministic by default:** a topology and seed reproduce the same discrete-event result.
+- **One engine:** browser, CLI, grading, and author previews share runtime semantics.
+- **Visible causality:** traffic animation, metric lenses, traces, and failure explanations derive from simulation state.
+- **Explicit defaults:** serializers and validators identify inferred capacity and behavior.
+- **Honest modeling:** unsupported or descriptive settings must not masquerade as simulated behavior.
+- **Versioned contracts:** topology, question, export, attempt, and evaluation boundaries are validated before use.
 
 ## Contributing
 
-### Setup
+Keep changes scoped and preserve deterministic behavior. Engine changes should include a test that fixes the intended semantics and should state whether seeded reproducibility changes. Changes to student-visible behavior, authoring defaults, feature visibility, locked controls, or grading require explicit coverage of the affected experience contract.
 
-```bash
-git clone <repo-url>
-cd ns-simulator
-git submodule update --init --recursive   # pulls ns-simulator-docs
-npm install
-npm run dev:web
-```
-
-### Branch Naming
-
-```
-feature/<kebab-case-description>    # new functionality
-fix/<kebab-case-description>        # bug fixes
-```
-
-Examples from this repo: `feature/add-ui-dependencies`, `feature/implement-vpc`, `feature/react-flow-canvas-setup`.
-
-### Commit Messages
-
-Imperative mood, sentence case, no period.
-
-```
-Add Tailwind CSS, ReactFlow, Zustand, and UI dependencies
-Fix circuit breaker state not resetting on node recovery
-Refactor VPC node to extract header and toolbar molecules
-```
-
-### Before Pushing
-
-```bash
-npm run typecheck    # tsc across both node + web tsconfigs
-npm run lint         # eslint
-npm run test         # vitest
-npm run build:web    # browser production build
-npm run format       # prettier --write
-```
-
-The branch should stay green. `build` and `build:web` both run `typecheck` automatically.
-
-### Pull Requests
-
-- One concern per PR — don't bundle UI changes with engine work.
-- Title: short, imperative, under 70 characters.
-- PRs targeting the simulation engine require a note on determinism: confirm the change does not break seed reproducibility.
+Use focused branch names such as `feature/<description>` or `fix/<description>` and imperative commit subjects. The pull-request template records student/author impact and the required test plan.
