@@ -70,6 +70,8 @@ interface FlowCanvasProps {
   addComponentActive?: boolean
   /** Replaces the default empty-canvas hint (simple shell). */
   emptyState?: React.ReactNode
+  /** Assignment surfaces keep the empty canvas clear so the brief remains the only guidance. */
+  hideEmptyState?: boolean
 }
 
 function handleReactFlowError(code: string, message: string): void {
@@ -125,7 +127,8 @@ const FlowCanvasInternal = ({
   onEdgeDoubleClick,
   onAddComponent,
   addComponentActive = false,
-  emptyState
+  emptyState,
+  hideEmptyState = false
 }: FlowCanvasProps) => {
   const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance | null>(null)
   const classroomActive = useClassroomActive()
@@ -1211,13 +1214,14 @@ const FlowCanvasInternal = ({
       <EmptyFlowState
         isEmpty={isEmpty}
         hidden={
+          hideEmptyState ||
           annotationToolActive ||
           activeTool === 'laser' ||
           activeTool === 'text' ||
           Boolean(emptyState)
         }
       />
-      {emptyState && isEmpty && !pendingNodePlacement && !annotationToolActive ? (
+      {!hideEmptyState && emptyState && isEmpty && !pendingNodePlacement && !annotationToolActive ? (
         <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
           {emptyState}
         </div>
