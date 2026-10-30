@@ -151,6 +151,12 @@
   padding-bottom: max(0.5rem, env(safe-area-inset-bottom, 0px));
 }
 
+.nss-handwritten-hint {
+  font-family: 'Comic Sans MS', 'Bradley Hand', 'Segoe Print', cursive;
+  font-weight: 400;
+  letter-spacing: 0.01em;
+}
+
 .nss-properties-panel {
   container-type: inline-size;
 }

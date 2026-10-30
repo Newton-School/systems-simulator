@@ -4,7 +4,7 @@
     {
       "id": "client",
       "type": "standardNode",
-      "position": { "x": 80, "y": 320 },
+      "position": { "x": 92, "y": 115 },
       "data": {
         "schemaVersion": 2,
         "templateId": "client-user",
@@ -44,7 +44,7 @@
     {
       "id": "gateway",
       "type": "standardNode",
-      "position": { "x": 620, "y": 320 },
+      "position": { "x": 472, "y": 115 },
       "data": {
         "schemaVersion": 2,
         "templateId": "api-gateway",
@@ -73,7 +73,7 @@
     {
       "id": "kv-store",
       "type": "standardNode",
-      "position": { "x": 1180, "y": 120 },
+      "position": { "x": 852, "y": 92 },
       "data": {
         "schemaVersion": 2,
         "templateId": "kv-store",
@@ -93,7 +93,7 @@
     {
       "id": "warehouse",
       "type": "standardNode",
-      "position": { "x": 1180, "y": 500 },
+      "position": { "x": 852, "y": 312 },
       "data": {
         "schemaVersion": 2,
         "templateId": "data-warehouse",
@@ -116,6 +116,8 @@
       "id": "client-to-gateway",
       "source": "client",
       "target": "gateway",
+      "sourceHandle": "right-1-source",
+      "targetHandle": "left-1-target",
       "data": {
         "protocol": "https",
         "mode": "synchronous",
@@ -125,13 +127,20 @@
         "bandwidth": 1000,
         "maxConcurrentRequests": 300,
         "packetLossRate": 0,
-        "errorRate": 0
+        "errorRate": 0,
+        "layoutRoute": {
+          "source": { "x": 312, "y": 185 },
+          "target": { "x": 472, "y": 185 },
+          "bends": []
+        }
       }
     },
     {
       "id": "gateway-to-kv",
       "source": "gateway",
       "target": "kv-store",
+      "sourceHandle": "right-0-source",
+      "targetHandle": "left-1-target",
       "data": {
         "protocol": "tcp",
         "mode": "synchronous",
@@ -141,13 +150,20 @@
         "bandwidth": 1000,
         "maxConcurrentRequests": 300,
         "packetLossRate": 0,
-        "errorRate": 0
+        "errorRate": 0,
+        "layoutRoute": {
+          "source": { "x": 692, "y": 150 },
+          "target": { "x": 852, "y": 162 },
+          "bends": []
+        }
       }
     },
     {
       "id": "gateway-to-warehouse",
       "source": "gateway",
       "target": "warehouse",
+      "sourceHandle": "right-2-source",
+      "targetHandle": "left-1-target",
       "data": {
         "protocol": "tcp",
         "mode": "synchronous",
@@ -157,7 +173,15 @@
         "bandwidth": 1000,
         "maxConcurrentRequests": 300,
         "packetLossRate": 0,
-        "errorRate": 0
+        "errorRate": 0,
+        "layoutRoute": {
+          "source": { "x": 692, "y": 220 },
+          "target": { "x": 852, "y": 382 },
+          "bends": [
+            { "x": 742, "y": 208 },
+            { "x": 742, "y": 382 }
+          ]
+        }
       }
     }
   ],

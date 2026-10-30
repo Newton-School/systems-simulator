@@ -4,7 +4,7 @@
     {
       "id": "producer",
       "type": "standardNode",
-      "position": { "x": 80, "y": 280 },
+      "position": { "x": 92, "y": 312 },
       "data": {
         "schemaVersion": 2,
         "templateId": "client-user",
@@ -41,7 +41,7 @@
     {
       "id": "broker",
       "type": "standardNode",
-      "position": { "x": 620, "y": 280 },
+      "position": { "x": 472, "y": 312 },
       "data": {
         "schemaVersion": 2,
         "templateId": "message-broker",
@@ -62,7 +62,7 @@
     {
       "id": "email-worker",
       "type": "saturationNode",
-      "position": { "x": 1160, "y": 60 },
+      "position": { "x": 852, "y": 312 },
       "data": {
         "schemaVersion": 2,
         "templateId": "async-worker",
@@ -82,7 +82,7 @@
     {
       "id": "push-worker",
       "type": "saturationNode",
-      "position": { "x": 1160, "y": 280 },
+      "position": { "x": 852, "y": 532 },
       "data": {
         "schemaVersion": 2,
         "templateId": "async-worker",
@@ -102,7 +102,7 @@
     {
       "id": "analytics-worker",
       "type": "saturationNode",
-      "position": { "x": 1160, "y": 500 },
+      "position": { "x": 852, "y": 92 },
       "data": {
         "schemaVersion": 2,
         "templateId": "async-worker",
@@ -125,6 +125,8 @@
       "id": "producer-to-broker",
       "source": "producer",
       "target": "broker",
+      "sourceHandle": "right-1-source",
+      "targetHandle": "left-1-target",
       "data": {
         "protocol": "kafka",
         "mode": "asynchronous",
@@ -134,13 +136,20 @@
         "bandwidth": 1000,
         "maxConcurrentRequests": 400,
         "packetLossRate": 0,
-        "errorRate": 0
+        "errorRate": 0,
+        "layoutRoute": {
+          "source": { "x": 312, "y": 382 },
+          "target": { "x": 472, "y": 382 },
+          "bends": []
+        }
       }
     },
     {
       "id": "broker-to-email",
       "source": "broker",
       "target": "email-worker",
+      "sourceHandle": "right-1-source",
+      "targetHandle": "left-1-target",
       "data": {
         "protocol": "amqp",
         "mode": "synchronous",
@@ -150,13 +159,20 @@
         "bandwidth": 1000,
         "maxConcurrentRequests": 400,
         "packetLossRate": 0,
-        "errorRate": 0
+        "errorRate": 0,
+        "layoutRoute": {
+          "source": { "x": 692, "y": 382 },
+          "target": { "x": 852, "y": 382 },
+          "bends": []
+        }
       }
     },
     {
       "id": "broker-to-push",
       "source": "broker",
       "target": "push-worker",
+      "sourceHandle": "right-2-source",
+      "targetHandle": "left-1-target",
       "data": {
         "protocol": "amqp",
         "mode": "synchronous",
@@ -166,13 +182,23 @@
         "bandwidth": 1000,
         "maxConcurrentRequests": 400,
         "packetLossRate": 0,
-        "errorRate": 0
+        "errorRate": 0,
+        "layoutRoute": {
+          "source": { "x": 692, "y": 417 },
+          "target": { "x": 852, "y": 602 },
+          "bends": [
+            { "x": 742, "y": 417 },
+            { "x": 742, "y": 602 }
+          ]
+        }
       }
     },
     {
       "id": "broker-to-analytics",
       "source": "broker",
       "target": "analytics-worker",
+      "sourceHandle": "right-0-source",
+      "targetHandle": "left-1-target",
       "data": {
         "protocol": "amqp",
         "mode": "synchronous",
@@ -182,7 +208,15 @@
         "bandwidth": 1000,
         "maxConcurrentRequests": 400,
         "packetLossRate": 0,
-        "errorRate": 0
+        "errorRate": 0,
+        "layoutRoute": {
+          "source": { "x": 692, "y": 347 },
+          "target": { "x": 852, "y": 162 },
+          "bends": [
+            { "x": 742, "y": 347 },
+            { "x": 742, "y": 162 }
+          ]
+        }
       }
     }
   ],
