@@ -1701,13 +1701,13 @@ export const WorkspaceLayout = () => {
           <FlowCanvas
             showMetricLens={environmentProfile.visibility.liveMetrics}
             interactionLocked={experienceEnvelope.canvasLocked}
-            hideEmptyState={experienceEnvelope.kind === 'ASSIGNMENT'}
+            hideEmptyState={Boolean(activeQuestion)}
             onAddComponent={
               addPopoverAvailable ? () => setAddPopoverOpen((current) => !current) : undefined
             }
             addComponentActive={addPopoverOpen}
             emptyState={
-              addPopoverAvailable && experienceEnvelope.kind !== 'ASSIGNMENT' ? (
+              addPopoverAvailable && !activeQuestion ? (
                 <SimpleEmptyState
                   onAddComponent={() => {
                     setAddPopoverOpen(true)

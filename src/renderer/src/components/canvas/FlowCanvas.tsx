@@ -70,7 +70,7 @@ interface FlowCanvasProps {
   addComponentActive?: boolean
   /** Replaces the default empty-canvas hint (simple shell). */
   emptyState?: React.ReactNode
-  /** Assignment surfaces keep the empty canvas clear so the brief remains the only guidance. */
+  /** Question surfaces keep the empty canvas clear so the brief remains the only guidance. */
   hideEmptyState?: boolean
 }
 
