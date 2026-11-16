@@ -116,6 +116,24 @@ Record:
 - structural rules, semantic criteria, rubric checks, points, and threshold;
 - a passing design, a near miss, an anti-gaming design, and unsupported concerns.
 
+Define the learner decision surface before building the scaffold. Classify every
+preconfigured node, edge, and important setting as one of:
+
+- **fixed and visible** — serialize it in the scaffold and lock the whole node or
+  edge;
+- **learner-editable** — expose it deliberately and attach evidence that grades
+  the intended decision;
+- **question-owned** — keep it in the private scenario, invariant, or grader
+  contract so the learner cannot weaken it.
+
+Current scaffold locks are whole-node and whole-edge locks, not per-property
+locks. A `locked-lab` freezes architecture while intentionally leaving node and
+edge data editable; an authored `lockedNodeIds` or `lockedEdgeIds` entry freezes
+that entire item. When only selected fields on one node should be editable, do
+not claim the UI enforces that boundary. Either grade the required properties,
+separate fixed and editable concerns across nodes, or narrow the exercise until
+the exposed controls match the lesson. See [Question Studio authoring](references/question-studio-authoring.md#learner-decision-surface).
+
 Generic component requirements are directional: `load-balancer` accepts its L4
 and L7 subtypes; `load-balancer-l7` accepts only L7. Apply the same relation to
 allowlists, structural/semantic checks, and solution validation.

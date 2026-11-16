@@ -138,6 +138,27 @@ broken scaffold; repair/optimization formats require non-empty scaffolds.
 Do not set a node cap lower than the visible-node canonical answer. If instances
 inside one node are an accepted alternative, say so explicitly.
 
+#### Learner decision surface
+
+Treat isolation as an authored contract, not merely a small palette. Classify the
+question inputs before grading:
+
+| Input | Authoring mechanism | Learner effect |
+| --- | --- | --- |
+| Fixed node or edge | Scaffold plus `lockedNodeIds` / `lockedEdgeIds` | Visible but immutable as a whole item |
+| Editable topology | Unlocked scaffold item or allowed palette type | Learner may place, connect, move, or configure it within the environment profile |
+| Fixed workload or fault | Private suite case | Injected by the grader; learner cannot lower or remove it |
+| Required configuration | Semantic `componentProperty` plus component presence | Editable unless its whole node is locked; grading detects an invalid value |
+| Builder scope | `builderPolicy` | Limits available node classes, templates, traits, definitions, and operations |
+
+There is no per-field scaffold lock. An authored locked node also locks its
+configuration. Conversely, `entryFormat: "locked-lab"` locks the architecture but
+keeps node and edge data editable so configuration can be the lab exercise. If a
+lesson needs one editable property on an otherwise immutable node, either expose
+the node and grade the properties that must remain fixed, split the fixed and
+editable concerns into different nodes, or reframe the task. Do not describe a
+graded property as UI-locked.
+
 ## 6. Stage 4 — Scenarios
 
 Every complete scenario needs:
