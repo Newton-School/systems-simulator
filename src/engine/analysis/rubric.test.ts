@@ -158,7 +158,9 @@ describe('resolveTopologyMetric', () => {
   it('resolves topology aggregates and component counts', () => {
     const t = topology()
     expect(resolveTopologyMetric(t, 'topology.nodeCount')).toBe(2)
+    expect(resolveTopologyMetric(t, 'topology.totalNodes')).toBe(2)
     expect(resolveTopologyMetric(t, 'topology.edgeCount')).toBe(1)
+    expect(resolveTopologyMetric(t, 'topology.totalEdges')).toBe(1)
     expect(resolveTopologyMetric(t, 'topology.sourceCount')).toBe(1)
     expect(resolveTopologyMetric(t, 'topology.componentCounts.microservice')).toBe(1)
     expect(resolveTopologyMetric(t, 'topology.categoryCounts.compute')).toBe(2)

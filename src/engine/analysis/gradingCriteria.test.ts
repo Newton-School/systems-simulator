@@ -61,7 +61,8 @@ describe('parseSemanticCriterion', () => {
         source: 'trait',
         nodeType: 'idempotency-store' as never
       },
-      minCount: 1
+      minCount: 1,
+      minDistinctNodeCount: 2
     },
     {
       id: 'lock-then-commit',

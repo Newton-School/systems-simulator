@@ -249,6 +249,8 @@ export interface StateTransitionCriterion extends CriterionBase {
    * outcomes. Defaults to `1`, except `maxCount: 0` implies an absence check.
    */
   minCount?: number
+  /** Minimum number of distinct transition node IDs represented by the matches. */
+  minDistinctNodeCount?: number
   /** Optional upper bound, useful for absence checks (e.g. oversell never occurs). */
   maxCount?: number
 }
@@ -486,6 +488,7 @@ export const SemanticCriterionSchema: z.ZodType<SemanticCriterion> = z.discrimin
       match: RuntimeStateTransitionMatcherSchema,
       where: RuntimeOutcomeFilterSchema.optional(),
       minCount: z.number().int().nonnegative().optional(),
+      minDistinctNodeCount: z.number().int().positive().optional(),
       maxCount: z.number().int().nonnegative().optional()
     })
     .strict()

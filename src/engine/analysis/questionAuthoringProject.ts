@@ -396,6 +396,7 @@ const AuthoringSemanticRuleDraftSchema: z.ZodType<AuthoringSemanticRuleDraft> = 
     whereTerminalNodeId: z.string().optional(),
     whereTerminalNodeType: z.string().optional(),
     minCount: DraftFiniteNumberSchema.optional(),
+    minDistinctNodeCount: DraftFiniteNumberSchema.optional(),
     maxCount: DraftFiniteNumberSchema.optional(),
     sequence: z
       .array(

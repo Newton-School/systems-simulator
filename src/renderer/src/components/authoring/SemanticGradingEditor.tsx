@@ -252,7 +252,7 @@ function RuntimeTransitionFields({
           </select>
         </label>
       </div>
-      <div className="grid gap-3 sm:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-5">
         <label className="flex flex-col gap-1">
           <span className="text-[10px] font-semibold uppercase tracking-wide text-nss-muted">
             Node ID
@@ -281,6 +281,23 @@ function RuntimeTransitionFields({
             onChange={(event) =>
               patch({
                 minCount:
+                  event.currentTarget.value === '' ? null : event.currentTarget.valueAsNumber
+              })
+            }
+            className="rounded border border-nss-border bg-nss-input-bg px-2 py-1.5 text-xs"
+          />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-[10px] font-semibold uppercase tracking-wide text-nss-muted">
+            Distinct nodes
+          </span>
+          <input
+            type="number"
+            min="1"
+            value={rule.minDistinctNodeCount ?? ''}
+            onChange={(event) =>
+              patch({
+                minDistinctNodeCount:
                   event.currentTarget.value === '' ? null : event.currentTarget.valueAsNumber
               })
             }

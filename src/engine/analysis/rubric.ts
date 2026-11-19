@@ -193,8 +193,10 @@ export function resolveMetric(verdict: SimulationVerdict, metric: string): numbe
 export function resolveTopologyMetric(topology: TopologyJSON, metric: string): number | null {
   switch (metric) {
     case 'topology.nodeCount':
+    case 'topology.totalNodes':
       return topology.nodes.length
     case 'topology.edgeCount':
+    case 'topology.totalEdges':
       return topology.edges.length
     case 'topology.sourceCount':
       return topology.nodes.filter((node) => node.role === 'source').length

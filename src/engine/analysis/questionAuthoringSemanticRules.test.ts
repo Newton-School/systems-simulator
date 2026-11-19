@@ -51,6 +51,21 @@ describe('Question Studio semantic obligation composer', () => {
     ).toMatchObject({ description: 'Include at least one backend server.' })
   })
 
+  it('compiles a distinct-node runtime transition requirement', () => {
+    expect(
+      compileAuthoringSemanticRule({
+        ...createAuthoringSemanticRule('stateTransition', 'replica-reads'),
+        runtimeScope: 'replication',
+        runtimeState: 'replica-read',
+        minDistinctNodeCount: 2
+      })
+    ).toMatchObject({
+      id: 'replica-reads',
+      kind: 'stateTransition',
+      minDistinctNodeCount: 2
+    })
+  })
+
   it('treats the guarded-path destination as optional', () => {
     const draft: AuthoringSemanticRuleDraft = {
       ...createAuthoringSemanticRule('guardedPath', 'guard-2'),
