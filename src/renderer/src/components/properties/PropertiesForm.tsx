@@ -26,6 +26,7 @@ import { TrafficOriginsEditor } from './TrafficOriginsEditor'
 import { QueueWeightsEditor } from './QueueWeightsEditor'
 import { BulkheadPartitionsEditor } from './BulkheadPartitionsEditor'
 import { RoutingRulesEditor } from './RoutingRulesEditor'
+import { ReplicaMembersEditor } from './ReplicaMembersEditor'
 import type { ContentRoutingRule } from '../../../../engine/traits/contentRouting'
 import type { LocationProvider } from '../../../../engine/core/types'
 import { cloudRegionsForProvider } from '../../../../engine/catalog/locationCatalog'
@@ -379,6 +380,18 @@ export const PropertiesForm = ({
             }
             onUpdate(field.path, nextValue.length > 0 ? nextValue : undefined)
           }}
+        />
+      )
+    }
+
+    if (field.renderer === 'replica-members') {
+      return (
+        <ReplicaMembersEditor
+          key={field.path}
+          nodeId={nodeId}
+          data={formData}
+          value={value}
+          onChange={(nextValue) => onUpdate(field.path, nextValue)}
         />
       )
     }

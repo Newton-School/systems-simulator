@@ -167,6 +167,53 @@ describe('getNodeConfigSections', () => {
     const role = replication?.fields.find((field) => field.path === 'sim.replicationRole')
     expect(role?.label).toBe('Database role')
     expect(role?.options).toEqual(['leader', 'follower'])
+
+    const members = replication?.fields.find((field) => field.path === 'sim.replicaMembers')
+    expect(members?.renderer).toBe('replica-members')
+    expect(members?.altitude).toBe('primary')
+
+    expect(paths).toEqual([
+      'sim.replicationEnabled',
+      'sim.replicationRole',
+      'sim.replicaMembers',
+      'sim.writeAckPolicy',
+      'sim.electionTimeoutMs',
+      'sim.consensusProtocol',
+      'sim.conflictResolution',
+      'sim.failoverUntilMs'
+    ])
+    expect(paths).not.toContain('sim.replicationLagMs')
+    expect(replication?.fields.find((field) => field.path === 'sim.writeAckPolicy')?.altitude).toBe(
+      'primary'
+    )
+  })
+
+  it('shows replica lag instead of write acknowledgement for a follower', () => {
+    const data = makeRuntimeNode({
+      templateId: 'read-replica',
+      componentType: 'relational-db',
+      structuralRole: 'storage',
+      profile: 'datastore',
+      label: 'SQL Read Replica',
+      sim: {
+        queue: { workers: 8, capacity: 10, discipline: 'fifo' },
+        processing: {
+          distribution: { type: 'exponential', lambda: 0.125 },
+          timeout: 100
+        },
+        replicationEnabled: true,
+        replicationRole: 'follower'
+      }
+    })
+
+    const replication = getNodeConfigSections(data).find((section) => section.id === 'replication')
+    const paths = replication?.fields.map((field) => field.path) ?? []
+
+    expect(paths).toContain('sim.replicationLagMs')
+    expect(paths).not.toContain('sim.writeAckPolicy')
+    expect(
+      replication?.fields.find((field) => field.path === 'sim.replicationLagMs')?.altitude
+    ).toBe('primary')
   })
 
   it('gives a push-notification service the external-dependency (APNs/FCM) latency section', () => {
