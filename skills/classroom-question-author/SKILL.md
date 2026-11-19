@@ -55,8 +55,10 @@ a Classroom check cannot express an essential structural obligation.
 Answer the design card's six questions, then complete the objective worksheet
 before writing JSON. Extract the source bullets
 verbatim, choose one dominant lesson, and state objectives as “the student can…”.
-For every proposed control, name its objective. If none exists, make it a given or
-remove it.
+Classify every important input as **configure**, **observe/explain**,
+**given/context**, or **deferred**. For every proposed control, name its objective.
+If none exists, make it a given, hide it, or remove it. A concept the learner must
+explain does not automatically become a value they must configure.
 
 Resolve the lesson to stable IDs in the system-design concept registry. Treat its
 surface tags as curriculum routing, then use the concept's generated `authoring`
@@ -89,12 +91,26 @@ skill.
 Instance types, vCPU/RAM, service-time distributions, workers, queue slots,
 timeouts, retries, traits, edge physics, seeds, and execution profiles are
 forbidden student decisions. Use Architect mode when one of them is the lesson.
+Architect handoff still uses the same objective classification; it provides more
+controls, not more implicit learner obligations.
 
 ### 3. Trace objectives to checks
 
 Use the smallest check set that proves the source. Every scored check names one
 objective in coverage and uses a learner-facing label. Do not attach performance
 checks to structural-only lessons. Stay within the shared grading budget.
+
+Score configure objectives through supported decisions. Treat observe/explain
+objectives as discussion, a misconception probe, or an explicitly supported
+justification—not as an exact-value configuration check. Givens and context never
+become scored obligations.
+
+Only configure objectives belong in `classroom.objectives`: the current Classroom
+contract requires every listed objective to have a student control and a scored
+check. Keep observe/explain objectives in the lecture sheet and misconception
+probes unless the target product exposes a supported response control and check.
+Do not add a fake placement, copy-count, or named-choice control merely to satisfy
+the schema.
 
 Use only check templates listed by the selected concepts' generated authoring
 recipes. Reject duplicate evidence and more than two scored checks for one
