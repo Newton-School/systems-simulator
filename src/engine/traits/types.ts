@@ -23,6 +23,7 @@ export type ConfigCustomRenderer =
   | 'traffic-origins'
   | 'queue-weights'
   | 'bulkhead-partitions'
+  | 'replica-members'
 export type ConfigInputType = 'number' | 'text'
 
 export interface ConfigDisplayTransform {

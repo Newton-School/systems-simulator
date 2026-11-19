@@ -18,6 +18,17 @@ function isReplicationEnabled(data: CanvasNodeDataV2): boolean {
   return data.sim?.replicationEnabled === true
 }
 
+function isReplicationFollower(data: CanvasNodeDataV2): boolean {
+  return (
+    isReplicationEnabled(data) &&
+    (data.sim?.replicationRole === 'follower' || data.sim?.replicationRole === 'replica')
+  )
+}
+
+function isReplicationLeader(data: CanvasNodeDataV2): boolean {
+  return isReplicationEnabled(data) && !isReplicationFollower(data)
+}
+
 const ROLE_OPTIONS = ['leader', 'follower'] as const
 
 function positive(value: unknown, fallback: number): number {
@@ -228,32 +239,35 @@ export const replicationCapabilityModule: NodeCapabilityModule = {
             why: 'Followers reject writes and can serve stale reads; the leader accepts writes and is the one promoted on failover.'
           },
           {
+            path: 'sim.replicaMembers',
+            type: 'input',
+            inputType: 'text',
+            label: 'Replica members',
+            altitude: 'primary',
+            visible: isReplicationEnabled,
+            renderer: 'replica-members',
+            placeholder: 'db-a, db-b, db-c',
+            why: 'Select the databases that belong to this replication group.'
+          },
+          {
             path: 'sim.replicationLagMs',
             type: 'input',
             inputType: 'number',
             label: 'Replica lag',
             unit: 'ms',
             min: 0,
-            visible: isReplicationEnabled,
-            altitude: 'advanced'
+            visible: isReplicationFollower,
+            altitude: 'primary',
+            why: 'How long this follower may trail the leader, exposing stale reads.'
           },
           {
             path: 'sim.writeAckPolicy',
             type: 'select',
             label: 'Write acknowledgement',
             options: ['primary', 'quorum'],
-            visible: isReplicationEnabled,
-            altitude: 'advanced'
-          },
-          {
-            path: 'sim.failoverUntilMs',
-            type: 'input',
-            inputType: 'number',
-            label: 'Failover window',
-            unit: 'ms',
-            min: 0,
-            visible: isReplicationEnabled,
-            altitude: 'advanced'
+            visible: isReplicationLeader,
+            altitude: 'primary',
+            why: 'Choose whether writes return after the leader persists them or after a majority acknowledges them.'
           },
           {
             path: 'sim.electionTimeoutMs',
@@ -265,16 +279,6 @@ export const replicationCapabilityModule: NodeCapabilityModule = {
             visible: isReplicationEnabled,
             altitude: 'advanced',
             why: 'Quorum stores only. When the leader is down the store is unavailable for this long, then, if a majority of the members is up, the first healthy member in Replica members becomes the leader. Empty means no election.'
-          },
-          {
-            path: 'sim.replicaMembers',
-            type: 'input',
-            inputType: 'text',
-            label: 'Replica members',
-            altitude: 'advanced',
-            visible: isReplicationEnabled,
-            placeholder: 'db-a, db-b, db-c',
-            why: 'Defines deterministic membership for quorum and leader-promotion simulation.'
           },
           {
             path: 'sim.consensusProtocol',
@@ -293,6 +297,16 @@ export const replicationCapabilityModule: NodeCapabilityModule = {
             altitude: 'advanced',
             visible: isReplicationEnabled,
             why: 'Documents how divergent durable replica state is resolved in modeled conflict scenarios.'
+          },
+          {
+            path: 'sim.failoverUntilMs',
+            type: 'input',
+            inputType: 'number',
+            label: 'Failover window',
+            unit: 'ms',
+            min: 0,
+            visible: isReplicationEnabled,
+            altitude: 'advanced'
           }
         ]
       }
