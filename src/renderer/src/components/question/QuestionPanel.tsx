@@ -9,6 +9,8 @@ import { isNewtonHostMode, postNewtonSave } from '@renderer/utils/newtonHostMess
 import { sanitizeQuestionPromptHtml } from '@renderer/utils/questionPromptHtml'
 import { archiveSubmission, listArchivedSubmissionIds } from '@renderer/utils/submissionArchive'
 import { resolveExperienceEnvelope } from '@renderer/utils/experienceEnvelope'
+import { writeTerminalNotice } from '@renderer/components/terminal/terminalStore'
+import { shouldWriteClassroomFallbackNotice } from './classroomFallbackDiagnostics'
 import {
   buildGamePlaygroundResult,
   buildGamePlaygroundSubmitPayload
@@ -296,6 +298,22 @@ export const QuestionPanel = () => {
   const [panelView, setPanelView] = useState<QuestionPanelView>('brief')
   const [archivedCount, setArchivedCount] = useState(0)
   const activeQuestionId = activeQuestion?.id
+
+  useEffect(() => {
+    if (
+      !shouldWriteClassroomFallbackNotice({
+        isDevelopment: import.meta.env.DEV,
+        mode: environmentProfile.mode,
+        reason: classroomUnavailable,
+        questionId: activeQuestionId
+      })
+    )
+      return
+    writeTerminalNotice(
+      `Question "${activeQuestionId}" is running in Architect mode: ${classroomUnavailable}`
+    )
+  }, [activeQuestionId, classroomUnavailable, environmentProfile.mode])
+
   const experience = useMemo(
     () => resolveExperienceEnvelope(environmentProfile, activeQuestion),
     [activeQuestion, environmentProfile]
@@ -879,18 +897,6 @@ export const QuestionPanel = () => {
           <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-[11px] leading-relaxed text-amber-700 dark:text-amber-300">
             <p className="font-semibold">Preview — grading not configured yet</p>
             <p className="mt-1 whitespace-pre-line">{authoringWarning}</p>
-          </div>
-        )}
-        {classroomUnavailable && (
-          <div
-            role="status"
-            className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-[11px] leading-relaxed text-amber-700 dark:text-amber-300"
-          >
-            <p className="font-semibold">Classroom mode isn&apos;t available for this question</p>
-            <p className="mt-1">
-              {classroomUnavailable} Showing the full simulator instead. The question author can add
-              a <code>classroom</code> section with the numbers the problem states.
-            </p>
           </div>
         )}
         {serializeError && <p className="text-xs text-nss-danger">{serializeError}</p>}
