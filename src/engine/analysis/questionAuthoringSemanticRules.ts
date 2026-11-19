@@ -92,6 +92,7 @@ export interface AuthoringSemanticRuleDraft {
   whereTerminalNodeId?: string
   whereTerminalNodeType?: string
   minCount?: number | null
+  minDistinctNodeCount?: number | null
   maxCount?: number | null
   sequence?: AuthoringRuntimeMatcherDraft[]
   minMatches?: number | null
@@ -384,6 +385,9 @@ export function compileAuthoringSemanticRule(
           : {}),
         ...(draft.minCount !== null && draft.minCount !== undefined
           ? { minCount: draft.minCount }
+          : {}),
+        ...(draft.minDistinctNodeCount !== null && draft.minDistinctNodeCount !== undefined
+          ? { minDistinctNodeCount: draft.minDistinctNodeCount }
           : {}),
         ...(draft.maxCount !== null && draft.maxCount !== undefined
           ? { maxCount: draft.maxCount }

@@ -84,6 +84,7 @@ function semanticDraft(criterion: SemanticCriterion): AuthoringSemanticRuleDraft
         whereTerminalNodeId: criterion.where?.terminalNodeId,
         whereTerminalNodeType: criterion.where?.terminalNodeType,
         minCount: criterion.minCount,
+        minDistinctNodeCount: criterion.minDistinctNodeCount,
         maxCount: criterion.maxCount
       }
     case 'stateSequence':

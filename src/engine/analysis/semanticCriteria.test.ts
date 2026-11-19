@@ -383,6 +383,47 @@ describe('runtime semantic criteria', () => {
     expect(res.pointsEarned).toBe(4)
   })
 
+  it('requires matching transitions to cover the configured number of distinct nodes', () => {
+    const criterion: SemanticCriterion = {
+      id: 'reads-use-both-replicas',
+      kind: 'stateTransition',
+      points: 4,
+      match: { scope: 'replication', state: 'replica-read' },
+      minDistinctNodeCount: 2
+    }
+    const outputFor = (nodeIds: string[]): SemanticContext => ({
+      runtimeCases: [
+        {
+          caseId: 'peak',
+          output: runtimeOutput(
+            nodeIds.map((nodeId, index) =>
+              outcome(`read-${index}`, {
+                stateTimeline: [
+                  transition('replication', 'replica-read', { source: 'trait', nodeId })
+                ]
+              })
+            )
+          )
+        }
+      ]
+    })
+
+    expect(
+      evaluateSemanticCriteria(
+        runtimeTopology(),
+        [criterion],
+        outputFor(['replica-1', 'replica-2'])
+      ).results[0].outcome
+    ).toBe('passed')
+    const failed = evaluateSemanticCriteria(
+      runtimeTopology(),
+      [criterion],
+      outputFor(['replica-1', 'replica-1'])
+    ).results[0]
+    expect(failed.outcome).toBe('failed')
+    expect(failed.detail).toMatch(/1 distinct nodes.*at least 2/i)
+  })
+
   it('fails runtime semantic grading conservatively when only sampled request outcomes are available', () => {
     const criterion: SemanticCriterion = {
       id: 'no-oversell',

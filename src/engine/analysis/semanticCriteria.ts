@@ -637,10 +637,12 @@ function evalStateTransition(
 
   const nodeTypes = nodeTypeById(topology)
   let count = 0
+  const distinctNodeIds = new Set<string>()
   for (const { outcome } of eligible) {
     for (const transition of outcome.stateTimeline) {
       if (transitionMatches(transition, c.match, nodeTypes)) {
         count += 1
+        if (transition.nodeId) distinctNodeIds.add(transition.nodeId)
       }
     }
   }
@@ -650,6 +652,12 @@ function evalStateTransition(
     return {
       outcome: 'failed',
       detail: `Found ${count} matching transitions; expected at most ${c.maxCount}.`
+    }
+  }
+  if (c.minDistinctNodeCount !== undefined && distinctNodeIds.size < c.minDistinctNodeCount) {
+    return {
+      outcome: 'failed',
+      detail: `Found matching transitions on ${distinctNodeIds.size} distinct nodes; expected at least ${c.minDistinctNodeCount}.`
     }
   }
   if (count >= minCount) {

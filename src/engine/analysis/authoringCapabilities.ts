@@ -169,7 +169,10 @@ const SEMANTIC_CAPABILITY_SEEDS = {
     label: 'Require a runtime state transition',
     supportTier: 'guided',
     evidenceModes: ['discrete'],
-    fields: [field('match', 'Transition', 'state-transition')]
+    fields: [
+      field('match', 'Transition', 'state-transition'),
+      field('minDistinctNodeCount', 'Minimum distinct nodes', 'number', false)
+    ]
   },
   stateSequence: {
     label: 'Require a runtime state sequence',
