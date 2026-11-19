@@ -31,6 +31,7 @@ import useStore from '../../store/useStore'
 import { useTopologySerializer } from '../../hooks/useTopologySerializer'
 import { convertNestedToFlat, type NestedFileData } from '@renderer/utils/nodeTransformers'
 import { QuestionPanel } from './QuestionPanel'
+import { useTerminalStore } from '../terminal/terminalStore'
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 let root: Root | null = null
@@ -277,6 +278,24 @@ describe('student experience contract: Classroom mode', () => {
     })
     const source = Object.values(sources)[0] ?? ''
     expect(source).toContain('classroom?.designChecks === true')
+  })
+
+  it('keeps Classroom fallback diagnostics out of the learner brief', () => {
+    useTerminalStore.getState().clear()
+    useStore.setState({
+      activeQuestion: question(),
+      environmentProfile: resolveEnvironmentProfile()
+    })
+
+    const view = render(<QuestionPanel />)
+
+    expect(view.textContent).not.toContain("Classroom mode isn't available for this question")
+    expect(
+      useTerminalStore
+        .getState()
+        .entries.map((entry) => entry.text)
+        .join('\n')
+    ).toContain('is running in Architect mode')
   })
 })
 

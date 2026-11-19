@@ -422,7 +422,8 @@ export function resolveAbstraction(
 
 /**
  * Why Classroom mode was requested but isn't in effect for the loaded question,
- * or null when it is in effect (or wasn't requested). Shown to the user.
+ * or null when it is in effect (or wasn't requested). Reported through the
+ * simulator's diagnostic terminal rather than the learner-facing brief.
  */
 export function classroomUnavailableReason(
   profile: Pick<EnvironmentProfile, 'abstraction'>,
