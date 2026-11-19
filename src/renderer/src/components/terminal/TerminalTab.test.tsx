@@ -5,7 +5,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { parseAnsi } from './ansiSegments'
 import { TerminalTab, type TerminalSimulationProps } from './TerminalTab'
-import { useTerminalStore } from './terminalStore'
+import { useTerminalStore, writeTerminalNotice } from './terminalStore'
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 describe('parseAnsi', () => {
@@ -60,6 +60,16 @@ describe('TerminalTab', () => {
       input.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }))
     })
   }
+
+  it('writes product notices to scrollback once', () => {
+    useTerminalStore.getState().clear()
+    writeTerminalNotice('Question is running in Architect mode.')
+    writeTerminalNotice('Question is running in Architect mode.')
+
+    expect(useTerminalStore.getState().entries.map((entry) => entry.text)).toEqual([
+      '[notice] Question is running in Architect mode.'
+    ])
+  })
 
   it('runs commands, recalls history and auto-enters runtime mode on run start', () => {
     container = document.createElement('div')

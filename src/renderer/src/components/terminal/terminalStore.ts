@@ -73,6 +73,17 @@ export const useTerminalStore = create<TerminalStoreState>((set, get) => ({
   setWatch: (watch) => set({ watch })
 }))
 
+/**
+ * Send non-actionable product diagnostics to terminal scrollback instead of
+ * interrupting the learner-facing canvas. Identical notices are written once.
+ */
+export function writeTerminalNotice(message: string): void {
+  const text = `[notice] ${message}`
+  const store = useTerminalStore.getState()
+  if (store.entries.some((entry) => entry.text === text)) return
+  store.append([text])
+}
+
 // ─── Saved baseline for `show config diff` ───────────────────────────────────
 
 let baseline: TopologyJSON | null = null

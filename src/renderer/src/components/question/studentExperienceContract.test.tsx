@@ -31,6 +31,8 @@ import useStore from '../../store/useStore'
 import { useTopologySerializer } from '../../hooks/useTopologySerializer'
 import { convertNestedToFlat, type NestedFileData } from '@renderer/utils/nodeTransformers'
 import { QuestionPanel } from './QuestionPanel'
+import { shouldWriteClassroomFallbackNotice } from './classroomFallbackDiagnostics'
+import { useTerminalStore } from '../terminal/terminalStore'
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 let root: Root | null = null
@@ -277,6 +279,52 @@ describe('student experience contract: Classroom mode', () => {
     })
     const source = Object.values(sources)[0] ?? ''
     expect(source).toContain('classroom?.designChecks === true')
+  })
+
+  it('keeps Classroom fallback diagnostics out of the learner brief', () => {
+    useTerminalStore.getState().clear()
+    useStore.setState({
+      activeQuestion: question(),
+      environmentProfile: resolveEnvironmentProfile()
+    })
+
+    const view = render(<QuestionPanel />)
+
+    expect(view.textContent).not.toContain("Classroom mode isn't available for this question")
+  })
+
+  it('writes Classroom fallback diagnostics only for development authors', () => {
+    const context = {
+      mode: 'AUTHOR' as const,
+      reason: 'Capacity givens are missing.',
+      questionId: 'architect-question'
+    }
+
+    expect(shouldWriteClassroomFallbackNotice({ ...context, isDevelopment: true })).toBe(true)
+    expect(shouldWriteClassroomFallbackNotice({ ...context, isDevelopment: false })).toBe(false)
+    expect(
+      shouldWriteClassroomFallbackNotice({
+        ...context,
+        isDevelopment: true,
+        mode: 'ASSIGNMENT'
+      })
+    ).toBe(false)
+  })
+
+  it('does not write Classroom fallback diagnostics in an assignment session', () => {
+    useTerminalStore.getState().clear()
+    useStore.setState({
+      activeQuestion: question(),
+      environmentProfile: resolveEnvironmentProfile({
+        mode: 'ASSIGNMENT',
+        abstraction: 'classroom'
+      })
+    })
+
+    const view = render(<QuestionPanel />)
+
+    expect(view.textContent).not.toContain("Classroom mode isn't available for this question")
+    expect(useTerminalStore.getState().entries).toEqual([])
   })
 })
 
