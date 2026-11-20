@@ -15,6 +15,7 @@ import { patternMultiplier } from './edgeFlowPatterns'
 import { resolveEdgeLensProjection } from './edgeLensPresentation'
 import { getCanvasEdgePath } from './edgePathGeometry'
 import { directionCueScale, legibleStrokeWidth, midEdgeChevronPositions } from './edgeDirectionCues'
+import { getReplicationEdgePresentation } from './replicationEdgePresentation'
 
 const EDGE_VISUAL_WINDOW_MS = 3_000
 const FAILED_PULSE_MS = 650
@@ -178,6 +179,7 @@ export const PacketEdge = ({
   const metricsByNode = useStore((state) => state.simulationMetricsByNode)
   const sourceNodeData = nodes.find((node) => node.id === source)?.data as AnyNodeData | undefined
   const targetNodeData = nodes.find((node) => node.id === target)?.data as AnyNodeData | undefined
+  const replicationPresentation = getReplicationEdgePresentation(sourceNodeData, targetNodeData)
   const edgeMode = inferCanvasEdgeMode(
     {
       mode: edgeIsConnectorOnly ? (edgeData.displayMode ?? edgeData.mode) : edgeData.mode,
@@ -459,10 +461,11 @@ export const PacketEdge = ({
   // highlighting and failure colour take precedence.
   const liveStroke =
     flowStatus === 'running' && !edgeIsConnectorOnly ? liveEdgeStyle?.strokeColor : undefined
+  const semanticIdleStroke = replicationPresentation?.stroke ?? EDGE_IDLE_STROKE
   const edgeStroke = isRoutingPreviewEdge
     ? EDGE_IDLE_STROKE
-    : (failureStroke ?? (emphasized ? FLOW_PRIMARY_COLOR : (liveStroke ?? EDGE_IDLE_STROKE)))
-  const chevronStroke = failureStroke ?? (emphasized ? FLOW_PRIMARY_COLOR : EDGE_IDLE_STROKE)
+    : (failureStroke ?? (emphasized ? FLOW_PRIMARY_COLOR : (liveStroke ?? semanticIdleStroke)))
+  const chevronStroke = failureStroke ?? (emphasized ? FLOW_PRIMARY_COLOR : semanticIdleStroke)
 
   return (
     <>
@@ -483,7 +486,8 @@ export const PacketEdge = ({
         style={{
           ...style,
           strokeWidth: edgeStrokeWidth,
-          strokeDasharray: edgeModePresentation.strokeDasharray,
+          strokeDasharray:
+            replicationPresentation?.strokeDasharray ?? edgeModePresentation.strokeDasharray,
           stroke: selected && !isRoutingPreviewEdge ? FLOW_PRIMARY_COLOR : edgeStroke,
           opacity: baseEdgeOpacity
         }}
@@ -649,6 +653,28 @@ export const PacketEdge = ({
                 ·
               </span>
               <span>{edgeModePresentation.shortLabel}</span>
+            </span>
+          </div>
+        </EdgeLabelRenderer>
+      )}
+
+      {replicationPresentation && !isTracing && (
+        <EdgeLabelRenderer>
+          <div
+            style={{
+              position: 'absolute',
+              transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
+              pointerEvents: 'none'
+            }}
+            className="nodrag nopan"
+          >
+            <span
+              className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-nss-info/40 bg-nss-panel px-2 py-1 text-[9px] font-bold leading-none tracking-[0.08em] text-nss-info shadow-sm"
+              title="Leader-to-follower replication link"
+              aria-label="Replication link"
+            >
+              <span className="h-1.5 w-1.5 rounded-full bg-nss-info" aria-hidden="true" />
+              {replicationPresentation.label}
             </span>
           </div>
         </EdgeLabelRenderer>

@@ -10,6 +10,7 @@ interface NodeHeaderProps {
   status?: NodeHealthStatus
   color?: ColorTheme | string
   onLabelChange?: (newLabel: string) => void
+  identityBadge?: React.ReactNode
   children?: React.ReactNode
 }
 
@@ -20,6 +21,7 @@ export const NodeHeader = memo(
     status = 'healthy',
     color,
     onLabelChange,
+    identityBadge,
     children
   }: NodeHeaderProps) => {
     const safeBg = typeof color === 'string' ? color : color?.bg || 'bg-nss-primary'
@@ -40,27 +42,30 @@ export const NodeHeader = memo(
             <SafeIcon size={16} className={`${safeText} dark:!text-nss-bg`} />
           </div>
 
-          {onLabelChange ? (
-            <InlineEditableLabel
-              value={label}
-              onSave={(newLabel) => onLabelChange(newLabel)}
-              wrapLines={2}
-              textClassName="min-w-0 flex-1 w-full font-bold text-sm"
-              inputClassName="min-w-0 flex-1 w-full font-bold text-sm"
-            />
-          ) : (
-            <span
-              style={{
-                display: '-webkit-box',
-                WebkitBoxOrient: 'vertical',
-                WebkitLineClamp: 2,
-                overflow: 'hidden'
-              }}
-              className="min-w-0 flex-1 break-words font-bold text-sm leading-tight"
-            >
-              {label}
-            </span>
-          )}
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            {onLabelChange ? (
+              <InlineEditableLabel
+                value={label}
+                onSave={(newLabel) => onLabelChange(newLabel)}
+                wrapLines={2}
+                textClassName="min-w-0 flex-1 w-full font-bold text-sm"
+                inputClassName="min-w-0 flex-1 w-full font-bold text-sm"
+              />
+            ) : (
+              <span
+                style={{
+                  display: '-webkit-box',
+                  WebkitBoxOrient: 'vertical',
+                  WebkitLineClamp: 2,
+                  overflow: 'hidden'
+                }}
+                className="min-w-0 flex-1 break-words font-bold text-sm leading-tight"
+              >
+                {label}
+              </span>
+            )}
+            {identityBadge}
+          </div>
         </div>
 
         <div className="flex items-center gap-3 shrink-0">
