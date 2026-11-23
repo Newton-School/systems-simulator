@@ -140,16 +140,30 @@ inside one node are an accepted alternative, say so explicitly.
 
 #### Learner decision surface
 
-Treat isolation as an authored contract, not merely a small palette. Classify the
-question inputs before grading:
+Treat isolation as an authored contract, not merely a small palette. First map
+each significant control to a learning objective:
 
-| Input | Authoring mechanism | Learner effect |
-| --- | --- | --- |
-| Fixed node or edge | Scaffold plus `lockedNodeIds` / `lockedEdgeIds` | Visible but immutable as a whole item |
-| Editable topology | Unlocked scaffold item or allowed palette type | Learner may place, connect, move, or configure it within the environment profile |
-| Fixed workload or fault | Private suite case | Injected by the grader; learner cannot lower or remove it |
-| Required configuration | Semantic `componentProperty` plus component presence | Editable unless its whole node is locked; grading detects an invalid value |
-| Builder scope | `builderPolicy` | Limits available node classes, templates, traits, definitions, and operations |
+| Classification  | Learner responsibility                                    | Authoring treatment                                                          | Grading treatment                                                                                    |
+| --------------- | --------------------------------------------------------- | ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| Configure       | Change topology or a setting to demonstrate the objective | Expose deliberately                                                          | Grade the decision with the smallest supported evidence                                              |
+| Observe/explain | Interpret a supplied value or behavior                    | Provide the value and identify it as a given                                 | Grade explanation only when the target environment supports it; never grade the exact supplied value |
+| Given/context   | Use it as background, not as a decision                   | Preconfigure it; lock the whole item when possible or keep it question-owned | Do not grade it                                                                                      |
+| Deferred        | None                                                      | Remove it or state the boundary                                              | Do not grade it                                                                                      |
+
+Architect mode exposes detailed controls, but exposure does not make every control
+part of the assignment. For example, a read-replica question may require learners
+to choose leader/follower roles and read/write routing while replica lag is an
+author-provided value used only to explain a stale read.
+
+Map those classifications onto the mechanisms the product currently supports:
+
+| Input                   | Authoring mechanism                                  | Learner effect                                                                   |
+| ----------------------- | ---------------------------------------------------- | -------------------------------------------------------------------------------- |
+| Fixed node or edge      | Scaffold plus `lockedNodeIds` / `lockedEdgeIds`      | Visible but immutable as a whole item                                            |
+| Editable topology       | Unlocked scaffold item or allowed palette type       | Learner may place, connect, move, or configure it within the environment profile |
+| Fixed workload or fault | Private suite case                                   | Injected by the grader; learner cannot lower or remove it                        |
+| Required configuration  | Semantic `componentProperty` plus component presence | Editable unless its whole node is locked; grading detects an invalid value       |
+| Builder scope           | `builderPolicy`                                      | Limits available node classes, templates, traits, definitions, and operations    |
 
 There is no per-field scaffold lock. An authored locked node also locks its
 configuration. Conversely, `entryFormat: "locked-lab"` locks the architecture but
@@ -158,6 +172,12 @@ lesson needs one editable property on an otherwise immutable node, either expose
 the node and grade the properties that must remain fixed, split the fixed and
 editable concerns into different nodes, or reframe the task. Do not describe a
 graded property as UI-locked.
+
+When an observe/explain or context value shares an otherwise editable node, use
+the least misleading supported fallback: preconfigure it, state that it is
+provided, do not grade its exact value, and record in coverage that the current UI
+cannot lock that property independently. Never invent a `fieldPolicy`, per-field
+lock, or other package field absent from the target schema.
 
 ## 6. Stage 4 — Scenarios
 

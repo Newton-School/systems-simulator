@@ -81,6 +81,21 @@ and hints. Choose one dominant lesson, one workload character, one plausible wro
 design, and the smallest accepted solution family. Ask only when choosing the
 solution family would materially change the assignment.
 
+Write each learning objective as “the learner can…”, then classify every important
+topology decision and simulator setting against exactly one objective:
+
+- **configure** — the learner changes it; expose it and grade the resulting decision;
+- **observe/explain** — the learner must reason about its effect but need not tune it;
+  provide the value and grade only supported explanation/evidence;
+- **given/context** — the question needs it to run but it teaches no objective;
+  preconfigure it and do not grade it;
+- **deferred** — remove it from the task or state that it is outside scope.
+
+Architect is a capability-rich environment, not permission to turn every visible
+engine control into a learner obligation. Understanding a setting is not the same
+learning outcome as configuring it. Reject any proposed learner edit or check that
+cannot name its objective.
+
 Classify each requirement as structural, semantic, runtime, invariant, budget,
 explanation-only, or deferred. Do not grade business logic or provider guarantees
 with unrelated runtime metrics.
@@ -116,15 +131,19 @@ Record:
 - structural rules, semantic criteria, rubric checks, points, and threshold;
 - a passing design, a near miss, an anti-gaming design, and unsupported concerns.
 
-Define the learner decision surface before building the scaffold. Classify every
-preconfigured node, edge, and important setting as one of:
+Define the learner decision surface before building the scaffold. For every
+important node, edge, and setting, record its objective ID, classification,
+author-provided value (if any), learner visibility, and evidence. Then implement it
+using the current product surface:
 
-- **fixed and visible** — serialize it in the scaffold and lock the whole node or
-  edge;
-- **learner-editable** — expose it deliberately and attach evidence that grades
-  the intended decision;
-- **question-owned** — keep it in the private scenario, invariant, or grader
-  contract so the learner cannot weaken it.
+- **configure** — leave the relevant item editable and attach the smallest evidence
+  that grades the intended decision;
+- **observe/explain** — serialize the author-provided value in the scaffold or
+  scenario, state it as a given, and do not grade an exact parameter value unless
+  tuning that value is itself the objective;
+- **given/context** — lock the whole item when possible, or keep the input in the
+  private scenario/invariant/grader contract;
+- **deferred** — omit it from the scaffold, prompt obligations, and grading.
 
 Current scaffold locks are whole-node and whole-edge locks, not per-property
 locks. A `locked-lab` freezes architecture while intentionally leaving node and
@@ -132,7 +151,10 @@ edge data editable; an authored `lockedNodeIds` or `lockedEdgeIds` entry freezes
 that entire item. When only selected fields on one node should be editable, do
 not claim the UI enforces that boundary. Either grade the required properties,
 separate fixed and editable concerns across nodes, or narrow the exercise until
-the exposed controls match the lesson. See [Question Studio authoring](references/question-studio-authoring.md#learner-decision-surface).
+the exposed controls match the lesson. A preconfigured but technically editable
+non-objective setting is never a hidden learner requirement: call it a given, avoid
+grading it, and record the limitation in coverage. See
+[Question Studio authoring](references/question-studio-authoring.md#learner-decision-surface).
 
 Generic component requirements are directional: `load-balancer` accepts its L4
 and L7 subtypes; `load-balancer-l7` accepts only L7. Apply the same relation to
@@ -150,6 +172,9 @@ rows, 4 carried-forward presence rows, 6 core checks, and 15 rows in total.
   never its behavior.
 - **Core:** one check per source bullet this question adds. Mark context and
   tolerated behavior as `explained` instead of grading it.
+- **Control alignment:** grade only `configure` objectives. An `observe/explain`
+  objective may use a supported justification surface, but must not become an
+  exact-value component-property check merely because the value exists.
 - **NFRs:** only when the source states one, and always with the paired check.
   Templates carry an example NFR with its check; keep both or remove both.
 - **Near misses:** at least one, each caught by a core check.
@@ -192,6 +217,11 @@ Studio compiler fills it from the scenario default of 80.
 Use identical learner-facing descriptions and stable IDs in project and compiled
 package. Keep private cases out of the public dry run. A dry run should teach the
 surface without revealing hidden thresholds, faults, or rubric structure.
+
+Before emitting, audit the reference topology field by field: every value that is
+not a learner decision must be an explicit prompt given, a scaffold default, a
+question-owned scenario input, or irrelevant to pass/fail. Do not make learners
+discover author-owned engine defaults by trial and error.
 
 **Classroom mode.** Apply the prompt-general decision process in
 [Classroom authoring](references/classroom-authoring.md); do not start from the

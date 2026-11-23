@@ -13,16 +13,24 @@ touch on screen:
 Idea → "The student can…" → the decision that shows it → the evidence that proves it → the wrong answer it must catch
 ```
 
-## Sort every number and knob into one of three buckets
+## Give every number and knob one learning role
 
-| Bucket                                | Test                                          | QuickCart example                           |
-| ------------------------------------- | --------------------------------------------- | ------------------------------------------- |
-| **Decision** (the student changes it) | Does changing it _teach_ the idea?            | Placing the load balancer; how many servers |
-| **Given** (stated, fixed, visible)    | Does the student _need to know_ it to decide? | 1M req/s peak, 100k req/s per server, 80%   |
-| **Hidden** (the simulator handles it) | Neither                                       | Instance type, service time, edge latency   |
+| Role                | Test                                                          | Authoring treatment                                | QuickCart example                                   |
+| ------------------- | ------------------------------------------------------------- | -------------------------------------------------- | --------------------------------------------------- |
+| **Configure**       | Does changing it demonstrate the objective?                   | Make it a student decision and grade that decision | Placing the load balancer; how many servers         |
+| **Observe/explain** | Must the student interpret its consequence without tuning it? | Supply it, then discuss or probe the reasoning     | A provided replica lag used to explain a stale read |
+| **Given/context**   | Do students need it to make another decision?                 | State it, fix it, and do not grade it              | 1M req/s peak, 100k req/s per server, 80%           |
+| **Deferred/hidden** | Does it serve no current objective?                           | Remove it or let the simulator own it              | Instance type, service time, edge latency           |
 
-Most broken questions put something in the wrong bucket: a given turned into a decision
-(tuning instance types to reach 100k req/s), or a decision with no idea behind it.
+Most broken questions assign the wrong role: a given turned into a configuration
+task (tuning instance types to reach 100k req/s), an explanation concept turned
+into an exact-value check, or a decision with no objective behind it.
+
+The current Classroom JSON contract expects each `classroom.objectives` entry to
+have a student control and scored check. Therefore, put only **configure**
+objectives in that array. Keep observe/explain objectives in the lecture sheet and
+misconception probes unless a supported response control exists. Never fabricate a
+diagram action to make an explanation objective fit the schema.
 
 ## Ask six questions, in order
 
@@ -31,8 +39,9 @@ Most broken questions put something in the wrong bucket: a given turned into a d
 2. **Which decision shows it?** Classroom offers three kinds: _place_ a component,
    _connect_ components, _choose a count or named option_. If the idea isn't one of
    these, it isn't a Classroom build exercise.
-3. **What must they know to decide?** Those are the givens, and every one that decides
-   pass or fail appears as a number in the prompt.
+3. **What must they know to decide or explain?** Separate facts required for a
+   decision from supplied behavior they only need to interpret. Every value that
+   affects pass or fail appears in the prompt.
 4. **How would you know they got it?** One or two checks per objective, each visible:
    the path goes through X, nothing is dropped, everything stays under the target. A
    check that proves no stated objective is removed.
