@@ -1030,7 +1030,7 @@ function SwimLanes({
       <div className="flex flex-wrap items-center justify-between gap-2 border-t border-nss-border bg-nss-bg/40 px-3.5 py-2 text-[10px] text-nss-muted">
         <span>Click a pulse to inspect its most severe event.</span>
         <span>
-          Tip: filter to <code className="text-nss-text">request:&lt;id&gt;</code> for one request's
+          Tip: filter to <code className="text-nss-text">request:&lt;id&gt;</code> for one request&apos;s
           path.
         </span>
       </div>
