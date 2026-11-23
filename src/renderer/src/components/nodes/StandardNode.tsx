@@ -13,6 +13,7 @@ import { useClassroomNodeView } from '@renderer/hooks/useClassroom'
 import BaseNode from '@renderer/components/nodes/BaseNode'
 import { useFlowStore } from '@renderer/components/canvas/hooks/useFlowStore'
 import { NodeMetricContent } from './NodeMetricContent'
+import { ReplicationRoleBadge } from './ReplicationRoleBadge'
 import {
   getRuntimeCapacityStyle,
   getRuntimeReliabilityStatus,
@@ -110,6 +111,7 @@ const StandardNode = ({ id, data, selected }: NodeProps<StandardNodeData>) => {
             status={reliabilityStatus}
             color={theme}
             onLabelChange={handleLabelChange}
+            identityBadge={<ReplicationRoleBadge data={data} />}
           >
             <NodeSettingsMenu
               nodeId={id}

@@ -129,15 +129,17 @@ function isExternalTarget(type: ComponentType | undefined): boolean {
   return type !== undefined && EXTERNAL_TARGET_TYPES.has(type)
 }
 
-function isReplicaLink(
+export function isReplicationLink(
   sourceNode: CanvasNodeDataV2 | undefined,
   targetNode: CanvasNodeDataV2 | undefined
 ): boolean {
+  const sourceRole =
+    sourceNode?.sim?.replicationRole ??
+    (sourceNode?.sim?.replicationEnabled === true ? 'leader' : undefined)
   return (
     isDatabase(getType(sourceNode)) &&
     isDatabase(getType(targetNode)) &&
-    (sourceNode?.sim?.replicationRole === 'leader' ||
-      sourceNode?.sim?.replicationRole === 'primary') &&
+    (sourceRole === 'leader' || sourceRole === 'primary') &&
     (targetNode?.sim?.replicationRole === 'follower' ||
       targetNode?.sim?.replicationRole === 'replica')
   )
@@ -166,7 +168,7 @@ export function inferEdgePathType(
   const sourceType = getType(sourceNode)
   const targetType = getType(targetNode)
 
-  if (isReplicaLink(sourceNode, targetNode)) {
+  if (isReplicationLink(sourceNode, targetNode)) {
     return 'cross-zone'
   }
 

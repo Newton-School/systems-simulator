@@ -9,6 +9,8 @@ import type { StandardNodeData } from '@renderer/types/ui'
 import { NODE_OFFSETS, NODE_POSITIONS } from './nodeConstants'
 import { NodeSymbol } from './symbols/NodeSymbol'
 import { NodeFailureBadge } from './NodeFailureBadge'
+import { ReplicationRoleBadge } from './ReplicationRoleBadge'
+import { getReplicationRolePresentation } from './replicationRolePresentation'
 
 const SYMBOL_SIZE = 72
 
@@ -20,6 +22,7 @@ const SymbolNode = ({ id, data, selected }: NodeProps<StandardNodeData>) => {
   const { updateNodeData } = useFlowStore()
   const classroomView = useClassroomNodeView(data)
   const [isMenuOpen, setIsMenuOpen] = useState(false)
+  const replicationRole = getReplicationRolePresentation(data)
 
   const handleLabelChange = useCallback(
     (label: string) => updateNodeData(id, { label }),
@@ -38,7 +41,7 @@ const SymbolNode = ({ id, data, selected }: NodeProps<StandardNodeData>) => {
   return (
     <div
       onContextMenu={handleContextMenu}
-      className="group relative flex w-32 flex-col items-center gap-1.5"
+      className={`group relative flex w-32 flex-col items-center ${replicationRole ? 'gap-3' : 'gap-1.5'}`}
     >
       <div
         className={`relative flex items-center justify-center rounded-xl p-1 transition-shadow duration-150 ${
@@ -53,6 +56,9 @@ const SymbolNode = ({ id, data, selected }: NodeProps<StandardNodeData>) => {
           errorRate={data.sim?.nodeErrorRate}
           className="-top-2 left-1/2 -translate-x-1/2"
         />
+        <div className="pointer-events-none absolute -bottom-2 left-1/2 z-40 -translate-x-1/2">
+          <ReplicationRoleBadge data={data} />
+        </div>
 
         {NODE_POSITIONS.map((pos) => (
           <React.Fragment key={pos}>

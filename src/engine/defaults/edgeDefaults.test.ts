@@ -4,7 +4,8 @@ import {
   getPathTypeLatencyProfile,
   inferEdgeDefaults,
   inferEdgePathType,
-  inferEdgeProtocol
+  inferEdgeProtocol,
+  isReplicationLink
 } from './edgeDefaults'
 
 function makeCanvasNode(
@@ -99,8 +100,12 @@ describe('edgeDefaults', () => {
       sim: { replicationRole: 'replica' }
     })
 
+    expect(isReplicationLink(primary, replica)).toBe(true)
+    expect(isReplicationLink(replica, primary)).toBe(false)
     expect(inferEdgePathType(primary, replica)).toBe('cross-zone')
     expect(inferEdgeProtocol(primary, replica)).toBe('tcp')
+
+    expect(isReplicationLink({ ...primary, sim: { replicationEnabled: true } }, replica)).toBe(true)
   })
 
   it('returns a fresh path-type latency profile object', () => {
