@@ -93,3 +93,35 @@ export function getReplicationRolePresentation(
   }
   return null
 }
+
+export interface ReplicationLagChip {
+  label: string
+  title: string
+  className: string
+}
+
+/** Follower lag / synced status; null for leaders, standalone nodes and before a run. */
+export function getReplicationLagChip(
+  data: Pick<AnyNodeData, 'sim'>,
+  nodeId: string | undefined,
+  metrics: NodeSimulationMetrics | undefined,
+  consistency: SimulationOutput['consistency'] | undefined
+): ReplicationLagChip | null {
+  const role = getReplicationRolePresentation(data)
+  if (!role || role.label !== 'FOLLOWER' || !nodeId || !metrics) return null
+  const report = consistency?.nodes.find((node) => node.nodeId === nodeId)
+  const configured = Number(data.sim?.replicationLagMs)
+  const lagMs = report?.replicationLagMs ?? (Number.isFinite(configured) ? configured : 0)
+  if (lagMs > 0) {
+    return {
+      label: `${Math.round(lagMs).toLocaleString()} ms behind`,
+      title: 'Asynchronous replication delay behind the leader. Expected, not an error.',
+      className: 'border-nss-info/30 bg-nss-info/10 text-nss-info'
+    }
+  }
+  return {
+    label: '✓ Synced',
+    title: 'This follower applies leader writes immediately in this run.',
+    className: 'border-nss-success/30 bg-nss-success/10 text-nss-success'
+  }
+}

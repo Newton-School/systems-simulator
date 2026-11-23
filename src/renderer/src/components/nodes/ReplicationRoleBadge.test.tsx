@@ -68,3 +68,26 @@ describe('getReplicationRolePresentation', () => {
     ).toBe('LEADER · DEGRADED')
   })
 })
+
+describe('getReplicationLagChip', () => {
+  const follower = (lag?: number) =>
+    ({
+      sim: { replicationEnabled: true, replicationRole: 'follower', replicationLagMs: lag }
+    }) as never
+  const metrics = { traitCounters: {} } as never
+
+  it('shows Synced for zero-lag followers and ms behind otherwise', async () => {
+    const { getReplicationLagChip } = await import('./replicationRolePresentation')
+    expect(getReplicationLagChip(follower(0), 'f', metrics, undefined)?.label).toBe('✓ Synced')
+    expect(getReplicationLagChip(follower(240), 'f', metrics, undefined)?.label).toBe(
+      '240 ms behind'
+    )
+  })
+
+  it('stays hidden for leaders and before a run', async () => {
+    const { getReplicationLagChip } = await import('./replicationRolePresentation')
+    const leader = { sim: { replicationEnabled: true, replicationRole: 'leader' } } as never
+    expect(getReplicationLagChip(leader, 'l', metrics, undefined)).toBeNull()
+    expect(getReplicationLagChip(follower(0), 'f', undefined, undefined)).toBeNull()
+  })
+})

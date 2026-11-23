@@ -63,3 +63,15 @@ describe('applyReplicationGroupCollapse', () => {
     expect(result.collapsibleCount).toBe(0)
   })
 })
+
+describe('replication link toggle', () => {
+  it('hides leader→follower links when replication is turned off', () => {
+    const result = applyReplicationGroupCollapse(nodes, edges, false, false)
+    expect(
+      result.edges
+        .filter((e) => e.hidden)
+        .map((e) => e.id)
+        .sort()
+    ).toEqual(['leader-f1', 'leader-f2'])
+  })
+})

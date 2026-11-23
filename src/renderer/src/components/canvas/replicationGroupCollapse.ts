@@ -48,16 +48,32 @@ export function collapsibleReplicationEdgeIds(
 export function applyReplicationGroupCollapse(
   nodes: readonly NodeLike[],
   edges: readonly Edge[],
-  collapsed: boolean
+  collapsed: boolean,
+  showReplicationLinks = true
 ): { edges: Edge[]; hiddenCount: number; collapsibleCount: number } {
   const collapsible = new Set(collapsibleReplicationEdgeIds(nodes, edges))
-  if (!collapsed || collapsible.size === 0) {
+  const dataById = new Map(nodes.map((node) => [node.id, node.data as AnyNodeData | undefined]))
+  const replicationLinks = showReplicationLinks
+    ? new Set<string>()
+    : new Set(
+        edges
+          .filter(
+            (edge) => isLeader(dataById.get(edge.source)) && isFollower(dataById.get(edge.target))
+          )
+          .map((edge) => edge.id)
+      )
+  if ((!collapsed || collapsible.size === 0) && replicationLinks.size === 0) {
     return { edges: edges as Edge[], hiddenCount: 0, collapsibleCount: collapsible.size }
   }
   const selectedNodes = new Set(nodes.filter((node) => node.selected).map((node) => node.id))
   let hiddenCount = 0
   const next = edges.map((edge) => {
+    if (replicationLinks.has(edge.id)) {
+      hiddenCount += 1
+      return { ...edge, hidden: true }
+    }
     if (
+      !collapsed ||
       !collapsible.has(edge.id) ||
       edge.selected ||
       selectedNodes.has(edge.source) ||
