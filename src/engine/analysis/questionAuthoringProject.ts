@@ -494,6 +494,7 @@ const QuestionAuthoringSetupDraftSchema: z.ZodType<QuestionAuthoringSetupDraft> 
       .object({
         allowedNodeTypes: z.array(z.string().min(1)).optional(),
         forbiddenNodeTypes: z.array(z.string().min(1)).optional(),
+        questionOwnedConfigPaths: z.array(z.string().min(1)).optional(),
         maxNodeCount: z.number().int().positive().optional(),
         maxBudget: z.number().positive().optional(),
         maxTotalWorkers: z.number().int().positive().optional(),

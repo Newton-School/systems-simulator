@@ -46,6 +46,7 @@ import {
   DEFINITIONS_LOCKED_REASON,
   definitionFieldLockReason
 } from '../../../../engine/analysis/builderPolicy'
+import { questionOwnedConfigReason } from '../../../../engine/analysis/questionConfigPolicy'
 import { useBuilderPolicy } from '@renderer/hooks/useBuilderPolicy'
 import { reconcileContractWithGraph } from '../../../../engine/catalog/contractReconciliation'
 import { BROADCAST_FANOUT_COMPONENT_TYPES } from '../../../../engine/traits/broadcastFanout'
@@ -56,6 +57,8 @@ import { PropertiesForm } from './PropertiesForm'
 import { CustomDefinitionSection } from './CustomDefinitionSection'
 import { IdAllocationSection } from './IdAllocationSection'
 import { ConnectionCapacitySection } from './ConnectionCapacitySection'
+import { ReplicationConfigSummary } from './ReplicationConfigSummary'
+import { ReplicationResultsSummary } from './ReplicationResultsSummary'
 import {
   deriveDisplayThroughputCapacity,
   formatCapacityRps
@@ -1474,6 +1477,10 @@ export const PropertiesPanel = ({
     builderPolicyApplies && builderPolicy.locked ? DEFINITIONS_LOCKED_REASON : undefined
   const lockedFieldReason = useCallback(
     (path: string): string | null => {
+      if (environmentProfile.mode !== 'AUTHOR') {
+        const questionReason = questionOwnedConfigReason(activeQuestion, path)
+        if (questionReason) return questionReason
+      }
       if (!builderPolicyApplies || !selectedNode) return null
       return definitionFieldLockReason(
         builderPolicy.policy,
@@ -1482,7 +1489,7 @@ export const PropertiesPanel = ({
         builderPolicy.locked
       )
     },
-    [builderPolicy, builderPolicyApplies, selectedNode]
+    [activeQuestion, builderPolicy, builderPolicyApplies, environmentProfile.mode, selectedNode]
   )
   const labConfigurationMode = isLabQuestion(activeQuestion)
 
@@ -1714,13 +1721,21 @@ export const PropertiesPanel = ({
                 emitted={selectedEmitted}
               />
             ) : (
-              <NodeMetricsDetail
-                metrics={metrics}
-                configuredCacheHitRate={data.sim?.cacheHitRate}
-                downstreamSplit={downstreamSplit}
-                isBroadcastFanout={isBroadcastFanout}
-                clusterScheduling={findClusterScheduling(results, selectedNode.id)}
-              />
+              <>
+                <ReplicationResultsSummary
+                  nodeId={selectedNode.id}
+                  data={data}
+                  traitCounters={metrics.traitCounters}
+                  consistency={results?.consistency}
+                />
+                <NodeMetricsDetail
+                  metrics={metrics}
+                  configuredCacheHitRate={data.sim?.cacheHitRate}
+                  downstreamSplit={downstreamSplit}
+                  isBroadcastFanout={isBroadcastFanout}
+                  clusterScheduling={findClusterScheduling(results, selectedNode.id)}
+                />
+              </>
             )
           ) : classroomCard && activeQuestion ? (
             <ClassroomInspector
@@ -1787,6 +1802,7 @@ export const PropertiesPanel = ({
             />
           ) : (
             <>
+              <ReplicationConfigSummary nodeId={selectedNode.id} data={data} nodes={nodes} />
               {throughputCapacity ? (
                 <div className="mb-3 rounded-md border border-nss-border bg-nss-panel/60 px-3 py-2">
                   <div className="flex items-baseline justify-between">

@@ -7,12 +7,15 @@ import useStore from '@renderer/store/useStore'
 import { resolveStoredEdgePath } from './edgePathGeometry'
 import type { EdgeRoutingStyle, EdgeSimulationData } from '@renderer/types/ui'
 import { resolveEdgeRoutingStyle } from '@renderer/config/edgeRouting'
+import { replicationEffectEdgeIds } from './requestTraceReplication'
 
 /** Per-segment travel time = floor + latency·scale, so slow hops visibly linger. */
 const SEG_MIN_MS = 600
 const SEG_MAX_MS = 6000
 const LATENCY_SCALE = 25
 const SLOW_MULTIPLIER = 2.2
+const REPLICATION_EFFECT_MS = 1200
+const REPLICATION_COLOR = 'rgb(var(--nss-info))'
 
 interface TraceHop {
   nodeId: string
@@ -27,6 +30,9 @@ interface TracePlan {
   record: RequestOutcomeRecord | null
   hops: TraceHop[]
   segmentMs: number[]
+  requestMs: number
+  replicationEffectMs: number
+  replicationEdgeIds: string[]
   totalMs: number
 }
 
@@ -157,6 +163,7 @@ export function RequestTraceOverlay() {
   const speed = useStore((state) => state.traceSpeed)
   const setSpeed = useStore((state) => state.setTraceSpeed)
   const output = useStore((state) => state.lastRunOutput)
+  const nodes = useStore((state) => state.nodes)
   const edges = useStore((state) => state.edges)
   const edgeRoutingStyle = useStore((state) => state.displaySettings.edgeRoutingStyle)
   const { getNode } = useReactFlow()
@@ -173,17 +180,49 @@ export function RequestTraceOverlay() {
         record: null,
         hops: [],
         segmentMs: [],
+        requestMs: 1,
+        replicationEffectMs: 0,
+        replicationEdgeIds: [],
         totalMs: 1
       }))
     return tracedRequestIds.map((id) => {
       const record = output.requestOutcomes?.find((row) => row.requestId === id) ?? null
-      if (!record) return { requestId: id, record: null, hops: [], segmentMs: [], totalMs: 1 }
+      if (!record)
+        return {
+          requestId: id,
+          record: null,
+          hops: [],
+          segmentMs: [],
+          requestMs: 1,
+          replicationEffectMs: 0,
+          replicationEdgeIds: [],
+          totalMs: 1
+        }
       const hops = buildHops(record)
       const segmentMs = buildSegmentMs(hops, speed === 'slow')
-      const totalMs = segmentMs.reduce((sum, ms) => sum + ms, 0) || 1
-      return { requestId: id, record, hops, segmentMs, totalMs }
+      const requestMs = segmentMs.reduce((sum, ms) => sum + ms, 0) || 1
+      const replicationEdgeIds = replicationEffectEdgeIds({
+        record,
+        visitedNodeIds: hops.map((hop) => hop.nodeId),
+        edges,
+        nodes
+      })
+      const replicationEffectMs =
+        replicationEdgeIds.length > 0
+          ? REPLICATION_EFFECT_MS * (speed === 'slow' ? SLOW_MULTIPLIER : 1)
+          : 0
+      return {
+        requestId: id,
+        record,
+        hops,
+        segmentMs,
+        requestMs,
+        replicationEffectMs,
+        replicationEdgeIds,
+        totalMs: requestMs + replicationEffectMs
+      }
     })
-  }, [tracedRequestIds, output, speed])
+  }, [tracedRequestIds, output, speed, edges, nodes])
 
   const active = traces.filter((trace) => trace.record && trace.hops.length > 0)
 
@@ -303,17 +342,44 @@ export function RequestTraceOverlay() {
     return segments
   }
 
+  const segmentsForEdgeIds = (edgeIds: readonly string[], routingStyle: EdgeRoutingStyle) =>
+    edgeIds.flatMap((edgeId, index) => {
+      const edge = edges.find((candidate) => candidate.id === edgeId)
+      if (!edge) return []
+      const effectiveRoutingStyle = resolveEdgeRoutingStyle(
+        (edge.data as EdgeSimulationData | undefined)?.routingStyle,
+        routingStyle
+      )
+      const geometry = resolveStoredEdgePath(
+        edge,
+        getNode(edge.source),
+        getNode(edge.target),
+        effectiveRoutingStyle
+      )
+      if (!geometry) return []
+      return [
+        {
+          key: `${edge.id}-replication-${index}`,
+          path: geometry.path,
+          from: { x: geometry.sourceX, y: geometry.sourceY },
+          to: { x: geometry.targetX, y: geometry.targetY },
+          reversed: false
+        }
+      ]
+    })
+
   // Resolve every traced hop through the same handle-aware path generator used
   // by PacketEdge. A routing-style toggle therefore changes both layers exactly.
   const rendered = active
     .map((trace) => {
       const segments = traceSegments(trace.hops, edgeRoutingStyle)
       if (!segments) return null
+      const replicationSegments = segmentsForEdgeIds(trace.replicationEdgeIds, edgeRoutingStyle)
 
       let segmentIndex = 0
       let frac = 1
+      const position = elapsedRef.current % trace.totalMs
       if (trace.segmentMs.length > 0) {
-        const position = elapsedRef.current % trace.totalMs
         let acc = 0
         let placed = false
         for (let i = 0; i < trace.segmentMs.length; i++) {
@@ -344,7 +410,23 @@ export function RequestTraceOverlay() {
       const cause = atEnd
         ? `${record.status}${record.reasonCode ? ` · ${record.reasonCode}` : ''}`
         : describeHop(frac < 0.5 ? fromHop : toHop)
-      return { requestId: trace.requestId, segments, dot, color, cause }
+      const replicationProgress =
+        trace.replicationEffectMs > 0 && position >= trace.requestMs
+          ? clamp((position - trace.requestMs) / trace.replicationEffectMs, 0, 1)
+          : null
+      const replicationDots =
+        replicationProgress === null
+          ? []
+          : replicationSegments.map((segment) => pointOnPath(segment, replicationProgress))
+      return {
+        requestId: trace.requestId,
+        segments,
+        dot,
+        color,
+        cause,
+        replicationSegments,
+        replicationDots
+      }
     })
     .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
 
@@ -371,6 +453,30 @@ export function RequestTraceOverlay() {
         stroke="var(--nss-panel)"
         strokeWidth={1.5 / zoom}
       />
+      {entry.replicationSegments.map((segment) => (
+        <path
+          key={segment.key}
+          d={segment.path}
+          fill="none"
+          stroke={REPLICATION_COLOR}
+          strokeWidth={2.25 / zoom}
+          strokeOpacity={0.72}
+          strokeDasharray={`${7 / zoom} ${5 / zoom}`}
+          strokeLinejoin="round"
+          strokeLinecap="round"
+        />
+      ))}
+      {entry.replicationDots.map((dot, index) => (
+        <circle
+          key={`${entry.requestId}-replication-dot-${index}`}
+          cx={dot.x}
+          cy={dot.y}
+          r={5 / zoom}
+          fill={REPLICATION_COLOR}
+          stroke="var(--nss-panel)"
+          strokeWidth={1.5 / zoom}
+        />
+      ))}
     </g>
   ))
 
@@ -426,11 +532,15 @@ export function RequestTraceOverlay() {
               {(active[0].record as RequestOutcomeRecord).status}
             </span>{' '}
             · {active[0].hops.length} hops
+            {active[0].replicationEdgeIds.length > 0
+              ? ` · ${active[0].replicationEdgeIds.length} replication effects`
+              : ''}
           </>
         ) : (
           <>
             Tracing <span className="font-semibold">{active.length}</span> requests across the
-            topology — each dot is one request&apos;s real path.
+            topology — colored dots are real request paths; violet dots are derived replication
+            effects.
           </>
         )
       )}

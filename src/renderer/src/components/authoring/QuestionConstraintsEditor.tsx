@@ -1,8 +1,9 @@
-import { Search, ShieldCheck } from 'lucide-react'
+import { LockKeyhole, Search, ShieldCheck } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { AUTHORING_COMPONENT_CAPABILITIES } from '../../../../engine/analysis/authoringCapabilities'
 import type { QuestionAuthoringSetupDraft } from '../../../../engine/analysis/questionAuthoringProject'
 import { componentFamilyAcceptsHint } from '../../../../engine/catalog/componentFamilies'
+import { NODE_CONFIG_MODULES } from '../../../../engine/traits/capabilityModules'
 import { TooltipInfo } from '../ui/Tooltip'
 
 interface QuestionConstraintsEditorProps {
@@ -20,6 +21,40 @@ function orderedTypeIds(values: Set<string>): string[] {
   return AUTHORING_COMPONENT_CAPABILITIES.filter((component) => values.has(component.id)).map(
     (component) => component.id
   )
+}
+
+interface QuestionOwnedFieldOption {
+  path: string
+  label: string
+  section: string
+}
+
+const QUESTION_OWNED_FIELD_OPTIONS: readonly QuestionOwnedFieldOption[] = (() => {
+  const byPath = new Map<string, QuestionOwnedFieldOption>()
+  for (const module of NODE_CONFIG_MODULES) {
+    for (const section of module.config?.sections ?? []) {
+      for (const configField of section.fields) {
+        if (byPath.has(configField.path)) continue
+        byPath.set(configField.path, {
+          path: configField.path,
+          label: typeof configField.label === 'string' ? configField.label : configField.path,
+          section: typeof section.title === 'string' ? section.title : module.name
+        })
+      }
+    }
+  }
+  return [...byPath.values()]
+})()
+
+const KNOWN_CONFIG_PATHS = new Set(QUESTION_OWNED_FIELD_OPTIONS.map((option) => option.path))
+
+function orderedConfigPaths(values: Set<string>): string[] {
+  return [
+    ...QUESTION_OWNED_FIELD_OPTIONS.filter((option) => values.has(option.path)).map(
+      (option) => option.path
+    ),
+    ...[...values].filter((path) => !KNOWN_CONFIG_PATHS.has(path)).sort()
+  ]
 }
 
 function ComponentTypeChecklist({
@@ -118,12 +153,103 @@ function ComponentTypeChecklist({
   )
 }
 
+function QuestionOwnedSettingsChecklist({
+  selected,
+  query,
+  onQueryChange,
+  onToggle
+}: {
+  selected: readonly string[]
+  query: string
+  onQueryChange: (query: string) => void
+  onToggle: (path: string, checked: boolean) => void
+}): React.JSX.Element {
+  const selectedSet = useMemo(() => new Set(selected), [selected])
+  const filtered = useMemo(() => {
+    const normalized = query.trim().toLowerCase()
+    if (!normalized) return QUESTION_OWNED_FIELD_OPTIONS
+    return QUESTION_OWNED_FIELD_OPTIONS.filter(
+      (option) =>
+        option.label.toLowerCase().includes(normalized) ||
+        option.section.toLowerCase().includes(normalized) ||
+        option.path.toLowerCase().includes(normalized)
+    )
+  }, [query])
+
+  return (
+    <fieldset className="mt-5 min-w-0 rounded-lg border border-nss-border bg-nss-surface p-4">
+      <div className="flex items-start gap-3">
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-nss-warning/10 text-nss-warning">
+          <LockKeyhole size={15} aria-hidden="true" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center justify-between gap-3">
+            <legend className="text-[11px] font-semibold text-nss-text">
+              Question-owned node settings
+            </legend>
+            <span className="text-[10px] tabular-nums text-nss-muted">
+              {selected.length > 0 ? `${selected.length} fixed` : 'None fixed'}
+            </span>
+          </div>
+          <p className="mt-1 text-[10px] leading-4 text-nss-muted">
+            Keep values visible as givens, but prevent learners from changing settings that are not
+            part of the learning objective.
+          </p>
+        </div>
+      </div>
+
+      <div className="relative mt-3">
+        <Search
+          size={13}
+          className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-nss-muted"
+          aria-hidden="true"
+        />
+        <input
+          type="search"
+          value={query}
+          onChange={(event) => onQueryChange(event.currentTarget.value)}
+          placeholder="Search node settings…"
+          aria-label="Search question-owned node settings"
+          className="block w-full rounded-t-md border border-nss-border bg-nss-input-bg py-2 pl-8 pr-3 text-xs font-normal text-nss-text outline-none placeholder:text-nss-muted focus:border-nss-primary focus:ring-2 focus:ring-nss-primary/15"
+        />
+      </div>
+      <div className="max-h-64 overflow-y-auto rounded-b-md border border-t-0 border-nss-border bg-nss-input-bg p-1.5">
+        {filtered.map((option) => {
+          const checked = selectedSet.has(option.path)
+          return (
+            <label
+              key={option.path}
+              className={`flex cursor-pointer items-start gap-2 rounded px-2 py-1.5 text-xs transition-colors ${
+                checked ? 'bg-nss-warning/10 text-nss-text' : 'text-nss-muted hover:bg-nss-surface'
+              }`}
+            >
+              <input
+                type="checkbox"
+                checked={checked}
+                onChange={(event) => onToggle(option.path, event.currentTarget.checked)}
+                className="mt-0.5 h-3.5 w-3.5 shrink-0 rounded border-nss-border text-nss-warning focus:ring-nss-warning/40"
+              />
+              <span className="min-w-0">
+                <span className="block font-medium text-nss-text">{option.label}</span>
+                <span className="block text-[10px] text-nss-muted">
+                  {option.section} · {option.path}
+                </span>
+              </span>
+            </label>
+          )
+        })}
+      </div>
+    </fieldset>
+  )
+}
+
 export function QuestionConstraintsEditor({
   setup,
   onChange
 }: QuestionConstraintsEditorProps): React.JSX.Element {
   const [allowedQuery, setAllowedQuery] = useState('')
   const [forbiddenQuery, setForbiddenQuery] = useState('')
+  const [questionOwnedQuery, setQuestionOwnedQuery] = useState('')
   const constraints = setup.constraints
   const updateConstraints = (changes: Partial<typeof constraints>): void => {
     onChange({ ...setup, constraints: { ...constraints, ...changes } })
@@ -153,6 +279,13 @@ export function QuestionConstraintsEditor({
       forbiddenNodeTypes: forbiddenNodeTypes.length > 0 ? forbiddenNodeTypes : undefined,
       allowedNodeTypes: allowedNodeTypes.length > 0 ? allowedNodeTypes : undefined
     })
+  }
+  const toggleQuestionOwned = (path: string, checked: boolean): void => {
+    const selected = new Set(constraints.questionOwnedConfigPaths ?? [])
+    if (checked) selected.add(path)
+    else selected.delete(path)
+    const paths = orderedConfigPaths(selected)
+    updateConstraints({ questionOwnedConfigPaths: paths.length > 0 ? paths : undefined })
   }
 
   return (
@@ -189,6 +322,13 @@ export function QuestionConstraintsEditor({
           help="Selected types are hidden from learners and fail validation if imported. A generic type (Load Balancer) also forbids its subtypes (L4, L7)."
         />
       </div>
+
+      <QuestionOwnedSettingsChecklist
+        selected={constraints.questionOwnedConfigPaths ?? []}
+        query={questionOwnedQuery}
+        onQueryChange={setQuestionOwnedQuery}
+        onToggle={toggleQuestionOwned}
+      />
 
       <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         <label className="text-[11px] font-semibold text-nss-text">

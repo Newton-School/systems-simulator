@@ -1348,6 +1348,10 @@ type RFState = {
    *  to measured (consumption throughput, egress bytes). Cleared on reset/new run. */
   lastRunOutput: SimulationOutput | null
   setLastRunOutput: (output: SimulationOutput | null) => void
+  /** True when the canvas or scenario no longer matches lastRunOutput. Runtime
+   *  badges must not present those historical measurements as current state. */
+  runtimeResultsStale: boolean
+  setRuntimeResultsStale: (stale: boolean) => void
   /** Request ids currently being followed on the canvas (the causal tracer). One
    *  for follow-a-request; several for "trace all paths". Empty = tracer off. */
   tracedRequestIds: string[]
@@ -1464,6 +1468,7 @@ const useStore = create<RFState>((set, get) => ({
   environmentProfile: DEFAULT_ENVIRONMENT_PROFILE,
   resultsRevealed: false,
   lastRunOutput: null,
+  runtimeResultsStale: false,
   viewportFitVersion: 0,
   viewportFocusRequest: null,
 
@@ -2187,6 +2192,7 @@ const useStore = create<RFState>((set, get) => ({
   setResultsRevealed: (resultsRevealed) => set({ resultsRevealed }),
   // A new run invalidates the open debugger session (it points into the old traces).
   setLastRunOutput: (lastRunOutput) => set({ lastRunOutput, requestDebug: null }),
+  setRuntimeResultsStale: (runtimeResultsStale) => set({ runtimeResultsStale }),
   tracedRequestIds: [],
   // Starting/clearing a trace always resets playback to playing.
   setTracedRequestIds: (tracedRequestIds) => set({ tracedRequestIds, tracePaused: false }),

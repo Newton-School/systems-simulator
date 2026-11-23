@@ -3,7 +3,10 @@ import useStore from '@renderer/store/useStore'
 import type { AnyNodeData } from '@renderer/types/ui'
 import { Label } from '../ui/Label'
 import {
+  findManagingLeader,
+  isReplicationLeaderSim,
   parseReplicaMemberIds,
+  planReplicaMembershipSync,
   serializeReplicaMemberIds,
   toggleReplicaMember
 } from './replicaMembers'
@@ -17,6 +20,8 @@ interface ReplicaMembersEditorProps {
 
 export function ReplicaMembersEditor({ nodeId, data, value, onChange }: ReplicaMembersEditorProps) {
   const nodes = useStore((state) => state.nodes)
+  const updateNodeData = useStore((state) => state.updateNodeData)
+  const managingLeader = findManagingLeader(nodes, nodeId)
   const candidates = useMemo(
     () =>
       nodes.flatMap((node) => {
@@ -39,7 +44,29 @@ export function ReplicaMembersEditor({ nodeId, data, value, onChange }: ReplicaM
         (order.get(left) ?? Number.MAX_SAFE_INTEGER) -
           (order.get(right) ?? Number.MAX_SAFE_INTEGER) || left.localeCompare(right)
     )
+    if (isReplicationLeaderSim(data.sim as Record<string, unknown> | undefined)) {
+      // Select once on the leader: everyone else in the set is kept in sync.
+      for (const patch of planReplicaMembershipSync(nodes, nodeId, toggled)) {
+        updateNodeData(patch.nodeId, { sim: patch.sim } as never)
+      }
+      onChange(serializeReplicaMemberIds([nodeId, ...toggled.filter((id) => id !== nodeId)]))
+      return
+    }
     onChange(serializeReplicaMemberIds(toggled))
+  }
+
+  if (managingLeader) {
+    const leaderLabel =
+      (managingLeader.data as Partial<AnyNodeData>).label?.trim() || managingLeader.id
+    return (
+      <div className="mb-5" data-field-path="sim.replicaMembers">
+        <Label>Replica members</Label>
+        <p className="mt-1 rounded-md border border-nss-border bg-nss-input-bg px-3 py-2 text-[11px] leading-relaxed text-nss-muted">
+          Managed by the leader, <span className="font-semibold text-nss-text">{leaderLabel}</span>.
+          Change the replica set there; this follower stays in sync automatically.
+        </p>
+      </div>
+    )
   }
 
   return (

@@ -111,7 +111,7 @@ const StandardNode = ({ id, data, selected }: NodeProps<StandardNodeData>) => {
             status={reliabilityStatus}
             color={theme}
             onLabelChange={handleLabelChange}
-            identityBadge={<ReplicationRoleBadge data={data} />}
+            identityBadge={<ReplicationRoleBadge data={data} nodeId={id} />}
           >
             <NodeSettingsMenu
               nodeId={id}

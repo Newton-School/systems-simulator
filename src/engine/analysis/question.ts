@@ -202,6 +202,9 @@ export interface QuestionScaffold {
 export interface QuestionConstraints {
   allowedNodeTypes?: string[]
   forbiddenNodeTypes?: string[]
+  /** Node inspector fields supplied by the question or component defaults. They
+   * remain visible as context but learners cannot edit them in student modes. */
+  questionOwnedConfigPaths?: string[]
   maxNodeCount?: number
   maxBudget?: number
   maxTotalWorkers?: number
@@ -1070,6 +1073,7 @@ const StructuralRuleSchema: z.ZodType<StructuralRule> = z.discriminatedUnion('ki
 const QuestionConstraintsSchema = z.object({
   allowedNodeTypes: z.array(ComponentTypeSchema).optional(),
   forbiddenNodeTypes: z.array(ComponentTypeSchema).optional(),
+  questionOwnedConfigPaths: z.array(z.string().min(1)).optional(),
   maxNodeCount: z.number().int().positive().optional(),
   maxBudget: z.number().finite().nonnegative().optional(),
   maxTotalWorkers: z.number().int().nonnegative().optional(),

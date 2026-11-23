@@ -29,6 +29,11 @@ import { resolveClassroomNodeView, useClassroomActive } from '@renderer/hooks/us
 import { useCopyPaste } from './hooks/useCopyPaste'
 import { useFlowStore } from './hooks/useFlowStore'
 import { useFlowDnD } from './hooks/useFlowDnD'
+import { applyReplicationGroupCollapse } from './replicationGroupCollapse'
+import { findReplicationGroups } from './replicationClusterGroups'
+import { ReplicationClusterOverlay } from './ReplicationClusterOverlay'
+import { ReplicationViewControls } from './ReplicationViewControls'
+import { useReplicationView } from './replicationViewStore'
 import { nodeTypes, edgeTypes, defaultEdgeOptions, GRID_COLOR } from './config/flowConfig'
 import { snapStateRef, useMagneticSnap } from './hooks/useMagneticSnap'
 import { useHandleProximity } from './hooks/useHandleProximity'
@@ -211,6 +216,13 @@ const FlowCanvasInternal = ({
   } = useFlowStore()
 
   const selectGraphElements = useStore((state) => state.selectGraphElements)
+  const showRoutingPaths = useReplicationView((state) => state.routing)
+  const showReplicationLinks = useReplicationView((state) => state.replication)
+  const hasReplicationGroup = useMemo(() => findReplicationGroups(nodes).length > 0, [nodes])
+  const replicationView = useMemo(
+    () => applyReplicationGroupCollapse(nodes, edges, !showRoutingPaths, showReplicationLinks),
+    [nodes, edges, showRoutingPaths, showReplicationLinks]
+  )
   const clearSimulationMetrics = useStore((state) => state.clearSimulationMetrics)
   const clearEdgeFlow = useStore((state) => state.clearEdgeFlow)
   const setRoutingStrategyVisualization = useStore((state) => state.setRoutingStrategyVisualization)
@@ -1116,7 +1128,7 @@ const FlowCanvasInternal = ({
       )}
       <ReactFlow
         nodes={nodes}
-        edges={edges}
+        edges={replicationView.edges}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={handleConnect}
@@ -1207,6 +1219,12 @@ const FlowCanvasInternal = ({
       ) : null}
       {!isEmpty && showMetricLens && !classroomActive && !symbolsOnly && <MetricLensSwitcher />}
       {!isEmpty && showMetricLens && !symbolsOnly && <CanvasLegend />}
+      {hasReplicationGroup ? (
+        <>
+          <ReplicationClusterOverlay />
+          {!presentationMode ? <ReplicationViewControls /> : null}
+        </>
+      ) : null}
       <RequestTraceOverlay />
       <RequestDebugOverlay />
 
@@ -1221,7 +1239,11 @@ const FlowCanvasInternal = ({
           Boolean(emptyState)
         }
       />
-      {!hideEmptyState && emptyState && isEmpty && !pendingNodePlacement && !annotationToolActive ? (
+      {!hideEmptyState &&
+      emptyState &&
+      isEmpty &&
+      !pendingNodePlacement &&
+      !annotationToolActive ? (
         <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
           {emptyState}
         </div>

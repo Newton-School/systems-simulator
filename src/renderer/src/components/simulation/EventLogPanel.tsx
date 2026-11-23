@@ -38,7 +38,11 @@ const EVENT_LOG_MODES: Array<{ id: EventLogMode; label: string; hint: string }> 
   { id: 'requests', label: 'Requests', hint: 'Events grouped by request, with hop trail' },
   { id: 'nodes', label: 'Nodes', hint: 'Events grouped by node' },
   { id: 'incidents', label: 'Incidents', hint: 'Failures, rejections and timeouts, worst first' },
-  { id: 'waterfall', label: 'Waterfall', hint: 'One swim lane per node over sim time' }
+  {
+    id: 'waterfall',
+    label: 'Waterfall',
+    hint: 'Compare event density and incidents across nodes over simulated time'
+  }
 ]
 
 const SECTION_TITLE = 'text-[11px] font-semibold text-nss-muted uppercase tracking-wider'
@@ -870,86 +874,165 @@ function SwimLanes({
     1,
     ...layout.lanes.flatMap((lane) => lane.buckets.map((bucket) => bucket.count))
   )
+  const statusCounts = countEventStatuses(events)
+  const incidentCount = statusCounts.timeout + statusCounts.rejected + statusCounts.failure
   const span = layout.endMs - layout.startMs
   const bucketMs = span / layout.bucketCount
   const ticks = [0, 0.25, 0.5, 0.75, 1]
   const selected =
     selectedSeq !== null ? events.find((event) => event.sequence === selectedSeq) : null
   return (
-    <div className="space-y-1">
-      <div className="text-[10px] text-nss-muted">
-        {layout.lanes.length} lanes over {fmtSimTime(layout.startMs)} to {fmtSimTime(layout.endMs)}.
-        Each mark is a {fmtSimTime(bucketMs)} slice; darker means more events, colour is the worst
-        status in the slice. Filter to one request (request:&lt;id&gt;) for its own timeline.
-      </div>
-      <div className="max-h-[360px] overflow-y-auto rounded-md border border-nss-border bg-nss-surface p-2">
-        <div className="space-y-1">
-          {layout.lanes.map((lane) => (
-            <div key={lane.nodeId ?? '__run__'} className="flex items-center gap-2">
-              <button
-                type="button"
-                disabled={lane.nodeId === null}
-                onClick={() => lane.nodeId && onFocus(lane.nodeId)}
-                title={lane.nodeId ? 'Select on canvas' : 'Events with no node'}
-                className="w-36 shrink-0 truncate text-left text-[11px] text-nss-text hover:text-nss-primary disabled:text-nss-muted disabled:hover:text-nss-muted"
-              >
-                {lane.nodeId ? nodeLabel(lane.nodeId) : 'run-level'}
-                <span className="ml-1 tabular-nums text-[10px] text-nss-muted">
-                  {lane.eventCount.toLocaleString()}
-                </span>
-              </button>
-              <div className="relative h-5 flex-1 rounded bg-nss-bg">
-                {lane.buckets.map((bucket) => {
-                  const start = layout.startMs + bucket.bucket * bucketMs
-                  const breakdown = (Object.keys(bucket.counts) as DebugEventStatus[])
-                    .filter((status) => bucket.counts[status] > 0)
-                    .map((status) => `${bucket.counts[status]} ${status}`)
-                    .join(', ')
-                  return (
-                    <button
-                      key={bucket.bucket}
-                      type="button"
-                      // One tab stop per lane (its label), not one per mark; the table is the keyboard path.
-                      tabIndex={-1}
-                      onClick={() => onSelect(events[bucket.worstIndex])}
-                      title={`${fmtSimTime(start)} to ${fmtSimTime(start + bucketMs)}: ${bucket.count} events (${breakdown})`}
-                      aria-label={`${lane.nodeId ? nodeLabel(lane.nodeId) : 'run-level'} at ${fmtSimTime(start)}: ${bucket.count} events`}
-                      className={`absolute inset-y-0.5 rounded-sm ${MARK_FILL[bucket.status]}`}
-                      style={{
-                        left: `${(bucket.bucket / layout.bucketCount) * 100}%`,
-                        width: `max(3px, ${100 / layout.bucketCount}%)`,
-                        opacity: 0.35 + 0.65 * Math.sqrt(bucket.count / maxCount)
-                      }}
-                    />
-                  )
-                })}
-                {selected &&
-                  (selected.nodeId ?? null) === lane.nodeId &&
-                  selected.timestampMs >= layout.startMs &&
-                  selected.timestampMs <= layout.endMs && (
-                    <div
-                      className="pointer-events-none absolute -inset-y-0.5 w-0.5 bg-nss-primary"
-                      style={{ left: `${((selected.timestampMs - layout.startMs) / span) * 100}%` }}
-                    />
-                  )}
-              </div>
-            </div>
-          ))}
-        </div>
-        <div className="mt-1 flex items-center gap-2">
-          <div className="w-36 shrink-0" />
-          <div className="relative h-4 flex-1 text-[9px] tabular-nums text-nss-muted">
-            {ticks.map((tick) => (
-              <span
-                key={tick}
-                className="absolute -translate-x-1/2 first:translate-x-0 last:-translate-x-full"
-                style={{ left: `${tick * 100}%` }}
-              >
-                {fmtSimTime(layout.startMs + tick * span)}
-              </span>
-            ))}
+    <div className="overflow-hidden rounded-lg border border-nss-border bg-nss-surface shadow-sm">
+      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-nss-border px-3.5 py-3">
+        <div>
+          <div className="text-xs font-semibold text-nss-text">Activity waterfall</div>
+          <div className="mt-0.5 text-[10px] text-nss-muted">
+            Event volume by component across the retained simulation window
           </div>
         </div>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[10px] text-nss-muted">
+          <span>
+            <strong className="font-semibold tabular-nums text-nss-text">
+              {events.length.toLocaleString()}
+            </strong>{' '}
+            events
+          </span>
+          <span>
+            <strong className="font-semibold tabular-nums text-nss-text">
+              {layout.lanes.length.toLocaleString()}
+            </strong>{' '}
+            lanes
+          </span>
+          <span className={incidentCount > 0 ? 'text-nss-danger' : ''}>
+            <strong className="font-semibold tabular-nums">{incidentCount.toLocaleString()}</strong>{' '}
+            incidents
+          </span>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-nss-border/70 bg-nss-bg/50 px-3.5 py-2 text-[10px] text-nss-muted">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1" aria-label="Waterfall legend">
+          <span className="font-medium text-nss-text">Worst event in slice</span>
+          <span className="inline-flex items-center gap-1.5">
+            <span className="h-2 w-2 rounded-sm bg-nss-muted" /> activity
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <span className="h-2 w-2 rounded-sm bg-nss-success" /> completed
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <span className="h-2 w-2 rounded-sm bg-nss-warning" /> timeout
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <span className="h-2 w-2 rounded-sm bg-nss-danger" /> rejected / failed
+          </span>
+        </div>
+        <span className="tabular-nums">{fmtSimTime(bucketMs)} per slice · height shows volume</span>
+      </div>
+
+      <div className="overflow-x-auto">
+        <div className="min-w-[760px]">
+          <div className="grid grid-cols-[12rem_minmax(36rem,1fr)] border-b border-nss-border/60 bg-nss-bg/30 px-3.5">
+            <div className="flex h-7 items-center text-[9px] font-semibold uppercase tracking-wider text-nss-muted">
+              Component
+            </div>
+            <div className="relative h-7 text-[9px] tabular-nums text-nss-muted">
+              {ticks.map((tick) => (
+                <span
+                  key={tick}
+                  className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 first:translate-x-0 last:-translate-x-full"
+                  style={{ left: `${tick * 100}%` }}
+                >
+                  {fmtSimTime(layout.startMs + tick * span)}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          <div className="max-h-[360px] overflow-y-auto">
+            {layout.lanes.map((lane) => {
+              const laneMax = Math.max(1, ...lane.buckets.map((bucket) => bucket.count))
+              const label = lane.nodeId ? nodeLabel(lane.nodeId) : 'Run-level events'
+              return (
+                <div
+                  key={lane.nodeId ?? '__run__'}
+                  className="group grid grid-cols-[12rem_minmax(36rem,1fr)] border-b border-nss-border/40 px-3.5 last:border-b-0 hover:bg-nss-primary/[0.035]"
+                >
+                  <button
+                    type="button"
+                    disabled={lane.nodeId === null}
+                    onClick={() => lane.nodeId && onFocus(lane.nodeId)}
+                    title={lane.nodeId ? 'Select component on canvas' : 'Events with no component'}
+                    className="flex h-10 min-w-0 items-center justify-between gap-2 pr-4 text-left disabled:cursor-default disabled:[&>span:first-child]:text-nss-muted"
+                  >
+                    <span className="truncate text-[11px] font-medium text-nss-text group-hover:text-nss-primary">
+                      {label}
+                    </span>
+                    <span className="shrink-0 tabular-nums text-[9px] text-nss-muted">
+                      {lane.eventCount.toLocaleString()}
+                    </span>
+                  </button>
+
+                  <div
+                    className="relative h-10 border-x border-nss-border/40"
+                    style={{
+                      backgroundImage:
+                        'linear-gradient(to right, rgb(var(--nss-border-rgb) / 0.45) 1px, transparent 1px)',
+                      backgroundSize: '25% 100%'
+                    }}
+                  >
+                    <div className="pointer-events-none absolute inset-x-0 bottom-1 h-px bg-nss-border/60" />
+                    {lane.buckets.map((bucket) => {
+                      const start = layout.startMs + bucket.bucket * bucketMs
+                      const breakdown = (Object.keys(bucket.counts) as DebugEventStatus[])
+                        .filter((status) => bucket.counts[status] > 0)
+                        .map((status) => `${bucket.counts[status]} ${status}`)
+                        .join(', ')
+                      const relativeVolume = Math.sqrt(bucket.count / laneMax)
+                      return (
+                        <button
+                          key={bucket.bucket}
+                          type="button"
+                          // One tab stop per lane (its label), not one per mark; the table is the keyboard path.
+                          tabIndex={-1}
+                          onClick={() => onSelect(events[bucket.worstIndex])}
+                          title={`${fmtSimTime(start)}–${fmtSimTime(start + bucketMs)} · ${bucket.count} events · ${breakdown}`}
+                          aria-label={`${label} at ${fmtSimTime(start)}: ${bucket.count} events`}
+                          className={`absolute bottom-1 rounded-t-[2px] transition-[filter,opacity] hover:brightness-110 hover:opacity-100 ${MARK_FILL[bucket.status]}`}
+                          style={{
+                            left: `${(bucket.bucket / layout.bucketCount) * 100}%`,
+                            width: `calc(${100 / layout.bucketCount}% - 1px)`,
+                            minWidth: '1px',
+                            height: `${Math.max(4, relativeVolume * 26)}px`,
+                            opacity: 0.45 + 0.55 * Math.sqrt(bucket.count / maxCount)
+                          }}
+                        />
+                      )
+                    })}
+                    {selected &&
+                      (selected.nodeId ?? null) === lane.nodeId &&
+                      selected.timestampMs >= layout.startMs &&
+                      selected.timestampMs <= layout.endMs && (
+                        <div
+                          className="pointer-events-none absolute inset-y-0 z-10 w-px bg-nss-primary shadow-[0_0_0_2px_rgb(var(--nss-primary)/0.12)]"
+                          style={{
+                            left: `${((selected.timestampMs - layout.startMs) / span) * 100}%`
+                          }}
+                        />
+                      )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-nss-border bg-nss-bg/40 px-3.5 py-2 text-[10px] text-nss-muted">
+        <span>Click a pulse to inspect its most severe event.</span>
+        <span>
+          Tip: filter to <code className="text-nss-text">request:&lt;id&gt;</code> for one
+          request&apos;s path.
+        </span>
       </div>
     </div>
   )
