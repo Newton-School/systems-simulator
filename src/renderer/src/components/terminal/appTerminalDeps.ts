@@ -33,6 +33,7 @@ import { coerceFieldInput, getPathValue, setPathValue } from '@renderer/utils/no
 import { getSavedTopologyBaseline } from './terminalStore'
 import { builderPolicyContext } from '@renderer/utils/builderPolicyContext'
 import { definitionEditBlockReason } from '../../../../engine/analysis/builderPolicy'
+import { questionOwnedConfigReason } from '../../../../engine/analysis/questionConfigPolicy'
 
 /**
  * CommandDeps for the in-app terminal. Every read goes through the same
@@ -171,7 +172,11 @@ function resolveNodeFields(nodeId: string): ResolvedNodeField[] {
     const editable =
       !LIST_RENDERERS.has(field.renderer) &&
       field.accuracy !== 'not-simulated' &&
-      !(section.id === 'resources' && !canEditResources)
+      !(section.id === 'resources' && !canEditResources) &&
+      !(
+        state.environmentProfile.mode !== 'AUTHOR' &&
+        questionOwnedConfigReason(state.activeQuestion, field.path)
+      )
     return {
       definition: field,
       view: {
@@ -203,11 +208,16 @@ function writeNodeField(
   if (!node) return { ok: false, reason: `Node '${nodeId}' is not on the canvas.` }
   const field = resolveNodeFields(nodeId).find((candidate) => candidate.view.key === key)
   if (!field) return { ok: false, reason: `No setting '${key}' on ${nodeId}.` }
+  const questionLockReason =
+    state.environmentProfile.mode !== 'AUTHOR'
+      ? questionOwnedConfigReason(state.activeQuestion, field.view.path)
+      : null
   if (!field.view.editable) {
     return {
       ok: false,
-      reason:
-        field.definition.accuracy === 'not-simulated'
+      reason: questionLockReason
+        ? questionLockReason
+        : field.definition.accuracy === 'not-simulated'
           ? `${field.view.label} is not simulated, so the terminal does not offer it.`
           : `${field.view.label} cannot be changed here (list editor or locked in this environment).`
     }

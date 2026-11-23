@@ -75,7 +75,7 @@
       "kind": "concept",
       "text": "Exact replica lag, write acknowledgement, consensus, election, and failover settings are not learner tuning requirements.",
       "status": "explained",
-      "reason": "Given context: these controls have sensible defaults and are outside this question’s learning objective. The current Architect environment cannot lock individual configuration fields, so the prompt explicitly tells learners to leave them at their defaults and the grader does not inspect their exact values."
+      "reason": "Given context: these controls are outside this question’s learning objective. They are visible but read-only through constraints.questionOwnedConfigPaths, and the grader does not inspect their exact values."
     },
     {
       "id": "r-peak-rps",

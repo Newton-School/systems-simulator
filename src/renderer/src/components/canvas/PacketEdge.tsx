@@ -15,7 +15,11 @@ import { patternMultiplier } from './edgeFlowPatterns'
 import { resolveEdgeLensProjection } from './edgeLensPresentation'
 import { getCanvasEdgePath } from './edgePathGeometry'
 import { directionCueScale, legibleStrokeWidth, midEdgeChevronPositions } from './edgeDirectionCues'
-import { getReplicationEdgePresentation } from './replicationEdgePresentation'
+import {
+  getReplicationEdgePresentation,
+  replicationWriteRate,
+  shouldShowInactiveEdgeState
+} from './replicationEdgePresentation'
 
 const EDGE_VISUAL_WINDOW_MS = 3_000
 const FAILED_PULSE_MS = 650
@@ -154,6 +158,7 @@ export const PacketEdge = ({
   )
   const runConfig = useStore((state) => state.edgeFlowRunConfig)
   const playback = useStore((state) => state.edgeFlowPlayback)
+  const latestSimMs = useStore((state) => state.edgeFlowLatestSimMs)
   // Live styling (#70): throughput-proportional width and latency colour, set
   // only while a run is in progress (null otherwise).
   const liveEdgeStyle = useStore((state) => state.liveVisualization?.edgeStyles.get(id))
@@ -296,6 +301,11 @@ export const PacketEdge = ({
   const liveSuccessRate = Math.max(flow?.successPerSecond ?? 0, flow?.avgSuccessPerSecond ?? 0)
   const postRunPacketRate = flow?.avgPostWarmupSuccessPerSecond ?? 0
   const arrivedRequestCount = flow?.totalPostWarmupSuccess ?? 0
+  const replicationObservationWindowMs =
+    flowStatus === 'complete' ? (runConfig?.simulationDurationMs ?? 0) : (latestSimMs ?? 0)
+  const committedReplicationRate = replicationPresentation
+    ? replicationWriteRate(metricsByNode[source], replicationObservationWindowMs)
+    : 0
   const edgeDefaults = useMemo(
     () => inferEdgeDefaults(sourceNodeData, targetNodeData),
     [sourceNodeData, targetNodeData]
@@ -316,7 +326,11 @@ export const PacketEdge = ({
     [metricLens, flow, data, edgeDefaults, edgeIsConnectorOnly]
   )
   const visualMultiplier = patternMultiplier(runConfig, playback, now, id, hash01)
-  const steadyRequestRate = isComplete ? postRunPacketRate : liveSuccessRate
+  const steadyRequestRate = replicationPresentation
+    ? committedReplicationRate
+    : isComplete
+      ? postRunPacketRate
+      : liveSuccessRate
   const previewShare =
     routingPreview && routingPreview.totalCount > 0
       ? routingPreview.selectedCount / routingPreview.maxCount
@@ -332,12 +346,18 @@ export const PacketEdge = ({
       ? clamp(Math.round(2 + previewShare * 6), 2, 8)
       : 0
     : patternPacketCount(basePacketCount, visualMultiplier)
-  const isInactiveAfterRun = flowStatus === 'complete' && !flow
-  const hasFlow = isRoutingPreviewEdge
-    ? Boolean(routingPreview?.isSelected)
-    : isComplete
-      ? arrivedRequestCount > 0
-      : liveIncomingRate > 0
+  const isInactiveAfterRun = shouldShowInactiveEdgeState({
+    runComplete: flowStatus === 'complete',
+    hasFlowRecord: Boolean(flow),
+    isReplicationLink: replicationPresentation !== null
+  })
+  const hasFlow = replicationPresentation
+    ? committedReplicationRate > 0
+    : isRoutingPreviewEdge
+      ? Boolean(routingPreview?.isSelected)
+      : isComplete
+        ? arrivedRequestCount > 0
+        : liveIncomingRate > 0
   const trafficStrokeWidth = isRoutingPreviewEdge
     ? hasFlow
       ? clamp(2.5 + previewShare * 1.2, 2.5, 3.7)
@@ -353,9 +373,20 @@ export const PacketEdge = ({
           : selected
             ? 3
             : 2
+  const semanticStrokeWidth = replicationPresentation
+    ? selected
+      ? 3
+      : touchesSelectedNode
+        ? 2.5
+        : replicationPresentation.idleStrokeWidth
+    : trafficStrokeWidth
   const emphasized = selected || touchesSelectedNode
   const edgeStrokeWidth = legibleStrokeWidth(
-    emphasized && !selected ? trafficStrokeWidth + 0.5 : trafficStrokeWidth,
+    replicationPresentation
+      ? semanticStrokeWidth
+      : emphasized && !selected
+        ? trafficStrokeWidth + 0.5
+        : trafficStrokeWidth,
     cueScale
   )
   // Health severity drives the stroke colour and is computed independently of
@@ -384,6 +415,10 @@ export const PacketEdge = ({
           : lensRecedes
             ? RECEDING_EDGE_OPACITY
             : 1
+  const semanticEdgeOpacity =
+    replicationPresentation && !emphasized
+      ? Math.min(baseEdgeOpacity, replicationPresentation.idleOpacity)
+      : baseEdgeOpacity
   const flowLabelText = isRoutingPreviewEdge
     ? routingPreview?.isSelected
       ? `${routingPreview.selectedCount}/${routingPreview.totalCount} preview`
@@ -456,7 +491,7 @@ export const PacketEdge = ({
           pointAngle(pathGeometry.path, pathGeometry.pathLength * progress, 6 * cueScale)
         )
       : []
-  const directionCueOpacity = emphasized ? 1 : clamp(baseEdgeOpacity, 0.35, 0.9)
+  const directionCueOpacity = emphasized ? 1 : clamp(semanticEdgeOpacity, 0.35, 0.9)
   // Live throughput colour applies to network edges during a run; selection
   // highlighting and failure colour take precedence.
   const liveStroke =
@@ -489,7 +524,7 @@ export const PacketEdge = ({
           strokeDasharray:
             replicationPresentation?.strokeDasharray ?? edgeModePresentation.strokeDasharray,
           stroke: selected && !isRoutingPreviewEdge ? FLOW_PRIMARY_COLOR : edgeStroke,
-          opacity: baseEdgeOpacity
+          opacity: semanticEdgeOpacity
         }}
         interactionWidth={30}
       />
@@ -520,7 +555,7 @@ export const PacketEdge = ({
           {/* Filled arrowhead with a panel-colored rim so it reads on the line and the canvas in both themes. */}
           <path
             d="M -9 -5 L 0 0 L -9 5 L -6.5 0 Z"
-            fill={edgeProtocolPresentation.accent}
+            fill={replicationPresentation?.stroke ?? edgeProtocolPresentation.accent}
             stroke="var(--nss-panel)"
             strokeWidth={1}
             strokeLinejoin="round"
@@ -573,14 +608,14 @@ export const PacketEdge = ({
               ? keyToColor(keySamples[index % keySamples.length])
               : isBounce
                 ? FLOW_PRIMARY_COLOR
-                : FLOW_SUCCESS_COLOR
+                : (replicationPresentation?.stroke ?? FLOW_SUCCESS_COLOR)
 
           return (
             <circle
               key={`${id}-packet-${index}`}
               cx={point.x}
               cy={point.y}
-              r={visualRequestRate > 150 ? 5.25 : 6.75}
+              r={replicationPresentation?.packetRadius ?? (visualRequestRate > 150 ? 5.25 : 6.75)}
               fill={keyColor}
               stroke="var(--nss-panel)"
               strokeWidth={1.25}
@@ -630,7 +665,7 @@ export const PacketEdge = ({
         style={{ pointerEvents: 'all', ...(selected ? { opacity: 1 } : {}) }}
       />
 
-      {selected && (
+      {selected && !replicationPresentation && (
         <EdgeLabelRenderer>
           <div
             style={{
@@ -658,19 +693,19 @@ export const PacketEdge = ({
         </EdgeLabelRenderer>
       )}
 
-      {replicationPresentation && !isTracing && (
+      {replicationPresentation && !isTracing && emphasized && (
         <EdgeLabelRenderer>
           <div
             style={{
               position: 'absolute',
-              transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
+              transform: `translate(-50%, -50%) translate(${semanticBadgeAnchor.x}px, ${semanticBadgeAnchor.y}px)`,
               pointerEvents: 'none'
             }}
             className="nodrag nopan"
           >
             <span
               className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-nss-info/40 bg-nss-panel px-2 py-1 text-[9px] font-bold leading-none tracking-[0.08em] text-nss-info shadow-sm"
-              title="Leader-to-follower replication link"
+              title="Leader-to-follower replication link. Violet pulses are a rate-compressed view of committed writes, not packet-level log records."
               aria-label="Replication link"
             >
               <span className="h-1.5 w-1.5 rounded-full bg-nss-info" aria-hidden="true" />

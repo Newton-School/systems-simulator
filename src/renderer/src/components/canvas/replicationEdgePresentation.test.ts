@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import type { AnyNodeData } from '@renderer/types/ui'
-import { getReplicationEdgePresentation } from './replicationEdgePresentation'
+import {
+  getReplicationEdgePresentation,
+  replicationWriteRate,
+  shouldShowInactiveEdgeState
+} from './replicationEdgePresentation'
 
 const database = (sim: AnyNodeData['sim']): AnyNodeData =>
   ({ componentType: 'relational-db', sim }) as AnyNodeData
@@ -13,10 +17,47 @@ describe('getReplicationEdgePresentation', () => {
 
     expect(getReplicationEdgePresentation(leader, follower)).toMatchObject({
       label: 'REPLICATION',
-      strokeDasharray: '8 6'
+      strokeDasharray: '8 6',
+      idleStrokeWidth: 1.75,
+      idleOpacity: 0.62,
+      packetRadius: 4.25
     })
     expect(getReplicationEdgePresentation(implicitLeader, follower)).not.toBeNull()
     expect(getReplicationEdgePresentation(follower, leader)).toBeNull()
     expect(getReplicationEdgePresentation(leader, leader)).toBeNull()
+  })
+
+  it('does not call a configured replication link inactive when it has no request-flow record', () => {
+    expect(
+      shouldShowInactiveEdgeState({
+        runComplete: true,
+        hasFlowRecord: false,
+        isReplicationLink: true
+      })
+    ).toBe(false)
+
+    expect(
+      shouldShowInactiveEdgeState({
+        runComplete: true,
+        hasFlowRecord: false,
+        isReplicationLink: false
+      })
+    ).toBe(true)
+  })
+
+  it('derives an aggregate replication stream from committed leader writes', () => {
+    expect(
+      replicationWriteRate(
+        {
+          traitCounters: {
+            replicationPrimaryAcks: 400,
+            replicationQuorumWrites: 200
+          }
+        },
+        4_000
+      )
+    ).toBe(150)
+    expect(replicationWriteRate(undefined, 4_000)).toBe(0)
+    expect(replicationWriteRate({ traitCounters: { replicationPrimaryAcks: 10 } }, 0)).toBe(0)
   })
 })

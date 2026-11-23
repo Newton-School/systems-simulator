@@ -1213,6 +1213,11 @@ export const WorkspaceLayout = () => {
     [edges, lastRunGraph, nodes, scenario]
   )
 
+  const setRuntimeResultsStale = useStore((state) => state.setRuntimeResultsStale)
+  useEffect(() => {
+    setRuntimeResultsStale(resultsTopologyRelation === 'edited')
+  }, [resultsTopologyRelation, setRuntimeResultsStale])
+
   // Leave the post-run state and return to pre-run setup: discard the run's
   // results (node metrics, edge flow) and reset the lens back to the pre-run
   // family. The topology itself is untouched. sim.reset() clears the edge flow

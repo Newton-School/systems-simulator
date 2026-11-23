@@ -41,7 +41,7 @@ const SymbolNode = ({ id, data, selected }: NodeProps<StandardNodeData>) => {
   return (
     <div
       onContextMenu={handleContextMenu}
-      className={`group relative flex w-32 flex-col items-center ${replicationRole ? 'gap-3' : 'gap-1.5'}`}
+      className="group relative flex w-32 flex-col items-center gap-1.5"
     >
       <div
         className={`relative flex items-center justify-center rounded-xl p-1 transition-shadow duration-150 ${
@@ -56,10 +56,6 @@ const SymbolNode = ({ id, data, selected }: NodeProps<StandardNodeData>) => {
           errorRate={data.sim?.nodeErrorRate}
           className="-top-2 left-1/2 -translate-x-1/2"
         />
-        <div className="pointer-events-none absolute -bottom-2 left-1/2 z-40 -translate-x-1/2">
-          <ReplicationRoleBadge data={data} />
-        </div>
-
         {NODE_POSITIONS.map((pos) => (
           <React.Fragment key={pos}>
             {NODE_OFFSETS.map((offset, i) => (
@@ -83,6 +79,12 @@ const SymbolNode = ({ id, data, selected }: NodeProps<StandardNodeData>) => {
           />
         </div>
       </div>
+
+      {replicationRole && (
+        <div className="pointer-events-none z-40 -mt-2 flex min-h-4 max-w-[11rem] justify-center">
+          <ReplicationRoleBadge data={data} nodeId={id} />
+        </div>
+      )}
 
       <InlineEditableLabel
         value={classroomView?.label ?? (data.label || 'Service')}
