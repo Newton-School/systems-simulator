@@ -19,49 +19,63 @@
       "kind": "requirement",
       "text": "Replace the single database with one SQL primary and two SQL read replicas.",
       "status": "graded",
-      "checks": ["exact-topology-size"]
+      "checks": [
+        "exact-topology-size"
+      ]
     },
     {
       "id": "r-primary-role",
       "kind": "requirement",
       "text": "Use one SQL primary that receives all writes.",
       "status": "graded",
-      "checks": ["primary-database", "primary-role"]
+      "checks": [
+        "primary-database",
+        "primary-role"
+      ]
     },
     {
       "id": "r-write-routing",
       "kind": "requirement",
       "text": "Send every write (booking, cancelling, payment) to the primary.",
       "status": "graded",
-      "checks": ["writes-avoid-followers"]
+      "checks": [
+        "writes-avoid-followers"
+      ]
     },
     {
       "id": "r-replica-role",
       "kind": "requirement",
       "text": "Use two SQL read replicas that serve reads.",
       "status": "graded",
-      "checks": ["replica-databases", "replica-role"]
+      "checks": [
+        "replica-databases",
+        "replica-role"
+      ]
     },
     {
       "id": "r-read-routing",
       "kind": "requirement",
       "text": "Send reads (doctor search, free slots, my appointments) to the read replicas.",
       "status": "graded",
-      "checks": ["reads-served-by-replicas"]
+      "checks": [
+        "reads-served-by-replicas"
+      ]
     },
     {
       "id": "r-replication-links",
       "kind": "requirement",
       "text": "Connect the primary to each replica to show replication.",
       "status": "graded",
-      "checks": ["replication-fanout"]
+      "checks": [
+        "replication-fanout"
+      ]
     },
     {
       "id": "r-stale-read-explanation",
       "kind": "concept",
       "text": "A patient books a slot and immediately opens My appointments, but the booking is missing. Why, and how would you fix it?",
       "status": "explained",
-      "reason": "Observe-and-explain objective: learners reason about asynchronous replica lag and a read-after-write strategy, but no exact lag value is configured or graded."
+      "reason": "Explain-in-words objective: the simulator run applies replication instantly so a correct design shows no lag; learners reason about asynchronous replica lag and a read-after-write strategy in prose. No lag value is configured or graded."
     },
     {
       "id": "r-primary-failure-explanation",
@@ -99,7 +113,11 @@
       "reason": "This is the arithmetic consequence of 1,350 read RPS distributed across two replicas and is shown as learner context."
     }
   ],
-  "sanity": ["single-source", "connected-graph", "balancer-in-middle"],
+  "sanity": [
+    "single-source",
+    "connected-graph",
+    "balancer-in-middle"
+  ],
   "carriedForward": [],
   "advisories": []
 }

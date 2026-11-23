@@ -160,7 +160,7 @@
         "writeAckPolicy": "primary",
         "consensusProtocol": "raft",
         "replicationLagMs": 0,
-        "consistencyModel": "eventual"
+        "consistencyModel": "off"
       }
     },
     {
@@ -196,8 +196,8 @@
         "replicaMembers": "database-primary,database-replica-1,database-replica-2",
         "writeAckPolicy": "primary",
         "consensusProtocol": "raft",
-        "replicationLagMs": 200,
-        "consistencyModel": "eventual"
+        "replicationLagMs": 0,
+        "consistencyModel": "off"
       }
     },
     {
@@ -233,8 +233,8 @@
         "replicaMembers": "database-primary,database-replica-1,database-replica-2",
         "writeAckPolicy": "primary",
         "consensusProtocol": "raft",
-        "replicationLagMs": 300,
-        "consistencyModel": "eventual"
+        "replicationLagMs": 0,
+        "consistencyModel": "off"
       }
     }
   ],
