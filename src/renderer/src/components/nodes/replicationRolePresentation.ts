@@ -45,10 +45,10 @@ export function getReplicationRuntimePresentation(
   const nodeReport = consistency?.nodes.find((node) => node.nodeId === nodeId)
   if ((nodeReport?.staleReads ?? 0) > 0) {
     return {
-      label: 'FOLLOWER · STALE',
-      title: `Replication follower: ${nodeReport?.staleReads.toLocaleString()} reads returned an older committed version`,
-      className: 'border-nss-warning/40 bg-nss-warning/10 text-nss-warning',
-      dotClassName: 'bg-nss-warning'
+      label: 'FOLLOWER · LAGGING',
+      title: `Replication follower: ${nodeReport?.staleReads.toLocaleString()} reads returned an older committed version. This is expected with asynchronous replication, not an error.`,
+      className: 'border-nss-info/40 bg-nss-info/10 text-nss-info',
+      dotClassName: 'bg-nss-info'
     }
   }
   if ((nodeReport?.catchUpWaits ?? 0) > 0) {

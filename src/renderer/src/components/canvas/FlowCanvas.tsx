@@ -29,6 +29,7 @@ import { resolveClassroomNodeView, useClassroomActive } from '@renderer/hooks/us
 import { useCopyPaste } from './hooks/useCopyPaste'
 import { useFlowStore } from './hooks/useFlowStore'
 import { useFlowDnD } from './hooks/useFlowDnD'
+import { applyReplicationGroupCollapse } from './replicationGroupCollapse'
 import { nodeTypes, edgeTypes, defaultEdgeOptions, GRID_COLOR } from './config/flowConfig'
 import { snapStateRef, useMagneticSnap } from './hooks/useMagneticSnap'
 import { useHandleProximity } from './hooks/useHandleProximity'
@@ -211,6 +212,11 @@ const FlowCanvasInternal = ({
   } = useFlowStore()
 
   const selectGraphElements = useStore((state) => state.selectGraphElements)
+  const [replicationGroupCollapsed, setReplicationGroupCollapsed] = useState(true)
+  const replicationView = useMemo(
+    () => applyReplicationGroupCollapse(nodes, edges, replicationGroupCollapsed),
+    [nodes, edges, replicationGroupCollapsed]
+  )
   const clearSimulationMetrics = useStore((state) => state.clearSimulationMetrics)
   const clearEdgeFlow = useStore((state) => state.clearEdgeFlow)
   const setRoutingStrategyVisualization = useStore((state) => state.setRoutingStrategyVisualization)
@@ -1116,7 +1122,7 @@ const FlowCanvasInternal = ({
       )}
       <ReactFlow
         nodes={nodes}
-        edges={edges}
+        edges={replicationView.edges}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={handleConnect}
@@ -1207,6 +1213,18 @@ const FlowCanvasInternal = ({
       ) : null}
       {!isEmpty && showMetricLens && !classroomActive && !symbolsOnly && <MetricLensSwitcher />}
       {!isEmpty && showMetricLens && !symbolsOnly && <CanvasLegend />}
+      {replicationView.collapsibleCount > 0 && !presentationMode ? (
+        <button
+          type="button"
+          onClick={() => setReplicationGroupCollapsed((value) => !value)}
+          title="Display only: the stored topology, routing and grading are unchanged."
+          className="pointer-events-auto absolute right-3 top-3 z-20 rounded-full border border-nss-border bg-nss-panel/95 px-3 py-1.5 text-[11px] font-medium text-nss-text shadow backdrop-blur hover:border-nss-primary/50"
+        >
+          {replicationGroupCollapsed
+            ? `Show ${replicationView.collapsibleCount} replica read paths`
+            : 'Collapse replica read paths'}
+        </button>
+      ) : null}
       <RequestTraceOverlay />
       <RequestDebugOverlay />
 
@@ -1221,7 +1239,11 @@ const FlowCanvasInternal = ({
           Boolean(emptyState)
         }
       />
-      {!hideEmptyState && emptyState && isEmpty && !pendingNodePlacement && !annotationToolActive ? (
+      {!hideEmptyState &&
+      emptyState &&
+      isEmpty &&
+      !pendingNodePlacement &&
+      !annotationToolActive ? (
         <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
           {emptyState}
         </div>

@@ -97,8 +97,8 @@ describe('buildReplicationConfigSummary', () => {
     })
 
     expect(summary).toMatchObject({
-      status: 'Replica served stale reads',
-      tone: 'warning'
+      status: 'Replica lagging behind the leader (expected with async replication)',
+      tone: 'info'
     })
     expect(summary?.metrics).toContainEqual({ label: 'Stale reads', value: '25 · 2.5%' })
     expect(summary?.metrics).toContainEqual({ label: 'Configured lag', value: '40 ms' })

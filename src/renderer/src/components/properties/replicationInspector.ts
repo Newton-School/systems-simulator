@@ -167,9 +167,9 @@ export function buildReplicationResultsSummary({
       reads === 0
         ? 'No replica reads observed'
         : staleReads > 0
-          ? 'Replica served stale reads'
+          ? 'Replica lagging behind the leader (expected with async replication)'
           : 'Replica reads up to date',
-    tone: reads === 0 ? 'info' : staleReads > 0 ? 'warning' : 'healthy',
+    tone: reads === 0 || staleReads > 0 ? 'info' : 'healthy',
     metrics: [
       { label: 'Replica reads', value: reads.toLocaleString() },
       {

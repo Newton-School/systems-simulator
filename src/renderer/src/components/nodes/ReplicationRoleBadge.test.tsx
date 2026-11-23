@@ -53,7 +53,7 @@ describe('getReplicationRolePresentation', () => {
           nodes: [{ nodeId: 'follower', reads: 100, staleReads: 2, catchUpWaits: 0 }]
         } as never
       )?.label
-    ).toBe('FOLLOWER · STALE')
+    ).toBe('FOLLOWER · LAGGING')
   })
 
   it('shows degraded leader state when quorum or failover affects writes', () => {
