@@ -11,6 +11,9 @@ import { NodeSymbol } from './symbols/NodeSymbol'
 import { NodeFailureBadge } from './NodeFailureBadge'
 import { ReplicationRoleBadge } from './ReplicationRoleBadge'
 import { getReplicationRolePresentation } from './replicationRolePresentation'
+import { ClusterGlyph, CLUSTER_GLYPH_HEIGHT, CLUSTER_GLYPH_WIDTH } from './ClusterGlyph'
+import { ClusterSummaryChips } from './ClusterSummaryChips'
+import { useReplicationView } from '@renderer/components/canvas/replicationViewStore'
 
 const SYMBOL_SIZE = 72
 
@@ -23,6 +26,13 @@ const SymbolNode = ({ id, data, selected }: NodeProps<StandardNodeData>) => {
   const classroomView = useClassroomNodeView(data)
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const replicationRole = getReplicationRolePresentation(data)
+  const clusterCollapsed = useReplicationView((state) => state.clusterCollapsed)
+  const followerIds = String(data.sim?.replicaMembers ?? '')
+    .split(',')
+    .map((member) => member.trim())
+    .filter((member) => member && member !== id)
+  const isCollapsedCluster =
+    clusterCollapsed && replicationRole?.label === 'LEADER' && followerIds.length > 0
 
   const handleLabelChange = useCallback(
     (label: string) => updateNodeData(id, { label }),
@@ -47,10 +57,18 @@ const SymbolNode = ({ id, data, selected }: NodeProps<StandardNodeData>) => {
         className={`relative flex items-center justify-center rounded-xl p-1 transition-shadow duration-150 ${
           selected ? 'ring-2 ring-nss-primary' : 'hover:ring-1 hover:ring-nss-border'
         }`}
-        style={{ width: SYMBOL_SIZE + 8, height: SYMBOL_SIZE + 8 }}
+        style={
+          isCollapsedCluster
+            ? { width: CLUSTER_GLYPH_WIDTH + 8, height: CLUSTER_GLYPH_HEIGHT + 8 }
+            : { width: SYMBOL_SIZE + 8, height: SYMBOL_SIZE + 8 }
+        }
       >
         <div className={(data.sim?.nodeErrorRate ?? 0) >= 1 ? 'opacity-45 grayscale' : undefined}>
-          <NodeSymbol templateId={data.templateId} size={SYMBOL_SIZE} />
+          {isCollapsedCluster ? (
+            <ClusterGlyph templateId={data.templateId} followerCount={followerIds.length} />
+          ) : (
+            <NodeSymbol templateId={data.templateId} size={SYMBOL_SIZE} />
+          )}
         </div>
         <NodeFailureBadge
           errorRate={data.sim?.nodeErrorRate}
@@ -85,6 +103,8 @@ const SymbolNode = ({ id, data, selected }: NodeProps<StandardNodeData>) => {
           <ReplicationRoleBadge data={data} nodeId={id} />
         </div>
       )}
+
+      {isCollapsedCluster && <ClusterSummaryChips leaderId={id} followerIds={followerIds} />}
 
       <InlineEditableLabel
         value={classroomView?.label ?? (data.label || 'Service')}

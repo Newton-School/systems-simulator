@@ -38,7 +38,6 @@ export function ReplicationRoleBadge({
   )
   const replayMs = useReplicationView((state) => state.replayMs)
   const showLag = useReplicationView((state) => state.lag)
-  const clusterCollapsed = useReplicationView((state) => state.clusterCollapsed)
   const presentation = getReplicationRuntimePresentation(data, nodeId, metrics, consistency)
   if (!presentation) return null
   const replaying = replayMs !== null && timeline !== undefined
@@ -69,15 +68,6 @@ export function ReplicationRoleBadge({
             motion: 'nss-role-promote'
           }
         : { ...presentation, motion: '' }
-  const hiddenFollowers =
-    roleWord === 'LEADER'
-      ? Math.max(
-          0,
-          String(data.sim?.replicaMembers ?? '')
-            .split(',')
-            .filter((id) => id.trim()).length - 1
-        )
-      : 0
   const rateChip = getReplicationRateChip(data, nodeId, metrics, consistency, windowMs)
   const lagChip = showLag ? getReplicationLagChip(data, nodeId, metrics, consistency) : null
 
@@ -91,14 +81,6 @@ export function ReplicationRoleBadge({
         <span className={`h-1.5 w-1.5 rounded-full ${badge.dotClassName}`} aria-hidden="true" />
         {badge.label}
       </span>
-      {clusterCollapsed && hiddenFollowers > 0 && (
-        <span
-          className="whitespace-nowrap rounded-full border border-nss-info/40 bg-nss-info/10 px-1.5 py-0.5 text-[9px] font-semibold leading-none text-nss-info"
-          title="The followers are hidden while the replication group is collapsed."
-        >
-          Cluster · +{hiddenFollowers} follower{hiddenFollowers === 1 ? '' : 's'}
-        </span>
-      )}
       {rateChip && (
         <span
           className="whitespace-nowrap rounded-full border border-nss-border bg-nss-panel px-1.5 py-0.5 text-[9px] font-semibold leading-none text-nss-text"
