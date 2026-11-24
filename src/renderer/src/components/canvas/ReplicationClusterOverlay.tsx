@@ -6,7 +6,7 @@ import { findReplicationGroups, type GroupNodeLike } from './replicationClusterG
  * Draws a dashed boundary around each replication group so the databases read
  * as one cluster. Display-only and click-through.
  */
-export function ReplicationClusterOverlay() {
+export function ReplicationClusterOverlay({ hiddenPaths = 0 }: { hiddenPaths?: number }) {
   const { x, y, zoom } = useViewport()
   const nodeInternals = useFlowView((state) => state.nodeInternals)
   const groups = useMemo(
@@ -29,6 +29,7 @@ export function ReplicationClusterOverlay() {
             <span className="absolute -top-2.5 left-4 rounded-full border border-nss-info/40 bg-nss-panel px-2 py-0.5 text-[10px] font-semibold tracking-wide text-nss-info">
               Replication group · 1 leader · {group.followerCount} follower
               {group.followerCount === 1 ? '' : 's'}
+              {hiddenPaths > 0 ? ` · ${hiddenPaths} paths hidden` : ''}
             </span>
           </div>
         ))}

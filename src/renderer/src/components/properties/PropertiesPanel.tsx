@@ -59,6 +59,8 @@ import { IdAllocationSection } from './IdAllocationSection'
 import { ConnectionCapacitySection } from './ConnectionCapacitySection'
 import { ReplicationConfigSummary } from './ReplicationConfigSummary'
 import { ReplicationResultsSummary } from './ReplicationResultsSummary'
+import { ReplicationViewSection } from './ReplicationViewSection'
+import { ReplicationReplayControl } from './ReplicationReplayControl'
 import {
   deriveDisplayThroughputCapacity,
   formatCapacityRps
@@ -1722,6 +1724,7 @@ export const PropertiesPanel = ({
               />
             ) : (
               <>
+                {data.sim?.replicationEnabled === true && <ReplicationReplayControl />}
                 <ReplicationResultsSummary
                   nodeId={selectedNode.id}
                   data={data}
@@ -1803,6 +1806,7 @@ export const PropertiesPanel = ({
           ) : (
             <>
               <ReplicationConfigSummary nodeId={selectedNode.id} data={data} nodes={nodes} />
+              <ReplicationViewSection data={data} />
               {throughputCapacity ? (
                 <div className="mb-3 rounded-md border border-nss-border bg-nss-panel/60 px-3 py-2">
                   <div className="flex items-baseline justify-between">

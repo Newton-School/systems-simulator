@@ -32,7 +32,6 @@ import { useFlowDnD } from './hooks/useFlowDnD'
 import { applyReplicationGroupCollapse } from './replicationGroupCollapse'
 import { findReplicationGroups } from './replicationClusterGroups'
 import { ReplicationClusterOverlay } from './ReplicationClusterOverlay'
-import { ReplicationViewControls } from './ReplicationViewControls'
 import { useReplicationView } from './replicationViewStore'
 import { getReplayNodeState } from '../nodes/replicationReplay'
 import { nodeTypes, edgeTypes, defaultEdgeOptions, GRID_COLOR } from './config/flowConfig'
@@ -236,6 +235,10 @@ const FlowCanvasInternal = ({
       .map((node) => node.id)
       .join(',')
   }, [nodes, replayMs, replayTimeline])
+  // The view options live in the replication inspector; once no group is left they must not stay switched off.
+  useEffect(() => {
+    if (!hasReplicationGroup) useReplicationView.setState({ animation: true, replayMs: null })
+  }, [hasReplicationGroup])
   const replicationView = useMemo(
     () =>
       applyReplicationGroupCollapse(
@@ -1244,10 +1247,7 @@ const FlowCanvasInternal = ({
       {!isEmpty && showMetricLens && !classroomActive && !symbolsOnly && <MetricLensSwitcher />}
       {!isEmpty && showMetricLens && !symbolsOnly && <CanvasLegend />}
       {hasReplicationGroup ? (
-        <>
-          <ReplicationClusterOverlay />
-          {!presentationMode ? <ReplicationViewControls /> : null}
-        </>
+        <ReplicationClusterOverlay hiddenPaths={replicationView.hiddenCount} />
       ) : null}
       <RequestTraceOverlay />
       <RequestDebugOverlay />
