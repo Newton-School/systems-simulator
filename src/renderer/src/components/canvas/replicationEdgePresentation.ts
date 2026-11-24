@@ -44,3 +44,36 @@ export function replicationWriteRate(
     Math.max(0, counters.replicationQuorumWrites ?? 0)
   return committedWrites / (observationWindowMs / 1000)
 }
+
+export type RoutingPulseKind = 'write' | 'read' | 'replication' | null
+
+function replicationRoleOf(data: AnyNodeData | undefined): 'leader' | 'follower' | null {
+  if (data?.sim?.replicationEnabled !== true) return null
+  const role = data.sim.replicationRole ?? 'leader'
+  if (role === 'leader' || role === 'primary') return 'leader'
+  if (role === 'follower' || role === 'replica') return 'follower'
+  return null
+}
+
+/**
+ * Which kind of traffic an edge carries in a read/write-split replication
+ * group, from the node roles alone: callers send writes to the leader and
+ * reads to followers; leader→follower links carry replication. Edges into a
+ * leader with no followers (no split) stay uncoloured.
+ */
+export function getRoutingPulseKind(
+  source: AnyNodeData | undefined,
+  target: AnyNodeData | undefined
+): RoutingPulseKind {
+  if (isReplicationLink(source, target)) return 'replication'
+  if (replicationRoleOf(source) !== null) return null
+  const targetRole = replicationRoleOf(target)
+  if (targetRole === 'follower') return 'read'
+  if (targetRole === 'leader') {
+    const members = String(target?.sim?.replicaMembers ?? '')
+      .split(',')
+      .filter((id) => id.trim()).length
+    return members > 1 ? 'write' : null
+  }
+  return null
+}

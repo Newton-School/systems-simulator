@@ -4,6 +4,7 @@ import { useReplicationView } from '@renderer/components/canvas/replicationViewS
 import { getFailoverState, getQuorumChip } from './replicationFailoverPresentation'
 import {
   getReplicationLagChip,
+  getReplicationRateChip,
   getReplicationRuntimePresentation
 } from './replicationRolePresentation'
 
@@ -30,6 +31,7 @@ export function ReplicationRoleBadge({
   const projections = useStore((state) =>
     liveMetricsVisible && !resultsStale ? state.lastRunOutput?.replicationProjection : undefined
   )
+  const windowMs = useStore((state) => state.edgeFlowRunConfig?.simulationDurationMs ?? 0)
   const showLag = useReplicationView((state) => state.lag)
   const presentation = getReplicationRuntimePresentation(data, nodeId, metrics, consistency)
   if (!presentation) return null
@@ -54,6 +56,7 @@ export function ReplicationRoleBadge({
             motion: 'nss-role-promote'
           }
         : { ...presentation, motion: '' }
+  const rateChip = getReplicationRateChip(data, nodeId, metrics, consistency, windowMs)
   const lagChip = showLag ? getReplicationLagChip(data, nodeId, metrics, consistency) : null
 
   return (
@@ -66,6 +69,14 @@ export function ReplicationRoleBadge({
         <span className={`h-1.5 w-1.5 rounded-full ${badge.dotClassName}`} aria-hidden="true" />
         {badge.label}
       </span>
+      {rateChip && (
+        <span
+          className="whitespace-nowrap rounded-full border border-nss-border bg-nss-panel px-1.5 py-0.5 text-[9px] font-semibold leading-none text-nss-text"
+          title={rateChip.title}
+        >
+          {rateChip.label}
+        </span>
+      )}
       {quorum && (
         <span
           className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[9px] font-semibold leading-none ${
