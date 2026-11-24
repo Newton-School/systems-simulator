@@ -1,4 +1,5 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
+import useStore from '@renderer/store/useStore'
 import { useReplicationView, type ReplicationViewState } from './replicationViewStore'
 
 const OPTIONS: {
@@ -13,8 +14,37 @@ const OPTIONS: {
 ]
 
 /** Display-only toggles; the stored topology, routing and grading never change. */
+const REPLAY_WALL_MS = 9_000
+const REPLAY_STEP_MS = 100
+
 export function ReplicationViewControls() {
   const view = useReplicationView()
+  const timeline = useStore((state) =>
+    state.runtimeResultsStale ? undefined : state.lastRunOutput?.replicationTimeline
+  )
+  const durationMs = useStore((state) => state.lastRunOutput?.simulationDuration ?? 0)
+  const frame = useRef<number | null>(null)
+  const stopReplay = () => {
+    if (frame.current !== null) cancelAnimationFrame(frame.current)
+    frame.current = null
+    useReplicationView.getState().setReplayMs(null)
+  }
+  const startReplay = () => {
+    if (durationMs <= 0) return
+    const begin = performance.now()
+    const tick = (now: number) => {
+      const progress = (now - begin) / REPLAY_WALL_MS
+      if (progress >= 1) return stopReplay()
+      const simMs = Math.floor((progress * durationMs) / REPLAY_STEP_MS) * REPLAY_STEP_MS
+      if (useReplicationView.getState().replayMs !== simMs) {
+        useReplicationView.getState().setReplayMs(simMs)
+      }
+      frame.current = requestAnimationFrame(tick)
+    }
+    useReplicationView.getState().setReplayMs(0)
+    frame.current = requestAnimationFrame(tick)
+  }
+  useEffect(() => () => stopReplay(), [])
   // Never leave animation switched off once the controls (and so the toggle) are gone.
   useEffect(() => () => useReplicationView.setState({ animation: true }), [])
   return (
@@ -43,6 +73,17 @@ export function ReplicationViewControls() {
           )
         })}
       </div>
+      {timeline && timeline.length > 0 && (
+        <button
+          type="button"
+          onClick={view.replayMs === null ? startReplay : stopReplay}
+          className="rounded-full border border-nss-info/40 bg-nss-panel/95 px-3 py-1 text-[11px] font-medium text-nss-info shadow backdrop-blur hover:bg-nss-info/10"
+        >
+          {view.replayMs === null
+            ? '▶ Replay failover'
+            : `■ Stop · t = ${(view.replayMs / 1000).toFixed(1)} s`}
+        </button>
+      )}
       <div className="flex items-center gap-3 rounded-full border border-nss-border bg-nss-panel/90 px-3 py-1 text-[10px] text-nss-muted backdrop-blur">
         <span className="inline-flex items-center gap-1">
           <span className="h-2 w-2 rounded-full bg-nss-primary" aria-hidden="true" /> Write → leader

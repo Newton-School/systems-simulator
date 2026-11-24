@@ -16,6 +16,7 @@ import { resolveEdgeLensProjection } from './edgeLensPresentation'
 import { getCanvasEdgePath } from './edgePathGeometry'
 import { directionCueScale, legibleStrokeWidth, midEdgeChevronPositions } from './edgeDirectionCues'
 import { useReplicationView } from './replicationViewStore'
+import { getReplayNodeState } from '../nodes/replicationReplay'
 import {
   getReplicationEdgePresentation,
   getRoutingPulseKind,
@@ -187,7 +188,22 @@ export const PacketEdge = ({
   const sourceNodeData = nodes.find((node) => node.id === source)?.data as AnyNodeData | undefined
   const targetNodeData = nodes.find((node) => node.id === target)?.data as AnyNodeData | undefined
   const replicationPresentation = getReplicationEdgePresentation(sourceNodeData, targetNodeData)
-  const pulseKind = getRoutingPulseKind(sourceNodeData, targetNodeData)
+  const replayMs = useReplicationView((state) => state.replayMs)
+  const replayTimeline = useStore((state) =>
+    replayMs !== null && !state.runtimeResultsStale
+      ? state.lastRunOutput?.replicationTimeline
+      : undefined
+  )
+  const replayTargetState =
+    replayMs !== null && replayTimeline && targetNodeData
+      ? getReplayNodeState(replayTimeline, target, targetNodeData, replayMs)
+      : null
+  // Writes follow the leader: after promotion the route to the new leader carries them.
+  const pulseKind =
+    replayTargetState?.kind === 'promoted' && !replicationPresentation
+      ? 'write'
+      : getRoutingPulseKind(sourceNodeData, targetNodeData)
+  const replayTargetDown = replayTargetState?.kind === 'down' && !replicationPresentation
   const showAnimation = useReplicationView((state) => state.animation)
   const edgeMode = inferCanvasEdgeMode(
     {
@@ -396,7 +412,7 @@ export const PacketEdge = ({
   // Health severity drives the stroke colour and is computed independently of
   // the active lens, so a failing link stays red even under a non-error lens.
   const failureStroke =
-    lensProjection.severity === 'crit'
+    replayTargetDown || lensProjection.severity === 'crit'
       ? FLOW_DANGER_COLOR
       : lensProjection.severity === 'warn'
         ? FLOW_WARNING_COLOR
@@ -580,6 +596,7 @@ export const PacketEdge = ({
 
       {!isTracing &&
         showAnimation &&
+        !replayTargetDown &&
         Array.from({ length: streamPacketCount }, (_, index) => {
           const speedJitter = packetSpeedJitter(runConfig?.workload.pattern, id, index)
           const duration =

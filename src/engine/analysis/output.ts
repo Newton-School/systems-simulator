@@ -270,6 +270,16 @@ export interface AcceptedWorkConservation {
   lost: number
 }
 
+/** Leader failover milestones for the canvas replay (ms of simulated time). */
+export interface ReplicationTimelineEvent {
+  atMs: number
+  type: 'leader-down' | 'election-started' | 'leader-elected' | 'leader-recovered'
+  /** Leader that went down / recovered, or the follower that was elected. */
+  nodeId: string
+  /** For `leader-elected`: the leader it replaced. */
+  replacedNodeId?: string
+}
+
 export interface ReplicationProjection {
   clusterId: string
   protocol: string
@@ -341,6 +351,8 @@ export interface SimulationOutput {
   acceptedWorkConservation: AcceptedWorkConservation
   /** Durable replication cluster projections for storage nodes with replication enabled. */
   replicationProjection: ReplicationProjection[]
+  /** Leader failure, election, promotion and recovery milestones, in time order. */
+  replicationTimeline?: ReplicationTimelineEvent[]
   /**
    * Read-consistency oracles for datastores with a `consistencyModel`: stale
    * reads, read-your-writes / monotonic-read violations, catch-up waits, and a
@@ -528,6 +540,7 @@ export function generateSimulationOutput(
     streamProjection?: StreamBrokerProjection[]
     acceptedWorkConservation?: AcceptedWorkConservation
     replicationProjection?: ReplicationProjection[]
+    replicationTimeline?: ReplicationTimelineEvent[]
   }
 ): SimulationOutput {
   const summary = metrics.generateSummary(config.simulationDuration)
@@ -588,6 +601,9 @@ export function generateSimulationOutput(
       lost: 0
     },
     replicationProjection: debugData?.replicationProjection ?? [],
+    ...(debugData?.replicationTimeline?.length
+      ? { replicationTimeline: debugData.replicationTimeline }
+      : {}),
     // Real value is filled in by the engine (which holds the topology); [] here.
     singlePointsOfFailure: []
   }
