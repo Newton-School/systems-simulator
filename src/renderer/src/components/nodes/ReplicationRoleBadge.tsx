@@ -1,6 +1,7 @@
 import type { AnyNodeData } from '@renderer/types/ui'
 import useStore from '@renderer/store/useStore'
 import { useReplicationView } from '@renderer/components/canvas/replicationViewStore'
+import { getReplayNodeState, replayBadge } from './replicationReplay'
 import { getFailoverState, getQuorumChip } from './replicationFailoverPresentation'
 import {
   getReplicationLagChip,
@@ -32,14 +33,25 @@ export function ReplicationRoleBadge({
     liveMetricsVisible && !resultsStale ? state.lastRunOutput?.replicationProjection : undefined
   )
   const windowMs = useStore((state) => state.edgeFlowRunConfig?.simulationDurationMs ?? 0)
+  const timeline = useStore((state) =>
+    liveMetricsVisible && !resultsStale ? state.lastRunOutput?.replicationTimeline : undefined
+  )
+  const replayMs = useReplicationView((state) => state.replayMs)
   const showLag = useReplicationView((state) => state.lag)
   const presentation = getReplicationRuntimePresentation(data, nodeId, metrics, consistency)
   if (!presentation) return null
-  const failover = getFailoverState(data, nodeId, metrics?.traitCounters, statusWindows)
+  const replaying = replayMs !== null && timeline !== undefined
+  const replayState =
+    replaying && nodeId ? getReplayNodeState(timeline, nodeId, data, replayMs) : null
+  // While replaying, the badge follows the replay clock instead of the end-of-run state.
+  const failover = replaying
+    ? null
+    : getFailoverState(data, nodeId, metrics?.traitCounters, statusWindows)
   const quorum = getQuorumChip(data, nodeId, metrics?.traitCounters, projections)
   const roleWord = presentation.label.split(' ')[0]
-  const badge =
-    failover?.kind === 'unavailable'
+  const badge = replayState
+    ? replayBadge(replayState, roleWord)
+    : failover?.kind === 'unavailable'
       ? {
           label: `${roleWord} · UNAVAILABLE`,
           title: `${roleWord === 'LEADER' ? 'Leader' : 'Follower'} was down for ${failover.seconds.toFixed(1)} s during the run.`,

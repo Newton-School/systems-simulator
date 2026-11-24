@@ -49,7 +49,8 @@ export function applyReplicationGroupCollapse(
   nodes: readonly NodeLike[],
   edges: readonly Edge[],
   collapsed: boolean,
-  showReplicationLinks = true
+  showReplicationLinks = true,
+  revealNodeIds: ReadonlySet<string> = new Set()
 ): { edges: Edge[]; hiddenCount: number; collapsibleCount: number } {
   const collapsible = new Set(collapsibleReplicationEdgeIds(nodes, edges))
   const dataById = new Map(nodes.map((node) => [node.id, node.data as AnyNodeData | undefined]))
@@ -77,7 +78,8 @@ export function applyReplicationGroupCollapse(
       !collapsible.has(edge.id) ||
       edge.selected ||
       selectedNodes.has(edge.source) ||
-      selectedNodes.has(edge.target)
+      selectedNodes.has(edge.target) ||
+      revealNodeIds.has(edge.target)
     ) {
       return edge
     }

@@ -9,6 +9,9 @@ export interface ReplicationViewState {
   lag: boolean
   /** Show the moving request packets on edges. */
   animation: boolean
+  /** Simulated ms of the failover replay in progress, or null when not replaying. */
+  replayMs: number | null
+  setReplayMs: (value: number | null) => void
   toggle: (key: 'routing' | 'replication' | 'lag' | 'animation') => void
 }
 
@@ -18,5 +21,7 @@ export const useReplicationView = create<ReplicationViewState>((set) => ({
   replication: true,
   lag: true,
   animation: true,
+  replayMs: null,
+  setReplayMs: (value) => set({ replayMs: value }),
   toggle: (key) => set((state) => ({ [key]: !state[key] }) as Partial<ReplicationViewState>)
 }))

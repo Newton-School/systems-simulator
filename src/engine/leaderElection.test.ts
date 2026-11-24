@@ -102,3 +102,23 @@ describe('leader election', () => {
     expect(failedBetween(8_000, 15_000)).toBeGreaterThan(600)
   })
 })
+
+describe('replication timeline', () => {
+  it('records leader down, election start and election', () => {
+    const { out } = run(2_000)
+    const timeline = out.replicationTimeline ?? []
+    expect(timeline.map((event) => event.type)).toEqual([
+      'leader-down',
+      'election-started',
+      'leader-elected'
+    ])
+    expect(timeline[0]).toMatchObject({ nodeId: 'p', atMs: 5_000 })
+    expect(timeline[2]).toMatchObject({ replacedNodeId: 'p', atMs: 7_000 })
+    expect(timeline[2].nodeId).not.toBe('p')
+  })
+
+  it('has no timeline without a leader failure', () => {
+    const { out } = run(2_000, [])
+    expect(out.replicationTimeline).toBeUndefined()
+  })
+})

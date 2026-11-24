@@ -2,6 +2,7 @@ import {
   AcceptedWorkConservation,
   generateSimulationOutput,
   ReplicationProjection,
+  ReplicationTimelineEvent,
   SimulationOutput,
   StreamBrokerProjection,
   StatusWindow,
@@ -449,6 +450,7 @@ export class SimulationEngine {
   private pendingInFlightMetricsFlushed = false
   private readonly timeSeries: TimeSeriesSnapshot[] = []
   /** Open/closed failure intervals per component, for the status-timeline artifact. */
+  private readonly replicationTimeline: ReplicationTimelineEvent[] = []
   private readonly statusWindows: Array<{
     componentId: string
     mode: string
@@ -2309,6 +2311,7 @@ export class SimulationEngine {
       })
     }
     this.recordSimulationEvent(event, this.createNodeSnapshot(event.nodeId))
+    this.recordLeaderFailureMilestones(event.nodeId)
     this.updateReplicationClustersForNodeStatus(event.nodeId, false)
     if (this.isStreamBrokerNode(event.nodeId)) {
       this.setStreamBrokerAvailability(event.nodeId, false, 'node-failure')
@@ -2370,6 +2373,13 @@ export class SimulationEngine {
       open.endUs = this.clock
     }
     this.recordSimulationEvent(event, this.createNodeSnapshot(event.nodeId))
+    if (this.isReplicationLeaderConfig(event.nodeId)) {
+      this.replicationTimeline.push({
+        atMs: microToMs(this.clock),
+        type: 'leader-recovered',
+        nodeId: event.nodeId
+      })
+    }
     this.updateReplicationClustersForNodeStatus(event.nodeId, true)
     if (this.isStreamBrokerNode(event.nodeId)) {
       this.setStreamBrokerAvailability(event.nodeId, true, 'node-recovery')
@@ -2496,6 +2506,24 @@ export class SimulationEngine {
 
   private handleBrokerRecovery(event: SimulationEvent): void {
     this.setStreamBrokerAvailability(event.nodeId, true, 'broker-recovery')
+  }
+
+  private isReplicationLeaderConfig(nodeId: string): boolean {
+    const config = this.nodeDefinitionsById.get(nodeId)?.config
+    const role = config?.['replicationRole']
+    return config?.['replicationEnabled'] === true && (role === 'leader' || role === 'primary')
+  }
+
+  /** Records a replication leader going down and, for a quorum store with an election timeout, the election start. */
+  private recordLeaderFailureMilestones(nodeId: string): void {
+    if (!this.isReplicationLeaderConfig(nodeId)) return
+    const atMs = microToMs(this.clock)
+    this.replicationTimeline.push({ atMs, type: 'leader-down', nodeId })
+    const config = this.nodeDefinitionsById.get(nodeId)?.config
+    const timeoutMs = config?.['electionTimeoutMs']
+    if (config?.['writeAckPolicy'] === 'quorum' && typeof timeoutMs === 'number' && timeoutMs > 0) {
+      this.replicationTimeline.push({ atMs, type: 'election-started', nodeId })
+    }
   }
 
   /** Finalize failure intervals (ms): windows still open at cutoff close at the run horizon. */
@@ -3121,6 +3149,12 @@ export class SimulationEngine {
           config: { ...electedDefinition.config, replicationRole: 'leader' }
         })
         this.metrics.recordNodeTraitCounters(elected, { leaderElected: 1 })
+        this.replicationTimeline.push({
+          atMs: microToMs(down.startUs + msToMicro(timeoutMs)),
+          type: 'leader-elected',
+          nodeId: elected,
+          replacedNodeId: leader.id
+        })
       }
       changed = true
       return { ...route, targetNodeId: elected }
@@ -4040,7 +4074,8 @@ export class SimulationEngine {
         requestOutcomesSampled: this.requestOutcomeTotal > DEFAULT_MAX_RETAINED_REQUEST_OUTCOMES,
         streamProjection: this.buildStreamProjection(),
         acceptedWorkConservation: { ...this.acceptedWorkConservation },
-        replicationProjection: this.buildReplicationProjection()
+        replicationProjection: this.buildReplicationProjection(),
+        replicationTimeline: this.replicationTimeline.slice().sort((a, b) => a.atMs - b.atMs)
       }
     )
 

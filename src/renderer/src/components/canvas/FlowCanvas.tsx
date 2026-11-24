@@ -32,8 +32,8 @@ import { useFlowDnD } from './hooks/useFlowDnD'
 import { applyReplicationGroupCollapse } from './replicationGroupCollapse'
 import { findReplicationGroups } from './replicationClusterGroups'
 import { ReplicationClusterOverlay } from './ReplicationClusterOverlay'
-import { ReplicationViewControls } from './ReplicationViewControls'
 import { useReplicationView } from './replicationViewStore'
+import { getReplayNodeState } from '../nodes/replicationReplay'
 import { nodeTypes, edgeTypes, defaultEdgeOptions, GRID_COLOR } from './config/flowConfig'
 import { snapStateRef, useMagneticSnap } from './hooks/useMagneticSnap'
 import { useHandleProximity } from './hooks/useHandleProximity'
@@ -219,9 +219,36 @@ const FlowCanvasInternal = ({
   const showRoutingPaths = useReplicationView((state) => state.routing)
   const showReplicationLinks = useReplicationView((state) => state.replication)
   const hasReplicationGroup = useMemo(() => findReplicationGroups(nodes).length > 0, [nodes])
+  const replayMs = useReplicationView((state) => state.replayMs)
+  const replayTimeline = useStore((state) =>
+    state.runtimeResultsStale ? undefined : state.lastRunOutput?.replicationTimeline
+  )
+  // During a failover replay, the route to the newly elected leader must be visible.
+  const promotedKey = useMemo(() => {
+    if (replayMs === null || !replayTimeline) return ''
+    return nodes
+      .filter(
+        (node) =>
+          getReplayNodeState(replayTimeline, node.id, node.data as never, replayMs)?.kind ===
+          'promoted'
+      )
+      .map((node) => node.id)
+      .join(',')
+  }, [nodes, replayMs, replayTimeline])
+  // The view options live in the replication inspector; once no group is left they must not stay switched off.
+  useEffect(() => {
+    if (!hasReplicationGroup) useReplicationView.setState({ animation: true, replayMs: null })
+  }, [hasReplicationGroup])
   const replicationView = useMemo(
-    () => applyReplicationGroupCollapse(nodes, edges, !showRoutingPaths, showReplicationLinks),
-    [nodes, edges, showRoutingPaths, showReplicationLinks]
+    () =>
+      applyReplicationGroupCollapse(
+        nodes,
+        edges,
+        !showRoutingPaths,
+        showReplicationLinks,
+        new Set(promotedKey ? promotedKey.split(',') : [])
+      ),
+    [nodes, edges, showRoutingPaths, showReplicationLinks, promotedKey]
   )
   const clearSimulationMetrics = useStore((state) => state.clearSimulationMetrics)
   const clearEdgeFlow = useStore((state) => state.clearEdgeFlow)
@@ -1220,10 +1247,7 @@ const FlowCanvasInternal = ({
       {!isEmpty && showMetricLens && !classroomActive && !symbolsOnly && <MetricLensSwitcher />}
       {!isEmpty && showMetricLens && !symbolsOnly && <CanvasLegend />}
       {hasReplicationGroup ? (
-        <>
-          <ReplicationClusterOverlay />
-          {!presentationMode ? <ReplicationViewControls /> : null}
-        </>
+        <ReplicationClusterOverlay hiddenPaths={replicationView.hiddenCount} />
       ) : null}
       <RequestTraceOverlay />
       <RequestDebugOverlay />
