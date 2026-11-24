@@ -315,8 +315,7 @@
       "id": "api-1-to-primary-write",
       "source": "api-1",
       "target": "database-primary",
-      "mode": "conditional",
-      "condition": "request.type === \"write\"",
+      "mode": "synchronous",
       "protocol": "tcp",
       "latency": {
         "distribution": {
@@ -334,8 +333,7 @@
       "id": "api-1-to-replica-1-read",
       "source": "api-1",
       "target": "database-replica-1",
-      "mode": "conditional",
-      "condition": "request.type === \"read\"",
+      "mode": "synchronous",
       "protocol": "tcp",
       "latency": {
         "distribution": {
@@ -353,8 +351,7 @@
       "id": "api-1-to-replica-2-read",
       "source": "api-1",
       "target": "database-replica-2",
-      "mode": "conditional",
-      "condition": "request.type === \"read\"",
+      "mode": "synchronous",
       "protocol": "tcp",
       "latency": {
         "distribution": {
@@ -372,8 +369,7 @@
       "id": "api-2-to-primary-write",
       "source": "api-2",
       "target": "database-primary",
-      "mode": "conditional",
-      "condition": "request.type === \"write\"",
+      "mode": "synchronous",
       "protocol": "tcp",
       "latency": {
         "distribution": {
@@ -391,8 +387,7 @@
       "id": "api-2-to-replica-1-read",
       "source": "api-2",
       "target": "database-replica-1",
-      "mode": "conditional",
-      "condition": "request.type === \"read\"",
+      "mode": "synchronous",
       "protocol": "tcp",
       "latency": {
         "distribution": {
@@ -410,8 +405,7 @@
       "id": "api-2-to-replica-2-read",
       "source": "api-2",
       "target": "database-replica-2",
-      "mode": "conditional",
-      "condition": "request.type === \"read\"",
+      "mode": "synchronous",
       "protocol": "tcp",
       "latency": {
         "distribution": {
@@ -429,8 +423,7 @@
       "id": "api-3-to-primary-write",
       "source": "api-3",
       "target": "database-primary",
-      "mode": "conditional",
-      "condition": "request.type === \"write\"",
+      "mode": "synchronous",
       "protocol": "tcp",
       "latency": {
         "distribution": {
@@ -448,8 +441,7 @@
       "id": "api-3-to-replica-1-read",
       "source": "api-3",
       "target": "database-replica-1",
-      "mode": "conditional",
-      "condition": "request.type === \"read\"",
+      "mode": "synchronous",
       "protocol": "tcp",
       "latency": {
         "distribution": {
@@ -467,8 +459,7 @@
       "id": "api-3-to-replica-2-read",
       "source": "api-3",
       "target": "database-replica-2",
-      "mode": "conditional",
-      "condition": "request.type === \"read\"",
+      "mode": "synchronous",
       "protocol": "tcp",
       "latency": {
         "distribution": {
@@ -486,8 +477,7 @@
       "id": "primary-to-replica-1",
       "source": "database-primary",
       "target": "database-replica-1",
-      "mode": "conditional",
-      "condition": "request.type === \"replication\"",
+      "mode": "synchronous",
       "protocol": "tcp",
       "latency": {
         "distribution": {
@@ -505,8 +495,7 @@
       "id": "primary-to-replica-2",
       "source": "database-primary",
       "target": "database-replica-2",
-      "mode": "conditional",
-      "condition": "request.type === \"replication\"",
+      "mode": "synchronous",
       "protocol": "tcp",
       "latency": {
         "distribution": {
