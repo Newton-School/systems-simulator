@@ -178,7 +178,11 @@ export class RoutingTable {
       return { routes: [] }
     }
 
-    const eligible = outgoing.filter((edge) => this.matchesCondition(edge, request))
+    const eligible = this.applyReplicationRoleRouting(
+      sourceNodeId,
+      outgoing.filter((edge) => this.matchesCondition(edge, request)),
+      request
+    )
     if (eligible.length === 0) {
       return { routes: [] }
     }
@@ -228,6 +232,48 @@ export class RoutingTable {
     results.push(...asyncRoutes)
 
     return { routes: results }
+  }
+
+  /**
+   * Role-aware routing for plain edges into a replication group.
+   *
+   * - A caller wired to the leader and to followers with unconditional edges
+   *   gets the split a replicated datastore implies: writes go to the leader
+   *   (followers are read-only and would reject them), reads go to the followers.
+   * - A leader's plain edge to a follower is a replication link, not a request
+   *   path: the datastore trait replicates, so client requests are not forwarded
+   *   along it.
+   *
+   * Edges carrying an explicit condition, async edges and callers that do not
+   * reach both roles are left exactly as authored.
+   */
+  private applyReplicationRoleRouting(
+    sourceNodeId: string,
+    eligible: EdgeDefinition[],
+    request: Request
+  ): EdgeDefinition[] {
+    const roleOfNode = (nodeId: string): 'leader' | 'follower' | null => {
+      const role = this.nodeById.get(nodeId)?.config?.['replicationRole']
+      if (role === 'leader' || role === 'primary') return 'leader'
+      if (role === 'follower' || role === 'replica') return 'follower'
+      return null
+    }
+    const isPlain = (edge: EdgeDefinition): boolean =>
+      edge.mode !== 'asynchronous' && !(edge.condition && edge.condition.trim().length > 0)
+
+    if (roleOfNode(sourceNodeId) === 'leader') {
+      return eligible.filter((edge) => !(isPlain(edge) && roleOfNode(edge.target) === 'follower'))
+    }
+
+    if (request.type !== 'read' && request.type !== 'write') {
+      return eligible
+    }
+    const roles = eligible.map((edge) => (isPlain(edge) ? roleOfNode(edge.target) : null))
+    if (!roles.includes('leader') || !roles.includes('follower')) {
+      return eligible
+    }
+    const drop = request.type === 'write' ? 'follower' : 'leader'
+    return eligible.filter((_, index) => roles[index] !== drop)
   }
 
   /**
