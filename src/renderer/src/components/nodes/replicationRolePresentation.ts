@@ -125,3 +125,34 @@ export function getReplicationLagChip(
     className: 'border-nss-success/30 bg-nss-success/10 text-nss-success'
   }
 }
+
+/** Writes/s on a leader or reads/s on a follower, from run counters. */
+export function getReplicationRateChip(
+  data: Pick<AnyNodeData, 'sim'>,
+  nodeId: string | undefined,
+  metrics: NodeSimulationMetrics | undefined,
+  consistency: SimulationOutput['consistency'] | undefined,
+  windowMs: number
+): { label: string; title: string } | null {
+  const role = getReplicationRolePresentation(data)
+  if (!role || !nodeId || !metrics || !Number.isFinite(windowMs) || windowMs <= 0) return null
+  const seconds = windowMs / 1000
+  const counters = metrics.traitCounters ?? {}
+  if (role.label === 'LEADER') {
+    const writes = (counters.replicationPrimaryAcks ?? 0) + (counters.replicationQuorumWrites ?? 0)
+    if (writes <= 0) return null
+    return {
+      label: `${Math.round(writes / seconds).toLocaleString()} writes/s`,
+      title: 'Committed writes per second accepted by the leader.'
+    }
+  }
+  const reads =
+    consistency?.nodes.find((node) => node.nodeId === nodeId)?.reads ??
+    counters.replicationReplicaReads ??
+    0
+  if (reads <= 0) return null
+  return {
+    label: `${Math.round(reads / seconds).toLocaleString()} reads/s`,
+    title: 'Reads per second served by this follower.'
+  }
+}

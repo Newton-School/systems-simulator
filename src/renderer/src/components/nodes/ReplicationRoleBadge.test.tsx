@@ -91,3 +91,32 @@ describe('getReplicationLagChip', () => {
     expect(getReplicationLagChip(follower(0), 'f', undefined, undefined)).toBeNull()
   })
 })
+
+describe('getReplicationRateChip', () => {
+  it('reports writes/s on the leader and reads/s on a follower', async () => {
+    const { getReplicationRateChip } = await import('./replicationRolePresentation')
+    const leader = { sim: { replicationEnabled: true, replicationRole: 'leader' } } as never
+    const follower = { sim: { replicationEnabled: true, replicationRole: 'follower' } } as never
+    expect(
+      getReplicationRateChip(
+        leader,
+        'l',
+        { traitCounters: { replicationPrimaryAcks: 600 } } as never,
+        undefined,
+        4000
+      )?.label
+    ).toBe('150 writes/s')
+    expect(
+      getReplicationRateChip(
+        follower,
+        'f',
+        { traitCounters: { replicationReplicaReads: 2688 } } as never,
+        undefined,
+        4000
+      )?.label
+    ).toBe('672 reads/s')
+    expect(
+      getReplicationRateChip(leader, 'l', { traitCounters: {} } as never, undefined, 4000)
+    ).toBeNull()
+  })
+})

@@ -61,3 +61,28 @@ describe('getReplicationEdgePresentation', () => {
     expect(replicationWriteRate({ traitCounters: { replicationPrimaryAcks: 10 } }, 0)).toBe(0)
   })
 })
+
+describe('getRoutingPulseKind', () => {
+  const api = { sim: {} } as never
+  const leader = {
+    componentType: 'relational-db',
+    sim: { replicationEnabled: true, replicationRole: 'leader', replicaMembers: 'l,f' }
+  } as never
+  const soloLeader = {
+    componentType: 'relational-db',
+    sim: { replicationEnabled: true, replicationRole: 'leader' }
+  } as never
+  const follower = {
+    componentType: 'relational-db',
+    sim: { replicationEnabled: true, replicationRole: 'follower' }
+  } as never
+
+  it('classifies write, read and replication traffic', async () => {
+    const { getRoutingPulseKind } = await import('./replicationEdgePresentation')
+    expect(getRoutingPulseKind(api, leader)).toBe('write')
+    expect(getRoutingPulseKind(api, follower)).toBe('read')
+    expect(getRoutingPulseKind(leader, follower)).toBe('replication')
+    expect(getRoutingPulseKind(api, soloLeader)).toBeNull()
+    expect(getRoutingPulseKind(api, api)).toBeNull()
+  })
+})

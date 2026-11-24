@@ -15,8 +15,10 @@ import { patternMultiplier } from './edgeFlowPatterns'
 import { resolveEdgeLensProjection } from './edgeLensPresentation'
 import { getCanvasEdgePath } from './edgePathGeometry'
 import { directionCueScale, legibleStrokeWidth, midEdgeChevronPositions } from './edgeDirectionCues'
+import { useReplicationView } from './replicationViewStore'
 import {
   getReplicationEdgePresentation,
+  getRoutingPulseKind,
   replicationWriteRate,
   shouldShowInactiveEdgeState
 } from './replicationEdgePresentation'
@@ -185,6 +187,8 @@ export const PacketEdge = ({
   const sourceNodeData = nodes.find((node) => node.id === source)?.data as AnyNodeData | undefined
   const targetNodeData = nodes.find((node) => node.id === target)?.data as AnyNodeData | undefined
   const replicationPresentation = getReplicationEdgePresentation(sourceNodeData, targetNodeData)
+  const pulseKind = getRoutingPulseKind(sourceNodeData, targetNodeData)
+  const showAnimation = useReplicationView((state) => state.animation)
   const edgeMode = inferCanvasEdgeMode(
     {
       mode: edgeIsConnectorOnly ? (edgeData.displayMode ?? edgeData.mode) : edgeData.mode,
@@ -575,6 +579,7 @@ export const PacketEdge = ({
       />
 
       {!isTracing &&
+        showAnimation &&
         Array.from({ length: streamPacketCount }, (_, index) => {
           const speedJitter = packetSpeedJitter(runConfig?.workload.pattern, id, index)
           const duration =
@@ -608,7 +613,8 @@ export const PacketEdge = ({
               ? keyToColor(keySamples[index % keySamples.length])
               : isBounce
                 ? FLOW_PRIMARY_COLOR
-                : (replicationPresentation?.stroke ?? FLOW_SUCCESS_COLOR)
+                : (replicationPresentation?.stroke ??
+                  (pulseKind === 'write' ? FLOW_PRIMARY_COLOR : FLOW_SUCCESS_COLOR))
 
           return (
             <circle
