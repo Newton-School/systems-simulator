@@ -1,3 +1,4 @@
+import { Maximize2 } from 'lucide-react'
 import React, { memo, useCallback, useState } from 'react'
 import type { NodeProps } from 'reactflow'
 import UniversalHandle from '@renderer/components/ui/UniversalHandle'
@@ -65,7 +66,21 @@ const SymbolNode = ({ id, data, selected }: NodeProps<StandardNodeData>) => {
       >
         <div className={(data.sim?.nodeErrorRate ?? 0) >= 1 ? 'opacity-45 grayscale' : undefined}>
           {isCollapsedCluster ? (
-            <ClusterGlyph templateId={data.templateId} followerCount={followerIds.length} />
+            <div className="relative">
+              <ClusterGlyph templateId={data.templateId} followerCount={followerIds.length} />
+              <button
+                type="button"
+                title="Expand cluster"
+                aria-label="Expand cluster"
+                onClick={(event) => {
+                  event.stopPropagation()
+                  useReplicationView.getState().toggle('clusterCollapsed')
+                }}
+                className="nodrag nopan absolute -right-2 -top-2 z-50 inline-flex h-5 items-center gap-1 rounded-full border border-nss-info/50 bg-nss-panel px-1.5 text-[9px] font-semibold text-nss-info shadow hover:bg-nss-info/10"
+              >
+                <Maximize2 size={9} aria-hidden="true" /> Expand
+              </button>
+            </div>
           ) : (
             <NodeSymbol templateId={data.templateId} size={SYMBOL_SIZE} />
           )}
