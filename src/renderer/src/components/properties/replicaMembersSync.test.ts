@@ -54,3 +54,47 @@ describe('findManagingLeader', () => {
     expect(findManagingLeader(nodes, 'p')).toBeUndefined()
   })
 })
+
+import { planLeaderFieldSync } from './replicaMembers'
+
+describe('planLeaderFieldSync', () => {
+  const group = [
+    node('p', { replicationEnabled: true, replicationRole: 'leader', replicaMembers: 'p,r1,r2' }),
+    node('r1', {
+      replicationEnabled: true,
+      replicationRole: 'follower',
+      consistencyModel: 'eventual'
+    }),
+    node('r2', {
+      replicationEnabled: true,
+      replicationRole: 'follower',
+      consistencyModel: 'strong'
+    }),
+    node('other', { consistencyModel: 'eventual' })
+  ]
+
+  it('copies the leader value to members that differ and leaves others alone', () => {
+    const patches = planLeaderFieldSync(group, 'p', 'consistencyModel', 'strong')
+    expect(patches.map((patch) => patch.nodeId)).toEqual(['r1'])
+    expect(patches[0].sim.consistencyModel).toBe('strong')
+  })
+
+  it('does nothing when the node is not a leader', () => {
+    expect(planLeaderFieldSync(group, 'r1', 'consistencyModel', 'strong')).toEqual([])
+  })
+})
+
+describe('membership sync carries the leader consistency model', () => {
+  it('gives newly selected followers the leader model', () => {
+    const nodes = [
+      node('p', {
+        replicationEnabled: true,
+        replicationRole: 'leader',
+        consistencyModel: 'strong'
+      }),
+      node('r1')
+    ]
+    const [patch] = planReplicaMembershipSync(nodes, 'p', ['r1'])
+    expect(patch.sim.consistencyModel).toBe('strong')
+  })
+})

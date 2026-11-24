@@ -72,6 +72,10 @@ export function planReplicaMembershipSync(
   const serialized = serializeReplicaMemberIds(ordered)
   const selected = new Set(ordered)
   const patches: { nodeId: string; sim: Record<string, unknown> }[] = []
+  // Members adopt the leader's read-consistency model, so it is set once on the leader.
+  const leaderModel = simOf(
+    nodes.find((candidate) => candidate.id === leaderId) ?? { id: '', data: {} }
+  )?.consistencyModel
   for (const node of nodes) {
     if (node.id === leaderId) continue
     const sim = { ...(simOf(node) ?? {}) }
@@ -83,7 +87,8 @@ export function planReplicaMembershipSync(
           replicationEnabled: true,
           replicationRole:
             isReplicationLeaderSim(sim) && sim.replicationRole ? sim.replicationRole : 'follower',
-          replicaMembers: serialized
+          replicaMembers: serialized,
+          ...(leaderModel !== undefined ? { consistencyModel: leaderModel } : {})
         }
       })
     } else if (parseReplicaMemberIds(sim.replicaMembers).includes(leaderId)) {
@@ -93,3 +98,30 @@ export function planReplicaMembershipSync(
   }
   return patches
 }
+
+/**
+ * Copies one `sim` field from a leader to every other member of its replica
+ * set, so group-wide settings (such as the read-consistency model) are chosen
+ * once on the leader. Returns per-node `sim` patches for changed members only.
+ */
+export function planLeaderFieldSync(
+  nodes: readonly MembershipNode[],
+  leaderId: string,
+  field: string,
+  value: unknown
+): { nodeId: string; sim: Record<string, unknown> }[] {
+  const leader = nodes.find((node) => node.id === leaderId)
+  if (!leader || !isReplicationLeaderSim(simOf(leader))) return []
+  const memberIds = new Set(parseReplicaMemberIds(simOf(leader)?.replicaMembers))
+  const patches: { nodeId: string; sim: Record<string, unknown> }[] = []
+  for (const node of nodes) {
+    if (node.id === leaderId || !memberIds.has(node.id)) continue
+    const sim = { ...(simOf(node) ?? {}) }
+    if (sim[field] === value) continue
+    patches.push({ nodeId: node.id, sim: { ...sim, [field]: value } })
+  }
+  return patches
+}
+
+/** Settings a replication leader owns for its whole replica set. */
+export const LEADER_OWNED_SIM_FIELDS = ['sim.consistencyModel'] as const
