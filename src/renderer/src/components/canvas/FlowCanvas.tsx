@@ -31,6 +31,7 @@ import { useFlowStore } from './hooks/useFlowStore'
 import { useFlowDnD } from './hooks/useFlowDnD'
 import { applyReplicationGroupCollapse } from './replicationGroupCollapse'
 import { findReplicationGroups } from './replicationClusterGroups'
+import { collapseReplicationClusters } from './replicationClusterCollapse'
 import { ReplicationClusterOverlay } from './ReplicationClusterOverlay'
 import { useReplicationView } from './replicationViewStore'
 import { getReplayNodeState } from '../nodes/replicationReplay'
@@ -237,8 +238,15 @@ const FlowCanvasInternal = ({
   }, [nodes, replayMs, replayTimeline])
   // The view options live in the replication inspector; once no group is left they must not stay switched off.
   useEffect(() => {
-    if (!hasReplicationGroup) useReplicationView.setState({ animation: true, replayMs: null })
+    if (!hasReplicationGroup) {
+      useReplicationView.setState({ animation: true, replayMs: null, clusterCollapsed: false })
+    }
   }, [hasReplicationGroup])
+  const clusterCollapsed = useReplicationView((state) => state.clusterCollapsed)
+  const clusterView = useMemo(
+    () => collapseReplicationClusters(nodes, clusterCollapsed),
+    [nodes, clusterCollapsed]
+  )
   const replicationView = useMemo(
     () =>
       applyReplicationGroupCollapse(
@@ -250,6 +258,14 @@ const FlowCanvasInternal = ({
       ),
     [nodes, edges, showRoutingPaths, showReplicationLinks, promotedKey]
   )
+  const displayEdges = useMemo(() => {
+    if (clusterView.hiddenIds.size === 0) return replicationView.edges
+    return replicationView.edges.map((edge) =>
+      clusterView.hiddenIds.has(edge.source) || clusterView.hiddenIds.has(edge.target)
+        ? { ...edge, hidden: true }
+        : edge
+    )
+  }, [replicationView.edges, clusterView.hiddenIds])
   const clearSimulationMetrics = useStore((state) => state.clearSimulationMetrics)
   const clearEdgeFlow = useStore((state) => state.clearEdgeFlow)
   const setRoutingStrategyVisualization = useStore((state) => state.setRoutingStrategyVisualization)
@@ -1154,8 +1170,8 @@ const FlowCanvasInternal = ({
         />
       )}
       <ReactFlow
-        nodes={nodes}
-        edges={replicationView.edges}
+        nodes={clusterView.nodes}
+        edges={displayEdges}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={handleConnect}
@@ -1247,7 +1263,10 @@ const FlowCanvasInternal = ({
       {!isEmpty && showMetricLens && !classroomActive && !symbolsOnly && <MetricLensSwitcher />}
       {!isEmpty && showMetricLens && !symbolsOnly && <CanvasLegend />}
       {hasReplicationGroup ? (
-        <ReplicationClusterOverlay hiddenPaths={replicationView.hiddenCount} />
+        <ReplicationClusterOverlay
+          hiddenPaths={replicationView.hiddenCount}
+          collapsed={clusterCollapsed}
+        />
       ) : null}
       <RequestTraceOverlay />
       <RequestDebugOverlay />

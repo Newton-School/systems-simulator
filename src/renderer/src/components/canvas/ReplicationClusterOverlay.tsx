@@ -6,14 +6,20 @@ import { findReplicationGroups, type GroupNodeLike } from './replicationClusterG
  * Draws a dashed boundary around each replication group so the databases read
  * as one cluster. Display-only and click-through.
  */
-export function ReplicationClusterOverlay({ hiddenPaths = 0 }: { hiddenPaths?: number }) {
+export function ReplicationClusterOverlay({
+  hiddenPaths = 0,
+  collapsed = false
+}: {
+  hiddenPaths?: number
+  collapsed?: boolean
+}) {
   const { x, y, zoom } = useViewport()
   const nodeInternals = useFlowView((state) => state.nodeInternals)
   const groups = useMemo(
     () => findReplicationGroups(Array.from(nodeInternals.values()) as GroupNodeLike[]),
     [nodeInternals]
   )
-  if (groups.length === 0) return null
+  if (groups.length === 0 || collapsed) return null
   return (
     <div className="pointer-events-none absolute inset-0 z-[5] overflow-hidden" aria-hidden="true">
       <div
