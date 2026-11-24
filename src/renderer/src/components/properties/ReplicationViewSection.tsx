@@ -10,7 +10,12 @@ const OPTIONS = [
   },
   { key: 'replication', label: 'Show replication links', hint: 'Leader → follower links.' },
   { key: 'lag', label: 'Show lag and synced status', hint: 'Follower chips after a run.' },
-  { key: 'animation', label: 'Animate requests', hint: 'Moving packets on the canvas.' }
+  { key: 'animation', label: 'Animate requests', hint: 'Moving packets on the canvas.' },
+  {
+    key: 'clusterCollapsed',
+    label: 'Collapse into one cluster',
+    hint: 'Hides the followers behind the leader. The topology and routing are unchanged.'
+  }
 ] as const
 
 /** Display-only canvas options for this replication group; topology, routing and grading are unchanged. */

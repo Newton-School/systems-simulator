@@ -28,7 +28,13 @@ afterEach(() => {
   container = null
   root = null
   useStore.setState({ lastRunOutput: null, runtimeResultsStale: false })
-  useReplicationView.setState({ routing: false, replication: true, lag: true, animation: true })
+  useReplicationView.setState({
+    routing: false,
+    replication: true,
+    lag: true,
+    animation: true,
+    clusterCollapsed: false
+  })
 })
 
 const replicationData = { sim: { replicationEnabled: true, replicationRole: 'leader' } } as never
@@ -37,12 +43,14 @@ describe('ReplicationViewSection', () => {
   it('toggles the canvas view options and renders nothing for non-replicated nodes', () => {
     const view = mount(<ReplicationViewSection data={replicationData} />)
     const boxes = view.querySelectorAll<HTMLInputElement>('input[type=checkbox]')
-    expect(boxes).toHaveLength(4)
+    expect(boxes).toHaveLength(5)
     expect(boxes[0].checked).toBe(false)
     act(() => boxes[0].click())
     expect(useReplicationView.getState().routing).toBe(true)
     act(() => boxes[3].click())
     expect(useReplicationView.getState().animation).toBe(false)
+    act(() => boxes[4].click())
+    expect(useReplicationView.getState().clusterCollapsed).toBe(true)
 
     act(() => root!.render(<ReplicationViewSection data={{ sim: {} } as never} />))
     expect(view.querySelector('section')).toBeNull()
