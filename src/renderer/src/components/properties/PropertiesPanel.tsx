@@ -60,6 +60,7 @@ import { ConnectionCapacitySection } from './ConnectionCapacitySection'
 import { ReplicationConfigSummary } from './ReplicationConfigSummary'
 import { ReplicationResultsSummary } from './ReplicationResultsSummary'
 import { ReplicationViewSection } from './ReplicationViewSection'
+import { findManagingLeader, LEADER_OWNED_SIM_FIELDS, planLeaderFieldSync } from './replicaMembers'
 import { ReplicationReplayControl } from './ReplicationReplayControl'
 import {
   deriveDisplayThroughputCapacity,
@@ -1483,6 +1484,17 @@ export const PropertiesPanel = ({
         const questionReason = questionOwnedConfigReason(activeQuestion, path)
         if (questionReason) return questionReason
       }
+      if (
+        selectedNode &&
+        environmentProfile.mode !== 'AUTHOR' &&
+        (LEADER_OWNED_SIM_FIELDS as readonly string[]).includes(path)
+      ) {
+        const leader = findManagingLeader(nodes, selectedNode.id)
+        if (leader) {
+          const name = (leader.data as { label?: string }).label?.trim() || leader.id
+          return `Managed by the replication leader, ${name}. Change it there; followers stay in sync.`
+        }
+      }
       if (!builderPolicyApplies || !selectedNode) return null
       return definitionFieldLockReason(
         builderPolicy.policy,
@@ -1491,7 +1503,14 @@ export const PropertiesPanel = ({
         builderPolicy.locked
       )
     },
-    [activeQuestion, builderPolicy, builderPolicyApplies, environmentProfile.mode, selectedNode]
+    [
+      activeQuestion,
+      builderPolicy,
+      builderPolicyApplies,
+      environmentProfile.mode,
+      nodes,
+      selectedNode
+    ]
   )
   const labConfigurationMode = isLabQuestion(activeQuestion)
 
@@ -1623,6 +1642,17 @@ export const PropertiesPanel = ({
 
     const handleUpdate = (path: FieldPath, value: unknown) => {
       updateNodeData(selectedNode.id, setPathValue(data, path, value))
+      // Group-wide replication settings are chosen once, on the leader.
+      if ((LEADER_OWNED_SIM_FIELDS as readonly string[]).includes(path)) {
+        for (const patch of planLeaderFieldSync(
+          nodes,
+          selectedNode.id,
+          path.replace(/^sim\./, ''),
+          value
+        )) {
+          updateNodeData(patch.nodeId, { sim: patch.sim } as never)
+        }
+      }
     }
 
     // A source generates traffic; its runtime detail is offered load + pattern +

@@ -28,7 +28,7 @@
       "peakRps": 1500,
       "readWriteRatio": 90
     },
-    "additionalContext": "The read consistency model (Config → Read Consistency) decides what a replica read must wait for before answering. Stronger models are fresher but make some reads wait for replication to catch up. A replica's model is what governs the reads it serves, and the same model should be set on the primary and on every replica of the group. The hidden run uses the stated 1,500 RPS, a 90:10 read/write mix and 100 appointment keys."
+    "additionalContext": "The read consistency model (Config → Read Consistency) decides what a replica read must wait for before answering. Stronger models are fresher but make some reads wait for replication to catch up. Set it on the leader: it applies to every replica in the group, and a replica's model is what governs the reads it serves. The hidden run uses the stated 1,500 RPS, a 90:10 read/write mix and 100 appointment keys."
   },
   "scaffold": {
     "type": "partial",

@@ -61,7 +61,7 @@
     },
     "prompt": {
       "text": "MediMeet runs one SQL primary and two SQL read replicas behind a load balancer and three API servers; the whole cluster is already built and replicating. Reads (doctor search, free slots, My appointments) are served by the replicas and writes go to the primary. The replicas apply the primary's changes 200 ms and 300 ms late, and that lag is a fact of this deployment you cannot change. Patients now complain that a slot they just booked is missing from My appointments, and the data team confirms some reads return data older than what the primary has already committed. Fix this by choosing the read consistency model so that no read returns data older than the primary has committed, while both replicas keep serving reads. Run it, then observe what the fix costs: which replica status you now see, how many reads wait for catch-up, and what happens to read latency. Replica lag, write acknowledgement, consensus, election and failover values are question-provided and read-only.",
-      "additionalContext": "The read consistency model (Config → Read Consistency) decides what a replica read must wait for before answering. Stronger models are fresher but make some reads wait for replication to catch up. A replica's model is what governs the reads it serves, and the same model should be set on the primary and on every replica of the group. The hidden run uses the stated 1,500 RPS, a 90:10 read/write mix and 100 appointment keys.",
+      "additionalContext": "The read consistency model (Config → Read Consistency) decides what a replica read must wait for before answering. Stronger models are fresher but make some reads wait for replication to catch up. Set it on the leader: it applies to every replica in the group, and a replica's model is what governs the reads it serves. The hidden run uses the stated 1,500 RPS, a 90:10 read/write mix and 100 appointment keys.",
       "scale": {
         "peakRps": 1500,
         "readWriteRatio": 90
@@ -3456,9 +3456,9 @@
     "activeStage": "export"
   },
   "verification": {
-    "signature": "a8741db9d22d3889b488ec632cbff133",
+    "signature": "fdde6808315aed4ba088a77449969ad3",
     "ready": true,
     "blockers": [],
-    "generatedAt": "2026-11-24T08:46:12.596Z"
+    "generatedAt": "2026-11-24T09:23:36.436Z"
   }
 }
