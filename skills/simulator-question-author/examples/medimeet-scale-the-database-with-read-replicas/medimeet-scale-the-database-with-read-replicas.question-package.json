@@ -466,9 +466,6 @@
         "scope": "replication",
         "state": "replica-read"
       },
-      "where": {
-        "caseId": "private-baseline"
-      },
       "minCount": 1,
       "minDistinctNodeCount": 2
     },
@@ -482,9 +479,6 @@
         "reasonCode": "read_only_node",
         "scope": "request",
         "state": "rejected"
-      },
-      "where": {
-        "caseId": "private-baseline"
       },
       "maxCount": 0
     }

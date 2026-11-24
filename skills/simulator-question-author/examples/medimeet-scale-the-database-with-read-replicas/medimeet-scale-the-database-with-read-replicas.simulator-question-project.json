@@ -252,7 +252,6 @@
         "description": "Serve read traffic from both configured read replicas.",
         "runtimeScope": "replication",
         "runtimeState": "replica-read",
-        "whereCaseId": "private-baseline",
         "minCount": 1,
         "minDistinctNodeCount": 2
       },
@@ -265,7 +264,6 @@
         "runtimeScope": "request",
         "runtimeState": "rejected",
         "runtimeReasonCode": "read_only_node",
-        "whereCaseId": "private-baseline",
         "maxCount": 0
       }
     ],
@@ -3241,9 +3239,9 @@
     "activeStage": "export"
   },
   "verification": {
-    "signature": "8dac7f80bd7b50b637b379b2ea36cb70",
+    "signature": "eb0bc1583ba00ace101810aa04d06368",
     "ready": true,
     "blockers": [],
-    "generatedAt": "2026-11-23T10:57:51.712Z"
+    "generatedAt": "2026-11-24T11:51:22.070Z"
   }
 }
