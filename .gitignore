@@ -6,6 +6,7 @@ dist
 *.log*
 .claude
 outputs
+submission
 # Compute-contention migration harness: baseline.json is the committed reference;
 # candidate.json is regenerated per-run (ephemeral).
 .migration-snapshots/candidate.json
