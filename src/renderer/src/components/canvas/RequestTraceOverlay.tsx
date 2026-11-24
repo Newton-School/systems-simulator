@@ -8,6 +8,7 @@ import { resolveStoredEdgePath } from './edgePathGeometry'
 import type { EdgeRoutingStyle, EdgeSimulationData } from '@renderer/types/ui'
 import { resolveEdgeRoutingStyle } from '@renderer/config/edgeRouting'
 import { replicationEffectEdgeIds } from './requestTraceReplication'
+import { buildHops, type TraceHop } from './requestTraceHops'
 
 /** Per-segment travel time = floor + latency·scale, so slow hops visibly linger. */
 const SEG_MIN_MS = 600
@@ -16,14 +17,6 @@ const LATENCY_SCALE = 25
 const SLOW_MULTIPLIER = 2.2
 const REPLICATION_EFFECT_MS = 1200
 const REPLICATION_COLOR = 'rgb(var(--nss-info))'
-
-interface TraceHop {
-  nodeId: string
-  state: string
-  detail?: string
-  reasonCode?: string
-  arrivalMs: number
-}
 
 interface TracePlan {
   requestId: string
@@ -75,28 +68,6 @@ function requestHue(requestId: string): string {
     hash = Math.imul(hash, 16777619)
   }
   return `hsl(${(((hash >>> 0) * 137.508) % 360).toFixed(0)} 75% 58%)`
-}
-
-function buildHops(record: RequestOutcomeRecord): TraceHop[] {
-  const collapsed: TraceHop[] = []
-  for (const transition of record.stateTimeline) {
-    if (!transition.nodeId) continue
-    const last = collapsed[collapsed.length - 1]
-    if (last && last.nodeId === transition.nodeId) {
-      last.state = transition.state
-      last.detail = transition.detail ?? last.detail
-      last.reasonCode = transition.reasonCode ?? last.reasonCode
-    } else {
-      collapsed.push({
-        nodeId: transition.nodeId,
-        state: transition.state,
-        detail: transition.detail ?? undefined,
-        reasonCode: transition.reasonCode ?? undefined,
-        arrivalMs: Number(transition.timestampUs) / 1000
-      })
-    }
-  }
-  return collapsed
 }
 
 function buildSegmentMs(hops: TraceHop[], slow: boolean): number[] {
@@ -407,9 +378,11 @@ export function RequestTraceOverlay() {
       const color = atEnd ? statusColor(record.status) : requestHue(trace.requestId)
       const fromHop = trace.hops[Math.min(trace.hops.length - 1, segmentIndex)]
       const toHop = trace.hops[Math.min(trace.hops.length - 1, segmentIndex + 1)]
+      const activeHop = frac < 0.5 ? fromHop : toHop
+      const maybeStale = !atEnd && activeHop.maybeStale === true
       const cause = atEnd
         ? `${record.status}${record.reasonCode ? ` · ${record.reasonCode}` : ''}`
-        : describeHop(frac < 0.5 ? fromHop : toHop)
+        : `${describeHop(activeHop)}${maybeStale ? ' · may be stale' : ''}`
       const replicationProgress =
         trace.replicationEffectMs > 0 && position >= trace.requestMs
           ? clamp((position - trace.requestMs) / trace.replicationEffectMs, 0, 1)
@@ -424,6 +397,7 @@ export function RequestTraceOverlay() {
         dot,
         color,
         cause,
+        maybeStale,
         replicationSegments,
         replicationDots
       }
@@ -453,6 +427,17 @@ export function RequestTraceOverlay() {
         stroke="var(--nss-panel)"
         strokeWidth={1.5 / zoom}
       />
+      {entry.maybeStale && (
+        <circle
+          cx={entry.dot.x}
+          cy={entry.dot.y}
+          r={dotR * 2}
+          fill="none"
+          stroke="rgb(var(--nss-warning))"
+          strokeWidth={1.75 / zoom}
+          strokeDasharray={`${3 / zoom} ${2.5 / zoom}`}
+        />
+      )}
       {entry.replicationSegments.map((segment) => (
         <path
           key={segment.key}
