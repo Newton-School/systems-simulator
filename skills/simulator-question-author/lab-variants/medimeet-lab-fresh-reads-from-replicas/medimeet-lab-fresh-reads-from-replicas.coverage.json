@@ -1,0 +1,87 @@
+{
+  "artifact": "simulator-question-coverage",
+  "version": "1.0",
+  "questionId": "medimeet-lab-fresh-reads-from-replicas",
+  "source": {
+    "document": "Lab variant of the MediMeet replication question",
+    "section": "MediMeet Lab: Fresh Reads from Replicas"
+  },
+  "requirements": [
+    {
+      "id": "r-provided-cluster",
+      "kind": "requirement",
+      "text": "Keep the provided load balancer, three API servers, one SQL primary and two SQL read replicas.",
+      "status": "explained",
+      "reason": "Given context: the whole cluster is supplied in the scaffold with scaffold nodes locked against removal; it is not a learner decision, and the sanity checks keep the traffic layer intact."
+    },
+    {
+      "id": "r-no-stale-reads",
+      "kind": "requirement",
+      "text": "No read may return data older than the primary has already committed.",
+      "status": "graded",
+      "checks": [
+        "no-stale-reads"
+      ]
+    },
+    {
+      "id": "r-replicas-serve-reads",
+      "kind": "requirement",
+      "text": "Both read replicas must keep serving reads (do not send every read to the primary).",
+      "status": "graded",
+      "checks": [
+        "reads-served-by-replicas"
+      ]
+    },
+    {
+      "id": "r-missing-booking-explanation",
+      "kind": "concept",
+      "text": "Explain why a read can miss a just-booked appointment even though the write succeeded.",
+      "status": "explained",
+      "reason": "Observe-and-explain objective: the learner sees follower lag on the canvas and reasons about it in prose; no explanation text is graded."
+    },
+    {
+      "id": "r-consistency-cost-explanation",
+      "kind": "concept",
+      "text": "Explain what stronger read consistency costs (catch-up waits and read latency) and why the lag value itself is not yours to change.",
+      "status": "explained",
+      "reason": "Observe-and-explain objective: the cost shows in the results (catch-up waits, read latency) but no latency budget is graded, so the lesson is the trade-off, not a number."
+    },
+    {
+      "id": "r-lag-given",
+      "kind": "concept",
+      "text": "Replica lag, write acknowledgement, consensus, election and failover values are question-provided and read-only.",
+      "status": "explained",
+      "reason": "Given context: these are read-only through constraints.questionOwnedConfigPaths (the consistency model is deliberately left editable as the one configure objective); the grader does not inspect them."
+    },
+    {
+      "id": "r-peak-rps",
+      "kind": "requirement",
+      "text": "Peak RPS: 1,500",
+      "status": "explained",
+      "reason": "Question-owned scenario input used by the hidden run, not a learner obligation."
+    },
+    {
+      "id": "r-read-write-mix",
+      "kind": "requirement",
+      "text": "Read / Write: 90:10",
+      "status": "explained",
+      "reason": "Question-owned workload mix used by the hidden run."
+    }
+  ],
+  "sanity": [
+    "single-source",
+    "connected-graph",
+    "balancer-in-middle"
+  ],
+  "carriedForward": [],
+  "advisories": [
+    {
+      "code": "domains.supportTier",
+      "reason": "The correctness domain is guided, not exact: only the stale-read oracle is graded, and the oracle is exact within its documented scope (every read on a tracked, replicated datastore is counted)."
+    },
+    {
+      "code": "concepts.supportTier",
+      "reason": "The read-consistency concept is guided: the grader uses only consistency.staleReads. Session guarantees are not used because Studio scenarios cannot define client sessions, so read-your-writes behaves like eventual here and is deliberately not accepted."
+    }
+  ]
+}

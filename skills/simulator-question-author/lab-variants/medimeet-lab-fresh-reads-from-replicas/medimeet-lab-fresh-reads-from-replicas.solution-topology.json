@@ -1,0 +1,551 @@
+{
+  "id": "medimeet-lab-fresh-reads-from-replicas",
+  "name": "MediMeet Lab: Fresh Reads from Replicas",
+  "version": "2.1.0",
+  "global": {
+    "simulationDuration": 4000,
+    "warmupDuration": 0,
+    "seed": "medimeet-lab-fresh-reads-from-replicas-private-v1",
+    "timeResolution": "microsecond",
+    "defaultTimeout": 5000,
+    "traceSampleRate": 0.05
+  },
+  "nodes": [
+    {
+      "id": "source",
+      "type": "api-endpoint",
+      "category": "compute",
+      "role": "source",
+      "label": "Patient Traffic",
+      "position": {
+        "x": 80,
+        "y": 360
+      }
+    },
+    {
+      "id": "load-balancer",
+      "type": "load-balancer-l7",
+      "category": "network-and-edge",
+      "role": "router",
+      "label": "Load Balancer",
+      "position": {
+        "x": 400,
+        "y": 360
+      },
+      "queue": {
+        "workers": 64,
+        "capacity": 10000,
+        "discipline": "fifo"
+      },
+      "processing": {
+        "distribution": {
+          "type": "constant",
+          "value": 0.4
+        },
+        "timeout": 100
+      },
+      "config": {
+        "routingStrategy": "round-robin"
+      }
+    },
+    {
+      "id": "api-1",
+      "type": "microservice",
+      "category": "compute",
+      "role": "processor",
+      "label": "API Server 1",
+      "position": {
+        "x": 760,
+        "y": 180
+      },
+      "queue": {
+        "workers": 64,
+        "capacity": 10000,
+        "discipline": "fifo"
+      },
+      "processing": {
+        "distribution": {
+          "type": "constant",
+          "value": 3.6
+        },
+        "timeout": 500
+      },
+      "config": {
+        "routingStrategy": "round-robin"
+      }
+    },
+    {
+      "id": "api-2",
+      "type": "microservice",
+      "category": "compute",
+      "role": "processor",
+      "label": "API Server 2",
+      "position": {
+        "x": 760,
+        "y": 360
+      },
+      "queue": {
+        "workers": 64,
+        "capacity": 10000,
+        "discipline": "fifo"
+      },
+      "processing": {
+        "distribution": {
+          "type": "constant",
+          "value": 3.6
+        },
+        "timeout": 500
+      },
+      "config": {
+        "routingStrategy": "round-robin"
+      }
+    },
+    {
+      "id": "api-3",
+      "type": "microservice",
+      "category": "compute",
+      "role": "processor",
+      "label": "API Server 3",
+      "position": {
+        "x": 760,
+        "y": 540
+      },
+      "queue": {
+        "workers": 64,
+        "capacity": 10000,
+        "discipline": "fifo"
+      },
+      "processing": {
+        "distribution": {
+          "type": "constant",
+          "value": 3.6
+        },
+        "timeout": 500
+      },
+      "config": {
+        "routingStrategy": "round-robin"
+      }
+    },
+    {
+      "id": "database-primary",
+      "type": "relational-db",
+      "category": "storage-and-data",
+      "role": "storage",
+      "label": "SQL Primary",
+      "position": {
+        "x": 1260,
+        "y": 180
+      },
+      "queue": {
+        "workers": 128,
+        "capacity": 20000,
+        "discipline": "fifo"
+      },
+      "processing": {
+        "distribution": {
+          "type": "constant",
+          "value": 8
+        },
+        "timeout": 1000
+      },
+      "config": {
+        "storageReadMs": 4,
+        "storageWriteMs": 8,
+        "storageQueryMs": 8,
+        "storageScanMs": 20,
+        "storageIngestMs": 8,
+        "replicationEnabled": true,
+        "replicationRole": "leader",
+        "replicaMembers": "database-primary,database-replica-1,database-replica-2",
+        "writeAckPolicy": "primary",
+        "consensusProtocol": "raft",
+        "replicationLagMs": 0,
+        "consistencyModel": "strong"
+      }
+    },
+    {
+      "id": "database-replica-1",
+      "type": "relational-db",
+      "category": "storage-and-data",
+      "role": "storage",
+      "label": "SQL Read Replica 1",
+      "position": {
+        "x": 1580,
+        "y": 360
+      },
+      "queue": {
+        "workers": 128,
+        "capacity": 20000,
+        "discipline": "fifo"
+      },
+      "processing": {
+        "distribution": {
+          "type": "constant",
+          "value": 8
+        },
+        "timeout": 1000
+      },
+      "config": {
+        "storageReadMs": 4,
+        "storageWriteMs": 8,
+        "storageQueryMs": 8,
+        "storageScanMs": 20,
+        "storageIngestMs": 8,
+        "replicationEnabled": true,
+        "replicationRole": "follower",
+        "replicaMembers": "database-primary,database-replica-1,database-replica-2",
+        "writeAckPolicy": "primary",
+        "consensusProtocol": "raft",
+        "replicationLagMs": 200,
+        "consistencyModel": "strong"
+      }
+    },
+    {
+      "id": "database-replica-2",
+      "type": "relational-db",
+      "category": "storage-and-data",
+      "role": "storage",
+      "label": "SQL Read Replica 2",
+      "position": {
+        "x": 1580,
+        "y": 540
+      },
+      "queue": {
+        "workers": 128,
+        "capacity": 20000,
+        "discipline": "fifo"
+      },
+      "processing": {
+        "distribution": {
+          "type": "constant",
+          "value": 8
+        },
+        "timeout": 1000
+      },
+      "config": {
+        "storageReadMs": 4,
+        "storageWriteMs": 8,
+        "storageQueryMs": 8,
+        "storageScanMs": 20,
+        "storageIngestMs": 8,
+        "replicationEnabled": true,
+        "replicationRole": "follower",
+        "replicaMembers": "database-primary,database-replica-1,database-replica-2",
+        "writeAckPolicy": "primary",
+        "consensusProtocol": "raft",
+        "replicationLagMs": 300,
+        "consistencyModel": "strong"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "source-to-load-balancer",
+      "source": "source",
+      "target": "load-balancer",
+      "mode": "synchronous",
+      "protocol": "https",
+      "latency": {
+        "distribution": {
+          "type": "constant",
+          "value": 0.25
+        },
+        "pathType": "same-dc"
+      },
+      "bandwidth": 1000,
+      "maxConcurrentRequests": 10000,
+      "packetLossRate": 0,
+      "errorRate": 0
+    },
+    {
+      "id": "load-balancer-to-api-1",
+      "source": "load-balancer",
+      "target": "api-1",
+      "mode": "synchronous",
+      "protocol": "https",
+      "latency": {
+        "distribution": {
+          "type": "constant",
+          "value": 0.25
+        },
+        "pathType": "same-dc"
+      },
+      "bandwidth": 1000,
+      "maxConcurrentRequests": 10000,
+      "packetLossRate": 0,
+      "errorRate": 0
+    },
+    {
+      "id": "load-balancer-to-api-2",
+      "source": "load-balancer",
+      "target": "api-2",
+      "mode": "synchronous",
+      "protocol": "https",
+      "latency": {
+        "distribution": {
+          "type": "constant",
+          "value": 0.25
+        },
+        "pathType": "same-dc"
+      },
+      "bandwidth": 1000,
+      "maxConcurrentRequests": 10000,
+      "packetLossRate": 0,
+      "errorRate": 0
+    },
+    {
+      "id": "load-balancer-to-api-3",
+      "source": "load-balancer",
+      "target": "api-3",
+      "mode": "synchronous",
+      "protocol": "https",
+      "latency": {
+        "distribution": {
+          "type": "constant",
+          "value": 0.25
+        },
+        "pathType": "same-dc"
+      },
+      "bandwidth": 1000,
+      "maxConcurrentRequests": 10000,
+      "packetLossRate": 0,
+      "errorRate": 0
+    },
+    {
+      "id": "api-1-to-primary-write",
+      "source": "api-1",
+      "target": "database-primary",
+      "mode": "conditional",
+      "condition": "request.type === \"write\"",
+      "protocol": "tcp",
+      "latency": {
+        "distribution": {
+          "type": "constant",
+          "value": 0.25
+        },
+        "pathType": "same-rack"
+      },
+      "bandwidth": 10000,
+      "maxConcurrentRequests": 10000,
+      "packetLossRate": 0,
+      "errorRate": 0
+    },
+    {
+      "id": "api-1-to-replica-1-read",
+      "source": "api-1",
+      "target": "database-replica-1",
+      "mode": "conditional",
+      "condition": "request.type === \"read\"",
+      "protocol": "tcp",
+      "latency": {
+        "distribution": {
+          "type": "constant",
+          "value": 0.25
+        },
+        "pathType": "same-rack"
+      },
+      "bandwidth": 10000,
+      "maxConcurrentRequests": 10000,
+      "packetLossRate": 0,
+      "errorRate": 0
+    },
+    {
+      "id": "api-1-to-replica-2-read",
+      "source": "api-1",
+      "target": "database-replica-2",
+      "mode": "conditional",
+      "condition": "request.type === \"read\"",
+      "protocol": "tcp",
+      "latency": {
+        "distribution": {
+          "type": "constant",
+          "value": 0.25
+        },
+        "pathType": "same-rack"
+      },
+      "bandwidth": 10000,
+      "maxConcurrentRequests": 10000,
+      "packetLossRate": 0,
+      "errorRate": 0
+    },
+    {
+      "id": "api-2-to-primary-write",
+      "source": "api-2",
+      "target": "database-primary",
+      "mode": "conditional",
+      "condition": "request.type === \"write\"",
+      "protocol": "tcp",
+      "latency": {
+        "distribution": {
+          "type": "constant",
+          "value": 0.25
+        },
+        "pathType": "same-rack"
+      },
+      "bandwidth": 10000,
+      "maxConcurrentRequests": 10000,
+      "packetLossRate": 0,
+      "errorRate": 0
+    },
+    {
+      "id": "api-2-to-replica-1-read",
+      "source": "api-2",
+      "target": "database-replica-1",
+      "mode": "conditional",
+      "condition": "request.type === \"read\"",
+      "protocol": "tcp",
+      "latency": {
+        "distribution": {
+          "type": "constant",
+          "value": 0.25
+        },
+        "pathType": "same-rack"
+      },
+      "bandwidth": 10000,
+      "maxConcurrentRequests": 10000,
+      "packetLossRate": 0,
+      "errorRate": 0
+    },
+    {
+      "id": "api-2-to-replica-2-read",
+      "source": "api-2",
+      "target": "database-replica-2",
+      "mode": "conditional",
+      "condition": "request.type === \"read\"",
+      "protocol": "tcp",
+      "latency": {
+        "distribution": {
+          "type": "constant",
+          "value": 0.25
+        },
+        "pathType": "same-rack"
+      },
+      "bandwidth": 10000,
+      "maxConcurrentRequests": 10000,
+      "packetLossRate": 0,
+      "errorRate": 0
+    },
+    {
+      "id": "api-3-to-primary-write",
+      "source": "api-3",
+      "target": "database-primary",
+      "mode": "conditional",
+      "condition": "request.type === \"write\"",
+      "protocol": "tcp",
+      "latency": {
+        "distribution": {
+          "type": "constant",
+          "value": 0.25
+        },
+        "pathType": "same-rack"
+      },
+      "bandwidth": 10000,
+      "maxConcurrentRequests": 10000,
+      "packetLossRate": 0,
+      "errorRate": 0
+    },
+    {
+      "id": "api-3-to-replica-1-read",
+      "source": "api-3",
+      "target": "database-replica-1",
+      "mode": "conditional",
+      "condition": "request.type === \"read\"",
+      "protocol": "tcp",
+      "latency": {
+        "distribution": {
+          "type": "constant",
+          "value": 0.25
+        },
+        "pathType": "same-rack"
+      },
+      "bandwidth": 10000,
+      "maxConcurrentRequests": 10000,
+      "packetLossRate": 0,
+      "errorRate": 0
+    },
+    {
+      "id": "api-3-to-replica-2-read",
+      "source": "api-3",
+      "target": "database-replica-2",
+      "mode": "conditional",
+      "condition": "request.type === \"read\"",
+      "protocol": "tcp",
+      "latency": {
+        "distribution": {
+          "type": "constant",
+          "value": 0.25
+        },
+        "pathType": "same-rack"
+      },
+      "bandwidth": 10000,
+      "maxConcurrentRequests": 10000,
+      "packetLossRate": 0,
+      "errorRate": 0
+    },
+    {
+      "id": "primary-to-replica-1",
+      "source": "database-primary",
+      "target": "database-replica-1",
+      "mode": "conditional",
+      "condition": "request.type === \"replication\"",
+      "protocol": "tcp",
+      "latency": {
+        "distribution": {
+          "type": "constant",
+          "value": 0.5
+        },
+        "pathType": "cross-zone"
+      },
+      "bandwidth": 10000,
+      "maxConcurrentRequests": 10000,
+      "packetLossRate": 0,
+      "errorRate": 0
+    },
+    {
+      "id": "primary-to-replica-2",
+      "source": "database-primary",
+      "target": "database-replica-2",
+      "mode": "conditional",
+      "condition": "request.type === \"replication\"",
+      "protocol": "tcp",
+      "latency": {
+        "distribution": {
+          "type": "constant",
+          "value": 0.5
+        },
+        "pathType": "cross-zone"
+      },
+      "bandwidth": 10000,
+      "maxConcurrentRequests": 10000,
+      "packetLossRate": 0,
+      "errorRate": 0
+    }
+  ],
+  "workload": {
+    "sourceNodeId": "source",
+    "pattern": "constant",
+    "baseRps": 1500,
+    "requestDistribution": [
+      {
+        "type": "read",
+        "weight": 0.9,
+        "sizeBytes": 1024,
+        "keyspace": {
+          "field": "appointmentId",
+          "size": 100,
+          "skew": 0
+        }
+      },
+      {
+        "type": "write",
+        "weight": 0.1,
+        "sizeBytes": 2048,
+        "keyspace": {
+          "field": "appointmentId",
+          "size": 100,
+          "skew": 0
+        }
+      }
+    ]
+  }
+}
